@@ -58,11 +58,6 @@ export async function startRelay(
     },
   }) as Helia;
 
-  // Subscribe to discovery topic so we form a mesh
-  // with browsers and relay their announcements.
-  (helia.libp2p.services as any).pubsub
-    .subscribe(DISCOVERY_TOPIC);
-
   log("started, peer ID:", helia.libp2p.peerId);
 
   const addrs = helia.libp2p.getMultiaddrs();
