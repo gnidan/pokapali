@@ -14,9 +14,9 @@ import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
-// Max peers for the relay. Keep low so the event loop
-// stays responsive for autoTLS cert provisioning.
-const MAX_CONNECTIONS = 50;
+// After autoTLS cert is obtained we can accept more peers.
+// DHT peers fill ~50 slots; browsers need room too.
+const MAX_CONNECTIONS = 200;
 
 const DISCOVERY_TOPIC =
   "pokapali._peer-discovery._p2p._pubsub";

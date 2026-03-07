@@ -39,17 +39,21 @@ export function startRoomDiscovery(
   let stopped = false;
   let cycleController: AbortController | null = null;
 
+  let running = false;
+
   async function discoverRelays() {
     if (!appId) return;
+    if (running) return; // skip if previous cycle active
+    running = true;
 
-    cycleController?.abort();
-    cycleController = new AbortController();
-    const signal = cycleController.signal;
+    const ctrl = new AbortController();
+    cycleController = ctrl;
+    const signal = ctrl.signal;
 
     try {
       const cid = await appIdToCID(appId);
       const timeout = setTimeout(
-        () => cycleController?.abort(),
+        () => ctrl.abort(),
         FIND_TIMEOUT_MS,
       );
 
@@ -63,8 +67,10 @@ export function startRoomDiscovery(
         const pid = provider.id.toString();
         const short = pid.slice(-8);
         const already = helia.libp2p
-          .getPeers()
-          .some((p) => p.toString() === pid);
+          .getConnections()
+          .some(
+            (c) => c.remotePeer.toString() === pid,
+          );
 
         if (already) {
           log(`relay ...${short} (connected)`);
@@ -105,9 +111,6 @@ export function startRoomDiscovery(
             () => dialCtrl.abort(),
             DIAL_TIMEOUT_MS,
           );
-          signal.addEventListener("abort", () =>
-            dialCtrl.abort(),
-          );
           await helia.libp2p.dial(provider.id, {
             signal: dialCtrl.signal,
           });
@@ -130,6 +133,8 @@ export function startRoomDiscovery(
       if (!msg.includes("abort")) {
         log(`relay discovery error: ${msg}`);
       }
+    } finally {
+      running = false;
     }
   }
 
