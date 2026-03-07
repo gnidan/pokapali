@@ -16,6 +16,21 @@ import {
   verifyForwardingRecord,
 } from "./forwarding.js";
 
+vi.mock("./helia.js", () => ({
+  acquireHelia: vi.fn(async () => ({})),
+  releaseHelia: vi.fn(async () => {}),
+  getHeliaPubsub: vi.fn(() => ({
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+    publish: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    getSubscribers: vi.fn(() => []),
+    getTopics: vi.fn(() => []),
+  })),
+  _resetHeliaState: vi.fn(),
+}));
+
 vi.mock("@pokapali/sync", () => ({
   setupNamespaceRooms: vi.fn(() => ({
     status: "connected",

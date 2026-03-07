@@ -3,24 +3,25 @@ import { createCollabLib } from "@pokapali/core";
 import type { CollabDoc } from "@pokapali/core";
 import { EditorView } from "./Editor";
 
-const PUBLIC_SIGNALING = "wss://signaling.yjs.dev";
 const LOCAL_SIGNALING = "ws://localhost:4444";
 
 const signalingParam = new URLSearchParams(
   window.location.search,
 ).get("signaling");
 
-const defaultSignaling =
+const signalingUrls =
   window.location.hostname === "localhost"
-    ? LOCAL_SIGNALING
-    : PUBLIC_SIGNALING;
+    ? [signalingParam || LOCAL_SIGNALING]
+    : signalingParam
+      ? [signalingParam]
+      : [];
 
 const collab = createCollabLib({
   appId: "pokapali-example",
   namespaces: ["content"],
   base: window.location.origin +
     import.meta.env.BASE_URL.replace(/\/$/, ""),
-  signalingUrls: [signalingParam || defaultSignaling],
+  signalingUrls,
 });
 
 function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {

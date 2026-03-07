@@ -27,6 +27,7 @@ import type {
   SyncManager,
   AwarenessRoom,
   SyncOptions,
+  PubSubLike,
 } from "@pokapali/sync";
 import {
   encodeSnapshot,
@@ -44,6 +45,11 @@ import {
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
+import {
+  acquireHelia,
+  releaseHelia,
+  getHeliaPubsub,
+} from "./helia.js";
 
 const DAG_CBOR_CODE = 0x71;
 
@@ -53,6 +59,7 @@ export interface CollabLibOptions {
   primaryNamespace?: string;
   base: string;
   signalingUrls?: string[];
+  bootstrapPeers?: string[];
   peerOpts?: SyncOptions["peerOpts"];
 }
 
@@ -156,6 +163,7 @@ interface CollabDocParams {
   primaryNamespace: string;
   signalingUrls: string[];
   syncOpts?: SyncOptions;
+  pubsub?: PubSubLike;
 }
 
 function createCollabDoc(
@@ -345,19 +353,26 @@ function createCollabDoc(
       const snapshot = subdocManager.encodeAll();
       newSubdocManager.applySnapshot(snapshot);
 
+      const rotateSyncOpts: SyncOptions = {
+        ...params.syncOpts,
+        ...(params.pubsub
+          ? { pubsub: params.pubsub }
+          : {}),
+      };
+
       const newSyncManager = setupNamespaceRooms(
         newIpnsName,
         newSubdocManager,
         newDocKeys.namespaceKeys,
         params.signalingUrls,
-        params.syncOpts,
+        rotateSyncOpts,
       );
 
       const newAwarenessRoom = setupAwarenessRoom(
         newIpnsName,
         newDocKeys.awarenessRoomPassword,
         params.signalingUrls,
-        params.syncOpts,
+        rotateSyncOpts,
       );
 
       const newKeys: CapabilityKeys = {
@@ -430,6 +445,7 @@ function createCollabDoc(
         primaryNamespace: params.primaryNamespace,
         signalingUrls: params.signalingUrls,
         syncOpts: params.syncOpts,
+        pubsub: params.pubsub,
       });
 
       // Create and store forwarding record
@@ -449,6 +465,7 @@ function createCollabDoc(
       syncManager.destroy();
       awarenessRoom.destroy();
       subdocManager.destroy();
+      releaseHelia();
 
       return {
         newDoc,
@@ -542,6 +559,7 @@ function createCollabDoc(
       syncManager.destroy();
       awarenessRoom.destroy();
       subdocManager.destroy();
+      releaseHelia();
     },
   } as CollabDoc;
 }
@@ -553,16 +571,22 @@ export function createCollabLib(
   const appId = options.appId ?? "";
   const primaryNamespace =
     options.primaryNamespace ?? namespaces[0];
-  const signalingUrls = options.signalingUrls ?? [
-    "wss://signaling.yjs.dev",
-  ];
-  const syncOpts: SyncOptions | undefined =
-    options.peerOpts
-      ? { peerOpts: options.peerOpts }
-      : undefined;
+  const signalingUrls = options.signalingUrls ?? [];
+  const bootstrapPeers = options.bootstrapPeers;
 
   return {
     async create(): Promise<CollabDoc> {
+      await acquireHelia({ bootstrapPeers });
+      const pubsub =
+        getHeliaPubsub() as unknown as PubSubLike;
+
+      const syncOpts: SyncOptions = {
+        ...(options.peerOpts
+          ? { peerOpts: options.peerOpts }
+          : {}),
+        pubsub,
+      };
+
       const adminSecret = generateAdminSecret();
       const docKeys = await deriveDocKeys(
         adminSecret,
@@ -671,6 +695,7 @@ export function createCollabLib(
         primaryNamespace,
         signalingUrls,
         syncOpts,
+        pubsub,
       });
     },
 
@@ -699,6 +724,17 @@ export function createCollabLib(
         }
         return this.open(fwd.newUrl);
       }
+
+      await acquireHelia({ bootstrapPeers });
+      const pubsub =
+        getHeliaPubsub() as unknown as PubSubLike;
+
+      const syncOpts: SyncOptions = {
+        ...(options.peerOpts
+          ? { peerOpts: options.peerOpts }
+          : {}),
+        pubsub,
+      };
 
       const cap = inferCapability(
         keys,
@@ -776,6 +812,7 @@ export function createCollabLib(
         primaryNamespace,
         signalingUrls,
         syncOpts,
+        pubsub,
       });
     },
   };
