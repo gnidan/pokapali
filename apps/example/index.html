@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pokapali Example</title>
+    <script>
+      // Handle SPA redirect from 404.html
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var p = q.get("p");
+        if (p) {
+          q.delete("p");
+          var qs = q.toString();
+          history.replaceState(
+            null,
+            "",
+            p + (qs ? "?" + qs : "")
+          );
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

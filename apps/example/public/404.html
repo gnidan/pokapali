@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Redirecting...</title>
+    <script>
+      // SPA redirect for GitHub Pages.
+      // Preserves the path + hash so /pokapali/doc/abc#frag
+      // loads correctly via index.html.
+      var seg = location.pathname.split("/").length - 1;
+      var path =
+        location.pathname +
+        location.search +
+        location.hash;
+      location.replace(
+        location.origin +
+          "/pokapali/?p=" +
+          encodeURIComponent(path)
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
