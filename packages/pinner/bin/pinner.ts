@@ -2,6 +2,7 @@
 
 import { createServer } from "node:http";
 import { createPinner } from "../src/index.js";
+import { startRelay } from "../src/relay.js";
 
 function parseArgs(argv: string[]): {
   port: number;
@@ -47,6 +48,15 @@ async function main() {
   console.error(`pinner started on port ${port}`);
   console.error(`  app-ids: ${appIds.join(", ")}`);
   console.error(`  storage: ${storagePath}`);
+
+  // Start libp2p relay for GossipSub peer discovery
+  // and circuit relay. Browsers find this node via
+  // DHT and connect for signaling relay.
+  const relay = await startRelay({ appIds });
+  console.error("relay started");
+  for (const ma of relay.multiaddrs()) {
+    console.error(`  ${ma}`);
+  }
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
@@ -104,6 +114,7 @@ async function main() {
   async function shutdown() {
     console.error("shutting down...");
     server.close();
+    await relay.stop();
     await pinner.stop();
     console.error("stopped");
     process.exit(0);

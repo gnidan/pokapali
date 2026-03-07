@@ -442,6 +442,7 @@ function createCollabDoc(
       try {
         newRoomDiscovery = startRoomDiscovery(
           getHelia(),
+          params.appId,
         );
       } catch {
         // Helia may not be available
@@ -654,6 +655,7 @@ export function createCollabLib(
 
       const roomDiscovery = startRoomDiscovery(
         getHelia(),
+        appId,
       );
 
       const fullKeys: CapabilityKeys = {
@@ -803,6 +805,7 @@ export function createCollabLib(
 
       const roomDiscovery = startRoomDiscovery(
         getHelia(),
+        appId,
       );
 
       const adminUrl = keys.rotationKey

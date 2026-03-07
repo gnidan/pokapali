@@ -12,8 +12,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "^14.1.2",
+    "@libp2p/pubsub-peer-discovery": "^12.0.0",
     "@pokapali/crypto": "0.0.0",
     "@pokapali/snapshot": "0.0.0",
+    "helia": "^6.0.21",
     "multiformats": "^13.3.0"
   },
   "devDependencies": {
