@@ -8,11 +8,16 @@ export interface SyncManager {
   destroy(): void;
 }
 
+export interface SyncOptions {
+  peerOpts?: { config?: RTCConfiguration };
+}
+
 export function setupNamespaceRooms(
   ipnsName: string,
   subdocManager: SubdocManager,
   keys: Record<string, Uint8Array>,
   signalingUrls: string[],
+  options?: SyncOptions,
 ): SyncManager {
   const providers: WebrtcProvider[] = [];
 
@@ -23,6 +28,9 @@ export function setupNamespaceRooms(
     const provider = new WebrtcProvider(roomName, doc, {
       signaling: signalingUrls,
       password,
+      ...(options?.peerOpts && {
+        peerOpts: options.peerOpts,
+      }),
     });
     providers.push(provider);
   }
@@ -50,12 +58,16 @@ export function setupAwarenessRoom(
   ipnsName: string,
   awarenessPassword: string,
   signalingUrls: string[],
+  options?: SyncOptions,
 ): AwarenessRoom {
   const dummyDoc = new Y.Doc();
   const roomName = `${ipnsName}:awareness`;
   const provider = new WebrtcProvider(roomName, dummyDoc, {
     signaling: signalingUrls,
     password: awarenessPassword,
+    ...(options?.peerOpts && {
+      peerOpts: options.peerOpts,
+    }),
   });
 
   return {

@@ -7,6 +7,9 @@
     "apps/*"
   ],
   "scripts": {
+    "dev": "npm run dev:signaling & npm run dev:app; kill %1 2>/dev/null",
+    "dev:signaling": "y-webrtc-signaling",
+    "dev:app": "npm run dev --workspace @pokapali/example",
     "build": "tsc --build",
     "test": "vitest run --workspace vitest.workspace.ts",
     "lint": "eslint .",

@@ -20,7 +20,7 @@ import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createSubdocManager } from "@pokapali/subdocs";
 import type { SubdocManager } from "@pokapali/subdocs";
 import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
-import type { SyncManager, AwarenessRoom } from "@pokapali/sync";
+import type { SyncManager, AwarenessRoom, SyncOptions } from "@pokapali/sync";
 import {
   encodeSnapshot,
   decodeSnapshot,
@@ -38,6 +38,7 @@ export interface CollabLibOptions {
   primaryNamespace?: string;
   base: string;
   signalingUrls?: string[];
+  peerOpts?: SyncOptions["peerOpts"];
 }
 
 export type DocStatus =
@@ -324,6 +325,9 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
   const appId = options.appId ?? "";
   const primaryNamespace = options.primaryNamespace ?? namespaces[0];
   const signalingUrls = options.signalingUrls ?? ["wss://signaling.yjs.dev"];
+  const syncOpts: SyncOptions | undefined = options.peerOpts
+    ? { peerOpts: options.peerOpts }
+    : undefined;
 
   return {
     async create(): Promise<CollabDoc> {
@@ -342,12 +346,14 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
         subdocManager,
         docKeys.namespaceKeys,
         signalingUrls,
+        syncOpts,
       );
 
       const awarenessRoom = setupAwarenessRoom(
         ipnsName,
         docKeys.awarenessRoomPassword,
         signalingUrls,
+        syncOpts,
       );
 
       const fullKeys: CapabilityKeys = {
@@ -421,12 +427,14 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
         subdocManager,
         nsKeys,
         signalingUrls,
+        syncOpts,
       );
 
       const awarenessRoom = setupAwarenessRoom(
         ipnsName,
         keys.awarenessRoomPassword ?? "",
         signalingUrls,
+        syncOpts,
       );
 
       const adminUrl = keys.rotationKey

@@ -1,13 +1,19 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { createCollabLib } from "@pokapali/core";
 import type { CollabDoc } from "@pokapali/core";
 import { EditorView } from "./Editor";
+
+const DEFAULT_SIGNALING = "ws://localhost:4444";
+
+const signalingParam = new URLSearchParams(
+  window.location.search,
+).get("signaling");
 
 const collab = createCollabLib({
   appId: "pokapali-example",
   namespaces: ["content"],
   base: window.location.origin,
-  signalingUrls: ["wss://signaling.yjs.dev"],
+  signalingUrls: [signalingParam || DEFAULT_SIGNALING],
 });
 
 function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
@@ -68,16 +74,61 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
   );
 }
 
+function isDocUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.startsWith("/doc/") &&
+      parsed.hash.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const [doc, setDoc] = useState<CollabDoc | null>(null);
+  const [autoOpening, setAutoOpening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const url = window.location.href;
+    if (!isDocUrl(url)) return;
+
+    let cancelled = false;
+    setAutoOpening(true);
+    collab.open(url).then(
+      (d) => {
+        if (!cancelled) setDoc(d);
+      },
+      (e) => {
+        if (!cancelled) {
+          setError(
+            e instanceof Error ? e.message : String(e),
+          );
+          setAutoOpening(false);
+        }
+      },
+    );
+    return () => { cancelled = true; };
+  }, []);
 
   const handleBack = useCallback(() => {
     if (doc) doc.destroy();
     setDoc(null);
+    window.history.pushState(null, "", "/");
   }, [doc]);
 
   if (doc) {
     return <EditorView doc={doc} onBack={handleBack} />;
+  }
+
+  if (autoOpening) {
+    return (
+      <div className="landing">
+        <h1>Pokapali</h1>
+        <p>Opening document...</p>
+        {error && <p style={{ color: "#ef4444" }}>{error}</p>}
+      </div>
+    );
   }
 
   return <Landing onDoc={setDoc} />;

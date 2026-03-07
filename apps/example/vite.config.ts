@@ -5,6 +5,7 @@ import path from "path";
 const pkgs = ["core", "crypto", "capability", "subdocs", "snapshot", "sync"];
 
 export default defineConfig({
+  server: { port: 3141 },
   plugins: [react()],
   resolve: {
     alias: Object.fromEntries(
