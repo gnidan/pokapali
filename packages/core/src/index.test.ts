@@ -7,7 +7,9 @@ import {
   parseUrl,
   inferCapability,
 } from "@pokapali/capability";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import {
+  encodeSnapshot,
+} from "@pokapali/snapshot";
 
 vi.mock("@pokapali/sync", () => ({
   setupNamespaceRooms: vi.fn(() => ({
@@ -375,4 +377,108 @@ describe("@pokapali/core", () => {
       doc.destroy();
     }
   );
+
+  describe("history()", () => {
+    it(
+      "returns empty before any pushSnapshot",
+      async () => {
+        const lib = createCollabLib(OPTS);
+        const doc = await lib.create();
+        const h = await doc.history();
+        expect(h).toEqual([]);
+        doc.destroy();
+      }
+    );
+
+    it(
+      "returns entries after pushSnapshot",
+      async () => {
+        const lib = createCollabLib(OPTS);
+        const doc = await lib.create();
+
+        await doc.pushSnapshot();
+        const h = await doc.history();
+        expect(h).toHaveLength(1);
+        expect(h[0].seq).toBe(1);
+        expect(h[0].ts).toBeTypeOf("number");
+        expect(h[0].cid).toBeDefined();
+        doc.destroy();
+      }
+    );
+
+    it(
+      "walks chain newest-first",
+      async () => {
+        const lib = createCollabLib(OPTS);
+        const doc = await lib.create();
+
+        await doc.pushSnapshot();
+        const content = doc.subdoc("content");
+        content.getMap("test").set("k", "v");
+        await doc.pushSnapshot();
+
+        const h = await doc.history();
+        expect(h).toHaveLength(2);
+        // newest first
+        expect(h[0].seq).toBe(2);
+        expect(h[1].seq).toBe(1);
+        // CIDs differ
+        expect(h[0].cid.toString())
+          .not.toBe(h[1].cid.toString());
+        doc.destroy();
+      }
+    );
+  });
+
+  describe("loadVersion()", () => {
+    it(
+      "returns Y.Doc instances with content",
+      async () => {
+        const lib = createCollabLib(OPTS);
+        const doc = await lib.create();
+
+        const content = doc.subdoc("content");
+        content.getMap("data")
+          .set("hello", "world");
+        await doc.pushSnapshot();
+
+        const h = await doc.history();
+        const version = await doc.loadVersion(
+          h[0].cid
+        );
+        expect(version).toBeDefined();
+        expect(version["content"])
+          .toBeInstanceOf(Y.Doc);
+        const restored = version["content"]
+          .getMap("data").get("hello");
+        expect(restored).toBe("world");
+        doc.destroy();
+      }
+    );
+
+    it(
+      "throws for unknown CID",
+      async () => {
+        const { CID } = await import(
+          "multiformats/cid"
+        );
+        const { sha256 } = await import(
+          "multiformats/hashes/sha2"
+        );
+        const lib = createCollabLib(OPTS);
+        const doc = await lib.create();
+
+        const hash = await sha256.digest(
+          new Uint8Array([1, 2, 3])
+        );
+        const fakeCid = CID.createV1(
+          0x71, hash
+        );
+        await expect(
+          doc.loadVersion(fakeCid)
+        ).rejects.toThrow(/Unknown CID/);
+        doc.destroy();
+      }
+    );
+  });
 });
