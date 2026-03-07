@@ -2,6 +2,8 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createHelia, libp2pDefaults } from "helia";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
+import { autoTLS } from "@ipshipyard/libp2p-auto-tls";
+import { LevelDatastore } from "datastore-level";
 import {
   generateKeyPair,
   privateKeyFromProtobuf,
@@ -81,15 +83,19 @@ export async function startRelay(
     listen: [
       "/ip4/0.0.0.0/tcp/4001",
       "/ip6/::/tcp/4001",
-      "/ip4/0.0.0.0/udp/4001/webrtc-direct",
-      "/ip6/::/udp/4001/webrtc-direct",
       `/ip4/0.0.0.0/tcp/${wsPort}/ws`,
       `/ip6/::/tcp/${wsPort}/ws`,
       "/p2p-circuit",
     ],
   };
 
+  const datastore = new LevelDatastore(
+    join(config.storagePath, "datastore"),
+  );
+  await datastore.open();
+
   const helia = await createHelia({
+    datastore,
     libp2p: {
       ...defaults,
       privateKey,
@@ -97,6 +103,9 @@ export async function startRelay(
       services: {
         ...defaults.services,
         pubsub: gossipsub(),
+        autoTLS: autoTLS({
+          autoConfirmAddress: true,
+        }),
       },
     },
   }) as Helia;
@@ -151,6 +160,16 @@ export async function startRelay(
 
   // Initial provide (in background)
   provideAll();
+
+  // Re-provide after autoTLS certificate is obtained
+  // so the DHT peer record includes WSS addresses.
+  helia.libp2p.addEventListener(
+    "certificate:provision",
+    () => {
+      log("certificate obtained, re-providing");
+      provideAll();
+    },
+  );
 
   // Periodic re-provide
   const provideInterval = setInterval(

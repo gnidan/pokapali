@@ -37,6 +37,13 @@ function parseArgs(argv: string[]): {
 }
 
 async function main() {
+  // libp2p/webrtc throws unhandled errors when data
+  // channels close unexpectedly. Catch these so the
+  // process doesn't crash.
+  process.on("uncaughtException", (err) => {
+    console.error("uncaught exception:", err.message);
+  });
+
   const { port, storagePath, appIds } = parseArgs(process.argv);
 
   const pinner = await createPinner({
