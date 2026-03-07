@@ -4,14 +4,22 @@
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "bin": {
+    "pokapali-pinner": "dist/bin/pinner.js"
+  },
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run"
   },
   "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "^14.1.0",
+    "@helia/ipns": "^8.0.0",
+    "@libp2p/crypto": "^5.0.0",
+    "@libp2p/interface": "^2.0.0",
     "@pokapali/crypto": "0.0.0",
     "@pokapali/snapshot": "0.0.0",
-    "helia": "^5.1.0"
+    "helia": "^5.1.0",
+    "multiformats": "^13.3.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
