@@ -1,8 +1,5 @@
 import { createHelia, libp2pDefaults } from "helia";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
-import {
-  pubsubPeerDiscovery,
-} from "@libp2p/pubsub-peer-discovery";
 import type { Helia } from "helia";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -44,13 +41,6 @@ export async function startRelay(
   const helia = await createHelia({
     libp2p: {
       ...defaults,
-      peerDiscovery: [
-        ...(defaults.peerDiscovery ?? []),
-        pubsubPeerDiscovery({
-          interval: 10_000,
-          topics: [DISCOVERY_TOPIC],
-        }),
-      ],
       services: {
         ...defaults.services,
         pubsub: gossipsub(),
@@ -58,7 +48,14 @@ export async function startRelay(
     },
   }) as Helia;
 
+  // Subscribe to the discovery topic so this node
+  // joins the GossipSub mesh and relays peer
+  // announcements between browsers.
+  const pubsub = (helia.libp2p.services as any).pubsub;
+  pubsub.subscribe(DISCOVERY_TOPIC);
+
   log("started, peer ID:", helia.libp2p.peerId);
+  log("subscribed to", DISCOVERY_TOPIC);
 
   const addrs = helia.libp2p.getMultiaddrs();
   for (const ma of addrs) {

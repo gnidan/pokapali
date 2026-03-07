@@ -13,7 +13,7 @@ const signalingParam = new URLSearchParams(
 
 const signalingUrls =
   window.location.hostname === "localhost"
-    ? [signalingParam || LOCAL_SIGNALING]
+    ? [LOCAL_SIGNALING, PUBLIC_SIGNALING]
     : [signalingParam || PUBLIC_SIGNALING];
 
 const collab = createCollabLib({

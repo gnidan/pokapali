@@ -4,7 +4,8 @@ import { sha256 } from "multiformats/hashes/sha2";
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
-const FIND_TIMEOUT_MS = 15_000;
+const FIND_TIMEOUT_MS = 30_000;
+const DIAL_TIMEOUT_MS = 15_000;
 const LOG_INTERVAL_MS = 15_000;
 
 const log = (...args: unknown[]) =>
@@ -70,11 +71,47 @@ export function startRoomDiscovery(
           continue;
         }
 
-        log(`relay ...${short}, dialing...`);
+        const addrs = provider.multiaddrs?.map(
+          (ma: any) => ma.toString(),
+        ) ?? [];
+
+        // Only try providers with browser-dialable
+        // addresses (ws, wss, webrtc, webrtc-direct)
+        const dialable = addrs.some(
+          (a: string) =>
+            a.includes("/ws/") ||
+            a.includes("/ws ") ||
+            a.endsWith("/ws") ||
+            a.includes("/wss/") ||
+            a.endsWith("/wss") ||
+            a.includes("/webrtc") ||
+            a.includes("/p2p-circuit"),
+        );
+        if (!dialable && addrs.length > 0) {
+          log(
+            `relay ...${short} skipped`,
+            `(no browser-dialable addrs)`,
+          );
+          continue;
+        }
+
+        log(
+          `relay ...${short}, dialing...`,
+          addrs.length ? addrs : "(no addrs)",
+        );
         try {
+          const dialCtrl = new AbortController();
+          const dialTimer = setTimeout(
+            () => dialCtrl.abort(),
+            DIAL_TIMEOUT_MS,
+          );
+          signal.addEventListener("abort", () =>
+            dialCtrl.abort(),
+          );
           await helia.libp2p.dial(provider.id, {
-            signal,
+            signal: dialCtrl.signal,
           });
+          clearTimeout(dialTimer);
           log(`relay ...${short} OK`);
         } catch (err) {
           log(
