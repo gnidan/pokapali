@@ -1,4 +1,119 @@
 #!/usr/bin/env node
-// CLI entry point — Phase 7
-console.error("not implemented");
-process.exit(1);
+
+import { createServer } from "node:http";
+import { createPinner } from "../src/index.js";
+
+function parseArgs(argv: string[]): {
+  port: number;
+  storagePath: string;
+  appIds: string[];
+} {
+  let port = 3000;
+  let storagePath = "";
+  let appIds: string[] = [];
+
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--port" && argv[i + 1]) {
+      port = parseInt(argv[++i], 10);
+    } else if (arg === "--storage-path" && argv[i + 1]) {
+      storagePath = argv[++i];
+    } else if (arg === "--app-ids" && argv[i + 1]) {
+      appIds = argv[++i].split(",").map((s) => s.trim());
+    }
+  }
+
+  if (!storagePath) {
+    console.error("--storage-path is required");
+    process.exit(1);
+  }
+  if (appIds.length === 0) {
+    console.error("--app-ids is required");
+    process.exit(1);
+  }
+
+  return { port, storagePath, appIds };
+}
+
+async function main() {
+  const { port, storagePath, appIds } = parseArgs(process.argv);
+
+  const pinner = await createPinner({
+    appIds,
+    storagePath,
+  });
+
+  await pinner.start();
+  console.error(`pinner started on port ${port}`);
+  console.error(`  app-ids: ${appIds.join(", ")}`);
+  console.error(`  storage: ${storagePath}`);
+
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+    if (req.method === "GET" && url.pathname === "/health") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    const ingestMatch = url.pathname.match(
+      /^\/ingest\/([a-zA-Z0-9._-]+)$/
+    );
+    if (req.method === "POST" && ingestMatch) {
+      const ipnsName = ingestMatch[1];
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+      const body = new Uint8Array(Buffer.concat(chunks));
+
+      if (body.length === 0) {
+        res.writeHead(400, {
+          "content-type": "application/json",
+        });
+        res.end(JSON.stringify({ error: "empty body" }));
+        return;
+      }
+
+      const accepted = await pinner.ingest(ipnsName, body);
+      if (accepted) {
+        console.error(`ingested block for ${ipnsName}`);
+        res.writeHead(200, {
+          "content-type": "application/json",
+        });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        console.error(
+          `rejected block for ${ipnsName}`
+        );
+        res.writeHead(429, {
+          "content-type": "application/json",
+        });
+        res.end(JSON.stringify({ error: "rejected" }));
+      }
+      return;
+    }
+
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "not found" }));
+  });
+
+  server.listen(port);
+
+  async function shutdown() {
+    console.error("shutting down...");
+    server.close();
+    await pinner.stop();
+    console.error("stopped");
+    process.exit(0);
+  }
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

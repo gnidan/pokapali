@@ -14,7 +14,8 @@
     "test": "vitest run --workspace vitest.workspace.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:pinner": "npx @pokapali/pinner --storage-path /tmp/pokapali-pinner --app-ids pokapali-example --port 3001"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

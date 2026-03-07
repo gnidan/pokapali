@@ -1,4 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -6,6 +11,29 @@ import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import type { CollabDoc, DocStatus } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SharePanel } from "./SharePanel";
+
+const CURSOR_COLORS = [
+  "#f44336", "#2196f3", "#4caf50", "#ff9800",
+  "#9c27b0", "#00bcd4", "#e91e63", "#8bc34a",
+];
+
+const randomColor =
+  CURSOR_COLORS[Math.floor(Math.random() * CURSOR_COLORS.length)];
+const randomId = Math.floor(Math.random() * 1000);
+
+function renderCursor(user: { name: string; color: string }) {
+  const el = document.createElement("span");
+  el.classList.add("collab-cursor");
+  el.style.borderColor = user.color;
+
+  const label = document.createElement("span");
+  label.classList.add("collab-cursor-label");
+  label.style.background = user.color;
+  label.textContent = user.name;
+  el.appendChild(label);
+
+  return el;
+}
 
 function capBadge(doc: CollabDoc): { label: string; className: string } {
   if (doc.capability.isAdmin) {
@@ -89,11 +117,19 @@ export function EditorView({
         }),
         CollaborationCursor.configure({
           provider: doc.provider,
+          render: renderCursor,
         }),
       ],
     },
     [doc],
   );
+
+  useEffect(() => {
+    doc.awareness.setLocalStateField("user", {
+      name: "User " + randomId,
+      color: randomColor,
+    });
+  }, [doc]);
 
   const handleSnapshot = useCallback(() => {
     doc.pushSnapshot().then(() => {

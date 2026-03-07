@@ -271,3 +271,25 @@ body {
 .toggle-share:hover {
   background: #f3f4f6;
 }
+
+/* Collaboration cursors */
+
+.collab-cursor {
+  position: relative;
+  display: inline;
+  border-left: 2px solid;
+}
+
+.collab-cursor-label {
+  position: absolute;
+  bottom: 100%;
+  left: -1px;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1.2;
+}
