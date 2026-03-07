@@ -8,10 +8,12 @@ function parseArgs(argv: string[]): {
   port: number;
   storagePath: string;
   appIds: string[];
+  announceAddrs: string[];
 } {
   let port = 3000;
   let storagePath = "";
   let appIds: string[] = [];
+  let announceAddrs: string[] = [];
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -21,6 +23,10 @@ function parseArgs(argv: string[]): {
       storagePath = argv[++i];
     } else if (arg === "--app-ids" && argv[i + 1]) {
       appIds = argv[++i].split(",").map((s) => s.trim());
+    } else if (arg === "--announce" && argv[i + 1]) {
+      announceAddrs = argv[++i]
+        .split(",")
+        .map((s) => s.trim());
     }
   }
 
@@ -33,7 +39,7 @@ function parseArgs(argv: string[]): {
     process.exit(1);
   }
 
-  return { port, storagePath, appIds };
+  return { port, storagePath, appIds, announceAddrs };
 }
 
 async function main() {
@@ -44,7 +50,8 @@ async function main() {
     console.error("uncaught exception:", err.message);
   });
 
-  const { port, storagePath, appIds } = parseArgs(process.argv);
+  const { port, storagePath, appIds, announceAddrs } =
+    parseArgs(process.argv);
 
   const pinner = await createPinner({
     appIds,
@@ -59,7 +66,11 @@ async function main() {
   // Start libp2p relay for GossipSub peer discovery
   // and circuit relay. Browsers find this node via
   // DHT and connect for signaling relay.
-  const relay = await startRelay({ appIds, storagePath });
+  const relay = await startRelay({
+    appIds,
+    storagePath,
+    announceAddrs,
+  });
   console.error("relay started");
   for (const ma of relay.multiaddrs()) {
     console.error(`  ${ma}`);

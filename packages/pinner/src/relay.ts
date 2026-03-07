@@ -14,6 +14,11 @@ import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
+// Max peers for the relay. Keep low so the event loop
+// stays responsive for autoTLS cert provisioning.
+const MAX_CONNECTIONS = 50;
+const MIN_CONNECTIONS = 5;
+
 const DISCOVERY_TOPIC =
   "pokapali._peer-discovery._p2p._pubsub";
 const SIGNALING_TOPIC = "/pokapali/signaling";
@@ -60,6 +65,10 @@ export interface RelayConfig {
   appIds: string[];
   storagePath: string;
   wsPort?: number;
+  // Public multiaddrs to announce (e.g. for autoTLS).
+  // Needed so autoTLS knows our public IP before any
+  // peers connect and report observed addresses.
+  announceAddrs?: string[];
 }
 
 export interface Relay {
@@ -78,28 +87,41 @@ export async function startRelay(
   const defaults = libp2pDefaults();
 
   // Use fixed ports so firewall rules are predictable.
-  const addresses = {
-    ...defaults.addresses,
-    listen: [
-      "/ip4/0.0.0.0/tcp/4001",
-      "/ip6/::/tcp/4001",
-      `/ip4/0.0.0.0/tcp/${wsPort}/ws`,
-      `/ip6/::/tcp/${wsPort}/ws`,
-      "/p2p-circuit",
-    ],
-  };
+  const listen = [
+    "/ip4/0.0.0.0/tcp/4001",
+    "/ip6/::/tcp/4001",
+    `/ip4/0.0.0.0/tcp/${wsPort}/ws`,
+    `/ip6/::/tcp/${wsPort}/ws`,
+    "/p2p-circuit",
+  ];
 
   const datastore = new LevelDatastore(
     join(config.storagePath, "datastore"),
   );
   await datastore.open();
 
+  // Phase 1: Start with peer discovery disabled so
+  // the event loop stays free for autoTLS cert
+  // provisioning. The IPFS bootstrap flood would
+  // otherwise saturate the CPU and block ACME
+  // requests from completing.
   const helia = await createHelia({
     datastore,
     libp2p: {
       ...defaults,
       privateKey,
-      addresses,
+      addresses: {
+        ...defaults.addresses,
+        listen,
+        announce: config.announceAddrs,
+      },
+      peerDiscovery: [],
+      connectionManager: {
+        ...defaults.connectionManager,
+        maxConnections: MAX_CONNECTIONS,
+        minConnections: MIN_CONNECTIONS,
+        maxIncomingPendingConnections: 10,
+      },
       services: {
         ...defaults.services,
         pubsub: gossipsub(),
@@ -110,21 +132,74 @@ export async function startRelay(
     },
   }) as Helia;
 
+  log("started, peer ID:", helia.libp2p.peerId);
+
+  const addrs = helia.libp2p.getMultiaddrs();
+  for (const ma of addrs) {
+    log("  listening:", ma.toString());
+  }
+
+  // Phase 2: Wait for autoTLS cert before joining the
+  // IPFS network. Once we have the cert (or timeout),
+  // connect to bootstrap peers for DHT/GossipSub.
+  const CERT_WAIT_MS = 120_000;
+  const certObtained = await new Promise<boolean>(
+    (resolve) => {
+      const timer = setTimeout(() => {
+        log("autoTLS timeout, proceeding without WSS");
+        resolve(false);
+      }, CERT_WAIT_MS);
+      helia.libp2p.addEventListener(
+        "certificate:provision",
+        () => {
+          clearTimeout(timer);
+          log("certificate obtained!");
+          resolve(true);
+        },
+        { once: true },
+      );
+    },
+  );
+
+  if (certObtained) {
+    const wssAddrs = helia.libp2p
+      .getMultiaddrs()
+      .filter((ma) => ma.toString().includes("/tls/"));
+    for (const a of wssAddrs) {
+      log("  WSS:", a.toString());
+    }
+  }
+
+  // Now connect to IPFS bootstrap peers
+  log("connecting to bootstrap peers...");
+  const { bootstrap } = await import(
+    "@libp2p/bootstrap"
+  );
+  const bootstrapAddrs = [
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+  ];
+  for (const addr of bootstrapAddrs) {
+    const { multiaddr } = await import(
+      "@multiformats/multiaddr"
+    );
+    try {
+      await helia.libp2p.dial(multiaddr(addr));
+      log("  dialed", addr.split("/p2p/")[1]?.slice(0, 12));
+    } catch {
+      log("  failed to dial", addr.split("/p2p/")[1]?.slice(0, 12));
+    }
+  }
+
   // Subscribe to the discovery topic so this node
   // joins the GossipSub mesh and relays peer
   // announcements between browsers.
   const pubsub = (helia.libp2p.services as any).pubsub;
   pubsub.subscribe(DISCOVERY_TOPIC);
   pubsub.subscribe(SIGNALING_TOPIC);
-
-  log("started, peer ID:", helia.libp2p.peerId);
   log("subscribed to", DISCOVERY_TOPIC);
   log("subscribed to", SIGNALING_TOPIC);
-
-  const addrs = helia.libp2p.getMultiaddrs();
-  for (const ma of addrs) {
-    log("  listening:", ma.toString());
-  }
 
   // Compute well-known CIDs for each app ID
   const cids = await Promise.all(
@@ -180,9 +255,11 @@ export async function startRelay(
   // Periodic status logging
   let lastAddrCount = 0;
   const logInterval = setInterval(() => {
+    const conns = helia.libp2p.getConnections();
     const peers = helia.libp2p.getPeers();
     const ma = helia.libp2p.getMultiaddrs();
     log(
+      `${conns.length} conns,`,
       `${peers.length} peers,`,
       `${ma.length} addrs`,
     );
