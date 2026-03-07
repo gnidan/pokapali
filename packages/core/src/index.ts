@@ -27,7 +27,12 @@ import type {
   SyncManager,
   AwarenessRoom,
 } from "@pokapali/sync";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import {
+  encodeSnapshot,
+  decodeSnapshot,
+  decryptSnapshot,
+  walkChain,
+} from "@pokapali/snapshot";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
@@ -308,11 +313,64 @@ function createCollabDoc(
     },
 
     async history() {
-      return [];
+      assertNotDestroyed();
+      if (!prev) return [];
+
+      const getter = async (cid: CID) => {
+        const block = blocks.get(
+          cid.toString()
+        );
+        if (!block) {
+          throw new Error(
+            "Block not found: "
+            + cid.toString()
+          );
+        }
+        return block;
+      };
+
+      const entries: Array<{
+        cid: CID;
+        seq: number;
+        ts: number;
+      }> = [];
+      let currentCid: CID | null = prev;
+      for await (
+        const node of walkChain(prev, getter)
+      ) {
+        entries.push({
+          cid: currentCid!,
+          seq: node.seq,
+          ts: node.ts,
+        });
+        currentCid = node.prev;
+      }
+      return entries;
     },
 
-    async loadVersion(_cid: CID) {
-      throw new Error("not implemented");
+    async loadVersion(cid: CID) {
+      assertNotDestroyed();
+      const block = blocks.get(cid.toString());
+      if (!block) {
+        throw new Error(
+          "Unknown CID: " + cid.toString()
+        );
+      }
+      if (!readKey) {
+        throw new Error("No readKey available");
+      }
+      const node = decodeSnapshot(block);
+      const plaintext = await decryptSnapshot(
+        node, readKey
+      );
+      const result: Record<string, Y.Doc> = {};
+      for (const [ns, bytes] of
+        Object.entries(plaintext)) {
+        const doc = new Y.Doc();
+        Y.applyUpdate(doc, bytes);
+        result[ns] = doc;
+      }
+      return result;
     },
 
     destroy(): void {
