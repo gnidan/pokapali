@@ -1,7 +1,13 @@
 import { createHelia, libp2pDefaults } from "helia";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
+import {
+  pubsubPeerDiscovery,
+} from "@libp2p/pubsub-peer-discovery";
 import type { Helia } from "helia";
 import type { Libp2p, PubSub } from "@libp2p/interface";
+
+const DISCOVERY_TOPIC =
+  "pokapali._peer-discovery._p2p._pubsub";
 
 export interface HeliaOptions {
   bootstrapPeers?: string[];
@@ -25,6 +31,13 @@ export async function acquireHelia(
   const defaults = libp2pDefaults();
   const libp2pOptions = {
     ...defaults,
+    peerDiscovery: [
+      ...(defaults.peerDiscovery ?? []),
+      pubsubPeerDiscovery({
+        interval: 10_000,
+        topics: [DISCOVERY_TOPIC],
+      }),
+    ],
     services: {
       ...defaults.services,
       pubsub: gossipsub(),

@@ -4,6 +4,8 @@ import type { CollabDoc } from "@pokapali/core";
 import { EditorView } from "./Editor";
 
 const LOCAL_SIGNALING = "ws://localhost:4444";
+const PUBLIC_SIGNALING =
+  "wss://signaling.yjs.dev";
 
 const signalingParam = new URLSearchParams(
   window.location.search,
@@ -12,9 +14,7 @@ const signalingParam = new URLSearchParams(
 const signalingUrls =
   window.location.hostname === "localhost"
     ? [signalingParam || LOCAL_SIGNALING]
-    : signalingParam
-      ? [signalingParam]
-      : [];
+    : [signalingParam || PUBLIC_SIGNALING];
 
 const collab = createCollabLib({
   appId: "pokapali-example",

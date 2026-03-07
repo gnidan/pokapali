@@ -438,18 +438,10 @@ function createCollabDoc(
         arr.push([key]);
       }
 
-      const newRoomTopics = [
-        ...Object.keys(newDocKeys.namespaceKeys)
-          .map(ns =>
-            `/pokapali/signal/${newIpnsName}:${ns}`
-          ),
-        `/pokapali/signal/${newIpnsName}:awareness`,
-      ];
       let newRoomDiscovery: RoomDiscovery | undefined;
       try {
         newRoomDiscovery = startRoomDiscovery(
           getHelia(),
-          newRoomTopics,
         );
       } catch {
         // Helia may not be available
@@ -660,14 +652,8 @@ export function createCollabLib(
         syncOpts,
       );
 
-      const roomTopics = [
-        ...Object.keys(docKeys.namespaceKeys)
-          .map(ns => `/pokapali/signal/${ipnsName}:${ns}`),
-        `/pokapali/signal/${ipnsName}:awareness`,
-      ];
       const roomDiscovery = startRoomDiscovery(
         getHelia(),
-        roomTopics,
       );
 
       const fullKeys: CapabilityKeys = {
@@ -815,14 +801,8 @@ export function createCollabLib(
         syncOpts,
       );
 
-      const roomTopics = [
-        ...Object.keys(nsKeys)
-          .map(ns => `/pokapali/signal/${ipnsName}:${ns}`),
-        `/pokapali/signal/${ipnsName}:awareness`,
-      ];
       const roomDiscovery = startRoomDiscovery(
         getHelia(),
-        roomTopics,
       );
 
       const adminUrl = keys.rotationKey
