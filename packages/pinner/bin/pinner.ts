@@ -52,7 +52,7 @@ async function main() {
   // Start libp2p relay for GossipSub peer discovery
   // and circuit relay. Browsers find this node via
   // DHT and connect for signaling relay.
-  const relay = await startRelay({ appIds });
+  const relay = await startRelay({ appIds, storagePath });
   console.error("relay started");
   for (const ma of relay.multiaddrs()) {
     console.error(`  ${ma}`);

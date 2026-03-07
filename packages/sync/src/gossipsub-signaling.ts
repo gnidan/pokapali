@@ -23,7 +23,7 @@ export interface PubSubLike {
 }
 
 const ADAPTER_KEY = "libp2p:gossipsub";
-const TOPIC_PREFIX = "/pokapali/signal/";
+const SIGNALING_TOPIC = "/pokapali/signaling";
 
 const log = (...args: unknown[]) =>
   console.log("[pokapali:gossipsub]", ...args);
@@ -37,6 +37,7 @@ export class GossipSubSignaling extends Observable<string> {
   private readonly pubsub: PubSubLike;
   private readonly subscribedTopics = new Set<string>();
   private readonly gossipHandler: (evt: CustomEvent) => void;
+  private announceInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(pubsub: PubSubLike) {
     super();
@@ -44,19 +45,20 @@ export class GossipSubSignaling extends Observable<string> {
 
     this.gossipHandler = (evt: CustomEvent) => {
       const msg = evt.detail;
-      if (!msg || !msg.topic || !msg.data) {
+      if (!msg || !msg.data) {
         return;
       }
-      const topic = msg.topic as string;
-      if (!topic.startsWith(TOPIC_PREFIX)) {
+      if (msg.topic !== SIGNALING_TOPIC) {
         return;
       }
 
       try {
         const text = new TextDecoder().decode(msg.data);
         const parsed = JSON.parse(text);
-        const short = topic.replace(TOPIC_PREFIX, "");
-        log(`recv on ${short}:`, parsed?.data?.type);
+        log(
+          `recv ${parsed?.topic}:`,
+          parsed?.data?.type,
+        );
         this.emit("message", [parsed]);
       } catch {
         // malformed message — ignore
@@ -77,32 +79,24 @@ export class GossipSubSignaling extends Observable<string> {
   }): void {
     switch (message.type) {
       case "subscribe": {
-        const topics = message.topics ?? [];
-        for (const t of topics) {
-          const fullTopic = `${TOPIC_PREFIX}${t}`;
-          if (!this.subscribedTopics.has(fullTopic)) {
-            log(`subscribe ${t}`);
-            this.pubsub.subscribe(fullTopic);
-            this.subscribedTopics.add(fullTopic);
-          }
+        // All signaling goes through one GossipSub
+        // topic. Subscribe once; y-webrtc filters by
+        // room name in the payload.
+        if (!this.subscribedTopics.has(SIGNALING_TOPIC)) {
+          log("subscribe", SIGNALING_TOPIC);
+          this.pubsub.subscribe(SIGNALING_TOPIC);
+          this.subscribedTopics.add(SIGNALING_TOPIC);
         }
         break;
       }
       case "unsubscribe": {
-        const topics = message.topics ?? [];
-        for (const t of topics) {
-          const fullTopic = `${TOPIC_PREFIX}${t}`;
-          if (this.subscribedTopics.has(fullTopic)) {
-            this.pubsub.unsubscribe(fullTopic);
-            this.subscribedTopics.delete(fullTopic);
-          }
-        }
+        // Keep the subscription alive — other rooms
+        // may still need it. Only unsubscribe on
+        // destroy().
         break;
       }
       case "publish": {
         if (message.topic && message.data !== undefined) {
-          const fullTopic =
-            `${TOPIC_PREFIX}${message.topic}`;
           const payload = new TextEncoder().encode(
             JSON.stringify({
               type: "publish",
@@ -114,20 +108,37 @@ export class GossipSubSignaling extends Observable<string> {
             `publish ${message.topic}:`,
             (message.data as any)?.type,
           );
-          this.pubsub.publish(fullTopic, payload)
-            .catch(() => {
-              // NoPeersSubscribedToTopic is normal at
-              // startup — no peers listening yet.
-            });
+          this.pubsub.publish(
+            SIGNALING_TOPIC, payload
+          ).catch((err) => {
+            const msg = (err as Error)?.message ?? "";
+            if (msg.includes("NoPeersSubscribed")) {
+              log("publish: no peers yet");
+            } else if (msg) {
+              log("publish error:", msg);
+            }
+          });
         }
         break;
       }
     }
   }
 
+  startAnnounceInterval(): void {
+    if (this.announceInterval) return;
+    this.announceInterval = setInterval(() => {
+      log("re-announce");
+      this.emit("connect", []);
+    }, 15_000);
+  }
+
   destroy(): void {
-    for (const t of this.subscribedTopics) {
-      this.pubsub.unsubscribe(t);
+    if (this.announceInterval) {
+      clearInterval(this.announceInterval);
+      this.announceInterval = null;
+    }
+    if (this.subscribedTopics.has(SIGNALING_TOPIC)) {
+      this.pubsub.unsubscribe(SIGNALING_TOPIC);
     }
     this.subscribedTopics.clear();
     this.pubsub.removeEventListener(
@@ -171,6 +182,10 @@ export function createGossipSubSignaling(
   // immediately subscribe to existing rooms.
   adapter.connected = true;
   adapter.emit("connect", []);
+
+  // Periodically re-announce so that peers joining
+  // after initial connect still discover us.
+  adapter.startAnnounceInterval();
 
   return adapter;
 }
