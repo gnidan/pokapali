@@ -294,10 +294,19 @@ export async function startRelay(
     const conns = helia.libp2p.getConnections();
     const peers = helia.libp2p.getPeers();
     const ma = helia.libp2p.getMultiaddrs();
+    const gsTopics = pubsub.getTopics();
+    const gsPeers = (pubsub as any).getPeers?.() ?? [];
+    const gsSubs = gsTopics.flatMap(
+      (t: string) => pubsub.getSubscribers(t)
+        .map((p: any) => `${t}:${p.toString().slice(-8)}`),
+    );
     log(
       `${conns.length} conns,`,
       `${peers.length} peers,`,
-      `${ma.length} addrs`,
+      `${ma.length} addrs,`,
+      `gs-peers: ${gsPeers.length},`,
+      `gs-subs: ${gsSubs.length}`,
+      gsSubs.length > 0 ? gsSubs : "",
     );
     if (ma.length !== lastAddrCount) {
       lastAddrCount = ma.length;

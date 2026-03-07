@@ -127,7 +127,23 @@ export class GossipSubSignaling extends Observable<string> {
   startAnnounceInterval(): void {
     if (this.announceInterval) return;
     this.announceInterval = setInterval(() => {
-      log("re-announce");
+      const ps = this.pubsub as any;
+      const gsPeers = ps.getPeers?.() ?? [];
+      const topics = ps.getTopics?.() ?? [];
+      const subs = topics.flatMap(
+        (t: string) =>
+          (ps.getSubscribers?.(t) ?? []).map(
+            (p: any) =>
+              `${t}:${p.toString().slice(-8)}`,
+          ),
+      );
+      log(
+        "re-announce,",
+        `gs-peers: ${gsPeers.length},`,
+        `topics: ${topics},`,
+        `subs: ${subs.length}`,
+        subs.length > 0 ? subs : "",
+      );
       this.emit("connect", []);
     }, 15_000);
   }
