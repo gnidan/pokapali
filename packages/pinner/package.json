@@ -13,12 +13,15 @@
   },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
-    "@ipshipyard/libp2p-auto-tls": "^2.0.1",
+    "@ipshipyard/libp2p-auto-tls": "^1.0.0",
+    "@libp2p/crypto": "^5.0.0",
+    "@libp2p/kad-dht": "^15.1.11",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
     "@pokapali/crypto": "0.0.0",
     "@pokapali/snapshot": "0.0.0",
     "datastore-level": "^12.0.2",
-    "helia": "^6.0.21",
+    "helia": "^5.5.1",
+    "ipns": "^10.0.0",
     "multiformats": "^13.3.0"
   },
   "devDependencies": {
