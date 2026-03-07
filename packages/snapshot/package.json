@@ -1,0 +1,20 @@
+{
+  "name": "@pokapali/snapshot",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pokapali/crypto": "0.0.0",
+    "@ipld/dag-cbor": "^9.2.0",
+    "multiformats": "^13.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

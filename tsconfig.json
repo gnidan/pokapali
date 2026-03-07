@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/crypto" },
+    { "path": "packages/capability" },
+    { "path": "packages/subdocs" },
+    { "path": "packages/snapshot" },
+    { "path": "packages/sync" },
+    { "path": "packages/core" },
+    { "path": "packages/pinner" },
+    { "path": "apps/example" }
+  ]
+}

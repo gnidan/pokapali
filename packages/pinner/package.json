@@ -1,0 +1,20 @@
+{
+  "name": "@pokapali/pinner",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pokapali/crypto": "0.0.0",
+    "@pokapali/snapshot": "0.0.0",
+    "helia": "^5.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

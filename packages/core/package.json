@@ -1,0 +1,28 @@
+{
+  "name": "@pokapali/core",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pokapali/crypto": "0.0.0",
+    "@pokapali/capability": "0.0.0",
+    "@pokapali/subdocs": "0.0.0",
+    "@pokapali/snapshot": "0.0.0",
+    "@pokapali/sync": "0.0.0",
+    "helia": "^5.1.0",
+    "@helia/ipns": "^8.0.0",
+    "y-indexeddb": "^9.0.12",
+    "yjs": "^13.6.0",
+    "y-protocols": "^1.0.6",
+    "multiformats": "^13.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
