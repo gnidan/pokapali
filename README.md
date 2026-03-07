@@ -228,12 +228,35 @@ peers see. Grant it deliberately.
 ## Development
 
 ```
-git clone https://github.com/gnidan/pokipali.git
+git clone https://github.com/gnidan/pokapali.git
 cd pokapali
 npm install
 npm run build
 npm test
 ```
+
+### Running the example app
+
+```
+npm run dev
+```
+
+This starts two processes:
+- **y-webrtc signaling server** on `ws://localhost:4444`
+- **Vite dev server** (example app) on `http://localhost:3141`
+
+Open `http://localhost:3141` in two browser tabs to test
+real-time collaboration.
+
+**Cross-browser testing note:** WebRTC on localhost requires
+disabling mDNS candidate obfuscation in both browsers:
+- Chrome: `chrome://flags/#enable-webrtc-hide-local-ips-with-mdns`
+  → Disabled (relaunch required)
+- Firefox: `about:config` →
+  `media.peerconnection.ice.obfuscate_host_addresses` → false
+
+Without this, ICE negotiation will fail between different
+browsers on the same machine.
 
 Monorepo managed with npm workspaces. TypeScript throughout,
 targeting ES2022/ESNext.
