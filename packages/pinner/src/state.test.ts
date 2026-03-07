@@ -11,8 +11,8 @@ describe("state persistence", () => {
       "state.json"
     );
     const state = await loadState(path);
-    expect(state.discoveredNames).toEqual([]);
-    expect(state.history).toEqual({});
+    expect(state.knownNames).toEqual([]);
+    expect(state.tips).toEqual({});
   });
 
   it("round-trips state", async () => {
@@ -22,25 +22,16 @@ describe("state persistence", () => {
       "state.json"
     );
     const state = {
-      discoveredNames: ["name1", "name2"],
-      history: {
-        name1: {
-          tip: { cid: "bafy123", ts: 1000 },
-          snapshots: [
-            { cid: "bafy123", ts: 1000 },
-          ],
-        },
-      },
+      knownNames: ["name1", "name2"],
+      tips: { name1: "bafy123" },
     };
 
     await saveState(path, state);
     const loaded = await loadState(path);
 
-    expect(loaded.discoveredNames).toEqual(
+    expect(loaded.knownNames).toEqual(
       ["name1", "name2"]
     );
-    expect(loaded.history.name1.tip!.cid).toBe(
-      "bafy123"
-    );
+    expect(loaded.tips.name1).toBe("bafy123");
   });
 });

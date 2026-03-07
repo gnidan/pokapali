@@ -1,5 +1,6 @@
 export type {
   PinnerConfig,
+  Pinner,
 } from "./pinner.js";
 
 export { createPinner } from "./pinner.js";

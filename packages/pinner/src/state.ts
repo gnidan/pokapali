@@ -1,16 +1,14 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import {
+  readFile,
+  writeFile,
+  mkdir,
+} from "node:fs/promises";
 import { dirname } from "node:path";
-import type { HistoryEntry } from "./history.js";
 
 export interface PinnerState {
-  discoveredNames: string[];
-  history: Record<string, HistoryEntry>;
+  knownNames: string[];
+  tips: Record<string, string>;
 }
-
-const EMPTY_STATE: PinnerState = {
-  discoveredNames: [],
-  history: {},
-};
 
 export async function loadState(
   path: string
@@ -19,7 +17,7 @@ export async function loadState(
     const data = await readFile(path, "utf-8");
     return JSON.parse(data) as PinnerState;
   } catch {
-    return { ...EMPTY_STATE, history: {} };
+    return { knownNames: [], tips: {} };
   }
 }
 

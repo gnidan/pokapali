@@ -15,6 +15,8 @@ const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 export interface HistoryTracker {
   add(ipnsName: string, cid: CID, ts: number): void;
   prune(now?: number): CID[];
+  getTip(ipnsName: string): string | null;
+  getHistory(ipnsName: string): SnapshotRecord[];
   getEntry(ipnsName: string): HistoryEntry | undefined;
   allNames(): string[];
   toJSON(): Record<string, HistoryEntry>;
@@ -72,6 +74,18 @@ export function createHistoryTracker(): HistoryTracker {
       }
 
       return removed;
+    },
+
+    getTip(ipnsName: string): string | null {
+      const entry = entries.get(ipnsName);
+      return entry?.tip?.cid ?? null;
+    },
+
+    getHistory(
+      ipnsName: string
+    ): SnapshotRecord[] {
+      const entry = entries.get(ipnsName);
+      return entry ? [...entry.snapshots] : [];
     },
 
     getEntry(
