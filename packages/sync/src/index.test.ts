@@ -1,25 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
 import { createSubdocManager } from "@pokapali/subdocs";
 import {
   setupNamespaceRooms,
   setupAwarenessRoom,
 } from "./index.js";
 
-// Track mock provider instances globally
-const mockProviderInstances: Array<{
+interface MockInstance {
   roomName: string;
   doc: Y.Doc;
   signaling: string[];
   password: string | null;
-  awareness: Awareness;
+  awareness: { states: Map<number, unknown> };
   shouldConnect: boolean;
-  room: object | null;
+  connected: boolean;
+  disconnected: boolean;
   destroyed: boolean;
+  disconnect(): void;
   destroy(): void;
-  readonly connected: boolean;
-}> = [];
+}
+
+const instances: MockInstance[] = [];
 
 vi.mock("y-webrtc", () => {
   class MockProvider {
@@ -27,9 +28,10 @@ vi.mock("y-webrtc", () => {
     doc: Y.Doc;
     signaling: string[];
     password: string | null;
-    awareness: Awareness;
+    awareness: { states: Map<number, unknown> };
     shouldConnect = true;
-    room: object | null = {};
+    connected = true;
+    disconnected = false;
     destroyed = false;
 
     constructor(
@@ -44,18 +46,20 @@ vi.mock("y-webrtc", () => {
       this.doc = doc;
       this.signaling = opts.signaling ?? [];
       this.password = opts.password ?? null;
-      this.awareness = new Awareness(doc);
-      mockProviderInstances.push(this);
+      this.awareness = {
+        states: new Map(),
+      };
+      instances.push(this as unknown as MockInstance);
     }
 
-    get connected() {
-      return this.room !== null && this.shouldConnect;
+    disconnect() {
+      this.disconnected = true;
+      this.shouldConnect = false;
+      this.connected = false;
     }
 
     destroy() {
       this.destroyed = true;
-      this.shouldConnect = false;
-      this.room = null;
     }
   }
 
@@ -76,168 +80,11 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 beforeEach(() => {
-  mockProviderInstances.length = 0;
+  instances.length = 0;
 });
 
 describe("setupNamespaceRooms", () => {
-  it(
-    "creates a provider per namespace + _meta",
-    async () => {
-      const keys: Record<string, Uint8Array> = {
-        content: makeKey(1),
-        comments: makeKey(2),
-      };
-      const mgr = createSubdocManager(
-        IPNS, ["content", "comments"]
-      );
-
-      const sync = await setupNamespaceRooms(
-        IPNS, mgr, keys, SIGNALING
-      );
-
-      // 2 namespaces + 1 _meta = 3 providers
-      expect(mockProviderInstances).toHaveLength(3);
-
-      const names = mockProviderInstances.map(
-        (p) => p.roomName
-      );
-      expect(names).toContain(`${IPNS}:content`);
-      expect(names).toContain(`${IPNS}:comments`);
-      expect(names).toContain(`${IPNS}:_meta`);
-
-      for (const p of mockProviderInstances) {
-        expect(p.signaling).toEqual(SIGNALING);
-      }
-
-      // Namespace providers use hex passwords
-      const cp = mockProviderInstances.find(
-        (p) => p.roomName === `${IPNS}:content`
-      )!;
-      expect(cp.password).toBe(
-        bytesToHex(keys.content)
-      );
-
-      const cmp = mockProviderInstances.find(
-        (p) => p.roomName === `${IPNS}:comments`
-      )!;
-      expect(cmp.password).toBe(
-        bytesToHex(keys.comments)
-      );
-
-      // _meta password is derived, not raw hex
-      const mp = mockProviderInstances.find(
-        (p) => p.roomName === `${IPNS}:_meta`
-      )!;
-      expect(mp.password).toBeTruthy();
-      expect(mp.password).not.toBe(
-        bytesToHex(keys.content)
-      );
-
-      expect(sync.status).toBe("connected");
-
-      sync.destroy();
-      mgr.destroy();
-    }
-  );
-
-  it(
-    "uses correct subdocs for each provider",
-    async () => {
-      const keys: Record<string, Uint8Array> = {
-        content: makeKey(1),
-      };
-      const mgr = createSubdocManager(
-        IPNS, ["content"]
-      );
-
-      await setupNamespaceRooms(
-        IPNS, mgr, keys, SIGNALING
-      );
-
-      const cp = mockProviderInstances.find(
-        (p) => p.roomName === `${IPNS}:content`
-      )!;
-      expect(cp.doc).toBe(mgr.subdoc("content"));
-
-      const mp = mockProviderInstances.find(
-        (p) => p.roomName === `${IPNS}:_meta`
-      )!;
-      expect(mp.doc).toBe(mgr.metaDoc);
-
-      mgr.destroy();
-    }
-  );
-
-  it(
-    "returns disconnected for empty keys",
-    async () => {
-      const mgr = createSubdocManager(
-        IPNS, ["content"]
-      );
-      const sync = await setupNamespaceRooms(
-        IPNS, mgr, {}, SIGNALING
-      );
-
-      expect(sync.status).toBe("disconnected");
-      expect(mockProviderInstances).toHaveLength(0);
-
-      sync.destroy();
-      mgr.destroy();
-    }
-  );
-
-  it(
-    "throws for missing primary namespace key",
-    async () => {
-      const keys: Record<string, Uint8Array> = {
-        comments: makeKey(2),
-      };
-      const mgr = createSubdocManager(
-        IPNS, ["content", "comments"]
-      );
-
-      await expect(
-        setupNamespaceRooms(
-          IPNS, mgr, keys, SIGNALING,
-          { primaryNamespace: "content" }
-        )
-      ).rejects.toThrow(/Primary namespace/);
-
-      mgr.destroy();
-    }
-  );
-
-  it("aggregates status correctly", async () => {
-    const keys: Record<string, Uint8Array> = {
-      content: makeKey(1),
-    };
-    const mgr = createSubdocManager(
-      IPNS, ["content"]
-    );
-
-    const sync = await setupNamespaceRooms(
-      IPNS, mgr, keys, SIGNALING
-    );
-
-    expect(sync.status).toBe("connected");
-
-    // Disconnect one, other still connected
-    mockProviderInstances[0].shouldConnect = false;
-    mockProviderInstances[0].room = null;
-    expect(sync.status).toBe("connected");
-
-    // Disconnect all
-    for (const p of mockProviderInstances) {
-      p.shouldConnect = false;
-      p.room = null;
-    }
-    expect(sync.status).toBe("disconnected");
-
-    sync.destroy();
-    mgr.destroy();
-  });
-
-  it("destroy tears down all providers", async () => {
+  it("creates correct room names", () => {
     const keys: Record<string, Uint8Array> = {
       content: makeKey(1),
       comments: makeKey(2),
@@ -246,82 +93,241 @@ describe("setupNamespaceRooms", () => {
       IPNS, ["content", "comments"]
     );
 
-    const sync = await setupNamespaceRooms(
+    setupNamespaceRooms(
       IPNS, mgr, keys, SIGNALING
     );
-    const before = [...mockProviderInstances];
 
-    sync.destroy();
-
-    for (const p of before) {
-      expect(p.destroyed).toBe(true);
-    }
-    expect(sync.status).toBe("disconnected");
+    const names = instances.map((p) => p.roomName);
+    expect(names).toContain(`${IPNS}:content`);
+    expect(names).toContain(`${IPNS}:comments`);
+    expect(instances).toHaveLength(2);
 
     mgr.destroy();
   });
 
-  it(
-    "meta password is deterministic",
-    async () => {
+  it("uses hex-encoded keys as passwords", () => {
+    const keys: Record<string, Uint8Array> = {
+      content: makeKey(1),
+      comments: makeKey(2),
+    };
+    const mgr = createSubdocManager(
+      IPNS, ["content", "comments"]
+    );
+
+    setupNamespaceRooms(
+      IPNS, mgr, keys, SIGNALING
+    );
+
+    const cp = instances.find(
+      (p) => p.roomName === `${IPNS}:content`
+    )!;
+    expect(cp.password).toBe(
+      bytesToHex(keys.content)
+    );
+
+    const cmp = instances.find(
+      (p) => p.roomName === `${IPNS}:comments`
+    )!;
+    expect(cmp.password).toBe(
+      bytesToHex(keys.comments)
+    );
+
+    mgr.destroy();
+  });
+
+  it("forwards signaling URLs to providers", () => {
+    const keys: Record<string, Uint8Array> = {
+      content: makeKey(1),
+    };
+    const mgr = createSubdocManager(
+      IPNS, ["content"]
+    );
+
+    setupNamespaceRooms(
+      IPNS, mgr, keys, SIGNALING
+    );
+
+    for (const p of instances) {
+      expect(p.signaling).toEqual(SIGNALING);
+    }
+
+    mgr.destroy();
+  });
+
+  it("aggregates status: connected when all are",
+    () => {
+      const keys: Record<string, Uint8Array> = {
+        content: makeKey(1),
+        comments: makeKey(2),
+      };
+      const mgr = createSubdocManager(
+        IPNS, ["content", "comments"]
+      );
+
+      const sync = setupNamespaceRooms(
+        IPNS, mgr, keys, SIGNALING
+      );
+
+      // All connected by default
+      expect(sync.status).toBe("connected");
+
+      mgr.destroy();
+    }
+  );
+
+  it("aggregates status: connecting when any is",
+    () => {
+      const keys: Record<string, Uint8Array> = {
+        content: makeKey(1),
+        comments: makeKey(2),
+      };
+      const mgr = createSubdocManager(
+        IPNS, ["content", "comments"]
+      );
+
+      const sync = setupNamespaceRooms(
+        IPNS, mgr, keys, SIGNALING
+      );
+
+      // One still connecting (not yet connected)
+      instances[0].connected = false;
+      instances[0].shouldConnect = true;
+      expect(sync.status).toBe("connecting");
+
+      mgr.destroy();
+    }
+  );
+
+  it("aggregates status: disconnected when all are",
+    () => {
+      const keys: Record<string, Uint8Array> = {
+        content: makeKey(1),
+        comments: makeKey(2),
+      };
+      const mgr = createSubdocManager(
+        IPNS, ["content", "comments"]
+      );
+
+      const sync = setupNamespaceRooms(
+        IPNS, mgr, keys, SIGNALING
+      );
+
+      for (const p of instances) {
+        p.connected = false;
+        p.shouldConnect = false;
+      }
+      expect(sync.status).toBe("disconnected");
+
+      mgr.destroy();
+    }
+  );
+
+  it("aggregates status: disconnected for no keys",
+    () => {
+      const mgr = createSubdocManager(
+        IPNS, ["content"]
+      );
+
+      const sync = setupNamespaceRooms(
+        IPNS, mgr, {}, SIGNALING
+      );
+
+      expect(sync.status).toBe("disconnected");
+      expect(instances).toHaveLength(0);
+
+      mgr.destroy();
+    }
+  );
+
+  it("destroy disconnects and destroys all providers",
+    () => {
+      const keys: Record<string, Uint8Array> = {
+        content: makeKey(1),
+        comments: makeKey(2),
+      };
+      const mgr = createSubdocManager(
+        IPNS, ["content", "comments"]
+      );
+
+      const sync = setupNamespaceRooms(
+        IPNS, mgr, keys, SIGNALING
+      );
+      const before = [...instances];
+
+      sync.destroy();
+
+      for (const p of before) {
+        expect(p.disconnected).toBe(true);
+        expect(p.destroyed).toBe(true);
+      }
+      expect(sync.status).toBe("disconnected");
+
+      mgr.destroy();
+    }
+  );
+
+  it("uses correct subdoc for each namespace",
+    () => {
       const keys: Record<string, Uint8Array> = {
         content: makeKey(1),
       };
-      const mgr1 = createSubdocManager(
-        IPNS, ["content"]
-      );
-      const mgr2 = createSubdocManager(
+      const mgr = createSubdocManager(
         IPNS, ["content"]
       );
 
-      await setupNamespaceRooms(
-        IPNS, mgr1, keys, SIGNALING
+      setupNamespaceRooms(
+        IPNS, mgr, keys, SIGNALING
       );
-      const meta1 = mockProviderInstances.find(
-        (p) => p.roomName === `${IPNS}:_meta`
+
+      const cp = instances.find(
+        (p) => p.roomName === `${IPNS}:content`
       )!;
+      expect(cp.doc).toBe(mgr.subdoc("content"));
 
-      await setupNamespaceRooms(
-        IPNS, mgr2, keys, SIGNALING
-      );
-      const metas = mockProviderInstances.filter(
-        (p) => p.roomName === `${IPNS}:_meta`
-      );
-      const meta2 = metas[metas.length - 1];
-
-      expect(meta1.password).toBe(meta2.password);
-
-      mgr1.destroy();
-      mgr2.destroy();
+      mgr.destroy();
     }
   );
 });
 
 describe("setupAwarenessRoom", () => {
-  it("creates a provider on a dummy doc", () => {
+  it("creates correct room with password", () => {
     const room = setupAwarenessRoom(
-      IPNS, "abcdef", SIGNALING
+      IPNS, "abcdef01", SIGNALING
     );
 
-    expect(mockProviderInstances).toHaveLength(1);
-    const p = mockProviderInstances[0];
+    expect(instances).toHaveLength(1);
+    const p = instances[0];
 
     expect(p.roomName).toBe(`${IPNS}:awareness`);
-    expect(p.password).toBe("abcdef");
+    expect(p.password).toBe("abcdef01");
     expect(p.signaling).toEqual(SIGNALING);
-    expect(room.awareness).toBeInstanceOf(Awareness);
 
     room.destroy();
   });
 
-  it("destroy tears down provider", () => {
+  it("exposes provider awareness", () => {
     const room = setupAwarenessRoom(
-      IPNS, "abcdef", SIGNALING
+      IPNS, "abcdef01", SIGNALING
     );
-    const p = mockProviderInstances[0];
+
+    expect(room.awareness).toBe(
+      instances[0].awareness
+    );
 
     room.destroy();
-
-    expect(p.destroyed).toBe(true);
   });
+
+  it("destroy cleans up provider and dummy doc",
+    () => {
+      const room = setupAwarenessRoom(
+        IPNS, "abcdef01", SIGNALING
+      );
+      const p = instances[0];
+
+      room.destroy();
+
+      expect(p.disconnected).toBe(true);
+      expect(p.destroyed).toBe(true);
+    }
+  );
 });
