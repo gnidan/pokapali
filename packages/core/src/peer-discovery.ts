@@ -1,4 +1,5 @@
 import type { Helia } from "helia";
+import { multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
@@ -103,6 +104,7 @@ export function startRoomDiscovery(
 
         log(
           `relay ...${short}, dialing...`,
+          `(${addrs.length})`,
           addrs.length ? addrs : "(no addrs)",
         );
         try {
@@ -111,9 +113,27 @@ export function startRoomDiscovery(
             () => dialCtrl.abort(),
             DIAL_TIMEOUT_MS,
           );
-          await helia.libp2p.dial(provider.id, {
-            signal: dialCtrl.signal,
-          });
+          // Dial using multiaddrs from the provider
+          // so libp2p doesn't rely on the peer store.
+          const p2pSuffix = `/p2p/${pid}`;
+          const mas = (provider.multiaddrs ?? []).map(
+            (ma: any) => {
+              const s = ma.toString();
+              // Append peer ID if not already present
+              return s.includes("/p2p/")
+                ? multiaddr(s)
+                : multiaddr(s + p2pSuffix);
+            },
+          );
+          if (mas.length > 0) {
+            await helia.libp2p.dial(mas, {
+              signal: dialCtrl.signal,
+            });
+          } else {
+            await helia.libp2p.dial(provider.id, {
+              signal: dialCtrl.signal,
+            });
+          }
           clearTimeout(dialTimer);
           log(`relay ...${short} OK`);
         } catch (err) {
