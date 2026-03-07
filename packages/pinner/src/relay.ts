@@ -84,121 +84,12 @@ export async function startRelay(
   const privateKey = await loadOrCreateKey(
     config.storagePath,
   );
-  // Phase 1: Start on random ports with no peer
-  // discovery. The known ports (4001, 4003) attract
-  // inbound DHT connections from previous announces,
-  // which saturate the CPU and block autoTLS cert
-  // provisioning. We start on ephemeral ports, get
-  // the cert, then stop and restart on real ports.
   const datastore = new LevelDatastore(
     join(config.storagePath, "datastore"),
   );
   await datastore.open();
 
-  // Cert-provisioning node: ephemeral ports, no
-  // discovery, minimal connections.
-  const certDefaults = libp2pDefaults();
-  const certNode = await createHelia({
-    datastore,
-    libp2p: {
-      ...certDefaults,
-      privateKey,
-      addresses: {
-        ...certDefaults.addresses,
-        listen: [
-          "/ip4/0.0.0.0/tcp/0",
-          "/ip6/::/tcp/0",
-        ],
-        announce: config.announceAddrs,
-      },
-      peerDiscovery: [],
-      connectionManager: {
-        ...certDefaults.connectionManager,
-        maxConnections: 5,
-        minConnections: 0,
-        maxIncomingPendingConnections: 2,
-      },
-      services: {
-        ...certDefaults.services,
-        pubsub: gossipsub(),
-        autoTLS: autoTLS({
-          autoConfirmAddress: true,
-        }),
-      },
-    },
-  }) as Helia;
-
-  log("cert node started, peer ID:", certNode.libp2p.peerId);
-
-  // Dial one bootstrap peer to trigger address
-  // observation → self:peer:update → autoTLS.
-  const { multiaddr } = await import(
-    "@multiformats/multiaddr"
-  );
-  const bootstrapAddrs = [
-    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-    "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-    "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-  ];
-  log("dialing bootstrap peer for address observation...");
-  for (const addr of bootstrapAddrs) {
-    try {
-      await certNode.libp2p.dial(multiaddr(addr));
-      log(
-        "  dialed",
-        addr.split("/p2p/")[1]?.slice(0, 12),
-      );
-      break;
-    } catch {
-      log(
-        "  failed to dial",
-        addr.split("/p2p/")[1]?.slice(0, 12),
-      );
-    }
-  }
-
-  // Wait for autoTLS cert (or timeout). The ephemeral
-  // ports prevent the inbound DHT flood, keeping the
-  // event loop free for ACME HTTP requests.
-  const CERT_WAIT_MS = 120_000;
-  const certObtained = await new Promise<boolean>(
-    (resolve) => {
-      const timer = setTimeout(() => {
-        log("autoTLS timeout, proceeding without WSS");
-        resolve(false);
-      }, CERT_WAIT_MS);
-      certNode.libp2p.addEventListener(
-        "certificate:provision",
-        () => {
-          clearTimeout(timer);
-          log("certificate obtained!");
-          resolve(true);
-        },
-        { once: true },
-      );
-    },
-  );
-
-  if (certObtained) {
-    const wssAddrs = certNode.libp2p
-      .getMultiaddrs()
-      .filter((ma) => ma.toString().includes("/tls/"));
-    for (const a of wssAddrs) {
-      log("  WSS:", a.toString());
-    }
-  }
-
-  // Stop the cert node — it served its purpose.
-  await certNode.stop();
-  // Reopen the datastore (Helia may have closed it).
-  await datastore.close();
-  await datastore.open();
-  log("cert node stopped, datastore reopened");
-
-  // Phase 2: Start the real relay on the known ports
-  // with full connection limits. The cert is persisted
-  // in the datastore; autoTLS will load it on the
-  // first self:peer:update.
+  // Use fixed ports so firewall rules are predictable.
   const listen = [
     "/ip4/0.0.0.0/tcp/4001",
     "/ip6/::/tcp/4001",
@@ -207,26 +98,26 @@ export async function startRelay(
     "/p2p-circuit",
   ];
 
-  const relayDefaults = libp2pDefaults();
+  const defaults = libp2pDefaults();
   const helia = await createHelia({
     datastore,
     libp2p: {
-      ...relayDefaults,
+      ...defaults,
       privateKey,
       addresses: {
-        ...relayDefaults.addresses,
+        ...defaults.addresses,
         listen,
         announce: config.announceAddrs,
       },
       peerDiscovery: [],
       connectionManager: {
-        ...relayDefaults.connectionManager,
+        ...defaults.connectionManager,
         maxConnections: MAX_CONNECTIONS,
         minConnections: MIN_CONNECTIONS,
         maxIncomingPendingConnections: 10,
       },
       services: {
-        ...relayDefaults.services,
+        ...defaults.services,
         pubsub: gossipsub(),
         autoTLS: autoTLS({
           autoConfirmAddress: true,
@@ -235,15 +126,24 @@ export async function startRelay(
     },
   }) as Helia;
 
-  log("relay started, peer ID:", helia.libp2p.peerId);
+  log("started, peer ID:", helia.libp2p.peerId);
 
   const addrs = helia.libp2p.getMultiaddrs();
   for (const ma of addrs) {
     log("  listening:", ma.toString());
   }
 
-  // Connect to bootstrap peers for DHT/GossipSub.
-  log("connecting to bootstrap peers...");
+  // Dial bootstrap peers to trigger address observation
+  // → self:peer:update → autoTLS cert provisioning.
+  const { multiaddr } = await import(
+    "@multiformats/multiaddr"
+  );
+  const bootstrapAddrs = [
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+  ];
+  log("dialing bootstrap peers...");
   for (const addr of bootstrapAddrs) {
     try {
       await helia.libp2p.dial(multiaddr(addr));
@@ -256,6 +156,37 @@ export async function startRelay(
         "  failed to dial",
         addr.split("/p2p/")[1]?.slice(0, 12),
       );
+    }
+  }
+
+  // Wait for autoTLS cert (or timeout). The forge needs
+  // to dial back to verify our identity, so we must be
+  // listening on the announced addresses.
+  const CERT_WAIT_MS = 120_000;
+  const certObtained = await new Promise<boolean>(
+    (resolve) => {
+      const timer = setTimeout(() => {
+        log("autoTLS timeout, proceeding without WSS");
+        resolve(false);
+      }, CERT_WAIT_MS);
+      helia.libp2p.addEventListener(
+        "certificate:provision",
+        () => {
+          clearTimeout(timer);
+          log("certificate obtained!");
+          resolve(true);
+        },
+        { once: true },
+      );
+    },
+  );
+
+  if (certObtained) {
+    const wssAddrs = helia.libp2p
+      .getMultiaddrs()
+      .filter((ma) => ma.toString().includes("/tls/"));
+    for (const a of wssAddrs) {
+      log("  WSS:", a.toString());
     }
   }
 
