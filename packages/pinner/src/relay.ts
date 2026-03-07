@@ -300,13 +300,21 @@ export async function startRelay(
       (t: string) => pubsub.getSubscribers(t)
         .map((p: any) => `${t}:${p.toString().slice(-8)}`),
     );
+    // Check internal mesh state
+    const mesh = (pubsub as any).mesh as
+      Map<string, Set<string>> | undefined;
+    const meshInfo = mesh
+      ? [...mesh.entries()].map(
+          ([t, s]) => `${t}:${s.size}`,
+        )
+      : "no-mesh";
     log(
       `${conns.length} conns,`,
       `${peers.length} peers,`,
-      `${ma.length} addrs,`,
-      `gs-peers: ${gsPeers.length},`,
-      `gs-subs: ${gsSubs.length}`,
-      gsSubs.length > 0 ? gsSubs : "",
+      `gs: ${gsPeers.length} peers,`,
+      `${gsSubs.length} subs,`,
+      `topics: ${gsTopics},`,
+      `mesh: ${meshInfo}`,
     );
     if (ma.length !== lastAddrCount) {
       lastAddrCount = ma.length;
