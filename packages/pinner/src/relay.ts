@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { createHelia, libp2pDefaults } from "helia";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
 import { autoTLS } from "@ipshipyard/libp2p-auto-tls";
+import { kadDHT } from "@libp2p/kad-dht";
+import { ipnsValidator } from "ipns/validator";
+import { ipnsSelector } from "ipns/selector";
 import { LevelDatastore } from "datastore-level";
 import {
   generateKeyPair,
@@ -14,9 +17,10 @@ import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
-// After autoTLS cert is obtained we can accept more peers.
-// DHT peers fill ~50 slots; browsers need room too.
-const MAX_CONNECTIONS = 200;
+// Even with client-mode DHT, peers accumulate via
+// identify/ping. Set high enough that the connection
+// manager doesn't reject browsers.
+const MAX_CONNECTIONS = 512;
 
 const DISCOVERY_TOPIC =
   "pokapali._peer-discovery._p2p._pubsub";
@@ -123,13 +127,28 @@ export async function startRelay(
         maxConnections: MAX_CONNECTIONS,
         maxIncomingPendingConnections: 10,
       },
-      services: {
-        ...defaults.services,
-        pubsub: gossipsub(),
-        autoTLS: autoTLS({
-          autoConfirmAddress: true,
-        }),
-      },
+      services: (() => {
+        const svc = {
+          ...defaults.services,
+          // Client-mode DHT: we provide records but don't
+          // serve DHT queries, avoiding inbound
+          // connections from DHT walkers.
+          dht: kadDHT({
+            clientMode: true,
+            validators: { ipns: ipnsValidator },
+            selectors: { ipns: ipnsSelector },
+          }),
+          pubsub: gossipsub(),
+          autoTLS: autoTLS({
+            autoConfirmAddress: true,
+          }),
+        };
+        // Remove circuit relay server — we don't need to
+        // relay for the IPFS network, it floods us with
+        // connections.
+        delete (svc as any).relay;
+        return svc;
+      })(),
     },
   }) as Helia;
 
