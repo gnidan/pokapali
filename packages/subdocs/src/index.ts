@@ -28,5 +28,136 @@ export function createSubdocManager(
   namespaces: string[],
   options?: SubdocManagerOptions
 ): SubdocManager {
-  throw new Error("not implemented");
+  const primaryNamespace =
+    options?.primaryNamespace ?? namespaces[0];
+
+  const docs = new Map<string, Y.Doc>();
+  let dirty = false;
+  let destroyed = false;
+  const dirtyListeners = new Set<() => void>();
+
+  // Create docs for each namespace + _meta
+  const allKeys = [...namespaces, "_meta"];
+  for (const key of allKeys) {
+    const guid = `${ipnsName}:${key}`;
+    const doc = new Y.Doc({ guid, gc: true });
+    docs.set(key, doc);
+  }
+
+  // Track updates for dirty flag
+  const updateHandlers = new Map<
+    string,
+    (update: Uint8Array, origin: unknown) => void
+  >();
+
+  for (const [key, doc] of docs) {
+    const handler = (
+      _update: Uint8Array,
+      origin: unknown
+    ) => {
+      if (
+        origin === SNAPSHOT_ORIGIN ||
+        origin === INDEXEDDB_ORIGIN
+      ) {
+        return;
+      }
+      if (!dirty) {
+        dirty = true;
+        for (const cb of dirtyListeners) {
+          cb();
+        }
+      }
+    };
+    updateHandlers.set(key, handler);
+    doc.on("update", handler);
+  }
+
+  // Load all docs and build whenLoaded promise.
+  // For root docs without a provider, load()
+  // alone won't fire the 'load' event, so we
+  // emit it manually after calling load().
+  const loadPromises: Promise<void>[] = [];
+  for (const doc of docs.values()) {
+    loadPromises.push(
+      doc.whenLoaded.then(() => {})
+    );
+    doc.load();
+    doc.emit("load", [doc]);
+  }
+  const whenLoaded = Promise.all(loadPromises).then(
+    () => {}
+  );
+
+  return {
+    subdoc(ns: string): Y.Doc {
+      const doc = docs.get(ns);
+      if (!doc) {
+        throw new Error(
+          `Unknown namespace: ${ns}`
+        );
+      }
+      return doc;
+    },
+
+    get metaDoc(): Y.Doc {
+      return docs.get("_meta")!;
+    },
+
+    encodeAll(): Record<string, Uint8Array> {
+      const result: Record<string, Uint8Array> = {};
+      for (const [key, doc] of docs) {
+        result[key] =
+          Y.encodeStateAsUpdate(doc);
+      }
+      dirty = false;
+      return result;
+    },
+
+    applySnapshot(
+      data: Record<string, Uint8Array>
+    ): void {
+      for (const [key, update] of
+        Object.entries(data)) {
+        const doc = docs.get(key);
+        if (doc) {
+          Y.applyUpdate(
+            doc,
+            update,
+            SNAPSHOT_ORIGIN
+          );
+        }
+      }
+    },
+
+    get isDirty(): boolean {
+      return dirty;
+    },
+
+    on(event: "dirty", cb: () => void): void {
+      dirtyListeners.add(cb);
+    },
+
+    off(event: "dirty", cb: () => void): void {
+      dirtyListeners.delete(cb);
+    },
+
+    get whenLoaded(): Promise<void> {
+      return whenLoaded;
+    },
+
+    destroy(): void {
+      if (destroyed) return;
+      destroyed = true;
+      for (const [key, doc] of docs) {
+        const handler = updateHandlers.get(key);
+        if (handler) {
+          doc.off("update", handler);
+        }
+        doc.destroy();
+      }
+      updateHandlers.clear();
+      dirty = false;
+      dirtyListeners.clear();
+    },
+  };
 }
