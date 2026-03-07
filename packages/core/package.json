@@ -14,6 +14,7 @@
     "@pokapali/subdocs": "0.0.0",
     "@pokapali/snapshot": "0.0.0",
     "@pokapali/sync": "0.0.0",
+    "@ipld/dag-cbor": "^9.2.0",
     "helia": "^5.1.0",
     "@helia/ipns": "^8.0.0",
     "y-indexeddb": "^9.0.12",

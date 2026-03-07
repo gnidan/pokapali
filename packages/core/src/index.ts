@@ -19,8 +19,15 @@ import {
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createSubdocManager } from "@pokapali/subdocs";
 import type { SubdocManager } from "@pokapali/subdocs";
-import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
-import type { SyncManager, AwarenessRoom, SyncOptions } from "@pokapali/sync";
+import {
+  setupNamespaceRooms,
+  setupAwarenessRoom,
+} from "@pokapali/sync";
+import type {
+  SyncManager,
+  AwarenessRoom,
+  SyncOptions,
+} from "@pokapali/sync";
 import {
   encodeSnapshot,
   decodeSnapshot,
@@ -29,6 +36,14 @@ import {
 } from "@pokapali/snapshot";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
+import {
+  createForwardingRecord,
+  encodeForwardingRecord,
+  storeForwardingRecord,
+  lookupForwardingRecord,
+  decodeForwardingRecord,
+  verifyForwardingRecord,
+} from "./forwarding.js";
 
 const DAG_CBOR_CODE = 0x71;
 
@@ -48,6 +63,11 @@ export type DocStatus =
   | "offline"
   | "unpushed-changes";
 
+export interface RotateResult {
+  newDoc: CollabDoc;
+  forwardingRecord: Uint8Array;
+}
+
 export interface CollabDoc {
   subdoc(ns: string): Y.Doc;
   readonly provider: {
@@ -61,12 +81,25 @@ export interface CollabDoc {
   inviteUrl(grant: CapabilityGrant): Promise<string>;
   readonly status: DocStatus;
   pushSnapshot(): Promise<void>;
-  on(event: "status", cb: (status: DocStatus) => void): void;
+  rotate(): Promise<RotateResult>;
+  on(
+    event: "status",
+    cb: (status: DocStatus) => void,
+  ): void;
   on(event: "snapshot-recommended", cb: () => void): void;
   on(event: "snapshot-applied", cb: () => void): void;
-  off(event: "status", cb: (status: DocStatus) => void): void;
-  off(event: "snapshot-recommended", cb: () => void): void;
-  off(event: "snapshot-applied", cb: () => void): void;
+  off(
+    event: "status",
+    cb: (status: DocStatus) => void,
+  ): void;
+  off(
+    event: "snapshot-recommended",
+    cb: () => void,
+  ): void;
+  off(
+    event: "snapshot-applied",
+    cb: () => void,
+  ): void;
   history(): Promise<
     Array<{
       cid: CID;
@@ -84,12 +117,21 @@ export interface CollabLib {
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(
+    bytes,
+    (b) => b.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
-type SyncStatus = "connecting" | "connected" | "disconnected";
+type SyncStatus =
+  | "connecting"
+  | "connected"
+  | "disconnected";
 
-function computeStatus(syncStatus: SyncStatus, isDirty: boolean): DocStatus {
+function computeStatus(
+  syncStatus: SyncStatus,
+  isDirty: boolean,
+): DocStatus {
   if (syncStatus === "disconnected") return "offline";
   if (syncStatus === "connecting") return "connecting";
   if (isDirty) return "unpushed-changes";
@@ -110,9 +152,15 @@ interface CollabDocParams {
   readUrl: string;
   signingKey: Ed25519KeyPair | null;
   readKey: CryptoKey | undefined;
+  appId: string;
+  primaryNamespace: string;
+  signalingUrls: string[];
+  syncOpts?: SyncOptions;
 }
 
-function createCollabDoc(params: CollabDocParams): CollabDoc {
+function createCollabDoc(
+  params: CollabDocParams,
+): CollabDoc {
   const {
     subdocManager,
     syncManager,
@@ -139,10 +187,16 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
     }
   }
 
-  let lastStatus = computeStatus(syncManager.status, subdocManager.isDirty);
+  let lastStatus = computeStatus(
+    syncManager.status,
+    subdocManager.isDirty,
+  );
 
   function checkStatus() {
-    const next = computeStatus(syncManager.status, subdocManager.isDirty);
+    const next = computeStatus(
+      syncManager.status,
+      subdocManager.isDirty,
+    );
     if (next !== lastStatus) {
       lastStatus = next;
       emit("status", next);
@@ -196,20 +250,27 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
     writeUrl: params.writeUrl,
     readUrl: params.readUrl,
 
-    async inviteUrl(grant: CapabilityGrant): Promise<string> {
+    async inviteUrl(
+      grant: CapabilityGrant,
+    ): Promise<string> {
       assertNotDestroyed();
       if (grant.namespaces) {
         for (const ns of grant.namespaces) {
           if (!cap.namespaces.has(ns)) {
             throw new Error(
-              `Cannot grant "${ns}" ` + "— not in own capability",
+              `Cannot grant "${ns}" ` +
+                "— not in own capability",
             );
           }
         }
       }
-      if (grant.canPushSnapshots && !cap.canPushSnapshots) {
+      if (
+        grant.canPushSnapshots &&
+        !cap.canPushSnapshots
+      ) {
         throw new Error(
-          "Cannot grant canPushSnapshots " + "— not in own capability",
+          "Cannot grant canPushSnapshots " +
+            "— not in own capability",
         );
       }
       const narrowed = narrowCapability(keys, grant);
@@ -217,12 +278,19 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
     },
 
     get status(): DocStatus {
-      return computeStatus(syncManager.status, subdocManager.isDirty);
+      return computeStatus(
+        syncManager.status,
+        subdocManager.isDirty,
+      );
     },
 
     async pushSnapshot(): Promise<void> {
       assertNotDestroyed();
-      if (!cap.canPushSnapshots || !signingKey || !readKey) {
+      if (
+        !cap.canPushSnapshots ||
+        !signingKey ||
+        !readKey
+      ) {
         return;
       }
       const plaintext = subdocManager.encodeAll();
@@ -240,6 +308,152 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
       prev = cid;
       seq++;
       checkStatus();
+    },
+
+    async rotate(): Promise<RotateResult> {
+      assertNotDestroyed();
+      if (!cap.isAdmin || !keys.rotationKey) {
+        throw new Error(
+          "Only admins can rotate" +
+            " (requires rotationKey)",
+        );
+      }
+
+      const newAdminSecret = generateAdminSecret();
+      const newDocKeys = await deriveDocKeys(
+        newAdminSecret,
+        params.appId,
+        namespaces,
+      );
+
+      const newSigningKey =
+        await ed25519KeyPairFromSeed(
+          newDocKeys.ipnsKeyBytes,
+        );
+      const newIpnsName = bytesToHex(
+        newSigningKey.publicKey,
+      );
+
+      // Copy current state to new subdoc manager
+      const newSubdocManager = createSubdocManager(
+        newIpnsName,
+        namespaces,
+        {
+          primaryNamespace: params.primaryNamespace,
+        },
+      );
+      const snapshot = subdocManager.encodeAll();
+      newSubdocManager.applySnapshot(snapshot);
+
+      const newSyncManager = setupNamespaceRooms(
+        newIpnsName,
+        newSubdocManager,
+        newDocKeys.namespaceKeys,
+        params.signalingUrls,
+        params.syncOpts,
+      );
+
+      const newAwarenessRoom = setupAwarenessRoom(
+        newIpnsName,
+        newDocKeys.awarenessRoomPassword,
+        params.signalingUrls,
+        params.syncOpts,
+      );
+
+      const newKeys: CapabilityKeys = {
+        readKey: newDocKeys.readKey,
+        ipnsKeyBytes: newDocKeys.ipnsKeyBytes,
+        rotationKey: newDocKeys.rotationKey,
+        awarenessRoomPassword:
+          newDocKeys.awarenessRoomPassword,
+        namespaceKeys: newDocKeys.namespaceKeys,
+      };
+
+      const newAdminUrl = await buildUrl(
+        base,
+        newIpnsName,
+        newKeys,
+      );
+      const newWriteUrl = await buildUrl(
+        base,
+        newIpnsName,
+        narrowCapability(newKeys, {
+          namespaces: [...namespaces],
+          canPushSnapshots: true,
+        }),
+      );
+      const newReadUrl = await buildUrl(
+        base,
+        newIpnsName,
+        narrowCapability(newKeys, {
+          namespaces: [],
+        }),
+      );
+
+      const newCap = inferCapability(
+        newKeys,
+        namespaces,
+      );
+
+      // Populate _meta on new doc
+      const newMeta = newSubdocManager.metaDoc;
+      const canPush =
+        newMeta.getArray<Uint8Array>(
+          "canPushSnapshots",
+        );
+      canPush.push([newSigningKey.publicKey]);
+      const authorized =
+        newMeta.getMap("authorized");
+      for (const [ns, key] of Object.entries(
+        newDocKeys.namespaceKeys,
+      )) {
+        const arr = new Y.Array<Uint8Array>();
+        authorized.set(ns, arr);
+        arr.push([key]);
+      }
+
+      const newDoc = createCollabDoc({
+        subdocManager: newSubdocManager,
+        syncManager: newSyncManager,
+        awarenessRoom: newAwarenessRoom,
+        cap: newCap,
+        keys: newKeys,
+        ipnsName: newIpnsName,
+        base,
+        namespaces,
+        adminUrl: newAdminUrl,
+        writeUrl: newWriteUrl,
+        readUrl: newReadUrl,
+        signingKey: newSigningKey,
+        readKey: newDocKeys.readKey,
+        appId: params.appId,
+        primaryNamespace: params.primaryNamespace,
+        signalingUrls: params.signalingUrls,
+        syncOpts: params.syncOpts,
+      });
+
+      // Create and store forwarding record
+      const fwdRecord =
+        await createForwardingRecord(
+          ipnsName,
+          newIpnsName,
+          newReadUrl,
+          keys.rotationKey,
+        );
+      const encoded =
+        encodeForwardingRecord(fwdRecord);
+      storeForwardingRecord(ipnsName, encoded);
+
+      // Destroy old doc
+      destroyed = true;
+      syncManager.destroy();
+      awarenessRoom.destroy();
+      subdocManager.destroy();
+
+      return {
+        newDoc,
+        forwardingRecord: encoded,
+      };
     },
 
     on(
@@ -268,7 +482,9 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
       const getter = async (cid: CID) => {
         const block = blocks.get(cid.toString());
         if (!block) {
-          throw new Error("Block not found: " + cid.toString());
+          throw new Error(
+            "Block not found: " + cid.toString(),
+          );
         }
         return block;
       };
@@ -279,7 +495,10 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
         ts: number;
       }> = [];
       let currentCid: CID | null = prev;
-      for await (const node of walkChain(prev, getter)) {
+      for await (const node of walkChain(
+        prev,
+        getter,
+      )) {
         entries.push({
           cid: currentCid!,
           seq: node.seq,
@@ -294,15 +513,22 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
       assertNotDestroyed();
       const block = blocks.get(cid.toString());
       if (!block) {
-        throw new Error("Unknown CID: " + cid.toString());
+        throw new Error(
+          "Unknown CID: " + cid.toString(),
+        );
       }
       if (!readKey) {
         throw new Error("No readKey available");
       }
       const node = decodeSnapshot(block);
-      const plaintext = await decryptSnapshot(node, readKey);
+      const plaintext = await decryptSnapshot(
+        node,
+        readKey,
+      );
       const result: Record<string, Y.Doc> = {};
-      for (const [ns, bytes] of Object.entries(plaintext)) {
+      for (const [ns, bytes] of Object.entries(
+        plaintext,
+      )) {
         const doc = new Y.Doc();
         Y.applyUpdate(doc, bytes);
         result[ns] = doc;
@@ -320,26 +546,45 @@ function createCollabDoc(params: CollabDocParams): CollabDoc {
   } as CollabDoc;
 }
 
-export function createCollabLib(options: CollabLibOptions): CollabLib {
+export function createCollabLib(
+  options: CollabLibOptions,
+): CollabLib {
   const { namespaces, base } = options;
   const appId = options.appId ?? "";
-  const primaryNamespace = options.primaryNamespace ?? namespaces[0];
-  const signalingUrls = options.signalingUrls ?? ["wss://signaling.yjs.dev"];
-  const syncOpts: SyncOptions | undefined = options.peerOpts
-    ? { peerOpts: options.peerOpts }
-    : undefined;
+  const primaryNamespace =
+    options.primaryNamespace ?? namespaces[0];
+  const signalingUrls = options.signalingUrls ?? [
+    "wss://signaling.yjs.dev",
+  ];
+  const syncOpts: SyncOptions | undefined =
+    options.peerOpts
+      ? { peerOpts: options.peerOpts }
+      : undefined;
 
   return {
     async create(): Promise<CollabDoc> {
       const adminSecret = generateAdminSecret();
-      const docKeys = await deriveDocKeys(adminSecret, appId, namespaces);
+      const docKeys = await deriveDocKeys(
+        adminSecret,
+        appId,
+        namespaces,
+      );
 
-      const signingKey = await ed25519KeyPairFromSeed(docKeys.ipnsKeyBytes);
-      const ipnsName = bytesToHex(signingKey.publicKey);
+      const signingKey =
+        await ed25519KeyPairFromSeed(
+          docKeys.ipnsKeyBytes,
+        );
+      const ipnsName = bytesToHex(
+        signingKey.publicKey,
+      );
 
-      const subdocManager = createSubdocManager(ipnsName, namespaces, {
-        primaryNamespace,
-      });
+      const subdocManager = createSubdocManager(
+        ipnsName,
+        namespaces,
+        {
+          primaryNamespace,
+        },
+      );
 
       const syncManager = setupNamespaceRooms(
         ipnsName,
@@ -360,11 +605,16 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
         readKey: docKeys.readKey,
         ipnsKeyBytes: docKeys.ipnsKeyBytes,
         rotationKey: docKeys.rotationKey,
-        awarenessRoomPassword: docKeys.awarenessRoomPassword,
+        awarenessRoomPassword:
+          docKeys.awarenessRoomPassword,
         namespaceKeys: docKeys.namespaceKeys,
       };
 
-      const adminUrl = await buildUrl(base, ipnsName, fullKeys);
+      const adminUrl = await buildUrl(
+        base,
+        ipnsName,
+        fullKeys,
+      );
       const writeUrl = await buildUrl(
         base,
         ipnsName,
@@ -381,14 +631,23 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
         }),
       );
 
-      const cap = inferCapability(fullKeys, namespaces);
+      const cap = inferCapability(
+        fullKeys,
+        namespaces,
+      );
 
       // Populate _meta doc
       const meta = subdocManager.metaDoc;
-      const canPush = meta.getArray<Uint8Array>("canPushSnapshots");
+      const canPush =
+        meta.getArray<Uint8Array>(
+          "canPushSnapshots",
+        );
       canPush.push([signingKey.publicKey]);
-      const authorized = meta.getMap("authorized");
-      for (const [ns, key] of Object.entries(docKeys.namespaceKeys)) {
+      const authorized =
+        meta.getMap("authorized");
+      for (const [ns, key] of Object.entries(
+        docKeys.namespaceKeys,
+      )) {
         const arr = new Y.Array<Uint8Array>();
         authorized.set(ns, arr);
         arr.push([key]);
@@ -408,6 +667,10 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
         readUrl,
         signingKey,
         readKey: docKeys.readKey,
+        appId,
+        primaryNamespace,
+        signalingUrls,
+        syncOpts,
       });
     },
 
@@ -415,11 +678,40 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
       const parsed = await parseUrl(url);
       const { ipnsName, keys } = parsed;
 
-      const cap = inferCapability(keys, namespaces);
+      // Check for forwarding record
+      const fwdBytes =
+        lookupForwardingRecord(ipnsName);
+      if (fwdBytes) {
+        const fwd =
+          decodeForwardingRecord(fwdBytes);
+        if (keys.rotationKey) {
+          const valid =
+            await verifyForwardingRecord(
+              fwd,
+              keys.rotationKey,
+            );
+          if (!valid) {
+            throw new Error(
+              "Invalid forwarding record" +
+                " signature",
+            );
+          }
+        }
+        return this.open(fwd.newUrl);
+      }
 
-      const subdocManager = createSubdocManager(ipnsName, namespaces, {
-        primaryNamespace,
-      });
+      const cap = inferCapability(
+        keys,
+        namespaces,
+      );
+
+      const subdocManager = createSubdocManager(
+        ipnsName,
+        namespaces,
+        {
+          primaryNamespace,
+        },
+      );
 
       const nsKeys = keys.namespaceKeys ?? {};
       const syncManager = setupNamespaceRooms(
@@ -460,7 +752,10 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
 
       let signingKey: Ed25519KeyPair | null = null;
       if (keys.ipnsKeyBytes) {
-        signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+        signingKey =
+          await ed25519KeyPairFromSeed(
+            keys.ipnsKeyBytes,
+          );
       }
 
       return createCollabDoc({
@@ -477,7 +772,21 @@ export function createCollabLib(options: CollabLibOptions): CollabLib {
         readUrl,
         signingKey,
         readKey: keys.readKey,
+        appId,
+        primaryNamespace,
+        signalingUrls,
+        syncOpts,
       });
     },
   };
 }
+
+export {
+  encodeForwardingRecord,
+  decodeForwardingRecord,
+  verifyForwardingRecord,
+  clearForwardingStore,
+} from "./forwarding.js";
+export type {
+  ForwardingRecord,
+} from "./forwarding.js";
