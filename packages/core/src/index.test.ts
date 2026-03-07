@@ -28,7 +28,14 @@ vi.mock("./helia.js", () => ({
     getSubscribers: vi.fn(() => []),
     getTopics: vi.fn(() => []),
   })),
+  getHelia: vi.fn(() => ({})),
   _resetHeliaState: vi.fn(),
+}));
+
+vi.mock("./peer-discovery.js", () => ({
+  startRoomDiscovery: vi.fn(() => ({
+    stop: vi.fn(),
+  })),
 }));
 
 vi.mock("@pokapali/sync", () => ({

@@ -49,9 +49,19 @@ import {
   acquireHelia,
   releaseHelia,
   getHeliaPubsub,
+  getHelia,
 } from "./helia.js";
+import {
+  startRoomDiscovery,
+} from "./peer-discovery.js";
+import type { RoomDiscovery } from "./peer-discovery.js";
 
 const DAG_CBOR_CODE = 0x71;
+
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
 
 export interface CollabLibOptions {
   appId?: string;
@@ -164,6 +174,7 @@ interface CollabDocParams {
   signalingUrls: string[];
   syncOpts?: SyncOptions;
   pubsub?: PubSubLike;
+  roomDiscovery?: RoomDiscovery;
 }
 
 function createCollabDoc(
@@ -427,6 +438,23 @@ function createCollabDoc(
         arr.push([key]);
       }
 
+      const newRoomTopics = [
+        ...Object.keys(newDocKeys.namespaceKeys)
+          .map(ns =>
+            `/pokapali/signal/${newIpnsName}:${ns}`
+          ),
+        `/pokapali/signal/${newIpnsName}:awareness`,
+      ];
+      let newRoomDiscovery: RoomDiscovery | undefined;
+      try {
+        newRoomDiscovery = startRoomDiscovery(
+          getHelia(),
+          newRoomTopics,
+        );
+      } catch {
+        // Helia may not be available
+      }
+
       const newDoc = createCollabDoc({
         subdocManager: newSubdocManager,
         syncManager: newSyncManager,
@@ -446,6 +474,7 @@ function createCollabDoc(
         signalingUrls: params.signalingUrls,
         syncOpts: params.syncOpts,
         pubsub: params.pubsub,
+        roomDiscovery: newRoomDiscovery,
       });
 
       // Create and store forwarding record
@@ -462,6 +491,7 @@ function createCollabDoc(
 
       // Destroy old doc
       destroyed = true;
+      params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
       subdocManager.destroy();
@@ -556,6 +586,7 @@ function createCollabDoc(
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
       subdocManager.destroy();
@@ -580,10 +611,14 @@ export function createCollabLib(
       const pubsub =
         getHeliaPubsub() as unknown as PubSubLike;
 
+      const userIce =
+        options.peerOpts?.config?.iceServers;
       const syncOpts: SyncOptions = {
-        ...(options.peerOpts
-          ? { peerOpts: options.peerOpts }
-          : {}),
+        peerOpts: {
+          config: {
+            iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+          },
+        },
         pubsub,
       };
 
@@ -623,6 +658,16 @@ export function createCollabLib(
         docKeys.awarenessRoomPassword,
         signalingUrls,
         syncOpts,
+      );
+
+      const roomTopics = [
+        ...Object.keys(docKeys.namespaceKeys)
+          .map(ns => `/pokapali/signal/${ipnsName}:${ns}`),
+        `/pokapali/signal/${ipnsName}:awareness`,
+      ];
+      const roomDiscovery = startRoomDiscovery(
+        getHelia(),
+        roomTopics,
       );
 
       const fullKeys: CapabilityKeys = {
@@ -696,6 +741,7 @@ export function createCollabLib(
         signalingUrls,
         syncOpts,
         pubsub,
+        roomDiscovery,
       });
     },
 
@@ -729,10 +775,14 @@ export function createCollabLib(
       const pubsub =
         getHeliaPubsub() as unknown as PubSubLike;
 
+      const userIce =
+        options.peerOpts?.config?.iceServers;
       const syncOpts: SyncOptions = {
-        ...(options.peerOpts
-          ? { peerOpts: options.peerOpts }
-          : {}),
+        peerOpts: {
+          config: {
+            iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+          },
+        },
         pubsub,
       };
 
@@ -763,6 +813,16 @@ export function createCollabLib(
         keys.awarenessRoomPassword ?? "",
         signalingUrls,
         syncOpts,
+      );
+
+      const roomTopics = [
+        ...Object.keys(nsKeys)
+          .map(ns => `/pokapali/signal/${ipnsName}:${ns}`),
+        `/pokapali/signal/${ipnsName}:awareness`,
+      ];
+      const roomDiscovery = startRoomDiscovery(
+        getHelia(),
+        roomTopics,
       );
 
       const adminUrl = keys.rotationKey
@@ -813,6 +873,7 @@ export function createCollabLib(
         signalingUrls,
         syncOpts,
         pubsub,
+        roomDiscovery,
       });
     },
   };

@@ -59,6 +59,13 @@ export function getHeliaPubsub(): PubSub {
   return sharedHelia.libp2p.services.pubsub;
 }
 
+export function getHelia(): Helia {
+  if (!sharedHelia) {
+    throw new Error("No Helia instance exists");
+  }
+  return sharedHelia;
+}
+
 /**
  * Reset internal state. For testing only.
  */
