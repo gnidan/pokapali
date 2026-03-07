@@ -12,7 +12,7 @@ A serverless, encrypted, peer-to-peer collaborative document sync library using 
 - **Capability levels** are encoded in the URL fragment as a set of namespace access keys over n namespaces
 - **`canPushSnapshots` is an independent trust flag** — not implied by any namespace set, granted explicitly
 - **Pinning servers** store and serve encrypted blobs they can't read; anyone can run one
-- **Pinners are structurally zero-knowledge** — they validate block structure and signatures but cannot verify authorization (which keys are *allowed*), because that requires decrypting `_meta` with `readKey`
+- **Pinners are structurally zero-knowledge** — they validate block structure and signatures but cannot verify authorization (which keys are _allowed_), because that requires decrypting `_meta` with `readKey`
 - **App namespacing** is a public string baked into key derivation — not a secret, not authentication
 - **Recoverability is structural** — every IPFS snapshot is a complete, self-sufficient document state
 - **Namespace enforcement is structural** — each namespace is a separate Yjs subdocument with its own y-webrtc room; peers only join rooms for namespaces they can write to, so unauthorized writes are impossible at the transport level
@@ -43,7 +43,7 @@ These guarantees hold regardless of which peers are online, which capability lev
 The library owns sync, persistence, and crypto. The integrating app owns the editor binding, UI, and snapshot timing policy.
 
 ```ts
-import { createCollabLib } from 'your-collab-lib'
+import { createCollabLib } from "your-collab-lib";
 
 // Initialize once. appId is a public namespace string — not a secret.
 // namespaces: the set of subdocuments the library manages.
@@ -53,68 +53,68 @@ import { createCollabLib } from 'your-collab-lib'
 // The application decides what each namespace means — 'comments', 'suggestions',
 // 'reactions', 'tracked-changes', etc. The library just enforces access.
 const collab = createCollabLib({
-  appId: 'github.com/yourname/your-editor',  // optional
-  namespaces: ['content', 'comments'],        // or just ['content'], or n of anything
-})
+  appId: "github.com/yourname/your-editor", // optional
+  namespaces: ["content", "comments"], // or just ['content'], or n of anything
+});
 
 // Create a new document
-const doc = await collab.create()
-doc.subdoc('content')  // Y.Doc for the 'content' namespace — pass to editor
-doc.subdoc('comments') // Y.Doc for the 'comments' namespace — pass to comments UI
-doc.provider           // for awareness / cursor presence (shared room, ephemeral)
-doc.capability         // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: bool }
-doc.adminUrl           // keep private — derives everything
-doc.writeUrl           // read + write all namespaces + canPushSnapshots
-doc.readUrl            // read only
-doc.status             // observable: 'syncing' | 'synced' | 'offline' | 'unpushed-changes'
+const doc = await collab.create();
+doc.subdoc("content"); // Y.Doc for the 'content' namespace — pass to editor
+doc.subdoc("comments"); // Y.Doc for the 'comments' namespace — pass to comments UI
+doc.provider; // for awareness / cursor presence (shared room, ephemeral)
+doc.capability; // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: bool }
+doc.adminUrl; // keep private — derives everything
+doc.writeUrl; // read + write all namespaces + canPushSnapshots
+doc.readUrl; // read only
+doc.status; // observable: 'syncing' | 'synced' | 'offline' | 'unpushed-changes'
 
 // Generate a custom capability URL — any subset of namespaces, with or without snapshot pushing
 doc.inviteUrl({
-  namespaces: ['comments'],
-  canPushSnapshots: true,   // explicit — not implied by namespace access
-})
+  namespaces: ["comments"],
+  canPushSnapshots: true, // explicit — not implied by namespace access
+});
 
 // Open an existing document — capability inferred from fragment
-const doc = await collab.open(url)
-doc.subdoc('content')  // Y.Doc — readable by all capability levels
-doc.subdoc('comments') // Y.Doc — readable by all capability levels
-doc.capability         // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: bool }
-doc.inviteUrl(capability)  // generate lower-privilege URLs
-                            // can only grant subsets of own capability
+const doc = await collab.open(url);
+doc.subdoc("content"); // Y.Doc — readable by all capability levels
+doc.subdoc("comments"); // Y.Doc — readable by all capability levels
+doc.capability; // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: bool }
+doc.inviteUrl(capability); // generate lower-privilege URLs
+// can only grant subsets of own capability
 
 // Snapshot management — the app owns when this gets called
-await doc.pushSnapshot()   // push current state to IPFS, advance IPNS pointer
-                            // no-op if capability.canPushSnapshots is false
-                            // resolves when the snapshot is pinned locally;
-                            // IPNS propagation continues in the background
+await doc.pushSnapshot(); // push current state to IPFS, advance IPNS pointer
+// no-op if capability.canPushSnapshots is false
+// resolves when the snapshot is pinned locally;
+// IPNS propagation continues in the background
 
 // The library emits this when the doc has diverged meaningfully from the last
 // pushed snapshot — by elapsed time, by operation count, or both (configurable).
 // The app decides what to do: start a timer, show a save indicator, whatever.
-doc.on('snapshot-recommended', () => {
+doc.on("snapshot-recommended", () => {
   // e.g. show a "save" button, or kick off a debounced pushSnapshot()
-})
+});
 
 // Full editor integration — the entire app-side surface:
 const editor = new Editor({
   extensions: [
-    Collaboration.configure({ document: doc.subdoc('content') }),
+    Collaboration.configure({ document: doc.subdoc("content") }),
     CollaborationCursor.configure({ provider: doc.provider }),
-  ]
-})
+  ],
+});
 ```
 
 Read-only peers should not be connected to the content WebRTC room — they receive content updates via IPNS pubsub snapshot fetches. The application should reflect this in the editor configuration:
 
 ```ts
-const isReadOnly = !doc.capability.namespaces.has('content')
+const isReadOnly = !doc.capability.namespaces.has("content");
 const editor = new Editor({
   editable: !isReadOnly,
   extensions: [
-    Collaboration.configure({ document: doc.subdoc('content') }),
+    Collaboration.configure({ document: doc.subdoc("content") }),
     CollaborationCursor.configure({ provider: doc.provider }),
-  ]
-})
+  ],
+});
 ```
 
 ### Snapshot timing is the app's responsibility
@@ -136,28 +136,31 @@ For apps where all collaborators have write access to all namespaces, snapshot f
 
 **Recommended defaults for the `snapshot-recommended` event:**
 
-| Scenario | Interval | Rationale |
-|----------|----------|-----------|
-| Active editing, read-only peers present | 30–60s | Keeps read-only content fresh |
-| Active editing, all peers are writers | 2–5 min | Durability and version history only |
-| Idle (no edits since last snapshot) | No push | Avoid unnecessary pinner load |
+| Scenario                                | Interval | Rationale                           |
+| --------------------------------------- | -------- | ----------------------------------- |
+| Active editing, read-only peers present | 30–60s   | Keeps read-only content fresh       |
+| Active editing, all peers are writers   | 2–5 min  | Durability and version history only |
+| Idle (no edits since last snapshot)     | No push  | Avoid unnecessary pinner load       |
 
 **`beforeunload` caveats:** Browsers do not honor async work in `beforeunload` handlers. `e.preventDefault()` triggers the "unsaved changes" dialog but does not block teardown until a promise resolves. On mobile, `beforeunload` may not fire at all. The realistic durability mechanism is periodic saves; `beforeunload` is a best-effort supplement, not a guarantee.
 
 ```ts
 // Best-effort: warn the user; the actual save should have happened on a timer already.
-window.addEventListener('beforeunload', (e) => {
-  if (doc.status === 'unpushed-changes') {
-    e.preventDefault()  // triggers browser "unsaved changes" dialog
+window.addEventListener("beforeunload", (e) => {
+  if (doc.status === "unpushed-changes") {
+    e.preventDefault(); // triggers browser "unsaved changes" dialog
   }
-})
+});
 
 // visibilitychange is more reliable on mobile for detecting tab/app backgrounding
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && doc.status === 'unpushed-changes') {
-    doc.pushSnapshot()  // fire-and-forget; may or may not complete
+document.addEventListener("visibilitychange", () => {
+  if (
+    document.visibilityState === "hidden" &&
+    doc.status === "unpushed-changes"
+  ) {
+    doc.pushSnapshot(); // fire-and-forget; may or may not complete
   }
-})
+});
 ```
 
 The library tracks the last-pushed CID and seq internally (needed for `prev` links and seq incrementing regardless), so `status === 'unpushed-changes'` and `snapshot-recommended` are cheap to emit.
@@ -170,11 +173,11 @@ The library tracks the last-pushed CID and seq internally (needed for `prev` lin
 myapp.com/doc/<ipns-name>#<version-byte><key-material>
 ```
 
-| Part | Visibility | Purpose |
-|------|-----------|---------|
-| `<ipns-name>` | Public (in path) | Stable document ID — same across all capability levels. Used as prefix for y-webrtc room names (`${ipnsName}:${namespace}`), IndexedDB DB names, pubsub topic, DHT key. |
-| `#<version-byte>` | Private (fragment) | Format version — enables future key derivation scheme changes without breaking old URLs. |
-| `<key-material>` | Private (fragment) | Always contains `readKey` and `awarenessRoomPassword`. Optionally contains `ipnsKey`, `rotationKey`, and any subset of namespace access keys. The set of included keys defines the capability. |
+| Part              | Visibility         | Purpose                                                                                                                                                                                        |
+| ----------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<ipns-name>`     | Public (in path)   | Stable document ID — same across all capability levels. Used as prefix for y-webrtc room names (`${ipnsName}:${namespace}`), IndexedDB DB names, pubsub topic, DHT key.                        |
+| `#<version-byte>` | Private (fragment) | Format version — enables future key derivation scheme changes without breaking old URLs.                                                                                                       |
+| `<key-material>`  | Private (fragment) | Always contains `readKey` and `awarenessRoomPassword`. Optionally contains `ipnsKey`, `rotationKey`, and any subset of namespace access keys. The set of included keys defines the capability. |
 
 Capability is implicit in which keys are present — the library detects this on `open()` by inspecting which namespace access keys are included in the fragment. If a namespace key is present, the peer can write to that namespace (and joins its y-webrtc room). If only `readKey` is present, the peer is read-only across all namespaces.
 
@@ -185,44 +188,69 @@ Capability is implicit in which keys are present — the library detects this on
 All keys derived from `adminSecret` via HKDF. The `info` parameter encodes both the `appId` and the derivation purpose, following standard HKDF convention (RFC 5869): `info` is the context/purpose differentiator, `salt` is omitted (empty). `appId` is a public namespace string — it identifies which application's key space this document belongs to. It is baked into key derivation to prevent cross-app key collisions, and it defines the pubsub topic (`/app/${appId}/announce`) that pinners subscribe to for automatic document discovery (see Permission-less Pinning Servers). It is not a secret and not used for authentication.
 
 ```ts
-async function deriveDocKeys(adminSecret: string, appId: string = '', namespaces: string[]) {
-  const raw = new TextEncoder().encode(adminSecret)
-  const baseKey = await crypto.subtle.importKey(
-    'raw', raw, 'HKDF', false, ['deriveKey', 'deriveBits']
-  )
+async function deriveDocKeys(
+  adminSecret: string,
+  appId: string = "",
+  namespaces: string[],
+) {
+  const raw = new TextEncoder().encode(adminSecret);
+  const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, [
+    "deriveKey",
+    "deriveBits",
+  ]);
 
   const makeInfo = (purpose: string) =>
-    new TextEncoder().encode(`${appId}:${purpose}`)
+    new TextEncoder().encode(`${appId}:${purpose}`);
 
-  const deriveAES = (purpose: string) => crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256',
-      salt: new Uint8Array(0), info: makeInfo(purpose) },
-    baseKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
-  )
+  const deriveAES = (purpose: string) =>
+    crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: new Uint8Array(0),
+        info: makeInfo(purpose),
+      },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"],
+    );
 
-  const deriveBits = (purpose: string) => crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256',
-      salt: new Uint8Array(0), info: makeInfo(purpose) },
-    baseKey, 256
-  )
+  const deriveBits = (purpose: string) =>
+    crypto.subtle.deriveBits(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: new Uint8Array(0),
+        info: makeInfo(purpose),
+      },
+      baseKey,
+      256,
+    );
 
-  const readKey      = await deriveAES('read')       // all levels
-  const ipnsKeyBytes = await deriveBits('ipns')      // canPushSnapshots peers
-  const rotationKey  = await deriveBits('rotation')  // admin only
+  const readKey = await deriveAES("read"); // all levels
+  const ipnsKeyBytes = await deriveBits("ipns"); // canPushSnapshots peers
+  const rotationKey = await deriveBits("rotation"); // admin only
 
   // Awareness room password — included at all capability levels so every URL holder can join
-  const awarenessRoomPassword = await deriveBits('awareness-room')
+  const awarenessRoomPassword = await deriveBits("awareness-room");
 
   // One namespace access key per namespace, derived from the namespace name.
   // These bytes serve as the y-webrtc room password for that namespace
   // (hex-encoded) — a peer with the access key can join the room.
   const namespaceKeys = Object.fromEntries(
     await Promise.all(
-      namespaces.map(async ns => [ns, await deriveBits(`ns:${ns}`)])
-    )
-  )
+      namespaces.map(async (ns) => [ns, await deriveBits(`ns:${ns}`)]),
+    ),
+  );
 
-  return { readKey, ipnsKeyBytes, rotationKey, namespaceKeys, awarenessRoomPassword }
+  return {
+    readKey,
+    ipnsKeyBytes,
+    rotationKey,
+    namespaceKeys,
+    awarenessRoomPassword,
+  };
 }
 ```
 
@@ -293,19 +321,19 @@ Annotation namespaces (comments, suggestions, tracked changes) reference positio
 
 ```ts
 // _meta is its own Y.Doc, managed internally by the library
-const meta = doc.metaDoc  // not exposed to the application
+const meta = doc.metaDoc; // not exposed to the application
 
 // Access allowlists: one Y.Array per namespace, containing public key bytes.
 // In the room-isolation architecture, these are NOT the enforcement mechanism
 // (room passwords handle that). They serve as an admin bookkeeping tool —
 // tracking which keys have been granted access to which namespace,
 // which is needed for revocation (knowing which keys to rotate away from).
-meta.getMap('authorized').get('content')    // Y.Array<Uint8Array>
-meta.getMap('authorized').get('comments')   // Y.Array<Uint8Array>
+meta.getMap("authorized").get("content"); // Y.Array<Uint8Array>
+meta.getMap("authorized").get("comments"); // Y.Array<Uint8Array>
 
 // Snapshot push allowlist — peers verify snapshot signatures against this
 // when loading from IPFS (the one place where signature verification still applies)
-meta.getArray('canPushSnapshots')        // Y.Array<Uint8Array> — ipnsKey public keys
+meta.getArray("canPushSnapshots"); // Y.Array<Uint8Array> — ipnsKey public keys
 ```
 
 ### Merge behavior
@@ -320,15 +348,16 @@ Each snapshot contains the full state of every subdocument, encoded independentl
 
 ```ts
 interface SnapshotNode {
-  subdocs: {              // one entry per namespace + _meta
-    [namespace: string]:  // e.g. 'content', 'comments', '_meta'
-      Uint8Array          // Y.encodeStateAsUpdate — complete encrypted state for this subdoc
-  }
-  prev: CID | null        // link to previous snapshot
-  seq: number             // monotonically increasing for IPNS ordering
-  ts: number              // unix timestamp
-  signature: Uint8Array   // signs (subdocs | prev | seq | ts) with ipnsKey
-  publicKey: Uint8Array   // ipnsKey public key — verifiable against canPushSnapshots allowlist
+  subdocs: {
+    // one entry per namespace + _meta
+    [namespace: string]: // e.g. 'content', 'comments', '_meta'
+    Uint8Array; // Y.encodeStateAsUpdate — complete encrypted state for this subdoc
+  };
+  prev: CID | null; // link to previous snapshot
+  seq: number; // monotonically increasing for IPNS ordering
+  ts: number; // unix timestamp
+  signature: Uint8Array; // signs (subdocs | prev | seq | ts) with ipnsKey
+  publicKey: Uint8Array; // ipnsKey public key — verifiable against canPushSnapshots allowlist
 }
 ```
 
@@ -344,10 +373,10 @@ prev chain = version history only, not load-bearing for recoverability
 
 ## IPNS Routing: Pubsub + DHT
 
-| Router | Speed | Persistence | Use |
-|--------|-------|-------------|-----|
-| Pubsub | Immediate | Ephemeral | Fast propagation to online pinners **and read-only peers** |
-| DHT | ~seconds | Persistent, expires ~24h | Cold bootstrap |
+| Router | Speed     | Persistence              | Use                                                        |
+| ------ | --------- | ------------------------ | ---------------------------------------------------------- |
+| Pubsub | Immediate | Ephemeral                | Fast propagation to online pinners **and read-only peers** |
+| DHT    | ~seconds  | Persistent, expires ~24h | Cold bootstrap                                             |
 
 Use both simultaneously. Pinners re-publish DHT records every ~12 hours to prevent expiry.
 
@@ -377,17 +406,19 @@ Once a pinner discovers an IPNS name, its ongoing jobs are:
 ### What pinners can and cannot verify
 
 Pinners **can** verify:
+
 - The snapshot block is valid CBOR with the expected schema
 - The Ed25519 signature is valid over the block contents
 - The block size is within limits
 - Rate limits are not exceeded
 
 Pinners **cannot** verify:
+
 - Whether the publishing key is authorized (that information is in encrypted `_meta`)
 - Whether the snapshot content is legitimate vs. malicious
 - Anything about the document content
 
-This is a deliberate design choice. Giving pinners `readKey` would let them read all document content, collapsing the zero-knowledge property. The tradeoff is that pinners will pin snapshots from *any* holder of `ipnsKey`, authorized or not. This is acceptable because `canPushSnapshots` is already a trust boundary — if `ipnsKey` leaks, the mitigation is admin-initiated rotation, not pinner-side enforcement.
+This is a deliberate design choice. Giving pinners `readKey` would let them read all document content, collapsing the zero-knowledge property. The tradeoff is that pinners will pin snapshots from _any_ holder of `ipnsKey`, authorized or not. This is acceptable because `canPushSnapshots` is already a trust boundary — if `ipnsKey` leaks, the mitigation is admin-initiated rotation, not pinner-side enforcement.
 
 ### Rate Limiting
 
@@ -395,9 +426,9 @@ Pinners protect their own resources with per-IPNS-name rate limiting:
 
 ```ts
 const RATE_LIMIT = {
-  maxSnapshotsPerHour: 60,      // one per minute sustained — generous for legitimate use
+  maxSnapshotsPerHour: 60, // one per minute sustained — generous for legitimate use
   maxBlockSizeBytes: 5_000_000, // 5MB per snapshot — adjust to expected doc sizes
-}
+};
 ```
 
 A sustained snapshot flood is expensive for an attacker and bounded for the pinner. Rate limiting is the pinner protecting itself — it doesn't affect the permission-less model since any pinner sets its own limits independently.
@@ -414,12 +445,12 @@ Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Lab
 const libp2p = await createLibp2p({
   connectionManager: { maxConnections: 20, minConnections: 5 },
   peerDiscovery: [],
-  nat: { enabled: false }
-})
+  nat: { enabled: false },
+});
 const helia = await createHelia({
   libp2p,
-  routers: [delegatedHTTPRouting('https://delegated-ipfs.dev')]
-})
+  routers: [delegatedHTTPRouting("https://delegated-ipfs.dev")],
+});
 ```
 
 Bandwidth at steady state is near-zero. Suitable for homelab behind standard NAT. Behind CGNAT, degrades gracefully to pinning + IPNS publishing (can't serve blocks inbound, other pinners cover it).
@@ -488,42 +519,52 @@ The library should implement the well-known IPFS path as a default discovery mec
 ## Threat Model
 
 ### Threat 1: Peer forges an update to a namespace they don't have access to
+
 Each namespace is a separate y-webrtc room, password-protected using the namespace access key bytes. A peer without the access key cannot derive the room password, cannot complete the signaling handshake, and therefore cannot establish a WebRTC connection to inject updates. **Structurally protected** — enforcement is at connection establishment via room isolation, not by filtering messages.
 
 ### Threat 2: Peer replays a captured update from another peer
+
 y-webrtc syncs in a mesh — every peer in a room receives every sync message over its own data channel connections. A room member can capture a message from another peer and re-send it. However, replaying a previously observed Yjs sync message is idempotent — CRDT state doesn't change. **Protected by CRDT properties.**
 
 ### Threat 3: Peer escalates by modifying `_meta`
+
 `_meta` is a subdocument in its own password-protected y-webrtc room, accessible only to peers with the primary namespace's access key. A limited-namespace peer cannot join the `_meta` room. **Structurally protected.**
 
 ### Threat 4: Malicious `ipnsKey` holder
+
 **Residual risk — two forms, unified mitigation.**
 
 Any peer with `ipnsKey` (`canPushSnapshots`) can abuse it in two distinct ways:
 
-**Form A — Malicious snapshot.** The attacker publishes a crafted snapshot: either stale state with `prev: null` (severing the history chain), or synthesized Yjs tombstones for content they never legitimately received. Peers with local IndexedDB state are unaffected — CRDT merge corrects on next sync, and the next legitimate snapshot overwrites the bad tip. The dangerous case is a peer cold-bootstrapping with no live peers available; they load corrupted state until they connect to a legitimate peer. *Recovery:* admin uses `rotationKey` to point IPNS at a known-good CID from the pinner's 24-hour history window. Disruptive but recoverable in-place — the IPNS name survives.
+**Form A — Malicious snapshot.** The attacker publishes a crafted snapshot: either stale state with `prev: null` (severing the history chain), or synthesized Yjs tombstones for content they never legitimately received. Peers with local IndexedDB state are unaffected — CRDT merge corrects on next sync, and the next legitimate snapshot overwrites the bad tip. The dangerous case is a peer cold-bootstrapping with no live peers available; they load corrupted state until they connect to a legitimate peer. _Recovery:_ admin uses `rotationKey` to point IPNS at a known-good CID from the pinner's 24-hour history window. Disruptive but recoverable in-place — the IPNS name survives.
 
-**Form B — seq freeze.** The attacker publishes an IPNS record with `seq = 2^64 - 1` (the protocol maximum). DHT nodes and peers accept it as canonical and will never accept a higher record — the IPNS pointer is permanently frozen. There is no in-place recovery; the old IPNS name is dead. *Recovery:* admin generates a new `adminSecret`, derives a new IPNS keypair, gets a new IPNS name. In-protocol forwarding from the old name is impossible (that's the attack). The library checks a well-known IPFS forwarding path derived from the old IPNS name; the admin publishes a `rotationKey`-signed forwarding record there. Peers that detect the freeze discover the new location via this path or via out-of-band communication. Full document identity migration required.
+**Form B — seq freeze.** The attacker publishes an IPNS record with `seq = 2^64 - 1` (the protocol maximum). DHT nodes and peers accept it as canonical and will never accept a higher record — the IPNS pointer is permanently frozen. There is no in-place recovery; the old IPNS name is dead. _Recovery:_ admin generates a new `adminSecret`, derives a new IPNS keypair, gets a new IPNS name. In-protocol forwarding from the old name is impossible (that's the attack). The library checks a well-known IPFS forwarding path derived from the old IPNS name; the admin publishes a `rotationKey`-signed forwarding record there. Peers that detect the freeze discover the new location via this path or via out-of-band communication. Full document identity migration required.
 
 **Unified mitigation:**
+
 - `canPushSnapshots` is an explicit trust grant — don't give it to strangers
 - Pinners keep 24 hours of history for Form A rollback
 - Pinner rate limiting (max N snapshots/hour per IPNS name) bounds flood cost
 - `rotationKey` enables recovery from both forms; Form B requires full identity migration via out-of-band or well-known-path discovery
 
 ### Threat 5: External attacker (no URL)
+
 Can observe IPNS names and fetch encrypted blocks. Cannot decrypt, forge, or publish. **Fully locked out.**
 
 ### Threat 6: Pinning server misbehaves
+
 Can observe IPNS names and encrypted blocks (neither sensitive). Can refuse to pin (DoS, covered by other pinners). Can serve a stale snapshot (degraded bootstrap, not data loss — CRDT merge corrects on peer connect). Cannot decrypt or forge. **Tolerable worst case.**
 
 ### Threat 7: Signaling server misbehaves
+
 Can observe which IPNS names are active as WebRTC rooms (already public). Can block connections (DoS). Cannot read content. **Tolerable worst case.**
 
 ### Threat 8: URL leak
+
 Whoever finds the URL has that capability level — the URL is the capability token. Mitigation is admin-initiated rotation via `rotationKey`.
 
 ### Threat 9: Device compromise
+
 An attacker with access to the device can read IndexedDB contents (unencrypted Yjs state) and likely recover the URL fragment from browser history. **Not protected by default.** See Local Persistence and Encryption-at-Rest for mitigation options.
 
 ---
@@ -539,6 +580,7 @@ y-webrtc requires a stateless signaling server to broker WebRTC connections. Nev
 Helia + libp2p is not a lightweight dependency. Expect 500KB+ minified/gzipped for the full IPFS stack. For a library positioned as a "drop-in," overall bundle size is a meaningful cost that applications should budget for. y-webrtc itself is lightweight (~15KB); the IPFS stack is the main contributor.
 
 Possible mitigations:
+
 - **Lazy-load Helia** — for write-capable peers, the editor is functional with just Yjs + y-webrtc + y-indexeddb (~30KB). Load Helia asynchronously for snapshot push/pull. For read-only peers, Helia is required at startup (they receive content via IPFS snapshots), so lazy-loading is less applicable.
 - **Pinning-only mode** — for apps that don't need offline cold-bootstrap or version history, skip the full IPFS stack entirely. Use a lightweight HTTP API to push snapshots to a pinning server directly. The pinner still stores encrypted blobs; the client just doesn't run a full IPFS node.
 - **Tree-shaking** — Helia is modular. Only import the routers, block codecs, and transports actually used.
@@ -549,17 +591,17 @@ The library should document expected bundle sizes for each configuration tier.
 
 ## Dependency Summary
 
-| Package | Purpose |
-|---------|---------|
-| `yjs` | CRDT engine; subdocument support for namespace isolation |
-| `y-webrtc` | P2P real-time sync — one room per writable namespace, plus a shared awareness room |
-| `y-indexeddb` | Local persistence in browser (per-subdoc) |
-| `helia` | IPFS in browser and pinner; delivers read-only namespace updates via IPNS pubsub |
-| `@helia/dag-cbor` | IPFS block encoding for snapshots |
-| `@helia/ipns` | IPNS publish/resolve |
-| `@helia/delegated-routing-v1-http-api-client` | Lean routing for pinner |
-| `@libp2p/crypto/keys` | IPNS keypair derivation |
-| `@tiptap/*` | Example editor integration (app-side, not in library) |
+| Package                                       | Purpose                                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `yjs`                                         | CRDT engine; subdocument support for namespace isolation                           |
+| `y-webrtc`                                    | P2P real-time sync — one room per writable namespace, plus a shared awareness room |
+| `y-indexeddb`                                 | Local persistence in browser (per-subdoc)                                          |
+| `helia`                                       | IPFS in browser and pinner; delivers read-only namespace updates via IPNS pubsub   |
+| `@helia/dag-cbor`                             | IPFS block encoding for snapshots                                                  |
+| `@helia/ipns`                                 | IPNS publish/resolve                                                               |
+| `@helia/delegated-routing-v1-http-api-client` | Lean routing for pinner                                                            |
+| `@libp2p/crypto/keys`                         | IPNS keypair derivation                                                            |
+| `@tiptap/*`                                   | Example editor integration (app-side, not in library)                              |
 
 ---
 

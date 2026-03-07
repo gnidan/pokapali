@@ -1,9 +1,7 @@
 import * as Y from "yjs";
 
-export const SNAPSHOT_ORIGIN: unique symbol =
-  Symbol("snapshot-apply");
-export const INDEXEDDB_ORIGIN: unique symbol =
-  Symbol("indexeddb");
+export const SNAPSHOT_ORIGIN: unique symbol = Symbol("snapshot-apply");
+export const INDEXEDDB_ORIGIN: unique symbol = Symbol("indexeddb");
 
 export interface SubdocManagerOptions {
   primaryNamespace?: string;
@@ -13,9 +11,7 @@ export interface SubdocManager {
   subdoc(ns: string): Y.Doc;
   readonly metaDoc: Y.Doc;
   encodeAll(): Record<string, Uint8Array>;
-  applySnapshot(
-    data: Record<string, Uint8Array>
-  ): void;
+  applySnapshot(data: Record<string, Uint8Array>): void;
   readonly isDirty: boolean;
   on(event: "dirty", cb: () => void): void;
   off(event: "dirty", cb: () => void): void;
@@ -26,10 +22,9 @@ export interface SubdocManager {
 export function createSubdocManager(
   ipnsName: string,
   namespaces: string[],
-  options?: SubdocManagerOptions
+  options?: SubdocManagerOptions,
 ): SubdocManager {
-  const primaryNamespace =
-    options?.primaryNamespace ?? namespaces[0];
+  const primaryNamespace = options?.primaryNamespace ?? namespaces[0];
 
   const docs = new Map<string, Y.Doc>();
   let dirty = false;
@@ -51,14 +46,8 @@ export function createSubdocManager(
   >();
 
   for (const [key, doc] of docs) {
-    const handler = (
-      _update: Uint8Array,
-      origin: unknown
-    ) => {
-      if (
-        origin === SNAPSHOT_ORIGIN ||
-        origin === INDEXEDDB_ORIGIN
-      ) {
+    const handler = (_update: Uint8Array, origin: unknown) => {
+      if (origin === SNAPSHOT_ORIGIN || origin === INDEXEDDB_ORIGIN) {
         return;
       }
       if (!dirty) {
@@ -78,23 +67,17 @@ export function createSubdocManager(
   // emit it manually after calling load().
   const loadPromises: Promise<void>[] = [];
   for (const doc of docs.values()) {
-    loadPromises.push(
-      doc.whenLoaded.then(() => {})
-    );
+    loadPromises.push(doc.whenLoaded.then(() => {}));
     doc.load();
     doc.emit("load", [doc]);
   }
-  const whenLoaded = Promise.all(loadPromises).then(
-    () => {}
-  );
+  const whenLoaded = Promise.all(loadPromises).then(() => {});
 
   return {
     subdoc(ns: string): Y.Doc {
       const doc = docs.get(ns);
       if (!doc) {
-        throw new Error(
-          `Unknown namespace: ${ns}`
-        );
+        throw new Error(`Unknown namespace: ${ns}`);
       }
       return doc;
     },
@@ -106,25 +89,17 @@ export function createSubdocManager(
     encodeAll(): Record<string, Uint8Array> {
       const result: Record<string, Uint8Array> = {};
       for (const [key, doc] of docs) {
-        result[key] =
-          Y.encodeStateAsUpdate(doc);
+        result[key] = Y.encodeStateAsUpdate(doc);
       }
       dirty = false;
       return result;
     },
 
-    applySnapshot(
-      data: Record<string, Uint8Array>
-    ): void {
-      for (const [key, update] of
-        Object.entries(data)) {
+    applySnapshot(data: Record<string, Uint8Array>): void {
+      for (const [key, update] of Object.entries(data)) {
         const doc = docs.get(key);
         if (doc) {
-          Y.applyUpdate(
-            doc,
-            update,
-            SNAPSHOT_ORIGIN
-          );
+          Y.applyUpdate(doc, update, SNAPSHOT_ORIGIN);
         }
       }
     },

@@ -56,7 +56,7 @@ routing (both needed — pubsub for immediacy, DHT for persistence).
 Provides the `Awareness` type used for cursor presence. v1.x is the
 stable release compatible with yjs 13.x.
 
-## @tiptap/* ^2.11.0
+## @tiptap/\* ^2.11.0
 
 TipTap editor framework for the example app. v2.11.x is the current
 stable line. Packages used: `@tiptap/core`, `@tiptap/pm`,

@@ -1,14 +1,8 @@
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
-import {
-  validateStructure,
-  decodeSnapshot,
-} from "@pokapali/snapshot";
-import {
-  createRateLimiter,
-  DEFAULT_RATE_LIMITS,
-} from "./rate-limiter.js";
+import { validateStructure, decodeSnapshot } from "@pokapali/snapshot";
+import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker } from "./history.js";
@@ -27,28 +21,20 @@ export interface PinnerConfig {
 export interface Pinner {
   start(): Promise<void>;
   stop(): Promise<void>;
-  ingest(
-    ipnsName: string,
-    block: Uint8Array
-  ): Promise<boolean>;
+  ingest(ipnsName: string, block: Uint8Array): Promise<boolean>;
   history: HistoryTracker;
 }
 
-export async function createPinner(
-  config: PinnerConfig
-): Promise<Pinner> {
+export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   const rateLimits: RateLimiterConfig = {
     maxSnapshotsPerHour:
-      config.rateLimits?.maxPerHour
-        ?? DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
+      config.rateLimits?.maxPerHour ?? DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
     maxBlockSizeBytes:
-      config.rateLimits?.maxSizeBytes
-        ?? DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
+      config.rateLimits?.maxSizeBytes ?? DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
   };
   const rateLimiter = createRateLimiter(rateLimits);
   const history = createHistoryTracker();
-  const statePath =
-    config.storagePath + "/state.json";
+  const statePath = config.storagePath + "/state.json";
 
   // In-memory block store (real version uses Helia)
   const blocks = new Map<string, Uint8Array>();
@@ -84,14 +70,9 @@ export async function createPinner(
       await persistState();
     },
 
-    async ingest(
-      ipnsName: string,
-      block: Uint8Array
-    ): Promise<boolean> {
+    async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {
       // Rate limit: block size
-      const check = rateLimiter.check(
-        ipnsName, block.byteLength
-      );
+      const check = rateLimiter.check(ipnsName, block.byteLength);
       if (!check.allowed) {
         return false;
       }

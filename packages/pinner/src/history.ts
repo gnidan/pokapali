@@ -81,16 +81,12 @@ export function createHistoryTracker(): HistoryTracker {
       return entry?.tip?.cid ?? null;
     },
 
-    getHistory(
-      ipnsName: string
-    ): SnapshotRecord[] {
+    getHistory(ipnsName: string): SnapshotRecord[] {
       const entry = entries.get(ipnsName);
       return entry ? [...entry.snapshots] : [];
     },
 
-    getEntry(
-      ipnsName: string
-    ): HistoryEntry | undefined {
+    getEntry(ipnsName: string): HistoryEntry | undefined {
       return entries.get(ipnsName);
     },
 
@@ -102,9 +98,7 @@ export function createHistoryTracker(): HistoryTracker {
       return Object.fromEntries(entries);
     },
 
-    loadJSON(
-      data: Record<string, HistoryEntry>
-    ): void {
+    loadJSON(data: Record<string, HistoryEntry>): void {
       entries.clear();
       for (const [name, entry] of Object.entries(data)) {
         entries.set(name, entry);

@@ -19,14 +19,8 @@ import {
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createSubdocManager } from "@pokapali/subdocs";
 import type { SubdocManager } from "@pokapali/subdocs";
-import {
-  setupNamespaceRooms,
-  setupAwarenessRoom,
-} from "@pokapali/sync";
-import type {
-  SyncManager,
-  AwarenessRoom,
-} from "@pokapali/sync";
+import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
+import type { SyncManager, AwarenessRoom } from "@pokapali/sync";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -58,43 +52,23 @@ export interface CollabDoc {
   readonly adminUrl: string | null;
   readonly writeUrl: string | null;
   readonly readUrl: string;
-  inviteUrl(
-    grant: CapabilityGrant
-  ): Promise<string>;
+  inviteUrl(grant: CapabilityGrant): Promise<string>;
   readonly status: DocStatus;
   pushSnapshot(): Promise<void>;
-  on(
-    event: "status",
-    cb: (status: DocStatus) => void
-  ): void;
-  on(
-    event: "snapshot-recommended",
-    cb: () => void
-  ): void;
-  on(
-    event: "snapshot-applied",
-    cb: () => void
-  ): void;
-  off(
-    event: "status",
-    cb: (status: DocStatus) => void
-  ): void;
-  off(
-    event: "snapshot-recommended",
-    cb: () => void
-  ): void;
-  off(
-    event: "snapshot-applied",
-    cb: () => void
-  ): void;
-  history(): Promise<Array<{
-    cid: CID;
-    seq: number;
-    ts: number;
-  }>>;
-  loadVersion(
-    cid: CID
-  ): Promise<Record<string, Y.Doc>>;
+  on(event: "status", cb: (status: DocStatus) => void): void;
+  on(event: "snapshot-recommended", cb: () => void): void;
+  on(event: "snapshot-applied", cb: () => void): void;
+  off(event: "status", cb: (status: DocStatus) => void): void;
+  off(event: "snapshot-recommended", cb: () => void): void;
+  off(event: "snapshot-applied", cb: () => void): void;
+  history(): Promise<
+    Array<{
+      cid: CID;
+      seq: number;
+      ts: number;
+    }>
+  >;
+  loadVersion(cid: CID): Promise<Record<string, Y.Doc>>;
   destroy(): void;
 }
 
@@ -104,20 +78,12 @@ export interface CollabLib {
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) =>
-    b.toString(16).padStart(2, "0")
-  ).join("");
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-type SyncStatus =
-  | "connecting"
-  | "connected"
-  | "disconnected";
+type SyncStatus = "connecting" | "connected" | "disconnected";
 
-function computeStatus(
-  syncStatus: SyncStatus,
-  isDirty: boolean
-): DocStatus {
+function computeStatus(syncStatus: SyncStatus, isDirty: boolean): DocStatus {
   if (syncStatus === "disconnected") return "offline";
   if (syncStatus === "connecting") return "connecting";
   if (isDirty) return "unpushed-changes";
@@ -140,41 +106,37 @@ interface CollabDocParams {
   readKey: CryptoKey | undefined;
 }
 
-function createCollabDoc(
-  params: CollabDocParams
-): CollabDoc {
+function createCollabDoc(params: CollabDocParams): CollabDoc {
   const {
-    subdocManager, syncManager, awarenessRoom,
-    cap, keys, ipnsName, base, namespaces,
-    signingKey, readKey,
+    subdocManager,
+    syncManager,
+    awarenessRoom,
+    cap,
+    keys,
+    ipnsName,
+    base,
+    namespaces,
+    signingKey,
+    readKey,
   } = params;
 
   let destroyed = false;
   let seq = 1;
   let prev: CID | null = null;
   const blocks = new Map<string, Uint8Array>();
-  const listeners =
-    new Map<string, Set<Function>>();
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-  function emit(
-    event: string,
-    ...args: unknown[]
-  ) {
+  function emit(event: string, ...args: unknown[]) {
     const cbs = listeners.get(event);
     if (cbs) {
       for (const cb of cbs) cb(...args);
     }
   }
 
-  let lastStatus = computeStatus(
-    syncManager.status, subdocManager.isDirty
-  );
+  let lastStatus = computeStatus(syncManager.status, subdocManager.isDirty);
 
   function checkStatus() {
-    const next = computeStatus(
-      syncManager.status,
-      subdocManager.isDirty
-    );
+    const next = computeStatus(syncManager.status, subdocManager.isDirty);
     if (next !== lastStatus) {
       lastStatus = next;
       emit("status", next);
@@ -205,9 +167,9 @@ function createCollabDoc(
         return subdocManager.subdoc(ns);
       } catch {
         throw new Error(
-          `Unknown namespace "${ns}". `
-          + "Configured: "
-          + namespaces.join(", ")
+          `Unknown namespace "${ns}". ` +
+            "Configured: " +
+            namespaces.join(", "),
         );
       }
     },
@@ -228,60 +190,46 @@ function createCollabDoc(
     writeUrl: params.writeUrl,
     readUrl: params.readUrl,
 
-    async inviteUrl(
-      grant: CapabilityGrant
-    ): Promise<string> {
+    async inviteUrl(grant: CapabilityGrant): Promise<string> {
       assertNotDestroyed();
       if (grant.namespaces) {
         for (const ns of grant.namespaces) {
           if (!cap.namespaces.has(ns)) {
             throw new Error(
-              `Cannot grant "${ns}" `
-              + "— not in own capability"
+              `Cannot grant "${ns}" ` + "— not in own capability",
             );
           }
         }
       }
-      if (
-        grant.canPushSnapshots
-        && !cap.canPushSnapshots
-      ) {
+      if (grant.canPushSnapshots && !cap.canPushSnapshots) {
         throw new Error(
-          "Cannot grant canPushSnapshots "
-          + "— not in own capability"
+          "Cannot grant canPushSnapshots " + "— not in own capability",
         );
       }
-      const narrowed = narrowCapability(
-        keys, grant
-      );
+      const narrowed = narrowCapability(keys, grant);
       return buildUrl(base, ipnsName, narrowed);
     },
 
     get status(): DocStatus {
-      return computeStatus(
-        syncManager.status,
-        subdocManager.isDirty
-      );
+      return computeStatus(syncManager.status, subdocManager.isDirty);
     },
 
     async pushSnapshot(): Promise<void> {
       assertNotDestroyed();
-      if (
-        !cap.canPushSnapshots
-        || !signingKey
-        || !readKey
-      ) {
+      if (!cap.canPushSnapshots || !signingKey || !readKey) {
         return;
       }
       const plaintext = subdocManager.encodeAll();
       const block = await encodeSnapshot(
-        plaintext, readKey, prev, seq,
-        Date.now(), signingKey
+        plaintext,
+        readKey,
+        prev,
+        seq,
+        Date.now(),
+        signingKey,
       );
       const hash = await sha256.digest(block);
-      const cid = CID.createV1(
-        DAG_CBOR_CODE, hash
-      );
+      const cid = CID.createV1(DAG_CBOR_CODE, hash);
       blocks.set(cid.toString(), block);
       prev = cid;
       seq++;
@@ -291,7 +239,7 @@ function createCollabDoc(
     on(
       event: string,
       // eslint-disable-next-line
-      cb: (...args: any[]) => void
+      cb: (...args: any[]) => void,
     ) {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
@@ -302,7 +250,7 @@ function createCollabDoc(
     off(
       event: string,
       // eslint-disable-next-line
-      cb: (...args: any[]) => void
+      cb: (...args: any[]) => void,
     ) {
       listeners.get(event)?.delete(cb);
     },
@@ -325,89 +273,70 @@ function createCollabDoc(
   } as CollabDoc;
 }
 
-export function createCollabLib(
-  options: CollabLibOptions
-): CollabLib {
+export function createCollabLib(options: CollabLibOptions): CollabLib {
   const { namespaces, base } = options;
   const appId = options.appId ?? "";
-  const primaryNamespace =
-    options.primaryNamespace ?? namespaces[0];
-  const signalingUrls =
-    options.signalingUrls
-    ?? ["wss://signaling.yjs.dev"];
+  const primaryNamespace = options.primaryNamespace ?? namespaces[0];
+  const signalingUrls = options.signalingUrls ?? ["wss://signaling.yjs.dev"];
 
   return {
     async create(): Promise<CollabDoc> {
       const adminSecret = generateAdminSecret();
-      const docKeys = await deriveDocKeys(
-        adminSecret, appId, namespaces
-      );
+      const docKeys = await deriveDocKeys(adminSecret, appId, namespaces);
 
-      const signingKey =
-        await ed25519KeyPairFromSeed(
-          docKeys.ipnsKeyBytes
-        );
-      const ipnsName = bytesToHex(
-        signingKey.publicKey
-      );
+      const signingKey = await ed25519KeyPairFromSeed(docKeys.ipnsKeyBytes);
+      const ipnsName = bytesToHex(signingKey.publicKey);
 
-      const subdocManager = createSubdocManager(
-        ipnsName, namespaces,
-        { primaryNamespace }
-      );
+      const subdocManager = createSubdocManager(ipnsName, namespaces, {
+        primaryNamespace,
+      });
 
       const syncManager = setupNamespaceRooms(
-        ipnsName, subdocManager,
-        docKeys.namespaceKeys, signalingUrls
+        ipnsName,
+        subdocManager,
+        docKeys.namespaceKeys,
+        signalingUrls,
       );
 
       const awarenessRoom = setupAwarenessRoom(
         ipnsName,
         docKeys.awarenessRoomPassword,
-        signalingUrls
+        signalingUrls,
       );
 
       const fullKeys: CapabilityKeys = {
         readKey: docKeys.readKey,
         ipnsKeyBytes: docKeys.ipnsKeyBytes,
         rotationKey: docKeys.rotationKey,
-        awarenessRoomPassword:
-          docKeys.awarenessRoomPassword,
+        awarenessRoomPassword: docKeys.awarenessRoomPassword,
         namespaceKeys: docKeys.namespaceKeys,
       };
 
-      const adminUrl = await buildUrl(
-        base, ipnsName, fullKeys
-      );
+      const adminUrl = await buildUrl(base, ipnsName, fullKeys);
       const writeUrl = await buildUrl(
-        base, ipnsName,
+        base,
+        ipnsName,
         narrowCapability(fullKeys, {
           namespaces: [...namespaces],
           canPushSnapshots: true,
-        })
+        }),
       );
       const readUrl = await buildUrl(
-        base, ipnsName,
+        base,
+        ipnsName,
         narrowCapability(fullKeys, {
           namespaces: [],
-        })
+        }),
       );
 
-      const cap = inferCapability(
-        fullKeys, namespaces
-      );
+      const cap = inferCapability(fullKeys, namespaces);
 
       // Populate _meta doc
       const meta = subdocManager.metaDoc;
-      const canPush = meta.getArray<Uint8Array>(
-        "canPushSnapshots"
-      );
+      const canPush = meta.getArray<Uint8Array>("canPushSnapshots");
       canPush.push([signingKey.publicKey]);
-      const authorized =
-        meta.getMap("authorized");
-      for (const [ns, key] of Object.entries(
-        docKeys.namespaceKeys
-      )) {
+      const authorized = meta.getMap("authorized");
+      for (const [ns, key] of Object.entries(docKeys.namespaceKeys)) {
         const arr = new Y.Array<Uint8Array>();
         authorized.set(ns, arr);
         arr.push([key]);
@@ -434,57 +363,50 @@ export function createCollabLib(
       const parsed = await parseUrl(url);
       const { ipnsName, keys } = parsed;
 
-      const cap = inferCapability(
-        keys, namespaces
-      );
+      const cap = inferCapability(keys, namespaces);
 
-      const subdocManager = createSubdocManager(
-        ipnsName, namespaces,
-        { primaryNamespace }
-      );
+      const subdocManager = createSubdocManager(ipnsName, namespaces, {
+        primaryNamespace,
+      });
 
       const nsKeys = keys.namespaceKeys ?? {};
       const syncManager = setupNamespaceRooms(
-        ipnsName, subdocManager,
-        nsKeys, signalingUrls
+        ipnsName,
+        subdocManager,
+        nsKeys,
+        signalingUrls,
       );
 
       const awarenessRoom = setupAwarenessRoom(
         ipnsName,
         keys.awarenessRoomPassword ?? "",
-        signalingUrls
+        signalingUrls,
       );
 
       const adminUrl = keys.rotationKey
-        ? await buildUrl(
-            base, ipnsName, keys
-          )
+        ? await buildUrl(base, ipnsName, keys)
         : null;
       const writeUrl = keys.ipnsKeyBytes
         ? await buildUrl(
-            base, ipnsName,
+            base,
+            ipnsName,
             narrowCapability(keys, {
-              namespaces: [
-                ...cap.namespaces,
-              ],
+              namespaces: [...cap.namespaces],
               canPushSnapshots: true,
-            })
+            }),
           )
         : null;
       const readUrl = await buildUrl(
-        base, ipnsName,
+        base,
+        ipnsName,
         narrowCapability(keys, {
           namespaces: [],
-        })
+        }),
       );
 
-      let signingKey:
-        Ed25519KeyPair | null = null;
+      let signingKey: Ed25519KeyPair | null = null;
       if (keys.ipnsKeyBytes) {
-        signingKey =
-          await ed25519KeyPairFromSeed(
-            keys.ipnsKeyBytes
-          );
+        signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
       }
 
       return createCollabDoc({

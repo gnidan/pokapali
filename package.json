@@ -1,16 +1,25 @@
 {
   "name": "pokapali",
   "private": true,
+  "type": "module",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
     "build": "tsc --build",
-    "test": "vitest run --workspace vitest.workspace.ts"
+    "test": "vitest run --workspace vitest.workspace.ts",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.3",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.56.1",
     "vitest": "^3.0.0"
   }
 }

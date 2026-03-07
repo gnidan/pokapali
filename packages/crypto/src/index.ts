@@ -7,9 +7,7 @@ export function generateAdminSecret(): string {
 }
 
 function base64urlEncode(bytes: Uint8Array): string {
-  const binStr = Array.from(bytes, (b) =>
-    String.fromCharCode(b)
-  ).join("");
+  const binStr = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
   return btoa(binStr)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -27,12 +25,13 @@ export interface DocKeys {
 export async function deriveDocKeys(
   adminSecret: string,
   appId: string,
-  namespaces: string[]
+  namespaces: string[],
 ): Promise<DocKeys> {
   const raw = new TextEncoder().encode(adminSecret);
-  const baseKey = await crypto.subtle.importKey(
-    "raw", raw, "HKDF", false, ["deriveKey", "deriveBits"]
-  );
+  const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, [
+    "deriveKey",
+    "deriveBits",
+  ]);
 
   const makeInfo = (purpose: string) =>
     new TextEncoder().encode(`${appId}:${purpose}`);
@@ -48,7 +47,7 @@ export async function deriveDocKeys(
       baseKey,
       { name: "AES-GCM", length: 256 },
       true,
-      ["encrypt", "decrypt"]
+      ["encrypt", "decrypt"],
     );
 
   const deriveBits = async (purpose: string) =>
@@ -61,29 +60,21 @@ export async function deriveDocKeys(
           info: makeInfo(purpose),
         },
         baseKey,
-        256
-      )
+        256,
+      ),
     );
 
   const readKey = await deriveAES("read");
   const ipnsKeyBytes = await deriveBits("ipns");
   const rotationKey = await deriveBits("rotation");
-  const awarenessRoomBytes = await deriveBits(
-    "awareness-room"
-  );
-  const awarenessRoomPassword = bytesToHex(
-    awarenessRoomBytes
-  );
+  const awarenessRoomBytes = await deriveBits("awareness-room");
+  const awarenessRoomPassword = bytesToHex(awarenessRoomBytes);
 
-  const namespaceKeys: Record<string, Uint8Array> =
-    Object.fromEntries(
-      await Promise.all(
-        namespaces.map(async (ns) => [
-          ns,
-          await deriveBits(`ns:${ns}`),
-        ])
-      )
-    );
+  const namespaceKeys: Record<string, Uint8Array> = Object.fromEntries(
+    await Promise.all(
+      namespaces.map(async (ns) => [ns, await deriveBits(`ns:${ns}`)]),
+    ),
+  );
 
   return {
     readKey,
@@ -95,14 +86,14 @@ export async function deriveDocKeys(
 }
 
 export async function deriveMetaRoomPassword(
-  primaryAccessKey: Uint8Array
+  primaryAccessKey: Uint8Array,
 ): Promise<string> {
   const baseKey = await crypto.subtle.importKey(
     "raw",
     primaryAccessKey as unknown as ArrayBuffer,
     "HKDF",
     false,
-    ["deriveBits"]
+    ["deriveBits"],
   );
   const bits = await crypto.subtle.deriveBits(
     {
@@ -112,7 +103,7 @@ export async function deriveMetaRoomPassword(
       info: new TextEncoder().encode("_meta_room"),
     },
     baseKey,
-    256
+    256,
   );
   return bytesToHex(new Uint8Array(bits));
 }
@@ -120,21 +111,18 @@ export async function deriveMetaRoomPassword(
 export async function encryptSubdoc(
   readKey: CryptoKey,
   data: Uint8Array,
-  nonce?: Uint8Array
+  nonce?: Uint8Array,
 ): Promise<Uint8Array> {
-  const iv = nonce ??
-    crypto.getRandomValues(new Uint8Array(12));
+  const iv = nonce ?? crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
       iv: iv as unknown as ArrayBuffer,
     },
     readKey,
-    data as unknown as ArrayBuffer
+    data as unknown as ArrayBuffer,
   );
-  const result = new Uint8Array(
-    12 + ciphertext.byteLength
-  );
+  const result = new Uint8Array(12 + ciphertext.byteLength);
   result.set(iv, 0);
   result.set(new Uint8Array(ciphertext), 12);
   return result;
@@ -142,7 +130,7 @@ export async function encryptSubdoc(
 
 export async function decryptSubdoc(
   readKey: CryptoKey,
-  encrypted: Uint8Array
+  encrypted: Uint8Array,
 ): Promise<Uint8Array> {
   const iv = encrypted.slice(0, 12);
   const ciphertext = encrypted.slice(12);
@@ -153,15 +141,13 @@ export async function decryptSubdoc(
         iv: iv as unknown as ArrayBuffer,
       },
       readKey,
-      ciphertext as unknown as ArrayBuffer
+      ciphertext as unknown as ArrayBuffer,
     );
     return new Uint8Array(plaintext);
   } catch (err) {
-    throw new Error(
-      "decryptSubdoc failed: wrong key or"
-        + " corrupted data",
-      { cause: err }
-    );
+    throw new Error("decryptSubdoc failed: wrong key or" + " corrupted data", {
+      cause: err,
+    });
   }
 }
 
@@ -171,7 +157,7 @@ export interface Ed25519KeyPair {
 }
 
 export async function ed25519KeyPairFromSeed(
-  seed: Uint8Array
+  seed: Uint8Array,
 ): Promise<Ed25519KeyPair> {
   const publicKey = await ed25519.getPublicKeyAsync(seed);
   return { publicKey, privateKey: seed };
@@ -179,7 +165,7 @@ export async function ed25519KeyPairFromSeed(
 
 export async function signBytes(
   keypair: Ed25519KeyPair,
-  data: Uint8Array
+  data: Uint8Array,
 ): Promise<Uint8Array> {
   return ed25519.signAsync(data, keypair.privateKey);
 }
@@ -187,19 +173,15 @@ export async function signBytes(
 export async function verifySignature(
   publicKey: Uint8Array,
   signature: Uint8Array,
-  data: Uint8Array
+  data: Uint8Array,
 ): Promise<boolean> {
   try {
-    return await ed25519.verifyAsync(
-      signature, data, publicKey
-    );
+    return await ed25519.verifyAsync(signature, data, publicKey);
   } catch {
     return false;
   }
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) =>
-    b.toString(16).padStart(2, "0")
-  ).join("");
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

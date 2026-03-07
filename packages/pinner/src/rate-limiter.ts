@@ -16,13 +16,13 @@ export interface RateLimiter {
   check(
     ipnsName: string,
     blockSize: number,
-    now?: number
+    now?: number,
   ): { allowed: boolean; reason?: string };
   record(ipnsName: string, now?: number): void;
 }
 
 export function createRateLimiter(
-  config: RateLimiterConfig = DEFAULT_RATE_LIMITS
+  config: RateLimiterConfig = DEFAULT_RATE_LIMITS,
 ): RateLimiter {
   const entries = new Map<string, Entry>();
 
@@ -37,46 +37,41 @@ export function createRateLimiter(
 
   function pruneOld(entry: Entry, now: number): void {
     const cutoff = now - 3_600_000;
-    entry.timestamps = entry.timestamps.filter(
-      (t) => t > cutoff
-    );
+    entry.timestamps = entry.timestamps.filter((t) => t > cutoff);
   }
 
   return {
     check(
       ipnsName: string,
       blockSize: number,
-      now: number = Date.now()
+      now: number = Date.now(),
     ): { allowed: boolean; reason?: string } {
       if (blockSize > config.maxBlockSizeBytes) {
         return {
           allowed: false,
-          reason: `block size ${blockSize} exceeds limit`
-            + ` ${config.maxBlockSizeBytes}`,
+          reason:
+            `block size ${blockSize} exceeds limit` +
+            ` ${config.maxBlockSizeBytes}`,
         };
       }
 
       const entry = getEntry(ipnsName);
       pruneOld(entry, now);
 
-      if (
-        entry.timestamps.length >= config.maxSnapshotsPerHour
-      ) {
+      if (entry.timestamps.length >= config.maxSnapshotsPerHour) {
         return {
           allowed: false,
-          reason: `rate limit exceeded:`
-            + ` ${entry.timestamps.length}`
-            + `/${config.maxSnapshotsPerHour} per hour`,
+          reason:
+            `rate limit exceeded:` +
+            ` ${entry.timestamps.length}` +
+            `/${config.maxSnapshotsPerHour} per hour`,
         };
       }
 
       return { allowed: true };
     },
 
-    record(
-      ipnsName: string,
-      now: number = Date.now()
-    ): void {
+    record(ipnsName: string, now: number = Date.now()): void {
       const entry = getEntry(ipnsName);
       pruneOld(entry, now);
       entry.timestamps.push(now);
