@@ -93,6 +93,30 @@ describe("@pokapali/snapshot", () => {
     });
   });
 
+  describe("wrong readKey", () => {
+    it("decrypt fails with wrong key",
+      async () => {
+        const { readKey, signingKey } =
+          await makeTestKeys();
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([1, 2, 3]) },
+          readKey, null, 0, 1000, signingKey
+        );
+        const node = decodeSnapshot(encoded);
+
+        // Derive a different readKey
+        const otherKeys = await deriveDocKeys(
+          "other-secret", "other-app", ["doc"]
+        );
+        await expect(
+          decryptSnapshot(
+            node, otherKeys.readKey
+          )
+        ).rejects.toThrow();
+      }
+    );
+  });
+
   describe("validateStructure", () => {
     it("returns true for valid snapshot",
       async () => {
@@ -282,6 +306,37 @@ describe("@pokapali/snapshot", () => {
       expect(s.inflight.has("cidA")).toBe(true);
       expect(s.inflight.has("cidB")).toBe(true);
       expect(s.pending.size).toBe(0);
+    });
+
+    it("concurrency limit: 5 pending returns " +
+      "only 3", () => {
+      const s = createFetchCoalescerState();
+      for (let i = 0; i < 5; i++) {
+        s.pending.add(`cid${i}`);
+      }
+      const { toFetch } = coalescerNext(s);
+      expect(toFetch.length).toBe(3);
+      expect(s.inflight.size).toBe(3);
+      expect(s.pending.size).toBe(2);
+    });
+
+    it("multiple next() calls do not re-fetch " +
+      "inflight items", () => {
+      const s = createFetchCoalescerState();
+      for (let i = 0; i < 5; i++) {
+        s.pending.add(`cid${i}`);
+      }
+      const first = coalescerNext(s);
+      expect(first.toFetch.length).toBe(3);
+
+      const second = coalescerNext(s);
+      expect(second.toFetch.length).toBe(2);
+      expect(s.inflight.size).toBe(5);
+      expect(s.pending.size).toBe(0);
+
+      // Third call: nothing left
+      const third = coalescerNext(s);
+      expect(third.toFetch.length).toBe(0);
     });
 
     it("coalescerNext skips already resolved",

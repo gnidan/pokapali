@@ -149,20 +149,25 @@ export function createFetchCoalescerState():
   };
 }
 
+const COALESCER_CONCURRENCY = 3;
+
 export function coalescerNext(
   state: FetchCoalescerState
 ): { toFetch: string[] } {
   const toFetch: string[] = [];
   for (const cid of state.pending) {
     if (
-      !state.inflight.has(cid) &&
-      !state.resolved.has(cid) &&
-      !state.failed.has(cid)
+      state.inflight.has(cid) ||
+      state.resolved.has(cid) ||
+      state.failed.has(cid)
     ) {
-      toFetch.push(cid);
+      continue;
+    }
+    toFetch.push(cid);
+    if (toFetch.length >= COALESCER_CONCURRENCY) {
+      break;
     }
   }
-  // Move pending to inflight
   for (const cid of toFetch) {
     state.pending.delete(cid);
     state.inflight.add(cid);
