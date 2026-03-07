@@ -146,15 +146,23 @@ export async function decryptSubdoc(
 ): Promise<Uint8Array> {
   const iv = encrypted.slice(0, 12);
   const ciphertext = encrypted.slice(12);
-  const plaintext = await crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: iv as unknown as ArrayBuffer,
-    },
-    readKey,
-    ciphertext as unknown as ArrayBuffer
-  );
-  return new Uint8Array(plaintext);
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: iv as unknown as ArrayBuffer,
+      },
+      readKey,
+      ciphertext as unknown as ArrayBuffer
+    );
+    return new Uint8Array(plaintext);
+  } catch (err) {
+    throw new Error(
+      "decryptSubdoc failed: wrong key or"
+        + " corrupted data",
+      { cause: err }
+    );
+  }
 }
 
 export interface Ed25519KeyPair {
@@ -181,7 +189,13 @@ export async function verifySignature(
   signature: Uint8Array,
   data: Uint8Array
 ): Promise<boolean> {
-  return ed25519.verifyAsync(signature, data, publicKey);
+  try {
+    return await ed25519.verifyAsync(
+      signature, data, publicKey
+    );
+  } catch {
+    return false;
+  }
 }
 
 function bytesToHex(bytes: Uint8Array): string {

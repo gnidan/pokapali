@@ -182,7 +182,9 @@ describe("encryptSubdoc / decryptSubdoc", () => {
     const encrypted = await encryptSubdoc(key1, data);
     await expect(
       decryptSubdoc(key2, encrypted)
-    ).rejects.toThrow();
+    ).rejects.toThrow(
+      /wrong key or corrupted data/
+    );
   });
 });
 
@@ -221,6 +223,18 @@ describe("Ed25519", () => {
     );
     expect(valid).toBe(false);
   });
+
+  it("verify with malformed input returns false",
+    async () => {
+      const truncatedKey = new Uint8Array(16);
+      const badSig = new Uint8Array(32);
+      const data = new TextEncoder().encode("test");
+      const valid = await verifySignature(
+        truncatedKey, badSig, data
+      );
+      expect(valid).toBe(false);
+    }
+  );
 
   it("verify with tampered data returns false",
     async () => {
