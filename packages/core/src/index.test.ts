@@ -1,8 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+} from "vitest";
 import * as Y from "yjs";
 import type { CapabilityKeys } from "@pokapali/capability";
 import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
+import {
+  clearForwardingStore,
+  decodeForwardingRecord,
+  verifyForwardingRecord,
+} from "./forwarding.js";
 
 vi.mock("@pokapali/sync", () => ({
   setupNamespaceRooms: vi.fn(() => ({
@@ -31,7 +43,11 @@ vi.mock("@pokapali/snapshot", async () => {
   };
 });
 
-import { createCollabLib, type CollabDoc, type DocStatus } from "./index.js";
+import {
+  createCollabLib,
+  type CollabDoc,
+  type DocStatus,
+} from "./index.js";
 
 const OPTS = {
   appId: "test-app",
@@ -42,6 +58,7 @@ const OPTS = {
 describe("@pokapali/core", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearForwardingStore();
   });
 
   it("create() returns CollabDoc", async () => {
@@ -346,6 +363,100 @@ describe("@pokapali/core", () => {
       const fakeCid = CID.createV1(0x71, hash);
       await expect(doc.loadVersion(fakeCid)).rejects.toThrow(/Unknown CID/);
       doc.destroy();
+    });
+  });
+
+  describe("rotate()", () => {
+    it("returns new doc with same content", async () => {
+      const lib = createCollabLib(OPTS);
+      const doc = await lib.create();
+
+      const content = doc.subdoc("content");
+      content.getMap("data").set("hello", "world");
+
+      const { newDoc, forwardingRecord } =
+        await doc.rotate();
+
+      expect(forwardingRecord).toBeInstanceOf(
+        Uint8Array,
+      );
+      expect(newDoc.capability.isAdmin).toBe(true);
+
+      const newContent = newDoc.subdoc("content");
+      expect(
+        newContent.getMap("data").get("hello"),
+      ).toBe("world");
+
+      // Old doc is destroyed
+      expect(() => doc.subdoc("content")).toThrow(
+        /destroyed/,
+      );
+
+      // New doc has different URLs
+      expect(newDoc.adminUrl).not.toBe(
+        doc.adminUrl,
+      );
+      expect(newDoc.readUrl).not.toBe(doc.readUrl);
+
+      newDoc.destroy();
+    });
+
+    it("non-admin cannot rotate", async () => {
+      const lib = createCollabLib(OPTS);
+      const admin = await lib.create();
+      const readUrl = admin.readUrl;
+      admin.destroy();
+
+      const reader = await lib.open(readUrl);
+      await expect(reader.rotate()).rejects.toThrow(
+        /Only admins can rotate/,
+      );
+      reader.destroy();
+    });
+
+    it("forwarding record is verifiable", async () => {
+      const lib = createCollabLib(OPTS);
+      const doc = await lib.create();
+
+      // Extract rotationKey before rotate destroys
+      const adminUrl = doc.adminUrl!;
+      const parsed = await parseUrl(adminUrl);
+
+      const { forwardingRecord } =
+        await doc.rotate();
+
+      const fwd =
+        decodeForwardingRecord(forwardingRecord);
+      const valid = await verifyForwardingRecord(
+        fwd,
+        parsed.keys.rotationKey!,
+      );
+      expect(valid).toBe(true);
+    });
+  });
+
+  describe("forwarding detection in open()", () => {
+    it("follows forwarding to new doc", async () => {
+      const lib = createCollabLib(OPTS);
+      const doc = await lib.create();
+
+      const content = doc.subdoc("content");
+      content.getMap("data").set("key", "value");
+
+      const oldAdminUrl = doc.adminUrl!;
+      const { newDoc } = await doc.rotate();
+
+      // Open old admin URL — should follow
+      // forwarding to new doc's read URL
+      const followed = await lib.open(oldAdminUrl);
+      // The followed doc has a different ipnsName
+      // (it resolved to the new doc)
+      expect(followed.readUrl).not.toBe(
+        oldAdminUrl,
+      );
+
+      followed.destroy();
+      newDoc.destroy();
     });
   });
 });
