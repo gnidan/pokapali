@@ -1,18 +1,22 @@
-export interface PinnerConfig {
-  appIds: string[];
-  rateLimits?: {
-    maxPerHour?: number;
-    maxSizeBytes?: number;
-  };
-  storagePath: string;
-  maxConnections?: number;
-}
+export type {
+  PinnerConfig,
+  Pinner,
+} from "./pinner.js";
 
-export function createPinner(
-  config: PinnerConfig
-): Promise<{
-  start(): Promise<void>;
-  stop(): Promise<void>;
-}> {
-  throw new Error("not implemented");
-}
+export { createPinner } from "./pinner.js";
+
+export type {
+  RateLimiterConfig,
+  RateLimiter,
+} from "./rate-limiter.js";
+export {
+  createRateLimiter,
+  DEFAULT_RATE_LIMITS,
+} from "./rate-limiter.js";
+
+export type {
+  SnapshotRecord,
+  HistoryEntry,
+  HistoryTracker,
+} from "./history.js";
+export { createHistoryTracker } from "./history.js";

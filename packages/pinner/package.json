@@ -11,7 +11,7 @@
   "dependencies": {
     "@pokapali/crypto": "0.0.0",
     "@pokapali/snapshot": "0.0.0",
-    "helia": "^5.1.0"
+    "multiformats": "^13.3.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
