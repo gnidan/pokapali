@@ -3,21 +3,33 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
 const RAW_CODEC = 0x55;
-const DISCOVERY_INTERVAL_MS = 30_000;
+const DISCOVERY_INTERVAL_MS = 15_000;
+const PROVIDE_TIMEOUT_MS = 10_000;
+const FIND_TIMEOUT_MS = 15_000;
 
 const log = (...args: unknown[]) =>
   console.log("[pokapali:discovery]", ...args);
 
-/**
- * Derive a CID from a GossipSub topic name. Peers
- * `provide` this CID on the DHT to announce presence,
- * and `findProviders` to discover other peers in the
- * same room.
- */
 async function topicToCID(topic: string): Promise<CID> {
   const bytes = new TextEncoder().encode(topic);
   const hash = await sha256.digest(bytes);
   return CID.createV1(RAW_CODEC, hash);
+}
+
+function withTimeout(
+  signal: AbortSignal,
+  ms: number,
+): AbortSignal {
+  const ctrl = new AbortController();
+  const timer = setTimeout(
+    () => ctrl.abort(),
+    ms,
+  );
+  signal.addEventListener("abort", () => {
+    clearTimeout(timer);
+    ctrl.abort();
+  });
+  return ctrl.signal;
 }
 
 export interface RoomDiscovery {
@@ -26,114 +38,134 @@ export interface RoomDiscovery {
 
 /**
  * Start DHT-based peer discovery for a set of room
- * topics. Provides our presence and periodically
- * searches for + dials other peers on the same topics.
+ * topics. Provides our presence and searches for
+ * other peers on the same topics in parallel.
  */
 export function startRoomDiscovery(
   helia: Helia,
   roomTopics: string[],
 ): RoomDiscovery {
   let stopped = false;
-  const controller = new AbortController();
+  let cycleController: AbortController | null = null;
 
   const shortTopic = (t: string) =>
     t.replace("/pokapali/signal/", "");
 
-  async function provideAndDiscover() {
-    log(
-      "starting provide/discover cycle,",
-      `${helia.libp2p.getPeers().length} peers connected`
-    );
-
-    // Provide phase
+  async function provideAll(
+    signal: AbortSignal,
+  ) {
     for (const topic of roomTopics) {
-      if (stopped) return;
+      if (signal.aborted) return;
+      const s = shortTopic(topic);
       try {
         const cid = await topicToCID(topic);
-        log(`provide ${shortTopic(topic)}`, cid.toString().slice(0, 16) + "...");
-        await helia.routing.provide(cid, {
-          signal: controller.signal,
-        });
-        log(`provide OK ${shortTopic(topic)}`);
-      } catch (err) {
-        log(
-          `provide FAIL ${shortTopic(topic)}:`,
-          (err as Error).message ?? err,
+        const sig = withTimeout(
+          signal,
+          PROVIDE_TIMEOUT_MS,
         );
+        await helia.routing.provide(cid, {
+          signal: sig,
+        });
+        log(`provide OK ${s}`);
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        if (!msg.includes("abort")) {
+          log(`provide FAIL ${s}: ${msg}`);
+        }
       }
     }
+  }
 
-    // Discover phase
+  async function discoverAll(
+    signal: AbortSignal,
+  ) {
     for (const topic of roomTopics) {
-      if (stopped) return;
+      if (signal.aborted) return;
+      const s = shortTopic(topic);
       try {
         const cid = await topicToCID(topic);
-        log(`findProviders ${shortTopic(topic)}...`);
+        const sig = withTimeout(
+          signal,
+          FIND_TIMEOUT_MS,
+        );
         let found = 0;
         for await (const provider of
           helia.routing.findProviders(cid, {
-            signal: controller.signal,
+            signal: sig,
           })
         ) {
-          if (stopped) return;
+          if (signal.aborted) return;
           found++;
-          const peerId = provider.id.toString();
-          const short = peerId.slice(-8);
+          const pid = provider.id.toString();
+          const short = pid.slice(-8);
           const already = helia.libp2p.getPeers()
-            .some(p => p.toString() === peerId);
+            .some(p => p.toString() === pid);
           if (already) {
-            log(
-              `  found provider ...${short}`,
-              "(already connected)",
-            );
+            log(`  provider ...${short} (connected)`);
             continue;
           }
-          log(`  found provider ...${short}, dialing...`);
+          log(`  provider ...${short}, dialing...`);
           try {
-            await helia.libp2p.dial(
-              provider.id,
-              { signal: controller.signal },
-            );
+            await helia.libp2p.dial(provider.id, {
+              signal,
+            });
             log(`  dialed ...${short} OK`);
           } catch (err) {
-            log(
-              `  dial ...${short} FAIL:`,
-              (err as Error).message ?? err,
-            );
+            const msg = (err as Error).message ?? "";
+            if (!msg.includes("abort")) {
+              log(`  dial ...${short} FAIL: ${msg}`);
+            }
           }
         }
-        log(
-          `findProviders ${shortTopic(topic)}:`,
-          `${found} provider(s)`,
-        );
+        log(`findProviders ${s}: ${found} found`);
       } catch (err) {
-        log(
-          `findProviders FAIL ${shortTopic(topic)}:`,
-          (err as Error).message ?? err,
-        );
+        const msg = (err as Error).message ?? "";
+        if (!msg.includes("abort")) {
+          log(`findProviders FAIL ${s}: ${msg}`);
+        }
       }
     }
-
-    log(
-      "cycle complete,",
-      `${helia.libp2p.getPeers().length} peers now`,
-    );
   }
 
-  // Initial discovery
-  provideAndDiscover();
+  async function cycle() {
+    // Abort previous cycle if still running
+    cycleController?.abort();
+    cycleController = new AbortController();
+    const signal = cycleController.signal;
+
+    log(
+      "cycle start,",
+      `${helia.libp2p.getPeers().length} peers`,
+    );
+
+    // Run provide and discover in parallel
+    await Promise.allSettled([
+      provideAll(signal),
+      discoverAll(signal),
+    ]);
+
+    if (!signal.aborted) {
+      log(
+        "cycle done,",
+        `${helia.libp2p.getPeers().length} peers`,
+      );
+    }
+  }
+
+  // Initial cycle
+  cycle();
 
   // Periodic re-discovery
   const interval = setInterval(() => {
     if (!stopped) {
-      provideAndDiscover();
+      cycle();
     }
   }, DISCOVERY_INTERVAL_MS);
 
   return {
     stop() {
       stopped = true;
-      controller.abort();
+      cycleController?.abort();
       clearInterval(interval);
     },
   };
