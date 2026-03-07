@@ -139,9 +139,39 @@ export async function startRelay(
     log("  listening:", ma.toString());
   }
 
-  // Phase 2: Wait for autoTLS cert before joining the
-  // IPFS network. Once we have the cert (or timeout),
-  // connect to bootstrap peers for DHT/GossipSub.
+  // Phase 2: Dial a couple bootstrap peers so that
+  // address observation fires `self:peer:update`, which
+  // triggers autoTLS cert provisioning. Without any
+  // peers, the event never fires and autoTLS never
+  // starts. maxConnections=50 prevents the CPU flood
+  // that killed cert provisioning before.
+  const { multiaddr } = await import(
+    "@multiformats/multiaddr"
+  );
+  const bootstrapAddrs = [
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+  ];
+  log("dialing bootstrap peers for address observation...");
+  for (const addr of bootstrapAddrs) {
+    try {
+      await helia.libp2p.dial(multiaddr(addr));
+      log(
+        "  dialed",
+        addr.split("/p2p/")[1]?.slice(0, 12),
+      );
+    } catch {
+      log(
+        "  failed to dial",
+        addr.split("/p2p/")[1]?.slice(0, 12),
+      );
+    }
+  }
+
+  // Phase 3: Wait for autoTLS cert. The bootstrap peer
+  // connections above should trigger self:peer:update,
+  // which makes autoTLS start provisioning.
   const CERT_WAIT_MS = 120_000;
   const certObtained = await new Promise<boolean>(
     (resolve) => {
@@ -167,28 +197,6 @@ export async function startRelay(
       .filter((ma) => ma.toString().includes("/tls/"));
     for (const a of wssAddrs) {
       log("  WSS:", a.toString());
-    }
-  }
-
-  // Now connect to IPFS bootstrap peers
-  log("connecting to bootstrap peers...");
-  const { bootstrap } = await import(
-    "@libp2p/bootstrap"
-  );
-  const bootstrapAddrs = [
-    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-    "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-    "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-  ];
-  for (const addr of bootstrapAddrs) {
-    const { multiaddr } = await import(
-      "@multiformats/multiaddr"
-    );
-    try {
-      await helia.libp2p.dial(multiaddr(addr));
-      log("  dialed", addr.split("/p2p/")[1]?.slice(0, 12));
-    } catch {
-      log("  failed to dial", addr.split("/p2p/")[1]?.slice(0, 12));
     }
   }
 
