@@ -2,14 +2,27 @@ import * as Y from "yjs";
 import { WebrtcProvider } from "y-webrtc";
 import type { Awareness } from "y-protocols/awareness";
 import type { SubdocManager } from "@pokapali/subdocs";
+import {
+  createGossipSubSignaling,
+  type PubSubLike,
+} from "./gossipsub-signaling.js";
+
+export { createGossipSubSignaling } from
+  "./gossipsub-signaling.js";
+export type { PubSubLike } from
+  "./gossipsub-signaling.js";
 
 export interface SyncManager {
-  readonly status: "connecting" | "connected" | "disconnected";
+  readonly status:
+    | "connecting"
+    | "connected"
+    | "disconnected";
   destroy(): void;
 }
 
 export interface SyncOptions {
   peerOpts?: { config?: RTCConfiguration };
+  pubsub?: PubSubLike;
 }
 
 export function setupNamespaceRooms(
@@ -21,12 +34,20 @@ export function setupNamespaceRooms(
 ): SyncManager {
   const providers: WebrtcProvider[] = [];
 
+  if (options?.pubsub) {
+    createGossipSubSignaling(options.pubsub);
+  }
+
+  const signaling = options?.pubsub
+    ? [...signalingUrls, "libp2p:gossipsub"]
+    : signalingUrls;
+
   for (const ns of Object.keys(keys)) {
     const roomName = `${ipnsName}:${ns}`;
     const password = bytesToHex(keys[ns]);
     const doc = subdocManager.subdoc(ns);
     const provider = new WebrtcProvider(roomName, doc, {
-      signaling: signalingUrls,
+      signaling,
       password,
       ...(options?.peerOpts && {
         peerOpts: options.peerOpts,
@@ -60,10 +81,18 @@ export function setupAwarenessRoom(
   signalingUrls: string[],
   options?: SyncOptions,
 ): AwarenessRoom {
+  if (options?.pubsub) {
+    createGossipSubSignaling(options.pubsub);
+  }
+
+  const signaling = options?.pubsub
+    ? [...signalingUrls, "libp2p:gossipsub"]
+    : signalingUrls;
+
   const dummyDoc = new Y.Doc();
   const roomName = `${ipnsName}:awareness`;
   const provider = new WebrtcProvider(roomName, dummyDoc, {
-    signaling: signalingUrls,
+    signaling,
     password: awarenessPassword,
     ...(options?.peerOpts && {
       peerOpts: options.peerOpts,
