@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
+    "@ipshipyard/libp2p-auto-tls": "^2.0.1",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
     "@pokapali/crypto": "0.0.0",
     "@pokapali/snapshot": "0.0.0",
