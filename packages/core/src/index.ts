@@ -888,3 +888,4 @@ export {
 export type {
   ForwardingRecord,
 } from "./forwarding.js";
+export { getHelia } from "./helia.js";

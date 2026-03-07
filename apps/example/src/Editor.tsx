@@ -9,6 +9,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import type { CollabDoc, DocStatus } from "@pokapali/core";
+import { getHelia } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SharePanel } from "./SharePanel";
 
@@ -56,6 +57,7 @@ export function EditorView({
   onBack: () => void;
 }) {
   const [status, setStatus] = useState<DocStatus>(doc.status);
+  const [peerCount, setPeerCount] = useState(0);
   const [showShare, setShowShare] = useState(false);
   const [snapshotHint, setSnapshotHint] = useState(false);
   const snapshotTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -131,6 +133,20 @@ export function EditorView({
     });
   }, [doc]);
 
+  useEffect(() => {
+    const poll = setInterval(() => {
+      try {
+        const helia = getHelia();
+        const peers =
+          (helia as any).libp2p.getPeers();
+        setPeerCount(peers.length);
+      } catch {
+        // Helia not ready yet
+      }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, []);
+
   const handleSnapshot = useCallback(() => {
     doc.pushSnapshot().then(() => {
       setSnapshotHint(false);
@@ -146,6 +162,12 @@ export function EditorView({
         <h1>Pokapali</h1>
         <span className={badge.className}>{badge.label}</span>
         <StatusIndicator status={status} />
+        <span
+          className="peer-count"
+          title={`${peerCount} libp2p peer(s) connected`}
+        >
+          {peerCount} peer{peerCount !== 1 ? "s" : ""}
+        </span>
         {doc.capability.canPushSnapshots && (
           <div className="snapshot-controls">
             <button onClick={handleSnapshot}>Save snapshot</button>
