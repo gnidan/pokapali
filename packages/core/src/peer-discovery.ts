@@ -104,17 +104,24 @@ export function startRoomDiscovery(
             log(`  provider ...${short} (connected)`);
             continue;
           }
-          log(`  provider ...${short}, dialing...`);
+          const addrs = provider.multiaddrs?.map(
+            (ma: any) => ma.toString()
+          ) ?? [];
+          log(
+            `  provider ...${short}, addrs:`,
+            addrs.length ? addrs : "(none)",
+          );
+          log(`  dialing ...${short}...`);
           try {
             await helia.libp2p.dial(provider.id, {
               signal,
             });
             log(`  dialed ...${short} OK`);
           } catch (err) {
-            const msg = (err as Error).message ?? "";
-            if (!msg.includes("abort")) {
-              log(`  dial ...${short} FAIL: ${msg}`);
-            }
+            log(
+              `  dial ...${short} FAIL:`,
+              (err as Error).message ?? err,
+            );
           }
         }
         log(`findProviders ${s}: ${found} found`);
