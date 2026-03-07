@@ -12,10 +12,11 @@
   "dependencies": {
     "@pokapali/core": "0.0.0",
     "@tiptap/core": "^2.11.0",
-    "@tiptap/pm": "^2.11.0",
-    "@tiptap/starter-kit": "^2.11.0",
     "@tiptap/extension-collaboration": "^2.11.0",
     "@tiptap/extension-collaboration-cursor": "^2.11.0",
+    "@tiptap/pm": "^2.11.0",
+    "@tiptap/react": "^2.27.2",
+    "@tiptap/starter-kit": "^2.11.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

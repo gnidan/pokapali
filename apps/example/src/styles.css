@@ -1,0 +1,266 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  background: #fafafa;
+  color: #1a1a1a;
+}
+
+.app {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+/* Landing page */
+
+.landing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  gap: 2rem;
+}
+
+.landing h1 {
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.landing-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 400px;
+}
+
+.landing-actions button {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #2563eb;
+  color: white;
+  font-weight: 500;
+}
+
+.landing-actions button:hover {
+  background: #1d4ed8;
+}
+
+.open-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.open-form input {
+  flex: 1;
+  padding: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.open-form button {
+  white-space: nowrap;
+}
+
+/* Header bar */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.header h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-right: auto;
+}
+
+/* Badge */
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
+.badge.admin {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge.writer {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge.reader {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+/* Status dot */
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.status-dot.synced { background: #22c55e; }
+.status-dot.connecting,
+.status-dot.syncing { background: #eab308; }
+.status-dot.unpushed-changes { background: #f97316; }
+.status-dot.offline { background: #ef4444; }
+
+/* Editor */
+
+.editor-container {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  min-height: 400px;
+}
+
+.editor-container .tiptap {
+  padding: 1rem;
+  outline: none;
+  min-height: 400px;
+}
+
+.editor-container .tiptap p {
+  margin: 0.5em 0;
+}
+
+.editor-container .tiptap h1,
+.editor-container .tiptap h2,
+.editor-container .tiptap h3 {
+  margin: 0.75em 0 0.25em;
+}
+
+.read-only-banner {
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  border-radius: 8px 8px 0 0;
+}
+
+/* Share panel */
+
+.share-panel {
+  margin-top: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  padding: 1rem;
+}
+
+.share-panel h2 {
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.share-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.share-row label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  min-width: 60px;
+}
+
+.share-row input[type="text"] {
+  flex: 1;
+  padding: 0.4rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+
+.share-row button {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.share-row button:hover {
+  background: #f3f4f6;
+}
+
+/* Snapshot controls */
+
+.snapshot-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.snapshot-controls button {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.snapshot-controls button:hover {
+  background: #f3f4f6;
+}
+
+.snapshot-hint {
+  font-size: 0.75rem;
+  color: #f97316;
+  font-weight: 500;
+}
+
+.back-link {
+  font-size: 0.875rem;
+  color: #2563eb;
+  cursor: pointer;
+  background: none;
+  border: none;
+  text-decoration: underline;
+}
+
+.toggle-share {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.toggle-share:hover {
+  background: #f3f4f6;
+}
