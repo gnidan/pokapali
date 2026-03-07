@@ -158,6 +158,7 @@ export async function startRelay(
   );
 
   // Periodic status logging
+  let lastAddrCount = 0;
   const logInterval = setInterval(() => {
     const peers = helia.libp2p.getPeers();
     const ma = helia.libp2p.getMultiaddrs();
@@ -165,6 +166,12 @@ export async function startRelay(
       `${peers.length} peers,`,
       `${ma.length} addrs`,
     );
+    if (ma.length !== lastAddrCount) {
+      lastAddrCount = ma.length;
+      for (const a of ma) {
+        log("  addr:", a.toString());
+      }
+    }
   }, LOG_INTERVAL_MS);
 
   return {
