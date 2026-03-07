@@ -97,13 +97,14 @@ export async function startRelay(
 
   // Cert-provisioning node: ephemeral ports, no
   // discovery, minimal connections.
+  const certDefaults = libp2pDefaults();
   const certNode = await createHelia({
     datastore,
     libp2p: {
-      ...libp2pDefaults(),
+      ...certDefaults,
       privateKey,
       addresses: {
-        ...defaults.addresses,
+        ...certDefaults.addresses,
         listen: [
           "/ip4/0.0.0.0/tcp/0",
           "/ip6/::/tcp/0",
@@ -112,13 +113,13 @@ export async function startRelay(
       },
       peerDiscovery: [],
       connectionManager: {
-        ...defaults.connectionManager,
+        ...certDefaults.connectionManager,
         maxConnections: 5,
         minConnections: 0,
         maxIncomingPendingConnections: 2,
       },
       services: {
-        ...defaults.services,
+        ...certDefaults.services,
         pubsub: gossipsub(),
         autoTLS: autoTLS({
           autoConfirmAddress: true,
@@ -206,25 +207,26 @@ export async function startRelay(
     "/p2p-circuit",
   ];
 
+  const relayDefaults = libp2pDefaults();
   const helia = await createHelia({
     datastore,
     libp2p: {
-      ...libp2pDefaults(),
+      ...relayDefaults,
       privateKey,
       addresses: {
-        ...defaults.addresses,
+        ...relayDefaults.addresses,
         listen,
         announce: config.announceAddrs,
       },
       peerDiscovery: [],
       connectionManager: {
-        ...defaults.connectionManager,
+        ...relayDefaults.connectionManager,
         maxConnections: MAX_CONNECTIONS,
         minConnections: MIN_CONNECTIONS,
         maxIncomingPendingConnections: 10,
       },
       services: {
-        ...defaults.services,
+        ...relayDefaults.services,
         pubsub: gossipsub(),
         autoTLS: autoTLS({
           autoConfirmAddress: true,
