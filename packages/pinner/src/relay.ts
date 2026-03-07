@@ -17,7 +17,6 @@ import { sha256 } from "multiformats/hashes/sha2";
 // Max peers for the relay. Keep low so the event loop
 // stays responsive for autoTLS cert provisioning.
 const MAX_CONNECTIONS = 50;
-const MIN_CONNECTIONS = 5;
 
 const DISCOVERY_TOPIC =
   "pokapali._peer-discovery._p2p._pubsub";
@@ -116,13 +115,12 @@ export async function startRelay(
       addresses: {
         ...defaults.addresses,
         listen,
-        announce: config.announceAddrs,
+        appendAnnounce: config.announceAddrs,
       },
       peerDiscovery: [],
       connectionManager: {
         ...defaults.connectionManager,
         maxConnections: MAX_CONNECTIONS,
-        minConnections: MIN_CONNECTIONS,
         maxIncomingPendingConnections: 10,
       },
       services: {
@@ -142,9 +140,9 @@ export async function startRelay(
     log("  listening:", ma.toString());
   }
 
-  // Dial bootstrap peers to trigger self:peer:update
+  // Dial ONE bootstrap peer to trigger self:peer:update
   // (needed for autoTLS cert provisioning).
-  log("dialing bootstrap peers...");
+  log("dialing bootstrap peer...");
   for (const addr of bootstrapAddrs) {
     try {
       await helia.libp2p.dial(multiaddr(addr));
@@ -152,6 +150,7 @@ export async function startRelay(
         "  dialed",
         addr.split("/p2p/")[1]?.slice(0, 12),
       );
+      break; // one is enough
     } catch {
       log(
         "  failed to dial",
@@ -159,6 +158,23 @@ export async function startRelay(
       );
     }
   }
+
+  // Close all connections so the forge can dial back.
+  // DHT walks from the bootstrap dial fill maxConnections
+  // within seconds, causing the forge's Noise handshake
+  // to get rejected ("connection reset by peer").
+  const closeAll = async () => {
+    const conns = helia.libp2p.getConnections();
+    log(`closing ${conns.length} connections for cert`);
+    await Promise.allSettled(
+      conns.map((c) => c.close()),
+    );
+  };
+  await closeAll();
+
+  // Keep closing connections that arrive during the cert
+  // wait — DHT peers keep reconnecting.
+  const closeTimer = setInterval(closeAll, 3_000);
 
   // Wait for autoTLS cert. The forge dials back to
   // verify our identity, so we must be listening on
@@ -181,6 +197,8 @@ export async function startRelay(
       );
     },
   );
+
+  clearInterval(closeTimer);
 
   if (certObtained) {
     const wssAddrs = helia.libp2p
