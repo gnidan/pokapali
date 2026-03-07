@@ -76,10 +76,22 @@ export async function encodeFragment(
 
   for (const [label, value] of entries) {
     const labelBytes = new TextEncoder().encode(label);
+    if (labelBytes.length > 255) {
+      throw new Error(
+        `Label too long: "${label}" `
+          + `(${labelBytes.length} bytes)`
+      );
+    }
+    if (value.length > 255) {
+      throw new Error(
+        `Value too long for label "${label}" `
+          + `(${value.length} bytes)`
+      );
+    }
     buf[offset++] = labelBytes.length;
     buf.set(labelBytes, offset);
     offset += labelBytes.length;
-    buf[offset++] = value.length & 0xff;
+    buf[offset++] = value.length;
     buf.set(value, offset);
     offset += value.length;
   }
@@ -196,8 +208,9 @@ export async function buildUrl(
   keys: CapabilityKeys
 ): Promise<string> {
   const fragment = await encodeFragment(keys);
-  const sep = base.endsWith("/") ? "" : "/";
-  return `${base}${sep}${ipnsName}#${fragment}`;
+  const b = base.endsWith("/")
+    ? base.slice(0, -1) : base;
+  return `${b}/doc/${ipnsName}#${fragment}`;
 }
 
 export async function parseUrl(
@@ -210,12 +223,14 @@ export async function parseUrl(
   const fragment = url.slice(hashIdx + 1);
   const pathPart = url.slice(0, hashIdx);
 
-  const lastSlash = pathPart.lastIndexOf("/");
-  if (lastSlash === -1) {
-    throw new Error("URL has no path separator");
+  const docIdx = pathPart.indexOf("/doc/");
+  if (docIdx === -1) {
+    throw new Error(
+      "URL missing /doc/ path segment"
+    );
   }
-  const base = pathPart.slice(0, lastSlash);
-  const ipnsName = pathPart.slice(lastSlash + 1);
+  const base = pathPart.slice(0, docIdx);
+  const ipnsName = pathPart.slice(docIdx + 5);
 
   const keys = await decodeFragment(fragment);
   return { base, ipnsName, keys };

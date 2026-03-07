@@ -139,6 +139,66 @@ describe("encodeFragment / decodeFragment", () => {
     await expect(decodeFragment(""))
       .rejects.toThrow();
   });
+
+  it("byte-exact test vector", async () => {
+    // Construct known keys with fixed bytes
+    const readKeyBytes = new Uint8Array(32).fill(0xaa);
+    const readKey = await crypto.subtle.importKey(
+      "raw",
+      readKeyBytes as unknown as ArrayBuffer,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+    const keys: CapabilityKeys = {
+      readKey,
+      awarenessRoomPassword: "pw",
+    };
+    const fragment = await encodeFragment(keys);
+
+    // Expected wire format:
+    //   0x00 (version)
+    //   0x01 "a" 0x02 "pw"  (awarenessRoomPassword)
+    //   0x01 "r" 0x20 <32 bytes of 0xaa> (readKey)
+    // Labels sorted: "a" < "r"
+    const expected = new Uint8Array([
+      0x00,
+      0x01, 0x61, 0x02, 0x70, 0x77,
+      0x01, 0x72, 0x20,
+      ...new Uint8Array(32).fill(0xaa),
+    ]);
+    expect(fragment).toBe(base64urlEncode(expected));
+  });
+
+  it("round-trips writer keys (no rotationKey)",
+    async () => {
+      const full = await makeFullKeys();
+      const writer: CapabilityKeys = {
+        readKey: full.readKey,
+        ipnsKeyBytes: full.ipnsKeyBytes,
+        awarenessRoomPassword:
+          full.awarenessRoomPassword,
+        namespaceKeys: full.namespaceKeys,
+      };
+      const fragment = await encodeFragment(writer);
+      const decoded = await decodeFragment(fragment);
+
+      expect(arraysEqual(
+        await exportKey(decoded.readKey!),
+        await exportKey(writer.readKey!)
+      )).toBe(true);
+      expect(arraysEqual(
+        decoded.ipnsKeyBytes!, writer.ipnsKeyBytes!
+      )).toBe(true);
+      expect(decoded.rotationKey).toBeUndefined();
+      expect(decoded.awarenessRoomPassword)
+        .toBe(writer.awarenessRoomPassword);
+      expect(arraysEqual(
+        decoded.namespaceKeys!["content"],
+        writer.namespaceKeys!["content"]
+      )).toBe(true);
+    }
+  );
 });
 
 describe("inferCapability", () => {
@@ -188,6 +248,27 @@ describe("inferCapability", () => {
     expect(cap.canPushSnapshots).toBe(false);
   });
 
+  it("writer role: canPushSnapshots, not admin",
+    async () => {
+      const full = await makeFullKeys();
+      const writer: CapabilityKeys = {
+        readKey: full.readKey,
+        ipnsKeyBytes: full.ipnsKeyBytes,
+        awarenessRoomPassword:
+          full.awarenessRoomPassword,
+        namespaceKeys: full.namespaceKeys,
+      };
+      const cap = inferCapability(
+        writer, ["content", "comments"]
+      );
+      expect(cap.canPushSnapshots).toBe(true);
+      expect(cap.isAdmin).toBe(false);
+      expect(cap.namespaces).toEqual(
+        new Set(["content", "comments"])
+      );
+    }
+  );
+
   it("ignores unknown namespaces", async () => {
     const full = await makeFullKeys();
     const cap = inferCapability(full, ["content"]);
@@ -201,10 +282,13 @@ describe("buildUrl / parseUrl", () => {
   it("round-trips", async () => {
     const keys = await makeFullKeys();
     const url = await buildUrl(
-      "https://myapp.com/doc", "abc123", keys
+      "https://myapp.com", "abc123", keys
+    );
+    expect(url).toContain(
+      "https://myapp.com/doc/abc123#"
     );
     const parsed = await parseUrl(url);
-    expect(parsed.base).toBe("https://myapp.com/doc");
+    expect(parsed.base).toBe("https://myapp.com");
     expect(parsed.ipnsName).toBe("abc123");
     expect(arraysEqual(
       await exportKey(parsed.keys.readKey!),
@@ -212,14 +296,16 @@ describe("buildUrl / parseUrl", () => {
     )).toBe(true);
   });
 
-  it("handles trailing slash", async () => {
+  it("handles trailing slash in base", async () => {
     const keys = await makeFullKeys();
     const url = await buildUrl(
-      "https://myapp.com/doc/", "abc123", keys
+      "https://myapp.com/", "abc123", keys
     );
-    expect(url).toContain("/doc/abc123#");
+    expect(url).toContain(
+      "https://myapp.com/doc/abc123#"
+    );
     const parsed = await parseUrl(url);
-    expect(parsed.base).toBe("https://myapp.com/doc");
+    expect(parsed.base).toBe("https://myapp.com");
     expect(parsed.ipnsName).toBe("abc123");
   });
 
@@ -228,6 +314,14 @@ describe("buildUrl / parseUrl", () => {
       parseUrl("https://myapp.com/doc/abc123")
     ).rejects.toThrow(/fragment/i);
   });
+
+  it("throws on URL missing /doc/ segment",
+    async () => {
+      await expect(
+        parseUrl("https://myapp.com/abc123#frag")
+      ).rejects.toThrow(/\/doc\//);
+    }
+  );
 });
 
 describe("narrowCapability", () => {
@@ -282,6 +376,29 @@ describe("narrowCapability", () => {
         namespaces: ["nonexistent"],
       });
       expect(narrowed.namespaceKeys).toBeUndefined();
+    }
+  );
+
+  it("narrows writer to namespace subset",
+    async () => {
+      const full = await makeFullKeys();
+      const writer: CapabilityKeys = {
+        readKey: full.readKey,
+        ipnsKeyBytes: full.ipnsKeyBytes,
+        awarenessRoomPassword:
+          full.awarenessRoomPassword,
+        namespaceKeys: full.namespaceKeys,
+      };
+      const narrowed = narrowCapability(writer, {
+        namespaces: ["comments"],
+      });
+      expect(narrowed.readKey).toBeDefined();
+      expect(narrowed.awarenessRoomPassword)
+        .toBeDefined();
+      expect(narrowed.ipnsKeyBytes).toBeUndefined();
+      expect(narrowed.rotationKey).toBeUndefined();
+      expect(Object.keys(narrowed.namespaceKeys!))
+        .toEqual(["comments"]);
     }
   );
 
