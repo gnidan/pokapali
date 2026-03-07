@@ -25,6 +25,9 @@ export interface PubSubLike {
 const ADAPTER_KEY = "libp2p:gossipsub";
 const TOPIC_PREFIX = "/pokapali/signal/";
 
+const log = (...args: unknown[]) =>
+  console.log("[pokapali:gossipsub]", ...args);
+
 export class GossipSubSignaling extends Observable<string> {
   readonly url = ADAPTER_KEY;
   readonly providers = new Set<unknown>();
@@ -52,6 +55,8 @@ export class GossipSubSignaling extends Observable<string> {
       try {
         const text = new TextDecoder().decode(msg.data);
         const parsed = JSON.parse(text);
+        const short = topic.replace(TOPIC_PREFIX, "");
+        log(`recv on ${short}:`, parsed?.data?.type);
         this.emit("message", [parsed]);
       } catch {
         // malformed message — ignore
@@ -76,6 +81,7 @@ export class GossipSubSignaling extends Observable<string> {
         for (const t of topics) {
           const fullTopic = `${TOPIC_PREFIX}${t}`;
           if (!this.subscribedTopics.has(fullTopic)) {
+            log(`subscribe ${t}`);
             this.pubsub.subscribe(fullTopic);
             this.subscribedTopics.add(fullTopic);
           }
@@ -103,6 +109,10 @@ export class GossipSubSignaling extends Observable<string> {
               topic: message.topic,
               data: message.data,
             })
+          );
+          log(
+            `publish ${message.topic}:`,
+            (message.data as any)?.type,
           );
           this.pubsub.publish(fullTopic, payload)
             .catch(() => {
