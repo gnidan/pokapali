@@ -118,9 +118,13 @@ export async function startRelay(
       peerDiscovery: [],
       connectionManager: {
         ...defaults.connectionManager,
-        maxConnections: MAX_CONNECTIONS,
-        minConnections: MIN_CONNECTIONS,
-        maxIncomingPendingConnections: 10,
+        // Start with very low limits. During cert
+        // provisioning even a few DHT peers saturate
+        // the CPU and block ACME. We raise limits after
+        // the cert is obtained or times out.
+        maxConnections: 5,
+        minConnections: 0,
+        maxIncomingPendingConnections: 2,
       },
       services: {
         ...defaults.services,
@@ -139,12 +143,11 @@ export async function startRelay(
     log("  listening:", ma.toString());
   }
 
-  // Phase 2: Dial a couple bootstrap peers so that
-  // address observation fires `self:peer:update`, which
-  // triggers autoTLS cert provisioning. Without any
-  // peers, the event never fires and autoTLS never
-  // starts. maxConnections=50 prevents the CPU flood
-  // that killed cert provisioning before.
+  // Phase 2: Dial one bootstrap peer to trigger address
+  // observation → `self:peer:update` → autoTLS starts.
+  // Then immediately disconnect ALL peers so the event
+  // loop stays free for ACME cert provisioning. Even 50
+  // DHT connections drive CPU to 90%+, blocking ACME.
   const { multiaddr } = await import(
     "@multiformats/multiaddr"
   );
@@ -153,7 +156,7 @@ export async function startRelay(
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
   ];
-  log("dialing bootstrap peers for address observation...");
+  log("dialing bootstrap peer for address observation...");
   for (const addr of bootstrapAddrs) {
     try {
       await helia.libp2p.dial(multiaddr(addr));
@@ -161,6 +164,7 @@ export async function startRelay(
         "  dialed",
         addr.split("/p2p/")[1]?.slice(0, 12),
       );
+      break; // one peer is enough to trigger the event
     } catch {
       log(
         "  failed to dial",
@@ -169,9 +173,25 @@ export async function startRelay(
     }
   }
 
-  // Phase 3: Wait for autoTLS cert. The bootstrap peer
-  // connections above should trigger self:peer:update,
-  // which makes autoTLS start provisioning.
+  // Wait a moment for self:peer:update to fire (it's
+  // debounced), then disconnect all peers to free CPU
+  // for ACME. autoTLS runs its own HTTP requests which
+  // need an idle event loop.
+  await new Promise((r) => setTimeout(r, 5_000));
+  log("disconnecting peers for cert provisioning...");
+  for (const conn of helia.libp2p.getConnections()) {
+    try {
+      await conn.close();
+    } catch {}
+  }
+  log(
+    "disconnected, conns:",
+    helia.libp2p.getConnections().length,
+  );
+
+  // Phase 3: Wait for autoTLS cert with the event loop
+  // free. Reject inbound connections during this phase
+  // by temporarily setting maxConnections very low.
   const CERT_WAIT_MS = 120_000;
   const certObtained = await new Promise<boolean>(
     (resolve) => {
