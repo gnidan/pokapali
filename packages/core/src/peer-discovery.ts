@@ -102,10 +102,27 @@ export function startRoomDiscovery(
           continue;
         }
 
+        // Filter to WSS-only — circuit relay addrs
+        // contain other peer IDs and can't be mixed.
+        const p2pSuffix = `/p2p/${pid}`;
+        const wssAddrs = (provider.multiaddrs ?? [])
+          .map((ma: any) => ma.toString())
+          .filter(
+            (s: string) =>
+              s.includes("/ws") &&
+              !s.includes("/p2p-circuit"),
+          )
+          .map((s: string) =>
+            multiaddr(
+              s.includes("/p2p/")
+                ? s
+                : s + p2pSuffix,
+            ),
+          );
+
         log(
           `relay ...${short}, dialing...`,
-          `(${addrs.length})`,
-          addrs.length ? addrs : "(no addrs)",
+          wssAddrs.map((ma) => ma.toString()),
         );
         try {
           const dialCtrl = new AbortController();
@@ -113,24 +130,6 @@ export function startRoomDiscovery(
             () => dialCtrl.abort(),
             DIAL_TIMEOUT_MS,
           );
-          // Dial using provider multiaddrs directly.
-          // Filter to WSS-only — circuit relay addrs
-          // contain other peer IDs and can't be mixed.
-          const p2pSuffix = `/p2p/${pid}`;
-          const wssAddrs = (provider.multiaddrs ?? [])
-            .map((ma: any) => ma.toString())
-            .filter(
-              (s: string) =>
-                s.includes("/ws") &&
-                !s.includes("/p2p-circuit"),
-            )
-            .map((s: string) =>
-              multiaddr(
-                s.includes("/p2p/")
-                  ? s
-                  : s + p2pSuffix,
-              ),
-            );
           if (wssAddrs.length > 0) {
             await helia.libp2p.dial(wssAddrs, {
               signal: dialCtrl.signal,
@@ -143,10 +142,19 @@ export function startRoomDiscovery(
           clearTimeout(dialTimer);
           log(`relay ...${short} OK`);
         } catch (err) {
+          const e = err as any;
           log(
             `relay ...${short} FAIL:`,
-            (err as Error).message ?? err,
+            e.message ?? err,
           );
+          if (e.errors) {
+            for (const sub of e.errors) {
+              log(
+                `  sub-error:`,
+                sub.message ?? sub,
+              );
+            }
+          }
         }
       }
 
