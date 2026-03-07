@@ -104,7 +104,11 @@ export class GossipSubSignaling extends Observable<string> {
               data: message.data,
             })
           );
-          this.pubsub.publish(fullTopic, payload);
+          this.pubsub.publish(fullTopic, payload)
+            .catch(() => {
+              // NoPeersSubscribedToTopic is normal at
+              // startup — no peers listening yet.
+            });
         }
         break;
       }
