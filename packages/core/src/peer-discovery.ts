@@ -113,20 +113,26 @@ export function startRoomDiscovery(
             () => dialCtrl.abort(),
             DIAL_TIMEOUT_MS,
           );
-          // Dial using multiaddrs from the provider
-          // so libp2p doesn't rely on the peer store.
+          // Dial using provider multiaddrs directly.
+          // Filter to WSS-only — circuit relay addrs
+          // contain other peer IDs and can't be mixed.
           const p2pSuffix = `/p2p/${pid}`;
-          const mas = (provider.multiaddrs ?? []).map(
-            (ma: any) => {
-              const s = ma.toString();
-              // Append peer ID if not already present
-              return s.includes("/p2p/")
-                ? multiaddr(s)
-                : multiaddr(s + p2pSuffix);
-            },
-          );
-          if (mas.length > 0) {
-            await helia.libp2p.dial(mas, {
+          const wssAddrs = (provider.multiaddrs ?? [])
+            .map((ma: any) => ma.toString())
+            .filter(
+              (s: string) =>
+                s.includes("/ws") &&
+                !s.includes("/p2p-circuit"),
+            )
+            .map((s: string) =>
+              multiaddr(
+                s.includes("/p2p/")
+                  ? s
+                  : s + p2pSuffix,
+              ),
+            );
+          if (wssAddrs.length > 0) {
+            await helia.libp2p.dial(wssAddrs, {
               signal: dialCtrl.signal,
             });
           } else {
