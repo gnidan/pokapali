@@ -75,16 +75,17 @@ export async function startRelay(
   );
   const defaults = libp2pDefaults();
 
-  // Replace the random-port WS listeners with a
-  // fixed port so browsers can connect directly.
+  // Use fixed ports so firewall rules are predictable.
   const addresses = {
     ...defaults.addresses,
     listen: [
-      ...(defaults.addresses?.listen ?? []).filter(
-        (a: string) => !a.includes("/ws"),
-      ),
+      "/ip4/0.0.0.0/tcp/4001",
+      "/ip6/::/tcp/4001",
+      "/ip4/0.0.0.0/udp/4001/webrtc-direct",
+      "/ip6/::/udp/4001/webrtc-direct",
       `/ip4/0.0.0.0/tcp/${wsPort}/ws`,
       `/ip6/::/tcp/${wsPort}/ws`,
+      "/p2p-circuit",
     ],
   };
 
