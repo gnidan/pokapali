@@ -1,5 +1,13 @@
-import type { CID } from "multiformats/cid";
+import * as dagCbor from "@ipld/dag-cbor";
+import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
+import {
+  encryptSubdoc,
+  decryptSubdoc,
+  signBytes,
+  verifySignature,
+} from "@pokapali/crypto";
 
 export interface SnapshotNode {
   subdocs: Record<string, Uint8Array>;
@@ -10,7 +18,17 @@ export interface SnapshotNode {
   signature: Uint8Array;
 }
 
-export function encodeSnapshot(
+// The payload that gets signed (everything
+// except the signature itself).
+interface SignablePayload {
+  subdocs: Record<string, Uint8Array>;
+  prev: CID | null;
+  seq: number;
+  ts: number;
+  publicKey: Uint8Array;
+}
+
+export async function encodeSnapshot(
   plaintextSubdocs: Record<string, Uint8Array>,
   readKey: CryptoKey,
   prev: CID | null,
@@ -18,34 +36,100 @@ export function encodeSnapshot(
   ts: number,
   signingKey: Ed25519KeyPair
 ): Promise<Uint8Array> {
-  throw new Error("not implemented");
+  // Encrypt each subdoc payload
+  const subdocs: Record<string, Uint8Array> = {};
+  for (const [ns, data] of
+    Object.entries(plaintextSubdocs)) {
+    subdocs[ns] = await encryptSubdoc(
+      readKey, data
+    );
+  }
+
+  const payload: SignablePayload = {
+    subdocs,
+    prev,
+    seq,
+    ts,
+    publicKey: signingKey.publicKey,
+  };
+
+  const payloadBytes = dagCbor.encode(payload);
+  const signature = await signBytes(
+    signingKey, payloadBytes
+  );
+
+  const node = { ...payload, signature };
+  return dagCbor.encode(node);
 }
 
 export function decodeSnapshot(
   bytes: Uint8Array
 ): SnapshotNode {
-  throw new Error("not implemented");
+  const decoded = dagCbor.decode<SnapshotNode>(
+    bytes
+  );
+  return decoded;
 }
 
-export function decryptSnapshot(
+export async function decryptSnapshot(
   node: SnapshotNode,
   readKey: CryptoKey
 ): Promise<Record<string, Uint8Array>> {
-  throw new Error("not implemented");
+  const result: Record<string, Uint8Array> = {};
+  for (const [ns, encrypted] of
+    Object.entries(node.subdocs)) {
+    result[ns] = await decryptSubdoc(
+      readKey, encrypted
+    );
+  }
+  return result;
 }
 
-export function validateStructure(
+export async function validateStructure(
   block: Uint8Array
 ): Promise<boolean> {
-  throw new Error("not implemented");
+  try {
+    const node = decodeSnapshot(block);
+
+    // Reconstruct the signable payload
+    const payload: SignablePayload = {
+      subdocs: node.subdocs,
+      prev: node.prev,
+      seq: node.seq,
+      ts: node.ts,
+      publicKey: node.publicKey,
+    };
+    const payloadBytes = dagCbor.encode(payload);
+
+    return verifySignature(
+      node.publicKey,
+      node.signature,
+      payloadBytes
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function* walkChain(
   tipCid: CID,
-  blockGetter: (cid: CID) => Promise<Uint8Array>
+  blockGetter: (
+    cid: CID
+  ) => Promise<Uint8Array>
 ): AsyncGenerator<SnapshotNode> {
-  throw new Error("not implemented");
+  let current: CID | null = tipCid;
+  while (current !== null) {
+    const block = await blockGetter(current);
+    const node = decodeSnapshot(block);
+    yield node;
+    current = node.prev;
+  }
 }
+
+export { CID } from "multiformats/cid";
+export { sha256 } from "multiformats/hashes/sha2";
+export { code as dagCborCode }
+  from "@ipld/dag-cbor";
 
 // Pure state machine for fetch coalescing
 export interface FetchCoalescerState {
@@ -57,13 +141,33 @@ export interface FetchCoalescerState {
 
 export function createFetchCoalescerState():
   FetchCoalescerState {
-  throw new Error("not implemented");
+  return {
+    pending: new Set(),
+    inflight: new Set(),
+    resolved: new Map(),
+    failed: new Set(),
+  };
 }
 
 export function coalescerNext(
   state: FetchCoalescerState
 ): { toFetch: string[] } {
-  throw new Error("not implemented");
+  const toFetch: string[] = [];
+  for (const cid of state.pending) {
+    if (
+      !state.inflight.has(cid) &&
+      !state.resolved.has(cid) &&
+      !state.failed.has(cid)
+    ) {
+      toFetch.push(cid);
+    }
+  }
+  // Move pending to inflight
+  for (const cid of toFetch) {
+    state.pending.delete(cid);
+    state.inflight.add(cid);
+  }
+  return { toFetch };
 }
 
 export function coalescerResolve(
@@ -71,12 +175,16 @@ export function coalescerResolve(
   cid: string,
   block: Uint8Array
 ): FetchCoalescerState {
-  throw new Error("not implemented");
+  state.inflight.delete(cid);
+  state.resolved.set(cid, block);
+  return state;
 }
 
 export function coalescerFail(
   state: FetchCoalescerState,
   cid: string
 ): FetchCoalescerState {
-  throw new Error("not implemented");
+  state.inflight.delete(cid);
+  state.failed.add(cid);
+  return state;
 }
