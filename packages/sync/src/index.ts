@@ -4,10 +4,7 @@ import type { Awareness } from "y-protocols/awareness";
 import type { SubdocManager } from "@pokapali/subdocs";
 
 export interface SyncManager {
-  readonly status:
-    | "connecting"
-    | "connected"
-    | "disconnected";
+  readonly status: "connecting" | "connected" | "disconnected";
   destroy(): void;
 }
 
@@ -15,7 +12,7 @@ export function setupNamespaceRooms(
   ipnsName: string,
   subdocManager: SubdocManager,
   keys: Record<string, Uint8Array>,
-  signalingUrls: string[]
+  signalingUrls: string[],
 ): SyncManager {
   const providers: WebrtcProvider[] = [];
 
@@ -23,12 +20,10 @@ export function setupNamespaceRooms(
     const roomName = `${ipnsName}:${ns}`;
     const password = bytesToHex(keys[ns]);
     const doc = subdocManager.subdoc(ns);
-    const provider = new WebrtcProvider(
-      roomName, doc, {
-        signaling: signalingUrls,
-        password,
-      }
-    );
+    const provider = new WebrtcProvider(roomName, doc, {
+      signaling: signalingUrls,
+      password,
+    });
     providers.push(provider);
   }
 
@@ -54,16 +49,14 @@ export interface AwarenessRoom {
 export function setupAwarenessRoom(
   ipnsName: string,
   awarenessPassword: string,
-  signalingUrls: string[]
+  signalingUrls: string[],
 ): AwarenessRoom {
   const dummyDoc = new Y.Doc();
   const roomName = `${ipnsName}:awareness`;
-  const provider = new WebrtcProvider(
-    roomName, dummyDoc, {
-      signaling: signalingUrls,
-      password: awarenessPassword,
-    }
-  );
+  const provider = new WebrtcProvider(roomName, dummyDoc, {
+    signaling: signalingUrls,
+    password: awarenessPassword,
+  });
 
   return {
     get awareness(): Awareness {
@@ -78,7 +71,7 @@ export function setupAwarenessRoom(
 }
 
 function aggregateStatus(
-  providers: WebrtcProvider[]
+  providers: WebrtcProvider[],
 ): "connecting" | "connected" | "disconnected" {
   if (providers.length === 0) {
     return "disconnected";
@@ -99,7 +92,5 @@ function aggregateStatus(
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) =>
-    b.toString(16).padStart(2, "0")
-  ).join("");
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

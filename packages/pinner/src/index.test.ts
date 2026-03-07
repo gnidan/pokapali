@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,48 +20,38 @@ async function makeSnapshot(opts?: {
   prev?: null;
 }): Promise<Uint8Array> {
   const secret = generateAdminSecret();
-  const keys = await deriveDocKeys(
-    secret, "test-app", ["content"]
-  );
-  const signingKey = await ed25519KeyPairFromSeed(
-    keys.ipnsKeyBytes
-  );
+  const keys = await deriveDocKeys(secret, "test-app", ["content"]);
+  const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
   return encodeSnapshot(
     { content: new Uint8Array([1, 2, 3]) },
     keys.readKey,
     opts?.prev ?? null,
     opts?.seq ?? 1,
     opts?.ts ?? Date.now(),
-    signingKey
+    signingKey,
   );
 }
 
 // Reusable keys for multi-snapshot tests
 async function makeKeysAndSnapshot(
   secret: string,
-  opts?: { seq?: number; ts?: number }
+  opts?: { seq?: number; ts?: number },
 ): Promise<Uint8Array> {
-  const keys = await deriveDocKeys(
-    secret, "test-app", ["content"]
-  );
-  const signingKey = await ed25519KeyPairFromSeed(
-    keys.ipnsKeyBytes
-  );
+  const keys = await deriveDocKeys(secret, "test-app", ["content"]);
+  const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
   return encodeSnapshot(
     { content: new Uint8Array([1, 2, 3]) },
     keys.readKey,
     null,
     opts?.seq ?? 1,
     opts?.ts ?? Date.now(),
-    signingKey
+    signingKey,
   );
 }
 
 describe("@pokapali/pinner", () => {
   beforeEach(async () => {
-    tmpDir = await mkdtemp(
-      join(tmpdir(), "pinner-test-")
-    );
+    tmpDir = await mkdtemp(join(tmpdir(), "pinner-test-"));
     pinner = await createPinner({
       appIds: ["test-app"],
       storagePath: tmpDir,
@@ -82,18 +66,14 @@ describe("@pokapali/pinner", () => {
 
   it("accepts a valid snapshot", async () => {
     const block = await makeSnapshot();
-    const accepted = await pinner.ingest(
-      "name1", block
-    );
+    const accepted = await pinner.ingest("name1", block);
     expect(accepted).toBe(true);
   });
 
   it("rejects invalid snapshot (random bytes)", async () => {
     const garbage = new Uint8Array(256);
     crypto.getRandomValues(garbage);
-    const accepted = await pinner.ingest(
-      "name1", garbage
-    );
+    const accepted = await pinner.ingest("name1", garbage);
     expect(accepted).toBe(false);
   });
 
@@ -110,18 +90,14 @@ describe("@pokapali/pinner", () => {
         seq: i + 1,
         ts: Date.now() + i,
       });
-      expect(
-        await p.ingest("name1", block)
-      ).toBe(true);
+      expect(await p.ingest("name1", block)).toBe(true);
     }
 
     const block4 = await makeSnapshot({
       seq: 4,
       ts: Date.now() + 10,
     });
-    expect(
-      await p.ingest("name1", block4)
-    ).toBe(false);
+    expect(await p.ingest("name1", block4)).toBe(false);
 
     await p.stop();
   });
@@ -136,9 +112,7 @@ describe("@pokapali/pinner", () => {
 
     const block = await makeSnapshot();
     // Real snapshot is > 10 bytes
-    expect(
-      await p.ingest("name1", block)
-    ).toBe(false);
+    expect(await p.ingest("name1", block)).toBe(false);
 
     await p.stop();
   });
@@ -147,15 +121,11 @@ describe("@pokapali/pinner", () => {
     const secret = generateAdminSecret();
 
     for (let i = 1; i <= 3; i++) {
-      const block = await makeKeysAndSnapshot(
-        secret, { seq: i, ts: 1000 + i }
-      );
+      const block = await makeKeysAndSnapshot(secret, { seq: i, ts: 1000 + i });
       await pinner.ingest("name1", block);
     }
 
-    const history = pinner.history.getHistory(
-      "name1"
-    );
+    const history = pinner.history.getHistory("name1");
     expect(history).toHaveLength(3);
   });
 
@@ -164,15 +134,12 @@ describe("@pokapali/pinner", () => {
     const now = Date.now();
     const old = now - 25 * 60 * 60 * 1000;
 
-    const block1 = await makeKeysAndSnapshot(
-      secret, { seq: 1, ts: old }
-    );
-    const block2 = await makeKeysAndSnapshot(
-      secret, { seq: 2, ts: old + 1000 }
-    );
-    const block3 = await makeKeysAndSnapshot(
-      secret, { seq: 3, ts: now }
-    );
+    const block1 = await makeKeysAndSnapshot(secret, { seq: 1, ts: old });
+    const block2 = await makeKeysAndSnapshot(secret, {
+      seq: 2,
+      ts: old + 1000,
+    });
+    const block3 = await makeKeysAndSnapshot(secret, { seq: 3, ts: now });
 
     await pinner.ingest("name1", block1);
     await pinner.ingest("name1", block2);
@@ -183,9 +150,7 @@ describe("@pokapali/pinner", () => {
     // block3 is the tip and recent
     expect(removed).toHaveLength(2);
 
-    const remaining = pinner.history.getHistory(
-      "name1"
-    );
+    const remaining = pinner.history.getHistory("name1");
     expect(remaining).toHaveLength(1);
 
     // Tip is still present
@@ -223,26 +188,23 @@ describe("@pokapali/pinner", () => {
     await p.start();
 
     const block1 = await makeSnapshot({
-      seq: 1, ts: Date.now(),
+      seq: 1,
+      ts: Date.now(),
     });
     const block2 = await makeSnapshot({
-      seq: 2, ts: Date.now() + 1,
+      seq: 2,
+      ts: Date.now() + 1,
     });
     const block3 = await makeSnapshot({
-      seq: 3, ts: Date.now() + 2,
+      seq: 3,
+      ts: Date.now() + 2,
     });
 
-    expect(
-      await p.ingest("name1", block1)
-    ).toBe(true);
+    expect(await p.ingest("name1", block1)).toBe(true);
     // name1 is now rate-limited
-    expect(
-      await p.ingest("name1", block2)
-    ).toBe(false);
+    expect(await p.ingest("name1", block2)).toBe(false);
     // name2 is independent
-    expect(
-      await p.ingest("name2", block3)
-    ).toBe(true);
+    expect(await p.ingest("name2", block3)).toBe(true);
 
     await p.stop();
   });

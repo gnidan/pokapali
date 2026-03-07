@@ -1,25 +1,13 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Collaboration from
-  "@tiptap/extension-collaboration";
-import CollaborationCursor from
-  "@tiptap/extension-collaboration-cursor";
-import type {
-  CollabDoc,
-  DocStatus,
-} from "@pokapali/core";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+import type { CollabDoc, DocStatus } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SharePanel } from "./SharePanel";
 
-function capBadge(
-  doc: CollabDoc
-): { label: string; className: string } {
+function capBadge(doc: CollabDoc): { label: string; className: string } {
   if (doc.capability.isAdmin) {
     return { label: "Admin", className: "badge admin" };
   }
@@ -32,23 +20,19 @@ function capBadge(
   return { label: "Reader", className: "badge reader" };
 }
 
-export function EditorView(
-  { doc, onBack }: {
-    doc: CollabDoc;
-    onBack: () => void;
-  }
-) {
-  const [status, setStatus] =
-    useState<DocStatus>(doc.status);
+export function EditorView({
+  doc,
+  onBack,
+}: {
+  doc: CollabDoc;
+  onBack: () => void;
+}) {
+  const [status, setStatus] = useState<DocStatus>(doc.status);
   const [showShare, setShowShare] = useState(false);
-  const [snapshotHint, setSnapshotHint] =
-    useState(false);
-  const snapshotTimer = useRef<ReturnType<
-    typeof setInterval
-  > | null>(null);
+  const [snapshotHint, setSnapshotHint] = useState(false);
+  const snapshotTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isReadOnly =
-    !doc.capability.namespaces.has("content");
+  const isReadOnly = !doc.capability.namespaces.has("content");
   const badge = capBadge(doc);
 
   useEffect(() => {
@@ -74,18 +58,14 @@ export function EditorView(
     };
     const onVisChange = () => {
       if (
-        document.visibilityState === "hidden"
-        && doc.status === "unpushed-changes"
+        document.visibilityState === "hidden" &&
+        doc.status === "unpushed-changes"
       ) {
         doc.pushSnapshot();
       }
     };
-    window.addEventListener(
-      "beforeunload", onBeforeUnload
-    );
-    document.addEventListener(
-      "visibilitychange", onVisChange
-    );
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("visibilitychange", onVisChange);
 
     return () => {
       doc.off("status", onStatus);
@@ -93,28 +73,27 @@ export function EditorView(
       if (snapshotTimer.current) {
         clearInterval(snapshotTimer.current);
       }
-      window.removeEventListener(
-        "beforeunload", onBeforeUnload
-      );
-      document.removeEventListener(
-        "visibilitychange", onVisChange
-      );
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("visibilitychange", onVisChange);
       doc.destroy();
     };
   }, [doc]);
 
-  const editor = useEditor({
-    editable: !isReadOnly,
-    extensions: [
-      StarterKit.configure({ history: false }),
-      Collaboration.configure({
-        document: doc.subdoc("content"),
-      }),
-      CollaborationCursor.configure({
-        provider: doc.provider,
-      }),
-    ],
-  }, [doc]);
+  const editor = useEditor(
+    {
+      editable: !isReadOnly,
+      extensions: [
+        StarterKit.configure({ history: false }),
+        Collaboration.configure({
+          document: doc.subdoc("content"),
+        }),
+        CollaborationCursor.configure({
+          provider: doc.provider,
+        }),
+      ],
+    },
+    [doc],
+  );
 
   const handleSnapshot = useCallback(() => {
     doc.pushSnapshot().then(() => {
@@ -129,19 +108,13 @@ export function EditorView(
           Back
         </button>
         <h1>Pokapali</h1>
-        <span className={badge.className}>
-          {badge.label}
-        </span>
+        <span className={badge.className}>{badge.label}</span>
         <StatusIndicator status={status} />
         {doc.capability.canPushSnapshots && (
           <div className="snapshot-controls">
-            <button onClick={handleSnapshot}>
-              Save snapshot
-            </button>
+            <button onClick={handleSnapshot}>Save snapshot</button>
             {snapshotHint && (
-              <span className="snapshot-hint">
-                Snapshot recommended
-              </span>
+              <span className="snapshot-hint">Snapshot recommended</span>
             )}
           </div>
         )}

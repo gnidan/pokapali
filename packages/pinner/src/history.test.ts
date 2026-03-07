@@ -3,9 +3,7 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { createHistoryTracker } from "./history.js";
 
-async function makeCid(
-  data: string
-): Promise<CID> {
+async function makeCid(data: string): Promise<CID> {
   const bytes = new TextEncoder().encode(data);
   const hash = await sha256.digest(bytes);
   return CID.create(1, 0x55, hash);
@@ -60,15 +58,11 @@ describe("HistoryTracker", () => {
 
     const removed = tracker.prune(now);
     expect(removed).toHaveLength(1);
-    expect(removed[0].toString()).toBe(
-      old.toString()
-    );
+    expect(removed[0].toString()).toBe(old.toString());
 
     const entry = tracker.getEntry("name1");
     expect(entry!.snapshots).toHaveLength(1);
-    expect(entry!.snapshots[0].cid).toBe(
-      recent.toString()
-    );
+    expect(entry!.snapshots[0].cid).toBe(recent.toString());
   });
 
   it("always keeps the tip even if old", async () => {

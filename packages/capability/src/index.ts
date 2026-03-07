@@ -28,14 +28,12 @@ export interface Capability {
 
 const VERSION = 0x00;
 
-export async function encodeFragment(
-  keys: CapabilityKeys
-): Promise<string> {
+export async function encodeFragment(keys: CapabilityKeys): Promise<string> {
   const entries: Array<[string, Uint8Array]> = [];
 
   if (keys.readKey) {
     const raw = new Uint8Array(
-      await crypto.subtle.exportKey("raw", keys.readKey)
+      await crypto.subtle.exportKey("raw", keys.readKey),
     );
     entries.push(["r", raw]);
   }
@@ -46,17 +44,10 @@ export async function encodeFragment(
     entries.push(["k", keys.rotationKey]);
   }
   if (keys.awarenessRoomPassword) {
-    entries.push([
-      "a",
-      new TextEncoder().encode(
-        keys.awarenessRoomPassword
-      ),
-    ]);
+    entries.push(["a", new TextEncoder().encode(keys.awarenessRoomPassword)]);
   }
   if (keys.namespaceKeys) {
-    for (const [name, key] of Object.entries(
-      keys.namespaceKeys
-    )) {
+    for (const [name, key] of Object.entries(keys.namespaceKeys)) {
       entries.push([`n:${name}`, key]);
     }
   }
@@ -66,8 +57,7 @@ export async function encodeFragment(
   let totalLen = 1; // version byte
   for (const [label, value] of entries) {
     const labelBytes = new TextEncoder().encode(label);
-    totalLen +=
-      1 + labelBytes.length + 1 + value.length;
+    totalLen += 1 + labelBytes.length + 1 + value.length;
   }
 
   const buf = new Uint8Array(totalLen);
@@ -78,14 +68,12 @@ export async function encodeFragment(
     const labelBytes = new TextEncoder().encode(label);
     if (labelBytes.length > 255) {
       throw new Error(
-        `Label too long: "${label}" `
-          + `(${labelBytes.length} bytes)`
+        `Label too long: "${label}" ` + `(${labelBytes.length} bytes)`,
       );
     }
     if (value.length > 255) {
       throw new Error(
-        `Value too long for label "${label}" `
-          + `(${value.length} bytes)`
+        `Value too long for label "${label}" ` + `(${value.length} bytes)`,
       );
     }
     buf[offset++] = labelBytes.length;
@@ -100,7 +88,7 @@ export async function encodeFragment(
 }
 
 export async function decodeFragment(
-  fragment: string
+  fragment: string,
 ): Promise<CapabilityKeys> {
   const buf = base64urlDecode(fragment);
   if (buf.length < 1) {
@@ -108,9 +96,7 @@ export async function decodeFragment(
   }
   const version = buf[0];
   if (version !== VERSION) {
-    throw new Error(
-      `Unknown fragment version: ${version}`
-    );
+    throw new Error(`Unknown fragment version: ${version}`);
   }
 
   const keys: CapabilityKeys = {};
@@ -119,31 +105,23 @@ export async function decodeFragment(
 
   while (offset < buf.length) {
     if (offset + 1 > buf.length) {
-      throw new Error(
-        "Truncated fragment: missing label length"
-      );
+      throw new Error("Truncated fragment: missing label length");
     }
     const labelLen = buf[offset++];
     if (offset + labelLen > buf.length) {
-      throw new Error(
-        "Truncated fragment: missing label"
-      );
+      throw new Error("Truncated fragment: missing label");
     }
     const label = new TextDecoder().decode(
-      buf.slice(offset, offset + labelLen)
+      buf.slice(offset, offset + labelLen),
     );
     offset += labelLen;
 
     if (offset + 1 > buf.length) {
-      throw new Error(
-        "Truncated fragment: missing value length"
-      );
+      throw new Error("Truncated fragment: missing value length");
     }
     const valueLen = buf[offset++];
     if (offset + valueLen > buf.length) {
-      throw new Error(
-        "Truncated fragment: missing value"
-      );
+      throw new Error("Truncated fragment: missing value");
     }
     const value = buf.slice(offset, offset + valueLen);
     offset += valueLen;
@@ -154,15 +132,14 @@ export async function decodeFragment(
         value as unknown as ArrayBuffer,
         { name: "AES-GCM", length: 256 },
         true,
-        ["encrypt", "decrypt"]
+        ["encrypt", "decrypt"],
       );
     } else if (label === "i") {
       keys.ipnsKeyBytes = value;
     } else if (label === "k") {
       keys.rotationKey = value;
     } else if (label === "a") {
-      keys.awarenessRoomPassword =
-        new TextDecoder().decode(value);
+      keys.awarenessRoomPassword = new TextDecoder().decode(value);
     } else if (label.startsWith("n:")) {
       namespaceKeys[label.slice(2)] = value;
     }
@@ -178,7 +155,7 @@ export async function decodeFragment(
 
 export function inferCapability(
   keys: CapabilityKeys,
-  namespaces: string[]
+  namespaces: string[],
 ): Capability {
   const writable = new Set<string>();
   if (keys.namespaceKeys) {
@@ -205,17 +182,14 @@ export interface ParsedUrl {
 export async function buildUrl(
   base: string,
   ipnsName: string,
-  keys: CapabilityKeys
+  keys: CapabilityKeys,
 ): Promise<string> {
   const fragment = await encodeFragment(keys);
-  const b = base.endsWith("/")
-    ? base.slice(0, -1) : base;
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
   return `${b}/doc/${ipnsName}#${fragment}`;
 }
 
-export async function parseUrl(
-  url: string
-): Promise<ParsedUrl> {
+export async function parseUrl(url: string): Promise<ParsedUrl> {
   const hashIdx = url.indexOf("#");
   if (hashIdx === -1) {
     throw new Error("URL has no fragment");
@@ -225,9 +199,7 @@ export async function parseUrl(
 
   const docIdx = pathPart.indexOf("/doc/");
   if (docIdx === -1) {
-    throw new Error(
-      "URL missing /doc/ path segment"
-    );
+    throw new Error("URL missing /doc/ path segment");
   }
   const base = pathPart.slice(0, docIdx);
   const ipnsName = pathPart.slice(docIdx + 5);
@@ -243,7 +215,7 @@ export interface CapabilityGrant {
 
 export function narrowCapability(
   keys: CapabilityKeys,
-  grant: CapabilityGrant
+  grant: CapabilityGrant,
 ): CapabilityKeys {
   const result: CapabilityKeys = {};
 
@@ -252,8 +224,7 @@ export function narrowCapability(
     result.readKey = keys.readKey;
   }
   if (keys.awarenessRoomPassword) {
-    result.awarenessRoomPassword =
-      keys.awarenessRoomPassword;
+    result.awarenessRoomPassword = keys.awarenessRoomPassword;
   }
 
   // ipnsKeyBytes only if grant allows pushing
@@ -285,9 +256,7 @@ export type { DocKeys };
 // --- Encoding utilities ---
 
 function base64urlEncode(bytes: Uint8Array): string {
-  const binStr = Array.from(bytes, (b) =>
-    String.fromCharCode(b)
-  ).join("");
+  const binStr = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
   return btoa(binStr)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -295,11 +264,8 @@ function base64urlEncode(bytes: Uint8Array): string {
 }
 
 function base64urlDecode(s: string): Uint8Array {
-  const padded =
-    s + "=".repeat((4 - (s.length % 4)) % 4);
-  const base64 = padded
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
+  const padded = s + "=".repeat((4 - (s.length % 4)) % 4);
+  const base64 = padded.replace(/-/g, "+").replace(/_/g, "/");
   const bin = atob(base64);
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }

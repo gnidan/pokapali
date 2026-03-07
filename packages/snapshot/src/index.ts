@@ -34,15 +34,12 @@ export async function encodeSnapshot(
   prev: CID | null,
   seq: number,
   ts: number,
-  signingKey: Ed25519KeyPair
+  signingKey: Ed25519KeyPair,
 ): Promise<Uint8Array> {
   // Encrypt each subdoc payload
   const subdocs: Record<string, Uint8Array> = {};
-  for (const [ns, data] of
-    Object.entries(plaintextSubdocs)) {
-    subdocs[ns] = await encryptSubdoc(
-      readKey, data
-    );
+  for (const [ns, data] of Object.entries(plaintextSubdocs)) {
+    subdocs[ns] = await encryptSubdoc(readKey, data);
   }
 
   const payload: SignablePayload = {
@@ -54,40 +51,29 @@ export async function encodeSnapshot(
   };
 
   const payloadBytes = dagCbor.encode(payload);
-  const signature = await signBytes(
-    signingKey, payloadBytes
-  );
+  const signature = await signBytes(signingKey, payloadBytes);
 
   const node = { ...payload, signature };
   return dagCbor.encode(node);
 }
 
-export function decodeSnapshot(
-  bytes: Uint8Array
-): SnapshotNode {
-  const decoded = dagCbor.decode<SnapshotNode>(
-    bytes
-  );
+export function decodeSnapshot(bytes: Uint8Array): SnapshotNode {
+  const decoded = dagCbor.decode<SnapshotNode>(bytes);
   return decoded;
 }
 
 export async function decryptSnapshot(
   node: SnapshotNode,
-  readKey: CryptoKey
+  readKey: CryptoKey,
 ): Promise<Record<string, Uint8Array>> {
   const result: Record<string, Uint8Array> = {};
-  for (const [ns, encrypted] of
-    Object.entries(node.subdocs)) {
-    result[ns] = await decryptSubdoc(
-      readKey, encrypted
-    );
+  for (const [ns, encrypted] of Object.entries(node.subdocs)) {
+    result[ns] = await decryptSubdoc(readKey, encrypted);
   }
   return result;
 }
 
-export async function validateStructure(
-  block: Uint8Array
-): Promise<boolean> {
+export async function validateStructure(block: Uint8Array): Promise<boolean> {
   try {
     const node = decodeSnapshot(block);
 
@@ -101,11 +87,7 @@ export async function validateStructure(
     };
     const payloadBytes = dagCbor.encode(payload);
 
-    return verifySignature(
-      node.publicKey,
-      node.signature,
-      payloadBytes
-    );
+    return verifySignature(node.publicKey, node.signature, payloadBytes);
   } catch {
     return false;
   }
@@ -113,9 +95,7 @@ export async function validateStructure(
 
 export async function* walkChain(
   tipCid: CID,
-  blockGetter: (
-    cid: CID
-  ) => Promise<Uint8Array>
+  blockGetter: (cid: CID) => Promise<Uint8Array>,
 ): AsyncGenerator<SnapshotNode> {
   let current: CID | null = tipCid;
   while (current !== null) {
@@ -128,8 +108,7 @@ export async function* walkChain(
 
 export { CID } from "multiformats/cid";
 export { sha256 } from "multiformats/hashes/sha2";
-export { code as dagCborCode }
-  from "@ipld/dag-cbor";
+export { code as dagCborCode } from "@ipld/dag-cbor";
 
 // Pure state machine for fetch coalescing
 export interface FetchCoalescerState {
@@ -139,8 +118,7 @@ export interface FetchCoalescerState {
   failed: Set<string>;
 }
 
-export function createFetchCoalescerState():
-  FetchCoalescerState {
+export function createFetchCoalescerState(): FetchCoalescerState {
   return {
     pending: new Set(),
     inflight: new Set(),
@@ -151,9 +129,9 @@ export function createFetchCoalescerState():
 
 const COALESCER_CONCURRENCY = 3;
 
-export function coalescerNext(
-  state: FetchCoalescerState
-): { toFetch: string[] } {
+export function coalescerNext(state: FetchCoalescerState): {
+  toFetch: string[];
+} {
   const toFetch: string[] = [];
   for (const cid of state.pending) {
     if (
@@ -178,7 +156,7 @@ export function coalescerNext(
 export function coalescerResolve(
   state: FetchCoalescerState,
   cid: string,
-  block: Uint8Array
+  block: Uint8Array,
 ): FetchCoalescerState {
   state.inflight.delete(cid);
   state.resolved.set(cid, block);
@@ -187,7 +165,7 @@ export function coalescerResolve(
 
 export function coalescerFail(
   state: FetchCoalescerState,
-  cid: string
+  cid: string,
 ): FetchCoalescerState {
   state.inflight.delete(cid);
   state.failed.add(cid);

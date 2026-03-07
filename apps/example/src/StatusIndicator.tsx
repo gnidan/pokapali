@@ -8,13 +8,6 @@ const labels: Record<DocStatus, string> = {
   "unpushed-changes": "Unpushed changes",
 };
 
-export function StatusIndicator(
-  { status }: { status: DocStatus }
-) {
-  return (
-    <span
-      className={`status-dot ${status}`}
-      title={labels[status]}
-    />
-  );
+export function StatusIndicator({ status }: { status: DocStatus }) {
+  return <span className={`status-dot ${status}`} title={labels[status]} />;
 }

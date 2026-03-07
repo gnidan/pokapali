@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  createRateLimiter,
-  DEFAULT_RATE_LIMITS,
-} from "./rate-limiter.js";
+import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 
 describe("RateLimiter", () => {
   it("allows snapshots within limits", () => {
@@ -32,9 +29,7 @@ describe("RateLimiter", () => {
     limiter.record("name1", now + 1000);
     limiter.record("name1", now + 2000);
 
-    const result = limiter.check(
-      "name1", 100, now + 3000
-    );
+    const result = limiter.check("name1", 100, now + 3000);
     expect(result.allowed).toBe(false);
     expect(result.reason).toMatch(/rate limit/);
   });
@@ -51,9 +46,7 @@ describe("RateLimiter", () => {
 
     // 1 hour + 1ms later
     const later = now + 3_600_001;
-    const result = limiter.check(
-      "name1", 100, later
-    );
+    const result = limiter.check("name1", 100, later);
     expect(result.allowed).toBe(true);
   });
 
@@ -66,11 +59,7 @@ describe("RateLimiter", () => {
 
     limiter.record("name1", now);
 
-    expect(
-      limiter.check("name1", 100, now + 1).allowed
-    ).toBe(false);
-    expect(
-      limiter.check("name2", 100, now + 1).allowed
-    ).toBe(true);
+    expect(limiter.check("name1", 100, now + 1).allowed).toBe(false);
+    expect(limiter.check("name2", 100, now + 1).allowed).toBe(true);
   });
 });

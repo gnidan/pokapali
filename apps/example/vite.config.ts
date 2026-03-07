@@ -2,10 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-const pkgs = [
-  "core", "crypto", "capability",
-  "subdocs", "snapshot", "sync",
-];
+const pkgs = ["core", "crypto", "capability", "subdocs", "snapshot", "sync"];
 
 export default defineConfig({
   plugins: [react()],
@@ -13,10 +10,8 @@ export default defineConfig({
     alias: Object.fromEntries(
       pkgs.map((p) => [
         `@pokapali/${p}`,
-        path.resolve(
-          __dirname, `../../packages/${p}/src/index.ts`
-        ),
-      ])
+        path.resolve(__dirname, `../../packages/${p}/src/index.ts`),
+      ]),
     ),
   },
 });

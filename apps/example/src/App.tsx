@@ -10,14 +10,10 @@ const collab = createCollabLib({
   signalingUrls: ["wss://signaling.yjs.dev"],
 });
 
-function Landing(
-  { onDoc }: { onDoc: (doc: CollabDoc) => void }
-) {
+function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(
-    null
-  );
+  const [error, setError] = useState<string | null>(null);
 
   const handleCreate = useCallback(async () => {
     setLoading(true);
@@ -26,9 +22,7 @@ function Landing(
       const doc = await collab.create();
       onDoc(doc);
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : String(e)
-      );
+      setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
     }
   }, [onDoc]);
@@ -41,9 +35,7 @@ function Landing(
       const doc = await collab.open(url.trim());
       onDoc(doc);
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : String(e)
-      );
+      setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
     }
   }, [url, onDoc]);
@@ -53,13 +45,8 @@ function Landing(
       <h1>Pokapali</h1>
       <p>Collaborative documents, peer-to-peer.</p>
       <div className="landing-actions">
-        <button
-          onClick={handleCreate}
-          disabled={loading}
-        >
-          {loading
-            ? "Loading..."
-            : "Create new document"}
+        <button onClick={handleCreate} disabled={loading}>
+          {loading ? "Loading..." : "Create new document"}
         </button>
         <div className="open-form">
           <input
@@ -71,24 +58,18 @@ function Landing(
               if (e.key === "Enter") handleOpen();
             }}
           />
-          <button
-            onClick={handleOpen}
-            disabled={loading || !url.trim()}
-          >
+          <button onClick={handleOpen} disabled={loading || !url.trim()}>
             Open
           </button>
         </div>
-        {error && (
-          <p style={{ color: "#ef4444" }}>{error}</p>
-        )}
+        {error && <p style={{ color: "#ef4444" }}>{error}</p>}
       </div>
     </div>
   );
 }
 
 export function App() {
-  const [doc, setDoc] =
-    useState<CollabDoc | null>(null);
+  const [doc, setDoc] = useState<CollabDoc | null>(null);
 
   const handleBack = useCallback(() => {
     if (doc) doc.destroy();
@@ -96,9 +77,7 @@ export function App() {
   }, [doc]);
 
   if (doc) {
-    return (
-      <EditorView doc={doc} onBack={handleBack} />
-    );
+    return <EditorView doc={doc} onBack={handleBack} />;
   }
 
   return <Landing onDoc={setDoc} />;

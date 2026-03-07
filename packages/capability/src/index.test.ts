@@ -10,26 +10,20 @@ import {
   type CapabilityKeys,
 } from "./index.js";
 
-function arraysEqual(
-  a: Uint8Array, b: Uint8Array
-): boolean {
+function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   return a.every((v, i) => v === b[i]);
 }
 
-async function exportKey(
-  key: CryptoKey
-): Promise<Uint8Array> {
-  return new Uint8Array(
-    await crypto.subtle.exportKey("raw", key)
-  );
+async function exportKey(key: CryptoKey): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.exportKey("raw", key));
 }
 
 async function makeFullKeys(): Promise<CapabilityKeys> {
-  const doc = await deriveDocKeys(
-    "test-secret", "test-app",
-    ["content", "comments"]
-  );
+  const doc = await deriveDocKeys("test-secret", "test-app", [
+    "content",
+    "comments",
+  ]);
   return {
     readKey: doc.readKey,
     ipnsKeyBytes: doc.ipnsKeyBytes,
@@ -45,44 +39,45 @@ describe("encodeFragment / decodeFragment", () => {
     const fragment = await encodeFragment(keys);
     const decoded = await decodeFragment(fragment);
 
-    expect(arraysEqual(
-      await exportKey(decoded.readKey!),
-      await exportKey(keys.readKey!)
-    )).toBe(true);
-    expect(arraysEqual(
-      decoded.ipnsKeyBytes!, keys.ipnsKeyBytes!
-    )).toBe(true);
-    expect(arraysEqual(
-      decoded.rotationKey!, keys.rotationKey!
-    )).toBe(true);
-    expect(decoded.awarenessRoomPassword)
-      .toBe(keys.awarenessRoomPassword);
-    expect(arraysEqual(
-      decoded.namespaceKeys!["content"],
-      keys.namespaceKeys!["content"]
-    )).toBe(true);
-    expect(arraysEqual(
-      decoded.namespaceKeys!["comments"],
-      keys.namespaceKeys!["comments"]
-    )).toBe(true);
+    expect(
+      arraysEqual(
+        await exportKey(decoded.readKey!),
+        await exportKey(keys.readKey!),
+      ),
+    ).toBe(true);
+    expect(arraysEqual(decoded.ipnsKeyBytes!, keys.ipnsKeyBytes!)).toBe(true);
+    expect(arraysEqual(decoded.rotationKey!, keys.rotationKey!)).toBe(true);
+    expect(decoded.awarenessRoomPassword).toBe(keys.awarenessRoomPassword);
+    expect(
+      arraysEqual(
+        decoded.namespaceKeys!["content"],
+        keys.namespaceKeys!["content"],
+      ),
+    ).toBe(true);
+    expect(
+      arraysEqual(
+        decoded.namespaceKeys!["comments"],
+        keys.namespaceKeys!["comments"],
+      ),
+    ).toBe(true);
   });
 
   it("round-trips read-only keys", async () => {
     const full = await makeFullKeys();
     const readOnly: CapabilityKeys = {
       readKey: full.readKey,
-      awarenessRoomPassword:
-        full.awarenessRoomPassword,
+      awarenessRoomPassword: full.awarenessRoomPassword,
     };
     const fragment = await encodeFragment(readOnly);
     const decoded = await decodeFragment(fragment);
 
-    expect(arraysEqual(
-      await exportKey(decoded.readKey!),
-      await exportKey(readOnly.readKey!)
-    )).toBe(true);
-    expect(decoded.awarenessRoomPassword)
-      .toBe(readOnly.awarenessRoomPassword);
+    expect(
+      arraysEqual(
+        await exportKey(decoded.readKey!),
+        await exportKey(readOnly.readKey!),
+      ),
+    ).toBe(true);
+    expect(decoded.awarenessRoomPassword).toBe(readOnly.awarenessRoomPassword);
     expect(decoded.ipnsKeyBytes).toBeUndefined();
     expect(decoded.rotationKey).toBeUndefined();
     expect(decoded.namespaceKeys).toBeUndefined();
@@ -110,7 +105,7 @@ describe("encodeFragment / decodeFragment", () => {
     while (offset < buf.length) {
       const labelLen = buf[offset++];
       const label = new TextDecoder().decode(
-        buf.slice(offset, offset + labelLen)
+        buf.slice(offset, offset + labelLen),
       );
       labels.push(label);
       offset += labelLen;
@@ -131,13 +126,11 @@ describe("encodeFragment / decodeFragment", () => {
   it("throws on unknown version", async () => {
     const buf = new Uint8Array([0xff]);
     const fragment = base64urlEncode(buf);
-    await expect(decodeFragment(fragment))
-      .rejects.toThrow(/version/i);
+    await expect(decodeFragment(fragment)).rejects.toThrow(/version/i);
   });
 
   it("throws on empty fragment", async () => {
-    await expect(decodeFragment(""))
-      .rejects.toThrow();
+    await expect(decodeFragment("")).rejects.toThrow();
   });
 
   it("byte-exact test vector", async () => {
@@ -148,7 +141,7 @@ describe("encodeFragment / decodeFragment", () => {
       readKeyBytes as unknown as ArrayBuffer,
       { name: "AES-GCM", length: 256 },
       true,
-      ["encrypt", "decrypt"]
+      ["encrypt", "decrypt"],
     );
     const keys: CapabilityKeys = {
       readKey,
@@ -163,67 +156,64 @@ describe("encodeFragment / decodeFragment", () => {
     // Labels sorted: "a" < "r"
     const expected = new Uint8Array([
       0x00,
-      0x01, 0x61, 0x02, 0x70, 0x77,
-      0x01, 0x72, 0x20,
+      0x01,
+      0x61,
+      0x02,
+      0x70,
+      0x77,
+      0x01,
+      0x72,
+      0x20,
       ...new Uint8Array(32).fill(0xaa),
     ]);
     expect(fragment).toBe(base64urlEncode(expected));
   });
 
-  it("round-trips writer keys (no rotationKey)",
-    async () => {
-      const full = await makeFullKeys();
-      const writer: CapabilityKeys = {
-        readKey: full.readKey,
-        ipnsKeyBytes: full.ipnsKeyBytes,
-        awarenessRoomPassword:
-          full.awarenessRoomPassword,
-        namespaceKeys: full.namespaceKeys,
-      };
-      const fragment = await encodeFragment(writer);
-      const decoded = await decodeFragment(fragment);
+  it("round-trips writer keys (no rotationKey)", async () => {
+    const full = await makeFullKeys();
+    const writer: CapabilityKeys = {
+      readKey: full.readKey,
+      ipnsKeyBytes: full.ipnsKeyBytes,
+      awarenessRoomPassword: full.awarenessRoomPassword,
+      namespaceKeys: full.namespaceKeys,
+    };
+    const fragment = await encodeFragment(writer);
+    const decoded = await decodeFragment(fragment);
 
-      expect(arraysEqual(
+    expect(
+      arraysEqual(
         await exportKey(decoded.readKey!),
-        await exportKey(writer.readKey!)
-      )).toBe(true);
-      expect(arraysEqual(
-        decoded.ipnsKeyBytes!, writer.ipnsKeyBytes!
-      )).toBe(true);
-      expect(decoded.rotationKey).toBeUndefined();
-      expect(decoded.awarenessRoomPassword)
-        .toBe(writer.awarenessRoomPassword);
-      expect(arraysEqual(
+        await exportKey(writer.readKey!),
+      ),
+    ).toBe(true);
+    expect(arraysEqual(decoded.ipnsKeyBytes!, writer.ipnsKeyBytes!)).toBe(true);
+    expect(decoded.rotationKey).toBeUndefined();
+    expect(decoded.awarenessRoomPassword).toBe(writer.awarenessRoomPassword);
+    expect(
+      arraysEqual(
         decoded.namespaceKeys!["content"],
-        writer.namespaceKeys!["content"]
-      )).toBe(true);
-    }
-  );
+        writer.namespaceKeys!["content"],
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("inferCapability", () => {
   it("full keys = admin", async () => {
     const keys = await makeFullKeys();
-    const cap = inferCapability(
-      keys, ["content", "comments"]
-    );
+    const cap = inferCapability(keys, ["content", "comments"]);
     expect(cap.isAdmin).toBe(true);
     expect(cap.canPushSnapshots).toBe(true);
-    expect(cap.namespaces).toEqual(
-      new Set(["content", "comments"])
-    );
+    expect(cap.namespaces).toEqual(new Set(["content", "comments"]));
   });
 
   it("read-only keys = no namespaces", async () => {
     const full = await makeFullKeys();
     const readOnly: CapabilityKeys = {
       readKey: full.readKey,
-      awarenessRoomPassword:
-        full.awarenessRoomPassword,
+      awarenessRoomPassword: full.awarenessRoomPassword,
     };
-    const cap = inferCapability(
-      readOnly, ["content", "comments"]
-    );
+    const cap = inferCapability(readOnly, ["content", "comments"]);
     expect(cap.isAdmin).toBe(false);
     expect(cap.canPushSnapshots).toBe(false);
     expect(cap.namespaces.size).toBe(0);
@@ -233,95 +223,73 @@ describe("inferCapability", () => {
     const full = await makeFullKeys();
     const partial: CapabilityKeys = {
       readKey: full.readKey,
-      awarenessRoomPassword:
-        full.awarenessRoomPassword,
+      awarenessRoomPassword: full.awarenessRoomPassword,
       namespaceKeys: {
         comments: full.namespaceKeys!["comments"],
       },
     };
-    const cap = inferCapability(
-      partial, ["content", "comments"]
-    );
-    expect(cap.namespaces).toEqual(
-      new Set(["comments"])
-    );
+    const cap = inferCapability(partial, ["content", "comments"]);
+    expect(cap.namespaces).toEqual(new Set(["comments"]));
     expect(cap.canPushSnapshots).toBe(false);
   });
 
-  it("writer role: canPushSnapshots, not admin",
-    async () => {
-      const full = await makeFullKeys();
-      const writer: CapabilityKeys = {
-        readKey: full.readKey,
-        ipnsKeyBytes: full.ipnsKeyBytes,
-        awarenessRoomPassword:
-          full.awarenessRoomPassword,
-        namespaceKeys: full.namespaceKeys,
-      };
-      const cap = inferCapability(
-        writer, ["content", "comments"]
-      );
-      expect(cap.canPushSnapshots).toBe(true);
-      expect(cap.isAdmin).toBe(false);
-      expect(cap.namespaces).toEqual(
-        new Set(["content", "comments"])
-      );
-    }
-  );
+  it("writer role: canPushSnapshots, not admin", async () => {
+    const full = await makeFullKeys();
+    const writer: CapabilityKeys = {
+      readKey: full.readKey,
+      ipnsKeyBytes: full.ipnsKeyBytes,
+      awarenessRoomPassword: full.awarenessRoomPassword,
+      namespaceKeys: full.namespaceKeys,
+    };
+    const cap = inferCapability(writer, ["content", "comments"]);
+    expect(cap.canPushSnapshots).toBe(true);
+    expect(cap.isAdmin).toBe(false);
+    expect(cap.namespaces).toEqual(new Set(["content", "comments"]));
+  });
 
   it("ignores unknown namespaces", async () => {
     const full = await makeFullKeys();
     const cap = inferCapability(full, ["content"]);
-    expect(cap.namespaces).toEqual(
-      new Set(["content"])
-    );
+    expect(cap.namespaces).toEqual(new Set(["content"]));
   });
 });
 
 describe("buildUrl / parseUrl", () => {
   it("round-trips", async () => {
     const keys = await makeFullKeys();
-    const url = await buildUrl(
-      "https://myapp.com", "abc123", keys
-    );
-    expect(url).toContain(
-      "https://myapp.com/doc/abc123#"
-    );
+    const url = await buildUrl("https://myapp.com", "abc123", keys);
+    expect(url).toContain("https://myapp.com/doc/abc123#");
     const parsed = await parseUrl(url);
     expect(parsed.base).toBe("https://myapp.com");
     expect(parsed.ipnsName).toBe("abc123");
-    expect(arraysEqual(
-      await exportKey(parsed.keys.readKey!),
-      await exportKey(keys.readKey!)
-    )).toBe(true);
+    expect(
+      arraysEqual(
+        await exportKey(parsed.keys.readKey!),
+        await exportKey(keys.readKey!),
+      ),
+    ).toBe(true);
   });
 
   it("handles trailing slash in base", async () => {
     const keys = await makeFullKeys();
-    const url = await buildUrl(
-      "https://myapp.com/", "abc123", keys
-    );
-    expect(url).toContain(
-      "https://myapp.com/doc/abc123#"
-    );
+    const url = await buildUrl("https://myapp.com/", "abc123", keys);
+    expect(url).toContain("https://myapp.com/doc/abc123#");
     const parsed = await parseUrl(url);
     expect(parsed.base).toBe("https://myapp.com");
     expect(parsed.ipnsName).toBe("abc123");
   });
 
   it("throws on URL without fragment", async () => {
-    await expect(
-      parseUrl("https://myapp.com/doc/abc123")
-    ).rejects.toThrow(/fragment/i);
+    await expect(parseUrl("https://myapp.com/doc/abc123")).rejects.toThrow(
+      /fragment/i,
+    );
   });
 
-  it("throws on URL missing /doc/ segment",
-    async () => {
-      await expect(
-        parseUrl("https://myapp.com/abc123#frag")
-      ).rejects.toThrow(/\/doc\//);
-    }
-  );
+  it("throws on URL missing /doc/ segment", async () => {
+    await expect(parseUrl("https://myapp.com/abc123#frag")).rejects.toThrow(
+      /\/doc\//,
+    );
+  });
 });
 
 describe("narrowCapability", () => {
@@ -331,25 +299,21 @@ describe("narrowCapability", () => {
       namespaces: ["comments"],
     });
     expect(narrowed.readKey).toBeDefined();
-    expect(narrowed.awarenessRoomPassword)
-      .toBeDefined();
+    expect(narrowed.awarenessRoomPassword).toBeDefined();
     expect(narrowed.ipnsKeyBytes).toBeUndefined();
     expect(narrowed.rotationKey).toBeUndefined();
-    expect(Object.keys(narrowed.namespaceKeys!))
-      .toEqual(["comments"]);
+    expect(Object.keys(narrowed.namespaceKeys!)).toEqual(["comments"]);
   });
 
-  it("includes ipnsKeyBytes when canPushSnapshots",
-    async () => {
-      const keys = await makeFullKeys();
-      const narrowed = narrowCapability(keys, {
-        namespaces: ["content"],
-        canPushSnapshots: true,
-      });
-      expect(narrowed.ipnsKeyBytes).toBeDefined();
-      expect(narrowed.rotationKey).toBeUndefined();
-    }
-  );
+  it("includes ipnsKeyBytes when canPushSnapshots", async () => {
+    const keys = await makeFullKeys();
+    const narrowed = narrowCapability(keys, {
+      namespaces: ["content"],
+      canPushSnapshots: true,
+    });
+    expect(narrowed.ipnsKeyBytes).toBeDefined();
+    expect(narrowed.rotationKey).toBeUndefined();
+  });
 
   it("never includes rotationKey", async () => {
     const keys = await makeFullKeys();
@@ -360,85 +324,65 @@ describe("narrowCapability", () => {
     expect(narrowed.rotationKey).toBeUndefined();
   });
 
-  it("omits namespaceKeys if none granted",
-    async () => {
-      const keys = await makeFullKeys();
-      const narrowed = narrowCapability(keys, {});
-      expect(narrowed.namespaceKeys).toBeUndefined();
-      expect(narrowed.readKey).toBeDefined();
-    }
-  );
+  it("omits namespaceKeys if none granted", async () => {
+    const keys = await makeFullKeys();
+    const narrowed = narrowCapability(keys, {});
+    expect(narrowed.namespaceKeys).toBeUndefined();
+    expect(narrowed.readKey).toBeDefined();
+  });
 
-  it("ignores namespaces not in source",
-    async () => {
-      const keys = await makeFullKeys();
-      const narrowed = narrowCapability(keys, {
-        namespaces: ["nonexistent"],
-      });
-      expect(narrowed.namespaceKeys).toBeUndefined();
-    }
-  );
+  it("ignores namespaces not in source", async () => {
+    const keys = await makeFullKeys();
+    const narrowed = narrowCapability(keys, {
+      namespaces: ["nonexistent"],
+    });
+    expect(narrowed.namespaceKeys).toBeUndefined();
+  });
 
-  it("narrows writer to namespace subset",
-    async () => {
-      const full = await makeFullKeys();
-      const writer: CapabilityKeys = {
-        readKey: full.readKey,
-        ipnsKeyBytes: full.ipnsKeyBytes,
-        awarenessRoomPassword:
-          full.awarenessRoomPassword,
-        namespaceKeys: full.namespaceKeys,
-      };
-      const narrowed = narrowCapability(writer, {
-        namespaces: ["comments"],
-      });
-      expect(narrowed.readKey).toBeDefined();
-      expect(narrowed.awarenessRoomPassword)
-        .toBeDefined();
-      expect(narrowed.ipnsKeyBytes).toBeUndefined();
-      expect(narrowed.rotationKey).toBeUndefined();
-      expect(Object.keys(narrowed.namespaceKeys!))
-        .toEqual(["comments"]);
-    }
-  );
+  it("narrows writer to namespace subset", async () => {
+    const full = await makeFullKeys();
+    const writer: CapabilityKeys = {
+      readKey: full.readKey,
+      ipnsKeyBytes: full.ipnsKeyBytes,
+      awarenessRoomPassword: full.awarenessRoomPassword,
+      namespaceKeys: full.namespaceKeys,
+    };
+    const narrowed = narrowCapability(writer, {
+      namespaces: ["comments"],
+    });
+    expect(narrowed.readKey).toBeDefined();
+    expect(narrowed.awarenessRoomPassword).toBeDefined();
+    expect(narrowed.ipnsKeyBytes).toBeUndefined();
+    expect(narrowed.rotationKey).toBeUndefined();
+    expect(Object.keys(narrowed.namespaceKeys!)).toEqual(["comments"]);
+  });
 
-  it("full narrow round-trip encode/decode",
-    async () => {
-      const keys = await makeFullKeys();
-      const narrowed = narrowCapability(keys, {
-        namespaces: ["comments"],
-        canPushSnapshots: true,
-      });
-      const fragment = await encodeFragment(narrowed);
-      const decoded = await decodeFragment(fragment);
-      const cap = inferCapability(
-        decoded, ["content", "comments"]
-      );
-      expect(cap.namespaces).toEqual(
-        new Set(["comments"])
-      );
-      expect(cap.canPushSnapshots).toBe(true);
-      expect(cap.isAdmin).toBe(false);
-    }
-  );
+  it("full narrow round-trip encode/decode", async () => {
+    const keys = await makeFullKeys();
+    const narrowed = narrowCapability(keys, {
+      namespaces: ["comments"],
+      canPushSnapshots: true,
+    });
+    const fragment = await encodeFragment(narrowed);
+    const decoded = await decodeFragment(fragment);
+    const cap = inferCapability(decoded, ["content", "comments"]);
+    expect(cap.namespaces).toEqual(new Set(["comments"]));
+    expect(cap.canPushSnapshots).toBe(true);
+    expect(cap.isAdmin).toBe(false);
+  });
 });
 
 // --- Helpers ---
 
 function base64urlDecode(s: string): Uint8Array {
-  const padded =
-    s + "=".repeat((4 - (s.length % 4)) % 4);
-  const base64 = padded
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
+  const padded = s + "=".repeat((4 - (s.length % 4)) % 4);
+  const base64 = padded.replace(/-/g, "+").replace(/_/g, "/");
   const bin = atob(base64);
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
 function base64urlEncode(bytes: Uint8Array): string {
-  const binStr = Array.from(bytes, (b) =>
-    String.fromCharCode(b)
-  ).join("");
+  const binStr = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
   return btoa(binStr)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")

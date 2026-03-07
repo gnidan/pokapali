@@ -7,9 +7,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@pokapali/subdocs": path.resolve(
-        __dirname, "../subdocs/src/index.ts"
-      ),
+      "@pokapali/subdocs": path.resolve(__dirname, "../subdocs/src/index.ts"),
     },
   },
 });
