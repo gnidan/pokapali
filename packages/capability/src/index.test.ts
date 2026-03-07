@@ -114,19 +114,18 @@ describe("encodeFragment / decodeFragment", () => {
       );
       labels.push(label);
       offset += labelLen;
-      const valueLen =
-        (buf[offset] << 8) | buf[offset + 1];
-      offset += 2 + valueLen;
+      const valueLen = buf[offset++];
+      offset += valueLen;
     }
     const sorted = [...labels].sort();
     expect(labels).toEqual(sorted);
   });
 
-  it("starts with version byte 0x01", async () => {
+  it("starts with version byte 0x00", async () => {
     const keys = await makeFullKeys();
     const fragment = await encodeFragment(keys);
     const buf = base64urlDecode(fragment);
-    expect(buf[0]).toBe(0x01);
+    expect(buf[0]).toBe(0x00);
   });
 
   it("throws on unknown version", async () => {

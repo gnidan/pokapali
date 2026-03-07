@@ -16,17 +16,17 @@ export interface Capability {
 
 // Wire format:
 //   version(1) || entry* sorted by label
-//   entry = labelLen(1) || label(utf8) || valueLen(2 BE)
+//   entry = labelLen(1) || label(utf8) || valueLen(1)
 //           || value
 //
 // Reserved labels:
-//   "A" = awarenessRoomPassword (utf8 bytes)
-//   "I" = ipnsKeyBytes
-//   "K" = readKey (raw AES-GCM-256 bytes)
-//   "N:<name>" = namespace key for <name>
-//   "R" = rotationKey
+//   "a" = awarenessRoomPassword (utf8 bytes)
+//   "i" = ipnsKeyBytes
+//   "k" = rotationKey
+//   "n:<name>" = namespace key for <name>
+//   "r" = readKey (raw AES-GCM-256 bytes)
 
-const VERSION = 0x01;
+const VERSION = 0x00;
 
 export async function encodeFragment(
   keys: CapabilityKeys
@@ -37,17 +37,17 @@ export async function encodeFragment(
     const raw = new Uint8Array(
       await crypto.subtle.exportKey("raw", keys.readKey)
     );
-    entries.push(["K", raw]);
+    entries.push(["r", raw]);
   }
   if (keys.ipnsKeyBytes) {
-    entries.push(["I", keys.ipnsKeyBytes]);
+    entries.push(["i", keys.ipnsKeyBytes]);
   }
   if (keys.rotationKey) {
-    entries.push(["R", keys.rotationKey]);
+    entries.push(["k", keys.rotationKey]);
   }
   if (keys.awarenessRoomPassword) {
     entries.push([
-      "A",
+      "a",
       new TextEncoder().encode(
         keys.awarenessRoomPassword
       ),
@@ -57,7 +57,7 @@ export async function encodeFragment(
     for (const [name, key] of Object.entries(
       keys.namespaceKeys
     )) {
-      entries.push([`N:${name}`, key]);
+      entries.push([`n:${name}`, key]);
     }
   }
 
@@ -67,7 +67,7 @@ export async function encodeFragment(
   for (const [label, value] of entries) {
     const labelBytes = new TextEncoder().encode(label);
     totalLen +=
-      1 + labelBytes.length + 2 + value.length;
+      1 + labelBytes.length + 1 + value.length;
   }
 
   const buf = new Uint8Array(totalLen);
@@ -79,7 +79,6 @@ export async function encodeFragment(
     buf[offset++] = labelBytes.length;
     buf.set(labelBytes, offset);
     offset += labelBytes.length;
-    buf[offset++] = (value.length >> 8) & 0xff;
     buf[offset++] = value.length & 0xff;
     buf.set(value, offset);
     offset += value.length;
@@ -123,14 +122,12 @@ export async function decodeFragment(
     );
     offset += labelLen;
 
-    if (offset + 2 > buf.length) {
+    if (offset + 1 > buf.length) {
       throw new Error(
         "Truncated fragment: missing value length"
       );
     }
-    const valueLen =
-      (buf[offset] << 8) | buf[offset + 1];
-    offset += 2;
+    const valueLen = buf[offset++];
     if (offset + valueLen > buf.length) {
       throw new Error(
         "Truncated fragment: missing value"
@@ -139,7 +136,7 @@ export async function decodeFragment(
     const value = buf.slice(offset, offset + valueLen);
     offset += valueLen;
 
-    if (label === "K") {
+    if (label === "r") {
       keys.readKey = await crypto.subtle.importKey(
         "raw",
         value as unknown as ArrayBuffer,
@@ -147,14 +144,14 @@ export async function decodeFragment(
         true,
         ["encrypt", "decrypt"]
       );
-    } else if (label === "I") {
+    } else if (label === "i") {
       keys.ipnsKeyBytes = value;
-    } else if (label === "R") {
+    } else if (label === "k") {
       keys.rotationKey = value;
-    } else if (label === "A") {
+    } else if (label === "a") {
       keys.awarenessRoomPassword =
         new TextDecoder().decode(value);
-    } else if (label.startsWith("N:")) {
+    } else if (label.startsWith("n:")) {
       namespaceKeys[label.slice(2)] = value;
     }
     // ignore unknown labels for forward compat
