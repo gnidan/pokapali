@@ -112,7 +112,7 @@ export async function startRelay(
 
   const defaults = libp2pDefaults();
   const helia = await createHelia({
-    datastore,
+    datastore: datastore as any,
     libp2p: {
       ...defaults,
       privateKey,
