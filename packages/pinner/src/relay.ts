@@ -267,7 +267,7 @@ export async function startRelay(
         const ctrl = new AbortController();
         const timer = setTimeout(
           () => ctrl.abort(),
-          30_000,
+          60_000,
         );
         await helia.routing.provide(cids[i], {
           signal: ctrl.signal,
@@ -293,8 +293,12 @@ export async function startRelay(
     }
   }
 
-  // Initial provide (in background)
-  provideAll();
+  // Initial provide after a short delay to let DHT
+  // routing table fill from bootstrap peer walks.
+  setTimeout(() => {
+    log("initial provide starting...");
+    provideAll();
+  }, 10_000);
 
   // Re-provide after autoTLS certificate is obtained
   // so the DHT peer record includes WSS addresses.
@@ -302,7 +306,7 @@ export async function startRelay(
     "certificate:provision",
     () => {
       log("certificate obtained, re-providing");
-      provideAll();
+      setTimeout(() => provideAll(), 10_000);
     },
   );
 
