@@ -238,8 +238,8 @@ export function startRoomDiscovery(
 
     log(`trying ${fresh.length} cached relay(s)`);
 
-    for (const entry of fresh) {
-      if (stopped) break;
+    await Promise.all(fresh.map(async (entry) => {
+      if (stopped) return;
 
       const pid = entry.peerId;
       const short = pid.slice(-8);
@@ -252,14 +252,14 @@ export function startRoomDiscovery(
         trackRelay(pid, entry.addrs);
         tagRelay(pid);
         log(`cached relay ...${short} (connected)`);
-        continue;
+        return;
       }
 
       const wssAddrs = extractWssAddrs(
         pid,
         entry.addrs,
       );
-      if (wssAddrs.length === 0) continue;
+      if (wssAddrs.length === 0) return;
 
       const ok = await dialRelay(
         pid, wssAddrs, entry.addrs,
@@ -272,7 +272,7 @@ export function startRoomDiscovery(
           entry.addrs,
         );
       }
-    }
+    }));
   }
 
   async function discoverRelays() {
@@ -378,11 +378,11 @@ export function startRoomDiscovery(
     );
   }
 
-  // Try cached relays first (fast), then DHT discovery
+  // Try cached relays and DHT discovery concurrently.
+  // Cache dials are fast; DHT is slow. No reason to wait.
   logStatus();
-  dialCachedRelays().then(() => {
-    if (!stopped) discoverRelays();
-  });
+  dialCachedRelays();
+  discoverRelays();
 
   // Periodic re-discovery
   const discoverInterval = setInterval(() => {
