@@ -8,6 +8,8 @@ const DISCOVERY_INTERVAL_MS = 30_000;
 const FIND_TIMEOUT_MS = 15_000;
 const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
+const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
+const RELAY_CACHE_MAX_AGE_MS = 48 * 60 * 60_000; // 48h
 
 const log = (...args: unknown[]) =>
   console.log("[pokapali:discovery]", ...args);
@@ -22,6 +24,78 @@ async function appIdToCID(
   return CID.createV1(RAW_CODEC, hash);
 }
 
+// --- Relay cache (localStorage) ---
+
+const hasLocalStorage =
+  typeof globalThis.localStorage !== "undefined";
+
+interface CachedRelay {
+  peerId: string;
+  addrs: string[];
+  lastSeen: number;
+}
+
+function cacheKey(appId: string): string {
+  return `pokapali:relays:${appId}`;
+}
+
+function loadCachedRelays(
+  appId: string,
+): CachedRelay[] {
+  if (!hasLocalStorage) return [];
+  try {
+    const raw = localStorage.getItem(cacheKey(appId));
+    if (!raw) return [];
+    const entries: CachedRelay[] = JSON.parse(raw);
+    const now = Date.now();
+    // Drop entries older than max age
+    return entries.filter(
+      (e) => now - e.lastSeen < RELAY_CACHE_MAX_AGE_MS,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedRelays(
+  appId: string,
+  relays: CachedRelay[],
+): void {
+  if (!hasLocalStorage) return;
+  try {
+    localStorage.setItem(
+      cacheKey(appId),
+      JSON.stringify(relays),
+    );
+  } catch {
+    // quota exceeded, etc.
+  }
+}
+
+function upsertCachedRelay(
+  appId: string,
+  peerId: string,
+  addrs: string[],
+): void {
+  const relays = loadCachedRelays(appId);
+  const existing = relays.find(
+    (r) => r.peerId === peerId,
+  );
+  if (existing) {
+    existing.addrs = addrs;
+    existing.lastSeen = Date.now();
+  } else {
+    relays.push({
+      peerId,
+      addrs,
+      lastSeen: Date.now(),
+    });
+  }
+  saveCachedRelays(appId, relays);
+}
+
+// --- Discovery ---
+
 export interface RoomDiscovery {
   /** Peer IDs of relays discovered for this app. */
   readonly relayPeerIds: ReadonlySet<string>;
@@ -34,6 +108,10 @@ export interface RoomDiscovery {
  * on the DHT; browsers find them via delegated routing.
  * Once connected, pubsub-peer-discovery (configured in
  * helia.ts) handles browser-to-browser discovery.
+ *
+ * On startup, tries cached relay addresses from
+ * localStorage first (fast direct dial), then runs
+ * DHT discovery in parallel to refresh the cache.
  */
 export function startRoomDiscovery(
   helia: Helia,
@@ -53,7 +131,129 @@ export function startRoomDiscovery(
         },
       });
     } catch (err) {
-      log("failed to tag relay:", (err as Error).message);
+      log(
+        "failed to tag relay:",
+        (err as Error).message,
+      );
+    }
+  }
+
+  const isSecureContext =
+    typeof globalThis.location !== "undefined" &&
+    globalThis.location.protocol === "https:";
+
+  function extractWssAddrs(
+    pid: string,
+    rawAddrs: string[],
+  ): ReturnType<typeof multiaddr>[] {
+    const p2pSuffix = `/p2p/${pid}`;
+    return rawAddrs
+      .filter((s) => {
+        if (!s.includes("/ws")) return false;
+        if (s.includes("/p2p-circuit")) return false;
+        // In HTTPS contexts, skip plain ws (no /tls/)
+        if (isSecureContext && !s.includes("/tls/")) {
+          return false;
+        }
+        return true;
+      })
+      .map((s) =>
+        multiaddr(
+          s.includes("/p2p/") ? s : s + p2pSuffix,
+        ),
+      );
+  }
+
+  async function dialRelay(
+    pid: string,
+    wssAddrs: ReturnType<typeof multiaddr>[],
+    peerId?: any,
+  ): Promise<boolean> {
+    const short = pid.slice(-8);
+    log(
+      `relay ...${short}, dialing...`,
+      wssAddrs.map((ma) => ma.toString()),
+    );
+    const dialCtrl = new AbortController();
+    const dialTimer = setTimeout(
+      () => dialCtrl.abort(),
+      DIAL_TIMEOUT_MS,
+    );
+    try {
+      if (wssAddrs.length > 0) {
+        await helia.libp2p.dial(wssAddrs, {
+          signal: dialCtrl.signal,
+        });
+      } else if (peerId) {
+        await helia.libp2p.dial(peerId, {
+          signal: dialCtrl.signal,
+        });
+      } else {
+        return false;
+      }
+      relayPeerIds.add(pid);
+      log(`relay ...${short} OK`);
+      return true;
+    } catch (err) {
+      const e = err as any;
+      log(
+        `relay ...${short} FAIL:`,
+        e.message ?? err,
+      );
+      if (e.errors) {
+        for (const sub of e.errors) {
+          log(`  sub-error:`, sub.message ?? sub);
+        }
+      }
+      return false;
+    } finally {
+      clearTimeout(dialTimer);
+    }
+  }
+
+  async function dialCachedRelays() {
+    if (!appId) return;
+    const cached = loadCachedRelays(appId);
+    const now = Date.now();
+    const fresh = cached.filter(
+      (r) => now - r.lastSeen < RELAY_CACHE_TTL_MS,
+    );
+    if (fresh.length === 0) return;
+
+    log(`trying ${fresh.length} cached relay(s)`);
+
+    for (const entry of fresh) {
+      if (stopped) break;
+
+      const pid = entry.peerId;
+      const short = pid.slice(-8);
+      const already = helia.libp2p
+        .getConnections()
+        .some(
+          (c) => c.remotePeer.toString() === pid,
+        );
+      if (already) {
+        relayPeerIds.add(pid);
+        tagRelay(pid);
+        log(`cached relay ...${short} (connected)`);
+        continue;
+      }
+
+      const wssAddrs = extractWssAddrs(
+        pid,
+        entry.addrs,
+      );
+      if (wssAddrs.length === 0) continue;
+
+      const ok = await dialRelay(pid, wssAddrs);
+      if (ok) {
+        tagRelay(pid);
+        upsertCachedRelay(
+          appId,
+          pid,
+          entry.addrs,
+        );
+      }
     }
   }
 
@@ -91,6 +291,11 @@ export function startRoomDiscovery(
         if (already) {
           relayPeerIds.add(pid);
           tagRelay(provider.id);
+          // Update cache with latest addrs
+          const addrs = (
+            provider.multiaddrs ?? []
+          ).map((ma: any) => ma.toString());
+          upsertCachedRelay(appId, pid, addrs);
           log(`relay ...${short} (connected)`);
           continue;
         }
@@ -119,61 +324,16 @@ export function startRoomDiscovery(
           continue;
         }
 
-        // Filter to WSS-only — circuit relay addrs
-        // contain other peer IDs and can't be mixed.
-        const p2pSuffix = `/p2p/${pid}`;
-        const wssAddrs = (provider.multiaddrs ?? [])
-          .map((ma: any) => ma.toString())
-          .filter(
-            (s: string) =>
-              s.includes("/ws") &&
-              !s.includes("/p2p-circuit"),
-          )
-          .map((s: string) =>
-            multiaddr(
-              s.includes("/p2p/")
-                ? s
-                : s + p2pSuffix,
-            ),
-          );
+        const wssAddrs = extractWssAddrs(pid, addrs);
 
-        log(
-          `relay ...${short}, dialing...`,
-          wssAddrs.map((ma) => ma.toString()),
+        const ok = await dialRelay(
+          pid,
+          wssAddrs,
+          provider.id,
         );
-        try {
-          const dialCtrl = new AbortController();
-          const dialTimer = setTimeout(
-            () => dialCtrl.abort(),
-            DIAL_TIMEOUT_MS,
-          );
-          if (wssAddrs.length > 0) {
-            await helia.libp2p.dial(wssAddrs, {
-              signal: dialCtrl.signal,
-            });
-          } else {
-            await helia.libp2p.dial(provider.id, {
-              signal: dialCtrl.signal,
-            });
-          }
-          clearTimeout(dialTimer);
-          relayPeerIds.add(pid);
+        if (ok) {
           tagRelay(provider.id);
-          log(`relay ...${short} OK`);
-        } catch (err) {
-          const e = err as any;
-          log(
-            `relay ...${short} FAIL:`,
-            e.message ?? err,
-          );
-          if (e.errors) {
-            for (const sub of e.errors) {
-              log(
-                `  sub-error:`,
-                sub.message ?? sub,
-              );
-            }
-          }
+          upsertCachedRelay(appId, pid, addrs);
         }
       }
 
@@ -200,9 +360,11 @@ export function startRoomDiscovery(
     );
   }
 
-  // Start discovery immediately
+  // Try cached relays first (fast), then DHT discovery
   logStatus();
-  discoverRelays();
+  dialCachedRelays().then(() => {
+    if (!stopped) discoverRelays();
+  });
 
   // Periodic re-discovery
   const discoverInterval = setInterval(() => {
