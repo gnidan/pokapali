@@ -229,6 +229,52 @@ function createCollabDoc(
     emit("snapshot-recommended");
   });
 
+  // Share relay info with WebRTC peers via awareness.
+  // Periodically publish our known relays and consume
+  // relays from other peers.
+  let relayShareTimer: ReturnType<
+    typeof setInterval
+  > | null = null;
+  if (params.roomDiscovery) {
+    const rd = params.roomDiscovery;
+    const awareness = awarenessRoom.awareness;
+
+    // Publish our relay entries into awareness
+    const publishRelays = () => {
+      const entries = rd.relayEntries();
+      if (entries.length > 0) {
+        awareness.setLocalStateField(
+          "relays",
+          entries,
+        );
+      }
+    };
+
+    // Consume relay entries from other peers
+    const onAwarenessUpdate = () => {
+      const states = awareness.getStates();
+      for (const [clientId, state] of states) {
+        if (clientId === awareness.clientID) continue;
+        const relays = state?.relays;
+        if (Array.isArray(relays) && relays.length > 0) {
+          rd.addExternalRelays(relays);
+        }
+      }
+    };
+
+    awareness.on("update", onAwarenessUpdate);
+
+    // Publish every 30s (relays may be discovered
+    // after initial awareness sync)
+    relayShareTimer = setInterval(
+      publishRelays,
+      30_000,
+    );
+    // Initial publish after a short delay to let
+    // discovery run first
+    setTimeout(publishRelays, 5_000);
+  }
+
   function assertNotDestroyed() {
     if (destroyed) {
       throw new Error("CollabDoc destroyed");
@@ -491,6 +537,9 @@ function createCollabDoc(
 
       // Destroy old doc
       destroyed = true;
+      if (relayShareTimer) {
+        clearInterval(relayShareTimer);
+      }
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
@@ -586,6 +635,9 @@ function createCollabDoc(
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      if (relayShareTimer) {
+        clearInterval(relayShareTimer);
+      }
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();

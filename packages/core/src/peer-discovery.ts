@@ -96,9 +96,18 @@ function upsertCachedRelay(
 
 // --- Discovery ---
 
+export interface RelayEntry {
+  peerId: string;
+  addrs: string[];
+}
+
 export interface RoomDiscovery {
   /** Peer IDs of relays discovered for this app. */
   readonly relayPeerIds: ReadonlySet<string>;
+  /** Current known relay entries for sharing. */
+  relayEntries(): RelayEntry[];
+  /** Try dialing relays learned from another peer. */
+  addExternalRelays(entries: RelayEntry[]): void;
   stop(): void;
 }
 
@@ -120,6 +129,7 @@ export function startRoomDiscovery(
   let stopped = false;
   let cycleController: AbortController | null = null;
   const relayPeerIds = new Set<string>();
+  const relayAddrs = new Map<string, string[]>();
 
   let running = false;
 
@@ -164,9 +174,15 @@ export function startRoomDiscovery(
       );
   }
 
+  function trackRelay(pid: string, addrs: string[]) {
+    relayPeerIds.add(pid);
+    relayAddrs.set(pid, addrs);
+  }
+
   async function dialRelay(
     pid: string,
     wssAddrs: ReturnType<typeof multiaddr>[],
+    rawAddrs: string[],
     peerId?: any,
   ): Promise<boolean> {
     const short = pid.slice(-8);
@@ -191,7 +207,7 @@ export function startRoomDiscovery(
       } else {
         return false;
       }
-      relayPeerIds.add(pid);
+      trackRelay(pid, rawAddrs);
       log(`relay ...${short} OK`);
       return true;
     } catch (err) {
@@ -233,7 +249,7 @@ export function startRoomDiscovery(
           (c) => c.remotePeer.toString() === pid,
         );
       if (already) {
-        relayPeerIds.add(pid);
+        trackRelay(pid, entry.addrs);
         tagRelay(pid);
         log(`cached relay ...${short} (connected)`);
         continue;
@@ -245,7 +261,9 @@ export function startRoomDiscovery(
       );
       if (wssAddrs.length === 0) continue;
 
-      const ok = await dialRelay(pid, wssAddrs);
+      const ok = await dialRelay(
+        pid, wssAddrs, entry.addrs,
+      );
       if (ok) {
         tagRelay(pid);
         upsertCachedRelay(
@@ -289,12 +307,11 @@ export function startRoomDiscovery(
           );
 
         if (already) {
-          relayPeerIds.add(pid);
-          tagRelay(provider.id);
-          // Update cache with latest addrs
           const addrs = (
             provider.multiaddrs ?? []
           ).map((ma: any) => ma.toString());
+          trackRelay(pid, addrs);
+          tagRelay(provider.id);
           upsertCachedRelay(appId, pid, addrs);
           log(`relay ...${short} (connected)`);
           continue;
@@ -329,6 +346,7 @@ export function startRoomDiscovery(
         const ok = await dialRelay(
           pid,
           wssAddrs,
+          addrs,
           provider.id,
         );
         if (ok) {
@@ -376,9 +394,66 @@ export function startRoomDiscovery(
     if (!stopped) logStatus();
   }, LOG_INTERVAL_MS);
 
+  async function addExternalRelays(
+    entries: RelayEntry[],
+  ) {
+    for (const entry of entries) {
+      if (stopped) break;
+      if (relayPeerIds.has(entry.peerId)) continue;
+
+      const pid = entry.peerId;
+      const short = pid.slice(-8);
+      const already = helia.libp2p
+        .getConnections()
+        .some(
+          (c) => c.remotePeer.toString() === pid,
+        );
+      if (already) {
+        trackRelay(pid, entry.addrs);
+        tagRelay(pid);
+        log(
+          `peer-shared relay ...${short}`,
+          `(connected)`,
+        );
+        if (appId) {
+          upsertCachedRelay(
+            appId, pid, entry.addrs,
+          );
+        }
+        continue;
+      }
+
+      const wssAddrs = extractWssAddrs(
+        pid, entry.addrs,
+      );
+      if (wssAddrs.length === 0) continue;
+
+      log(`peer-shared relay ...${short}`);
+      const ok = await dialRelay(
+        pid, wssAddrs, entry.addrs,
+      );
+      if (ok) {
+        tagRelay(pid);
+        if (appId) {
+          upsertCachedRelay(
+            appId, pid, entry.addrs,
+          );
+        }
+      }
+    }
+  }
+
   return {
     get relayPeerIds(): ReadonlySet<string> {
       return relayPeerIds;
+    },
+    relayEntries(): RelayEntry[] {
+      return [...relayAddrs.entries()].map(
+        ([peerId, addrs]) => ({ peerId, addrs }),
+      );
+    },
+    addExternalRelays(entries: RelayEntry[]) {
+      addExternalRelays(entries);
     },
     stop() {
       stopped = true;
