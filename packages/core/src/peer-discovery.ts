@@ -1,5 +1,6 @@
 import type { Helia } from "helia";
 import { multiaddr } from "@multiformats/multiaddr";
+import { peerIdFromString } from "@libp2p/peer-id";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
@@ -72,6 +73,19 @@ function saveCachedRelays(
   }
 }
 
+function removeCachedRelay(
+  appId: string,
+  peerId: string,
+): void {
+  const relays = loadCachedRelays(appId);
+  const filtered = relays.filter(
+    (r) => r.peerId !== peerId,
+  );
+  if (filtered.length !== relays.length) {
+    saveCachedRelays(appId, filtered);
+  }
+}
+
 function upsertCachedRelay(
   appId: string,
   peerId: string,
@@ -133,8 +147,9 @@ export function startRoomDiscovery(
 
   let running = false;
 
-  async function tagRelay(peerId: any) {
+  async function tagRelay(pid: string) {
     try {
+      const peerId = peerIdFromString(pid);
       await helia.libp2p.peerStore.merge(peerId, {
         tags: {
           "keep-alive": { value: 100 },
@@ -271,6 +286,9 @@ export function startRoomDiscovery(
           pid,
           entry.addrs,
         );
+      } else {
+        // Purge stale entry (wrong peer ID, etc.)
+        removeCachedRelay(appId, pid);
       }
     }));
   }
@@ -311,7 +329,7 @@ export function startRoomDiscovery(
             provider.multiaddrs ?? []
           ).map((ma: any) => ma.toString());
           trackRelay(pid, addrs);
-          tagRelay(provider.id);
+          tagRelay(pid);
           upsertCachedRelay(appId, pid, addrs);
           log(`relay ...${short} (connected)`);
           continue;
@@ -350,7 +368,7 @@ export function startRoomDiscovery(
           provider.id,
         );
         if (ok) {
-          tagRelay(provider.id);
+          tagRelay(pid);
           upsertCachedRelay(appId, pid, addrs);
         }
       }
