@@ -5,8 +5,8 @@ import { sha256 } from "multiformats/hashes/sha2";
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
-const FIND_TIMEOUT_MS = 30_000;
-const DIAL_TIMEOUT_MS = 15_000;
+const FIND_TIMEOUT_MS = 15_000;
+const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
 
 const log = (...args: unknown[]) =>
@@ -181,13 +181,9 @@ export function startRoomDiscovery(
     );
   }
 
-  // Initial discovery after short delay
-  const initTimer = setTimeout(() => {
-    if (!stopped) {
-      logStatus();
-      discoverRelays();
-    }
-  }, 3_000);
+  // Start discovery immediately
+  logStatus();
+  discoverRelays();
 
   // Periodic re-discovery
   const discoverInterval = setInterval(() => {
@@ -203,7 +199,6 @@ export function startRoomDiscovery(
     stop() {
       stopped = true;
       cycleController?.abort();
-      clearTimeout(initTimer);
       clearInterval(discoverInterval);
       clearInterval(logInterval);
     },
