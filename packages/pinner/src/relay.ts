@@ -228,6 +228,25 @@ export async function startRelay(
     }
   }
 
+  // Re-dial bootstrap peers — the closeAll() during cert
+  // wait killed all DHT peers, so we need to rebuild the
+  // routing table before we can provide.
+  log("re-dialing bootstrap peers...");
+  for (const addr of bootstrapAddrs) {
+    try {
+      await helia.libp2p.dial(multiaddr(addr));
+      log(
+        "  dialed",
+        addr.split("/p2p/")[1]?.slice(0, 12),
+      );
+    } catch {
+      log(
+        "  failed to dial",
+        addr.split("/p2p/")[1]?.slice(0, 12),
+      );
+    }
+  }
+
   // Subscribe to the discovery topic so this node
   // joins the GossipSub mesh and relays peer
   // announcements between browsers.
@@ -259,7 +278,12 @@ export async function startRelay(
         );
       } catch (err) {
         const msg = (err as Error).message ?? "";
-        if (!msg.includes("abort")) {
+        if (msg.includes("abort")) {
+          log(
+            `provide TIMEOUT for`,
+            `${config.appIds[i]}`,
+          );
+        } else {
           log(
             `provide FAIL for`,
             `${config.appIds[i]}: ${msg}`,
