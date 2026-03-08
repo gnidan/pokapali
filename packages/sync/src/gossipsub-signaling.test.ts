@@ -172,23 +172,23 @@ describe("GossipSubSignaling", () => {
   });
 
   describe("send subscribe", () => {
-    it("subscribes to prefixed GossipSub topics", () => {
-      adapter = createGossipSubSignaling(pubsub);
-      adapter.send({
-        type: "subscribe",
-        topics: ["room1", "room2"],
-      });
-      expect(
-        pubsub._subscribed.has(
-          "/pokapali/signal/room1"
-        )
-      ).toBe(true);
-      expect(
-        pubsub._subscribed.has(
-          "/pokapali/signal/room2"
-        )
-      ).toBe(true);
-    });
+    it(
+      "subscribes to shared signaling topic",
+      () => {
+        adapter = createGossipSubSignaling(pubsub);
+        adapter.send({
+          type: "subscribe",
+          topics: ["room1", "room2"],
+        });
+        // All rooms share one GossipSub topic
+        expect(
+          pubsub._subscribed.has(
+            "/pokapali/signaling"
+          )
+        ).toBe(true);
+        expect(pubsub._subscribed.size).toBe(1);
+      }
+    );
 
     it("does not double-subscribe", () => {
       adapter = createGossipSubSignaling(pubsub);
@@ -209,57 +209,68 @@ describe("GossipSubSignaling", () => {
   });
 
   describe("send publish", () => {
-    it("publishes JSON-encoded data to GossipSub", () => {
-      adapter = createGossipSubSignaling(pubsub);
-      const signalData = {
-        type: "announce",
-        from: "peer-123",
-      };
-      adapter.send({
-        type: "publish",
-        topic: "room1",
-        data: signalData,
-      });
+    it(
+      "publishes JSON-encoded data to shared topic",
+      () => {
+        adapter = createGossipSubSignaling(pubsub);
+        const signalData = {
+          type: "announce",
+          from: "peer-123",
+        };
+        adapter.send({
+          type: "publish",
+          topic: "room1",
+          data: signalData,
+        });
 
-      expect(pubsub._published).toHaveLength(1);
-      const pub = pubsub._published[0];
-      expect(pub.topic).toBe(
-        "/pokapali/signal/room1"
-      );
-      const decoded = JSON.parse(
-        new TextDecoder().decode(pub.data)
-      );
-      expect(decoded).toEqual({
-        type: "publish",
-        topic: "room1",
-        data: signalData,
-      });
-    });
+        expect(pubsub._published).toHaveLength(1);
+        const pub = pubsub._published[0];
+        // All publishes go to the shared topic
+        expect(pub.topic).toBe(
+          "/pokapali/signaling"
+        );
+        // Room name is in the payload
+        const decoded = JSON.parse(
+          new TextDecoder().decode(pub.data)
+        );
+        expect(decoded).toEqual({
+          type: "publish",
+          topic: "room1",
+          data: signalData,
+        });
+      }
+    );
   });
 
   describe("send unsubscribe", () => {
-    it("unsubscribes from GossipSub topics", () => {
-      adapter = createGossipSubSignaling(pubsub);
-      adapter.send({
-        type: "subscribe",
-        topics: ["room1"],
-      });
-      expect(
-        pubsub._subscribed.has(
-          "/pokapali/signal/room1"
-        )
-      ).toBe(true);
+    it(
+      "keeps shared topic subscribed " +
+        "(only unsubscribed on destroy)",
+      () => {
+        adapter = createGossipSubSignaling(pubsub);
+        adapter.send({
+          type: "subscribe",
+          topics: ["room1"],
+        });
+        expect(
+          pubsub._subscribed.has(
+            "/pokapali/signaling"
+          )
+        ).toBe(true);
 
-      adapter.send({
-        type: "unsubscribe",
-        topics: ["room1"],
-      });
-      expect(
-        pubsub._subscribed.has(
-          "/pokapali/signal/room1"
-        )
-      ).toBe(false);
-    });
+        // Unsubscribe is a no-op — other rooms may
+        // still need the shared topic
+        adapter.send({
+          type: "unsubscribe",
+          topics: ["room1"],
+        });
+        expect(
+          pubsub._subscribed.has(
+            "/pokapali/signaling"
+          )
+        ).toBe(true);
+      }
+    );
   });
 
   describe("incoming GossipSub messages", () => {
@@ -283,7 +294,7 @@ describe("GossipSubSignaling", () => {
           JSON.stringify(payload)
         );
         pubsub.simulateMessage(
-          "/pokapali/signal/room1",
+          "/pokapali/signaling",
           encoded
         );
 
@@ -330,13 +341,18 @@ describe("GossipSubSignaling", () => {
   });
 
   describe("destroy", () => {
-    it("unsubscribes all topics", () => {
+    it("unsubscribes shared topic", () => {
       adapter = createGossipSubSignaling(pubsub);
       adapter.send({
         type: "subscribe",
         topics: ["r1", "r2"],
       });
-      expect(pubsub._subscribed.size).toBe(2);
+      expect(pubsub._subscribed.size).toBe(1);
+      expect(
+        pubsub._subscribed.has(
+          "/pokapali/signaling"
+        )
+      ).toBe(true);
 
       adapter.destroy();
       expect(pubsub._subscribed.size).toBe(0);
