@@ -28,6 +28,10 @@ export async function acquireHelia(
     return sharedHelia;
   }
 
+  const isSecureContext =
+    typeof globalThis.location !== "undefined" &&
+    globalThis.location.protocol === "https:";
+
   const defaults = libp2pDefaults();
   const libp2pOptions = {
     ...defaults,
@@ -42,6 +46,21 @@ export async function acquireHelia(
       ...defaults.services,
       pubsub: gossipsub(),
     },
+    // Block plain ws:// dials from HTTPS pages — browsers
+    // reject mixed content and the failed attempts waste
+    // connection slots and time.
+    ...(isSecureContext ? {
+      connectionGater: {
+        ...defaults.connectionGater,
+        denyDialMultiaddr: (ma: any) => {
+          const s = ma.toString();
+          if (s.includes("/ws/") || s.endsWith("/ws")) {
+            return !s.includes("/tls/");
+          }
+          return false;
+        },
+      },
+    } : {}),
   };
 
   const helia = await createHelia({
