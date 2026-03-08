@@ -272,6 +272,71 @@ body {
   background: #f3f4f6;
 }
 
+/* Connection status bar */
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.cs-section {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.cs-label {
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+}
+
+.cs-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-variant-numeric: tabular-nums;
+  color: #334155;
+}
+
+.cs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.cs-dot.connected {
+  background: #22c55e;
+}
+
+.cs-dot.disconnected {
+  background: #ef4444;
+}
+
+.cs-dot.partial {
+  background: #eab308;
+}
+
+.cs-dot.inactive {
+  background: #94a3b8;
+}
+
+.cs-divider {
+  width: 1px;
+  height: 14px;
+  background: #e2e8f0;
+}
+
 /* Collaboration cursors */
 
 .collab-cursor {

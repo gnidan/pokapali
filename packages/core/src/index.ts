@@ -97,6 +97,8 @@ export interface CollabDoc {
   readonly readUrl: string;
   inviteUrl(grant: CapabilityGrant): Promise<string>;
   readonly status: DocStatus;
+  /** Peer IDs of relays discovered for this app. */
+  readonly relayPeerIds: ReadonlySet<string>;
   pushSnapshot(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
@@ -301,6 +303,11 @@ function createCollabDoc(
         syncManager.status,
         subdocManager.isDirty,
       );
+    },
+
+    get relayPeerIds(): ReadonlySet<string> {
+      return params.roomDiscovery?.relayPeerIds
+        ?? new Set();
     },
 
     async pushSnapshot(): Promise<void> {

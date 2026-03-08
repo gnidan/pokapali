@@ -1,0 +1,155 @@
+import { useState, useEffect } from "react";
+import { getHelia } from "@pokapali/core";
+import type { CollabDoc } from "@pokapali/core";
+
+interface RelayInfo {
+  short: string;
+  connected: boolean;
+}
+
+interface ConnectionInfo {
+  ipfsPeers: number;
+  relays: RelayInfo[];
+  webrtcPeers: number;
+}
+
+function gatherInfo(doc: CollabDoc): ConnectionInfo {
+  let ipfsPeers = 0;
+  const relays: RelayInfo[] = [];
+  let webrtcPeers = 0;
+
+  try {
+    const helia = getHelia();
+    const libp2p = (helia as any).libp2p;
+    ipfsPeers = libp2p.getPeers().length;
+
+    // Only show relays discovered for this app
+    const knownRelays = doc.relayPeerIds;
+    if (knownRelays.size > 0) {
+      const connectedPids = new Set<string>();
+      for (const conn of libp2p.getConnections()) {
+        connectedPids.add(
+          (conn as any).remotePeer.toString(),
+        );
+      }
+      for (const pid of knownRelays) {
+        relays.push({
+          short: pid.slice(-8),
+          connected: connectedPids.has(pid),
+        });
+      }
+    }
+  } catch {
+    // Helia not ready
+  }
+
+  try {
+    const states = doc.awareness.getStates();
+    // Subtract 1 for self
+    webrtcPeers = Math.max(0, states.size - 1);
+  } catch {
+    // awareness not ready
+  }
+
+  return { ipfsPeers, relays, webrtcPeers };
+}
+
+export function ConnectionStatus({
+  doc,
+}: {
+  doc: CollabDoc;
+}) {
+  const [info, setInfo] = useState<ConnectionInfo>({
+    ipfsPeers: 0,
+    relays: [],
+    webrtcPeers: 0,
+  });
+
+  useEffect(() => {
+    const poll = setInterval(() => {
+      setInfo(gatherInfo(doc));
+    }, 2000);
+    setInfo(gatherInfo(doc));
+    return () => clearInterval(poll);
+  }, [doc]);
+
+  const connectedRelays = info.relays.filter(
+    (r) => r.connected,
+  );
+
+  return (
+    <div className="connection-status">
+      <span className="cs-section" title="libp2p peers">
+        <span className="cs-label">IPFS</span>
+        <span className="cs-value">
+          {info.ipfsPeers}
+        </span>
+      </span>
+
+      <span className="cs-divider" />
+
+      <span
+        className="cs-section"
+        title={
+          info.relays.length > 0
+            ? info.relays
+                .map(
+                  (r) =>
+                    `...${r.short}` +
+                    (r.connected ? "" : " (offline)"),
+                )
+                .join(", ")
+            : "No relays discovered yet"
+        }
+      >
+        <span className="cs-label">Relays</span>
+        <span className="cs-value">
+          {info.relays.length === 0 ? (
+            <>
+              <span className="cs-dot inactive" />
+              0
+            </>
+          ) : connectedRelays.length ===
+            info.relays.length ? (
+            <>
+              <span className="cs-dot connected" />
+              {info.relays.length}
+            </>
+          ) : connectedRelays.length > 0 ? (
+            <>
+              <span className="cs-dot partial" />
+              {connectedRelays.length}/{info.relays.length}
+            </>
+          ) : (
+            <>
+              <span className="cs-dot disconnected" />
+              0/{info.relays.length}
+            </>
+          )}
+        </span>
+      </span>
+
+      <span className="cs-divider" />
+
+      <span
+        className="cs-section"
+        title="Collaborators via WebRTC"
+      >
+        <span className="cs-label">WebRTC</span>
+        <span className="cs-value">
+          {info.webrtcPeers > 0 ? (
+            <>
+              <span className="cs-dot connected" />
+              {info.webrtcPeers}
+            </>
+          ) : (
+            <>
+              <span className="cs-dot inactive" />
+              0
+            </>
+          )}
+        </span>
+      </span>
+    </div>
+  );
+}

@@ -23,6 +23,8 @@ async function appIdToCID(
 }
 
 export interface RoomDiscovery {
+  /** Peer IDs of relays discovered for this app. */
+  readonly relayPeerIds: ReadonlySet<string>;
   stop(): void;
 }
 
@@ -39,8 +41,21 @@ export function startRoomDiscovery(
 ): RoomDiscovery {
   let stopped = false;
   let cycleController: AbortController | null = null;
+  const relayPeerIds = new Set<string>();
 
   let running = false;
+
+  async function tagRelay(peerId: any) {
+    try {
+      await helia.libp2p.peerStore.merge(peerId, {
+        tags: {
+          "keep-alive": { value: 100 },
+        },
+      });
+    } catch (err) {
+      log("failed to tag relay:", (err as Error).message);
+    }
+  }
 
   async function discoverRelays() {
     if (!appId) return;
@@ -74,6 +89,8 @@ export function startRoomDiscovery(
           );
 
         if (already) {
+          relayPeerIds.add(pid);
+          tagRelay(provider.id);
           log(`relay ...${short} (connected)`);
           continue;
         }
@@ -140,6 +157,8 @@ export function startRoomDiscovery(
             });
           }
           clearTimeout(dialTimer);
+          relayPeerIds.add(pid);
+          tagRelay(provider.id);
           log(`relay ...${short} OK`);
         } catch (err) {
           const e = err as any;
@@ -196,6 +215,9 @@ export function startRoomDiscovery(
   }, LOG_INTERVAL_MS);
 
   return {
+    get relayPeerIds(): ReadonlySet<string> {
+      return relayPeerIds;
+    },
     stop() {
       stopped = true;
       cycleController?.abort();
