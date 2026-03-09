@@ -27,6 +27,31 @@ async function networkCID(): Promise<CID> {
   return CID.createV1(RAW_CODEC, hash);
 }
 
+// --- Address filtering ---
+
+export function extractWssAddrs(
+  pid: string,
+  rawAddrs: string[],
+  isSecureContext: boolean,
+): ReturnType<typeof multiaddr>[] {
+  const p2pSuffix = `/p2p/${pid}`;
+  return rawAddrs
+    .filter((s) => {
+      if (!s.includes("/ws")) return false;
+      if (s.includes("/p2p-circuit")) return false;
+      // In HTTPS contexts, skip plain ws (no /tls/)
+      if (isSecureContext && !s.includes("/tls/")) {
+        return false;
+      }
+      return true;
+    })
+    .map((s) =>
+      multiaddr(
+        s.includes("/p2p/") ? s : s + p2pSuffix,
+      ),
+    );
+}
+
 // --- Discovery ---
 
 export interface RelayEntry {
@@ -82,30 +107,15 @@ export function startRoomDiscovery(
     }
   }
 
-  const isSecureContext =
+  const secure =
     typeof globalThis.location !== "undefined" &&
     globalThis.location.protocol === "https:";
 
-  function extractWssAddrs(
+  function wssAddrs(
     pid: string,
     rawAddrs: string[],
-  ): ReturnType<typeof multiaddr>[] {
-    const p2pSuffix = `/p2p/${pid}`;
-    return rawAddrs
-      .filter((s) => {
-        if (!s.includes("/ws")) return false;
-        if (s.includes("/p2p-circuit")) return false;
-        // In HTTPS contexts, skip plain ws (no /tls/)
-        if (isSecureContext && !s.includes("/tls/")) {
-          return false;
-        }
-        return true;
-      })
-      .map((s) =>
-        multiaddr(
-          s.includes("/p2p/") ? s : s + p2pSuffix,
-        ),
-      );
+  ) {
+    return extractWssAddrs(pid, rawAddrs, secure);
   }
 
   function trackRelay(pid: string, addrs: string[]) {
@@ -199,14 +209,14 @@ export function startRoomDiscovery(
         return;
       }
 
-      const wssAddrs = extractWssAddrs(
+      const dialAddrs = wssAddrs(
         pid,
         entry.addrs,
       );
-      if (wssAddrs.length === 0) return;
+      if (dialAddrs.length === 0) return;
 
       const ok = await dialRelay(
-        pid, wssAddrs, entry.addrs,
+        pid, dialAddrs, entry.addrs,
       );
       if (ok) {
         tagRelay(pid);
@@ -285,11 +295,11 @@ export function startRoomDiscovery(
           continue;
         }
 
-        const wssAddrs = extractWssAddrs(pid, addrs);
+        const filtered = wssAddrs(pid, addrs);
 
         const ok = await dialRelay(
           pid,
-          wssAddrs,
+          filtered,
           addrs,
           provider.id,
         );
@@ -346,12 +356,12 @@ export function startRoomDiscovery(
     );
     if (!cached || stopped) return;
 
-    const wssAddrs = extractWssAddrs(
+    const redialAddrs = wssAddrs(
       pid, cached.addrs,
     );
-    if (wssAddrs.length === 0) return;
+    if (redialAddrs.length === 0) return;
 
-    dialRelay(pid, wssAddrs, cached.addrs).then(
+    dialRelay(pid, redialAddrs, cached.addrs).then(
       (ok) => {
         if (ok) {
           trackRelay(pid, cached.addrs);
@@ -441,16 +451,16 @@ export function startRoomDiscovery(
         continue;
       }
 
-      const wssAddrs = extractWssAddrs(
+      const extAddrs = wssAddrs(
         pid, entry.addrs,
       );
-      if (wssAddrs.length === 0) continue;
+      if (extAddrs.length === 0) continue;
 
       log.debug(
         `peer-shared relay ...${short}`,
       );
       const ok = await dialRelay(
-        pid, wssAddrs, entry.addrs,
+        pid, extAddrs, entry.addrs,
       );
       if (ok) {
         tagRelay(pid);
