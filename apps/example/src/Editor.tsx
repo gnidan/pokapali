@@ -247,14 +247,20 @@ export function EditorView({
   }, [doc]);
 
   // Wait for doc to be ready (snapshot loaded or
-  // confirmed empty) before mounting Collaboration
+  // confirmed empty) before mounting Collaboration.
+  // Fallback after 60s so readers aren't stuck on
+  // "Loading…" forever if fetch never completes.
   useEffect(() => {
     let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!cancelled) setReady(true);
+    }, 60_000);
     doc.whenReady().then(() => {
       if (!cancelled) setReady(true);
     });
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [doc]);
 

@@ -279,6 +279,7 @@ export function App() {
       <div className="landing">
         <h1>Pokapali</h1>
         <p>Loading…</p>
+        <button onClick={goToLanding}>Cancel</button>
         {error && (
           <div className="landing-error" role="alert">
             <p>{error}</p>
