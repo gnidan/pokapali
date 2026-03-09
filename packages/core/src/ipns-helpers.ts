@@ -4,17 +4,35 @@ import {
   publicKeyFromRaw,
 } from "@libp2p/crypto/keys";
 import type { Helia } from "helia";
-import type { CID } from "multiformats/cid";
+import {
+  CID as CIDClass,
+  type CID,
+} from "multiformats/cid";
+
+const LIBP2P_KEY_CODEC = 0x72;
+const PUBLISH_TIMEOUT_MS = 30_000;
 
 /**
  * Publish an IPNS record mapping ipnsKeyBytes → cid.
  *
- * @param helia        running Helia instance
- * @param ipnsKeyBytes 32-byte Ed25519 seed
- * @param cid          CID to publish
+ * Creates the record offline, then publishes in two
+ * parallel paths:
+ *
+ * 1. Direct delegated HTTP publish (fast, reliable) —
+ *    we await this and resolve once it succeeds.
+ *
+ * 2. Full Helia routing publish (DHT + delegated) —
+ *    fire-and-forget in the background. May hang in
+ *    browser due to sparse DHT, but if it works the
+ *    record propagates more broadly.
+ *
+ * NOTE: Accessing helia.libp2p.services.delegatedRouting
+ * directly is a code smell (couples us to Helia's
+ * default service name). If Helia changes how it
+ * registers the delegated router, this will silently
+ * fall back to the full routing path only. Tracked as
+ * tech debt.
  */
-const PUBLISH_TIMEOUT_MS = 30_000;
-
 export async function publishIPNS(
   helia: Helia,
   ipnsKeyBytes: Uint8Array,
@@ -25,18 +43,39 @@ export async function publishIPNS(
     ipnsKeyBytes,
   );
   const name = ipns(helia);
-  const ctrl = new AbortController();
-  const timer = setTimeout(
-    () => ctrl.abort(),
-    PUBLISH_TIMEOUT_MS,
+
+  // Create and locally cache the record without
+  // publishing to any routers.
+  const record = await name.publish(
+    privateKey, cid, { offline: true },
   );
-  try {
-    await name.publish(privateKey, cid, {
-      signal: ctrl.signal,
-    });
-  } finally {
-    clearTimeout(timer);
+
+  // Path 1: Direct delegated HTTP publish (fast).
+  const delegated = (helia.libp2p.services as any)
+    .delegatedRouting;
+  if (delegated?.putIPNS) {
+    const keyCid = CIDClass.createV1(
+      LIBP2P_KEY_CODEC,
+      privateKey.publicKey.toMultihash(),
+    );
+    const ctrl = new AbortController();
+    const timer = setTimeout(
+      () => ctrl.abort(),
+      PUBLISH_TIMEOUT_MS,
+    );
+    try {
+      await delegated.putIPNS(
+        keyCid, record, { signal: ctrl.signal },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  // Path 2: Full Helia routing (DHT + delegated).
+  // Fire-and-forget — may hang in browser, but if
+  // it works, the record propagates more broadly.
+  name.publish(privateKey, cid).catch(() => {});
 }
 
 /**

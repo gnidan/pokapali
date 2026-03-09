@@ -3,6 +3,7 @@ import {
 } from "vitest";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
+import { identity } from "multiformats/hashes/identity";
 
 const DAG_CBOR_CODE = 0x71;
 
@@ -53,20 +54,39 @@ import {
   watchIPNS,
 } from "./ipns-helpers.js";
 
-const fakeHelia = { fake: "helia" } as any;
+const mockPutIPNS = vi.fn().mockResolvedValue(undefined);
+const fakeHelia = {
+  fake: "helia",
+  libp2p: {
+    services: {
+      delegatedRouting: { putIPNS: mockPutIPNS },
+    },
+  },
+} as any;
 
 describe("publishIPNS", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("converts seed to private key and publishes", async () => {
+  it("creates record offline then publishes via delegated routing", async () => {
     const seed = new Uint8Array(32).fill(1);
     const cid = await fakeCID("test");
-    const fakePrivKey = { type: "Ed25519" };
+    const fakeRecord = { value: "/ipfs/test" };
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
+    const fakePrivKey = {
+      type: "Ed25519",
+      publicKey: fakePubKey,
+    };
     mockGenerateKeyPairFromSeed.mockResolvedValue(
       fakePrivKey,
     );
+    mockPublish.mockResolvedValue(fakeRecord);
 
     await publishIPNS(fakeHelia, seed, cid);
 
@@ -74,9 +94,16 @@ describe("publishIPNS", () => {
       mockGenerateKeyPairFromSeed,
     ).toHaveBeenCalledWith("Ed25519", seed);
     expect(mockIpns).toHaveBeenCalledWith(fakeHelia);
+    // offline: true — no network routing
     expect(mockPublish).toHaveBeenCalledWith(
       fakePrivKey,
       cid,
+      { offline: true },
+    );
+    // delegated HTTP publish
+    expect(mockPutIPNS).toHaveBeenCalledWith(
+      expect.anything(),
+      fakeRecord,
       expect.objectContaining({
         signal: expect.any(AbortSignal),
       }),
