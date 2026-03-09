@@ -60,6 +60,7 @@ function RecentDocsList({
               className="recent-link"
               disabled={loading}
               onClick={() => onOpen(d.url)}
+              aria-label={`Open document ${d.docId}, ${d.role}, ${formatAge(d.lastOpened)}`}
             >
               <span className="recent-id">
                 {d.docId}
@@ -76,6 +77,7 @@ function RecentDocsList({
             <button
               className="recent-remove"
               title="Remove"
+              aria-label={`Remove document ${d.docId} from recent list`}
               onClick={() =>
                 setDocs((prev) => {
                   removeRecent(d.docId);
@@ -145,6 +147,7 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
           <input
             type="text"
             placeholder="Paste a capability URL..."
+            aria-label="Document capability URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -156,13 +159,14 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
           </button>
         </div>
         {error && (
-          <div className="landing-error">
+          <div className="landing-error" role="alert">
             <p>{error}</p>
             <button
               onClick={() => {
                 setError(null);
                 setLoading(false);
               }}
+              aria-label="Dismiss error"
             >
               Dismiss
             </button>
@@ -276,7 +280,7 @@ export function App() {
         <h1>Pokapali</h1>
         <p>Loading…</p>
         {error && (
-          <div className="landing-error">
+          <div className="landing-error" role="alert">
             <p>{error}</p>
             <button onClick={goToLanding}>
               Back to home
