@@ -38,6 +38,7 @@ export interface SnapshotWatcherOptions {
   onFetchStateChange?: (
     state: SnapshotFetchState,
   ) => void;
+  onAck?: (peerId: string) => void;
   performInitialResolve?: boolean;
 }
 
@@ -49,9 +50,13 @@ export interface SnapshotWatcher {
     ) => Uint8Array | undefined,
     getSeq?: () => number | null,
   ): void;
+  /** Track a newly pushed CID for ack collection. */
+  trackCidForAcks(cid: string): void;
   readonly latestAnnouncedSeq: number;
   readonly fetchState: SnapshotFetchState;
   readonly hasAppliedSnapshot: boolean;
+  /** Peer IDs of pinners that acked the latest CID. */
+  readonly ackedBy: ReadonlySet<string>;
   destroy(): void;
 }
 
@@ -76,6 +81,9 @@ export function createSnapshotWatcher(
   let fetchState: SnapshotFetchState =
     { status: "idle" };
   let hasAppliedSnapshot = false;
+  /** Tracks which CID the acks are for. */
+  let ackedCid: string | null = null;
+  const ackedBy = new Set<string>();
   let retryTimer: ReturnType<
     typeof setTimeout
   > | null = null;
@@ -134,11 +142,28 @@ export function createSnapshotWatcher(
     if (detail?.topic !== topic) return;
     const ann = parseAnnouncement(detail.data);
     if (!ann || ann.ipnsName !== ipnsName) return;
+    if (destroyed) return;
+
+    // Handle pinner ack
+    if (ann.ack) {
+      if (ann.cid === ackedCid) {
+        const isNew = !ackedBy.has(ann.ack.peerId);
+        ackedBy.add(ann.ack.peerId);
+        if (isNew) {
+          log.debug(
+            "ack from", ann.ack.peerId.slice(-8),
+            "for", ann.cid.slice(0, 16) + "...",
+          );
+          options.onAck?.(ann.ack.peerId);
+        }
+      }
+      return;
+    }
+
     log.debug(
       "announce received:",
       ann.cid.slice(0, 16) + "...",
     );
-    if (destroyed) return;
     if (ann.seq !== undefined) {
       latestAnnouncedSeq = Math.max(
         latestAnnouncedSeq, ann.seq,
@@ -311,6 +336,13 @@ export function createSnapshotWatcher(
       }, REANNOUNCE_MS);
     },
 
+    trackCidForAcks(cid: string) {
+      if (cid !== ackedCid) {
+        ackedCid = cid;
+        ackedBy.clear();
+      }
+    },
+
     get latestAnnouncedSeq() {
       return latestAnnouncedSeq;
     },
@@ -321,6 +353,10 @@ export function createSnapshotWatcher(
 
     get hasAppliedSnapshot() {
       return hasAppliedSnapshot;
+    },
+
+    get ackedBy(): ReadonlySet<string> {
+      return ackedBy;
     },
 
     destroy() {

@@ -134,11 +134,21 @@ async function main() {
     }
   }
 
+  // Extract pubsub from relay for pinner ack support
+  const pubsub = relayHandle
+    ? (relayHandle.helia.libp2p.services as any).pubsub
+    : undefined;
+  const peerId = relayHandle
+    ? relayHandle.helia.libp2p.peerId.toString()
+    : undefined;
+
   if (pinApps.length > 0) {
     pinner = await createPinner({
       appIds: pinApps,
       storagePath,
       helia: relayHandle?.helia,
+      pubsub,
+      peerId,
     });
     await pinner.start();
     log.info(
@@ -147,25 +157,25 @@ async function main() {
 
     // Wire GossipSub announcements to pinner
     if (relayHandle) {
-      const announceTopics = new Set(
-        pinApps.map(announceTopic),
-      );
-      const pubsub = (
-        relayHandle.helia.libp2p.services as any
-      ).pubsub;
+      const topicToApp = new Map<string, string>();
+      for (const app of pinApps) {
+        topicToApp.set(announceTopic(app), app);
+      }
       pubsub.addEventListener(
         "message",
         (evt: any) => {
-          if (!announceTopics.has(evt.detail.topic)) {
-            return;
-          }
+          const appId = topicToApp.get(
+            evt.detail.topic,
+          );
+          if (!appId) return;
           const msg = parseAnnouncement(
             evt.detail.data,
           );
-          if (msg) {
+          if (msg && !msg.ack) {
             pinner!.onAnnouncement(
               msg.ipnsName,
               msg.cid,
+              appId,
             );
           }
         },

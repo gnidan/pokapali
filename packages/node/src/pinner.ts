@@ -9,6 +9,12 @@ import { hexToBytes } from "@pokapali/crypto";
 import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";
 import {
+  announceAck,
+} from "@pokapali/core/announce";
+import type {
+  AnnouncePubSub,
+} from "@pokapali/core/announce";
+import {
   createRateLimiter,
   DEFAULT_RATE_LIMITS,
 } from "./rate-limiter.js";
@@ -35,6 +41,10 @@ export interface PinnerConfig {
   storagePath: string;
   maxConnections?: number;
   helia?: Helia;
+  /** PubSub for publishing ack messages. */
+  pubsub?: AnnouncePubSub;
+  /** Stable peer ID for ack attribution. */
+  peerId?: string;
 }
 
 export interface Pinner {
@@ -49,6 +59,7 @@ export interface Pinner {
   onAnnouncement(
     ipnsName: string,
     cidStr: string,
+    appId?: string,
   ): void;
   history: HistoryTracker;
 }
@@ -326,6 +337,7 @@ export async function createPinner(
     onAnnouncement(
       ipnsName: string,
       cidStr: string,
+      appId?: string,
     ): void {
       knownNames.add(ipnsName);
       log.debug(
@@ -336,7 +348,31 @@ export async function createPinner(
       // re-resolve IPNS — the announcement has the
       // latest CID, IPNS may lag behind).
       if (helia) {
-        track(fetchByCid(ipnsName, cidStr));
+        track(
+          fetchByCid(ipnsName, cidStr).then(
+            async (ok) => {
+              if (
+                ok &&
+                appId &&
+                config.pubsub &&
+                config.peerId
+              ) {
+                await announceAck(
+                  config.pubsub,
+                  appId,
+                  ipnsName,
+                  cidStr,
+                  config.peerId,
+                );
+                log.debug(
+                  `acked`
+                  + ` ${ipnsName.slice(0, 12)}...`
+                  + ` cid=${cidStr.slice(0, 12)}...`,
+                );
+              }
+            },
+          ),
+        );
       }
     },
 
