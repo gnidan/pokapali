@@ -186,4 +186,96 @@ describe("createSnapshotLifecycle", () => {
       expect(result).toBe(false);
     },
   );
+
+  it(
+    "history walks a multi-entry prev chain",
+    async () => {
+      const readKey =
+        await crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 256 },
+          true,
+          ["encrypt", "decrypt"],
+        );
+      const signingKey =
+        await ed25519KeyPairFromSeed(
+          new Uint8Array(32),
+        );
+
+      const lc = createSnapshotLifecycle({
+        getHelia: () => mockHelia as any,
+      });
+
+      const p1 = { content: new Uint8Array([1]) };
+      const r1 = await lc.push(
+        p1, readKey, signingKey, 10,
+      );
+
+      const p2 = { content: new Uint8Array([2]) };
+      const r2 = await lc.push(
+        p2, readKey, signingKey, 20,
+      );
+
+      const p3 = { content: new Uint8Array([3]) };
+      const r3 = await lc.push(
+        p3, readKey, signingKey, 30,
+      );
+
+      const entries = await lc.history();
+
+      expect(entries).toHaveLength(3);
+
+      // Most recent first (tip → oldest)
+      expect(entries[0].seq).toBe(3);
+      expect(
+        entries[0].cid.toString(),
+      ).toBe(r3.cid.toString());
+
+      expect(entries[1].seq).toBe(2);
+      expect(
+        entries[1].cid.toString(),
+      ).toBe(r2.cid.toString());
+
+      expect(entries[2].seq).toBe(1);
+      expect(
+        entries[2].cid.toString(),
+      ).toBe(r1.cid.toString());
+
+      // Timestamps are reasonable
+      for (const entry of entries) {
+        expect(entry.ts).toBeGreaterThan(0);
+      }
+    },
+  );
+
+  it(
+    "history returns single entry after one push",
+    async () => {
+      const readKey =
+        await crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 256 },
+          true,
+          ["encrypt", "decrypt"],
+        );
+      const signingKey =
+        await ed25519KeyPairFromSeed(
+          new Uint8Array(32),
+        );
+
+      const lc = createSnapshotLifecycle({
+        getHelia: () => mockHelia as any,
+      });
+
+      const p1 = { content: new Uint8Array([1]) };
+      const r1 = await lc.push(
+        p1, readKey, signingKey, 10,
+      );
+
+      const entries = await lc.history();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].seq).toBe(1);
+      expect(
+        entries[0].cid.toString(),
+      ).toBe(r1.cid.toString());
+    },
+  );
 });
