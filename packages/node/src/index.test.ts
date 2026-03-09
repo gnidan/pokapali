@@ -49,7 +49,7 @@ async function makeKeysAndSnapshot(
   );
 }
 
-describe("@pokapali/pinner", () => {
+describe("@pokapali/node", () => {
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), "pinner-test-"));
     pinner = await createPinner({

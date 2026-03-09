@@ -59,7 +59,7 @@ async function main() {
   });
 
   await pinner.start();
-  console.error(`pinner started on port ${port}`);
+  console.error(`node started on port ${port}`);
   console.error(`  app-ids: ${appIds.join(", ")}`);
   console.error(`  storage: ${storagePath}`);
 

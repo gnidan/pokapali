@@ -1,11 +1,11 @@
 {
-  "name": "@pokapali/pinner",
+  "name": "@pokapali/node",
   "version": "0.0.0",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "pinner": "dist/bin/pinner.js"
+    "pokapali": "dist/bin/node.js"
   },
   "scripts": {
     "build": "tsc --build",

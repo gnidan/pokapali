@@ -7,7 +7,7 @@
     { "path": "packages/snapshot" },
     { "path": "packages/sync" },
     { "path": "packages/core" },
-    { "path": "packages/pinner" },
+    { "path": "packages/node" },
     { "path": "apps/example" }
   ]
 }
