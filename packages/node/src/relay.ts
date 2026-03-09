@@ -107,10 +107,49 @@ export async function startRelay(
   );
   await datastore.open();
 
-  const blockstore = new FsBlockstore(
+  const rawBlockstore = new FsBlockstore(
     join(config.storagePath, "blockstore"),
   );
-  await blockstore.open();
+  await rawBlockstore.open();
+  // blockstore-fs@3 get() returns AsyncGenerator,
+  // not Uint8Array. Wrap to match the interface
+  // Helia expects.
+  const blockstore = {
+    ...rawBlockstore,
+    open: () => rawBlockstore.open(),
+    close: () => rawBlockstore.close(),
+    put: (k: CID, v: Uint8Array) =>
+      rawBlockstore.put(k, v),
+    has: (k: CID) => rawBlockstore.has(k),
+    delete: (k: CID) => rawBlockstore.delete(k),
+    async get(key: CID): Promise<Uint8Array> {
+      const result = await rawBlockstore.get(key);
+      // FsBlockstore@3 may return AsyncGenerator
+      if (
+        result &&
+        typeof (result as any)[Symbol.asyncIterator]
+          === "function"
+      ) {
+        const chunks: Uint8Array[] = [];
+        for await (
+          const chunk of result as any
+        ) {
+          chunks.push(chunk);
+        }
+        const total = chunks.reduce(
+          (s, c) => s + c.length, 0,
+        );
+        const merged = new Uint8Array(total);
+        let offset = 0;
+        for (const c of chunks) {
+          merged.set(c, offset);
+          offset += c.length;
+        }
+        return merged;
+      }
+      return result as unknown as Uint8Array;
+    },
+  };
 
   const { multiaddr } = await import(
     "@multiformats/multiaddr"
