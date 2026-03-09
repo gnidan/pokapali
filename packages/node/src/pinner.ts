@@ -10,6 +10,7 @@ import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";
 import {
   announceAck,
+  announceSnapshot,
 } from "@pokapali/core/announce";
 import type {
   AnnouncePubSub,
@@ -31,6 +32,7 @@ const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
 const REPUBLISH_PER_NAME_DELAY_MS = 5_000;
 const REPUBLISH_TIMEOUT_MS = 15_000;
+const REANNOUNCE_INTERVAL_MS = 30_000;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -88,6 +90,8 @@ export async function createPinner(
   // Track last acked CID per ipnsName to avoid
   // redundant fetch+ack cycles on re-announces.
   const lastAckedCid = new Map<string, string>();
+  // Map ipnsName → appId for re-announcing.
+  const nameToAppId = new Map<string, string>();
   // Track fire-and-forget async work so tests (and
   // graceful shutdown) can await completion.
   const pending = new Set<Promise<unknown>>();
@@ -104,6 +108,9 @@ export async function createPinner(
   > | null = null;
   let initialRepublishTimer: ReturnType<
     typeof setTimeout
+  > | null = null;
+  let reannounceInterval: ReturnType<
+    typeof setInterval
   > | null = null;
 
   async function storeBlock(
@@ -271,6 +278,48 @@ export async function createPinner(
     }
   }
 
+  /**
+   * Re-announce all known CIDs with inline blocks
+   * so new/refreshed peers on the GossipSub mesh
+   * receive the latest snapshots.
+   */
+  async function reannounceAll(): Promise<void> {
+    if (!helia || !config.pubsub) return;
+    for (const ipnsName of knownNames) {
+      if (stopped) break;
+      const appId = nameToAppId.get(ipnsName);
+      if (!appId) continue;
+      const cidStr = history.getTip(ipnsName);
+      if (!cidStr) continue;
+      try {
+        const cid = CID.parse(cidStr);
+        const block = await helia.blockstore.get(
+          cid,
+          { signal: AbortSignal.timeout(5_000) },
+        );
+        await announceSnapshot(
+          config.pubsub,
+          appId,
+          ipnsName,
+          cidStr,
+          undefined,
+          block,
+        );
+        log.debug(
+          `re-announced`
+          + ` ${ipnsName.slice(0, 12)}...`
+          + ` cid=${cidStr.slice(0, 12)}...`,
+        );
+      } catch (err) {
+        log.warn(
+          `re-announce failed`
+          + ` ${ipnsName.slice(0, 12)}...:`,
+          err,
+        );
+      }
+    }
+  }
+
   async function restoreState(): Promise<void> {
     const state = await loadState(statePath);
     for (const n of state.knownNames) {
@@ -327,6 +376,14 @@ export async function createPinner(
           track(republishAllIPNS());
         }, 5 * 60_000);
       }
+
+      // Periodic re-announce with inline blocks
+      if (config.pubsub) {
+        reannounceInterval = setInterval(
+          () => { track(reannounceAll()); },
+          REANNOUNCE_INTERVAL_MS,
+        );
+      }
     },
 
     async stop(): Promise<void> {
@@ -340,6 +397,9 @@ export async function createPinner(
       if (initialRepublishTimer) {
         clearTimeout(initialRepublishTimer);
       }
+      if (reannounceInterval) {
+        clearInterval(reannounceInterval);
+      }
       await persistState();
     },
 
@@ -350,6 +410,7 @@ export async function createPinner(
       blockData?: Uint8Array,
     ): void {
       knownNames.add(ipnsName);
+      if (appId) nameToAppId.set(ipnsName, appId);
 
       // If block data is included, store it so
       // fetchByCid can find it locally.
