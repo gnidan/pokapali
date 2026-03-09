@@ -1,6 +1,6 @@
 import type { CollabDoc } from "./index.js";
 
-const DEFAULT_DEBOUNCE_MS = 10_000;
+const DEFAULT_DEBOUNCE_MS = 5_000;
 
 export interface AutoSaveOptions {
   debounceMs?: number;
