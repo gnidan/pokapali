@@ -176,12 +176,10 @@ function saveLabel(
 function SaveIndicator({
   saveState,
   ackCount,
-  hasPinner,
   onPublish,
 }: {
   saveState: SaveState;
   ackCount: number;
-  hasPinner: boolean;
   onPublish: () => void;
 }) {
   return (
@@ -202,11 +200,6 @@ function SaveIndicator({
         >
           Publish now
         </button>
-      )}
-      {!hasPinner && (
-        <span className="no-pinner-warning">
-          No pinners — changes may not persist
-        </span>
       )}
     </div>
   );
@@ -282,11 +275,6 @@ export function EditorView({
   const nameRef = useRef<HTMLInputElement>(null);
   const nameBtnRef = useRef<HTMLButtonElement>(null);
   const sharePanelRef = useRef<HTMLDivElement>(null);
-  const [hasPinner, setHasPinner] = useState(() =>
-    doc.diagnostics().nodes.some(
-      (n) => n.connected && n.roles.includes("pinner"),
-    ),
-  );
   const metaDoc = doc.subdoc("_meta");
   const docMap = metaDoc.getMap("doc");
   const [docTitle, setDocTitle] = useState(
@@ -321,19 +309,6 @@ export function EditorView({
     // indicator reacts even if a y-webrtc status event
     // was missed (e.g. silent reconnect).
     const refreshStatus = () => setStatus(doc.status);
-    const refreshPinner = () => {
-      try {
-        setHasPinner(
-          doc.diagnostics().nodes.some(
-            (n) =>
-              n.connected &&
-              n.roles.includes("pinner"),
-          ),
-        );
-      } catch {
-        // doc may be destroyed
-      }
-    };
     const onSaveState = (s: SaveState) =>
       setSaveState(s);
     const onSnapshotApplied = () => {
@@ -350,21 +325,18 @@ export function EditorView({
     };
     const onAck = () => {
       setAckCount(doc.ackedBy.size);
-      refreshPinner();
       refreshStatus();
     };
     doc.on("status", onStatus);
     doc.on("save-state", onSaveState);
     doc.on("snapshot-applied", onSnapshotApplied);
     doc.on("ack", onAck);
-    doc.on("fetch-state", refreshPinner);
     const awareness = doc.awareness;
     awareness.on("change", refreshStatus);
 
     // Catch any transition between the initial
     // useState and this subscription.
     refreshStatus();
-    refreshPinner();
     setSaveState(doc.saveState);
 
     return () => {
@@ -372,7 +344,6 @@ export function EditorView({
       doc.off("save-state", onSaveState);
       doc.off("snapshot-applied", onSnapshotApplied);
       doc.off("ack", onAck);
-      doc.off("fetch-state", refreshPinner);
       awareness.off("change", refreshStatus);
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
@@ -613,7 +584,6 @@ export function EditorView({
           <SaveIndicator
             saveState={saveState}
             ackCount={ackCount}
-            hasPinner={hasPinner}
             onPublish={doSave}
           />
         ) : (
