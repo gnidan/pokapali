@@ -71,6 +71,25 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function LockIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
 function EncryptionInfo({
   onClose,
 }: {
@@ -110,9 +129,7 @@ function EncryptionInfo({
   return (
     <div ref={ref} className="encryption-popover">
       <div className="encryption-header">
-        <span className="encryption-lock">
-          &#x1F512;
-        </span>
+        <LockIcon size={16} />
         End-to-end encrypted
       </div>
       <p>
@@ -266,7 +283,12 @@ export function EditorView({
       (n) => n.connected && n.roles.includes("pinner"),
     ),
   );
-  const [docTitle, setDocTitle] = useState("Untitled");
+  const metaDoc = doc.subdoc("_meta");
+  const docMap = metaDoc.getMap("doc");
+  const [docTitle, setDocTitle] = useState(
+    () =>
+      (docMap.get("title") as string) || "Untitled",
+  );
   const [editingTitle, setEditingTitle] =
     useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -430,12 +452,29 @@ export function EditorView({
     [],
   );
 
+  // Sync title from _meta subdoc
+  useEffect(() => {
+    const observer = () => {
+      const t =
+        (docMap.get("title") as string) ||
+        "Untitled";
+      setDocTitle(t);
+    };
+    docMap.observe(observer);
+    observer();
+    return () => docMap.unobserve(observer);
+  }, [docMap]);
+
   const commitTitle = useCallback(() => {
     setEditingTitle(false);
+    const trimmed = docTitle.trim();
+    if (trimmed && trimmed !== "Untitled") {
+      docMap.set("title", trimmed);
+    }
     requestAnimationFrame(() => {
       titleBtnRef.current?.focus();
     });
-  }, []);
+  }, [docMap, docTitle]);
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -523,7 +562,7 @@ export function EditorView({
             aria-label="Encryption info"
             title="End-to-end encrypted"
           >
-            &#x1F512;
+            <LockIcon size={14} />
           </button>
           {showEncryption && (
             <EncryptionInfo

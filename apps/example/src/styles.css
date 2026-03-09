@@ -249,9 +249,6 @@ body {
   gap: 0.4rem;
 }
 
-.encryption-lock {
-  font-size: 1rem;
-}
 
 .encryption-popover p {
   margin: 0.4rem 0;
