@@ -25,11 +25,17 @@ vi.mock("./announce.js", () => ({
 import {
   createSnapshotWatcher,
 } from "./snapshot-watcher.js";
-import { watchIPNS } from "./ipns-helpers.js";
+import {
+  resolveIPNS,
+  watchIPNS,
+} from "./ipns-helpers.js";
 import {
   announceTopic,
   parseAnnouncement,
+  announceSnapshot,
 } from "./announce.js";
+import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 
 describe("createSnapshotWatcher", () => {
   beforeEach(() => {
@@ -144,5 +150,243 @@ describe("createSnapshotWatcher", () => {
     expect(
       pubsub.removeEventListener,
     ).toHaveBeenCalled();
+  });
+
+  describe("performInitialResolve", () => {
+    async function fakeCid(
+      seed: number,
+    ): Promise<CID> {
+      const hash = await sha256.digest(
+        new Uint8Array([seed]),
+      );
+      return CID.createV1(0x71, hash);
+    }
+
+    it(
+      "resolves IPNS and calls onSnapshot",
+      async () => {
+        const tipCid = await fakeCid(42);
+        vi.mocked(resolveIPNS)
+          .mockResolvedValue(tipCid);
+
+        const onSnapshot =
+          vi.fn().mockResolvedValue(undefined);
+        const pubsub = {
+          subscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          publish:
+            vi.fn().mockResolvedValue(undefined),
+        };
+        const helia = {
+          blockstore: { get: vi.fn() },
+        };
+
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc123",
+          pubsub: pubsub as any,
+          getHelia: () => helia as any,
+          isWriter: false,
+          ipnsPublicKeyBytes: new Uint8Array(32),
+          performInitialResolve: true,
+          onSnapshot,
+        });
+
+        // Let the async IIFE run
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(resolveIPNS).toHaveBeenCalledWith(
+          helia,
+          new Uint8Array(32),
+        );
+        expect(onSnapshot).toHaveBeenCalledWith(
+          tipCid,
+        );
+        expect(
+          announceSnapshot,
+        ).toHaveBeenCalledWith(
+          pubsub,
+          "test",
+          "abc123",
+          tipCid.toString(),
+        );
+
+        watcher.destroy();
+      },
+    );
+
+    it(
+      "skips onSnapshot when resolve returns null",
+      async () => {
+        vi.mocked(resolveIPNS)
+          .mockResolvedValue(null);
+
+        const onSnapshot = vi.fn();
+        const pubsub = {
+          subscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          publish:
+            vi.fn().mockResolvedValue(undefined),
+        };
+        const helia = {
+          blockstore: { get: vi.fn() },
+        };
+
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc123",
+          pubsub: pubsub as any,
+          getHelia: () => helia as any,
+          isWriter: false,
+          ipnsPublicKeyBytes: new Uint8Array(32),
+          performInitialResolve: true,
+          onSnapshot,
+        });
+
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(
+          onSnapshot,
+        ).not.toHaveBeenCalled();
+
+        watcher.destroy();
+      },
+    );
+
+    it(
+      "skips onSnapshot if destroyed before " +
+        "resolve completes",
+      async () => {
+        const tipCid = await fakeCid(42);
+        // Resolve that never settles until we
+        // advance timers
+        let resolvePromise!: (
+          v: CID | null,
+        ) => void;
+        vi.mocked(resolveIPNS).mockReturnValue(
+          new Promise((r) => {
+            resolvePromise = r;
+          }),
+        );
+
+        const onSnapshot = vi.fn();
+        const pubsub = {
+          subscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          publish:
+            vi.fn().mockResolvedValue(undefined),
+        };
+        const helia = {
+          blockstore: { get: vi.fn() },
+        };
+
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc123",
+          pubsub: pubsub as any,
+          getHelia: () => helia as any,
+          isWriter: false,
+          ipnsPublicKeyBytes: new Uint8Array(32),
+          performInitialResolve: true,
+          onSnapshot,
+        });
+
+        // Destroy before resolve completes
+        watcher.destroy();
+
+        // Now resolve
+        resolvePromise(tipCid);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(
+          onSnapshot,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it(
+      "schedules retry when onSnapshot fails",
+      async () => {
+        const tipCid = await fakeCid(42);
+        vi.mocked(resolveIPNS)
+          .mockResolvedValue(tipCid);
+
+        const onSnapshot = vi.fn()
+          .mockRejectedValueOnce(
+            new Error("fetch failed"),
+          )
+          .mockResolvedValue(undefined);
+        const pubsub = {
+          subscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          publish:
+            vi.fn().mockResolvedValue(undefined),
+        };
+        const helia = {
+          blockstore: { get: vi.fn() },
+        };
+
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc123",
+          pubsub: pubsub as any,
+          getHelia: () => helia as any,
+          isWriter: false,
+          ipnsPublicKeyBytes: new Uint8Array(32),
+          performInitialResolve: true,
+          onSnapshot,
+        });
+
+        // Let initial resolve run and fail
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onSnapshot).toHaveBeenCalledTimes(1);
+
+        // Advance past RETRY_INTERVAL_MS (30s)
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(onSnapshot).toHaveBeenCalledTimes(2);
+
+        watcher.destroy();
+      },
+    );
+
+    it(
+      "does not resolve without " +
+        "ipnsPublicKeyBytes",
+      async () => {
+        const onSnapshot = vi.fn();
+        const pubsub = {
+          subscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          publish:
+            vi.fn().mockResolvedValue(undefined),
+        };
+        const helia = {
+          blockstore: { get: vi.fn() },
+        };
+
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc123",
+          pubsub: pubsub as any,
+          getHelia: () => helia as any,
+          isWriter: false,
+          performInitialResolve: true,
+          onSnapshot,
+        });
+
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(
+          resolveIPNS,
+        ).not.toHaveBeenCalled();
+
+        watcher.destroy();
+      },
+    );
   });
 });
