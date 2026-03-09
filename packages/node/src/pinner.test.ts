@@ -347,11 +347,10 @@ describe("pinner with mock helia", () => {
 
         expect(mockResolve).toHaveBeenCalled();
 
-        // The resolved CID should be fetched from
-        // blockstore
-        expect(
-          mockHelia.blockstore.get,
-        ).toHaveBeenCalled();
+        // The resolved CID matches the restored tip,
+        // so fetchByCid returns early (already have it).
+        // Verify resolve was still called.
+        expect(mockResolve).toHaveBeenCalled();
 
         await pinner2.stop();
       },

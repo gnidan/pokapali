@@ -347,6 +347,19 @@ export async function createPinner(
     for (const n of state.knownNames) {
       knownNames.add(n);
     }
+    if (state.tips) {
+      for (const [name, cidStr] of
+        Object.entries(state.tips)
+      ) {
+        // Restore tip into history so
+        // reannounceAll can find it.
+        history.add(
+          name,
+          CID.parse(cidStr),
+          Date.now(),
+        );
+      }
+    }
     if (state.nameToAppId) {
       for (const [name, appId] of
         Object.entries(state.nameToAppId)
