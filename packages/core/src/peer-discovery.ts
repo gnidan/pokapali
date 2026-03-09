@@ -4,6 +4,11 @@ import { peerIdFromString } from "@libp2p/peer-id";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { createLogger } from "@pokapali/log";
+import {
+  loadCachedRelays,
+  upsertCachedRelay,
+  removeCachedRelay,
+} from "./relay-cache.js";
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
@@ -11,7 +16,6 @@ const FIND_TIMEOUT_MS = 15_000;
 const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
-const RELAY_CACHE_MAX_AGE_MS = 48 * 60 * 60_000; // 48h
 
 const log = createLogger("discovery");
 
@@ -23,106 +27,29 @@ async function networkCID(): Promise<CID> {
   return CID.createV1(RAW_CODEC, hash);
 }
 
-// --- Relay cache (localStorage) ---
+// --- Address filtering ---
 
-const hasLocalStorage =
-  typeof globalThis.localStorage !== "undefined";
-
-interface CachedRelay {
-  peerId: string;
-  addrs: string[];
-  lastSeen: number;
-}
-
-const CACHE_KEY = "pokapali:relays";
-
-// Migrate old per-app cache entries to the new
-// network-wide key. Runs once on first load.
-let migrated = false;
-function migrateOldCache(): void {
-  if (migrated || !hasLocalStorage) return;
-  migrated = true;
-  try {
-    // Already have entries — no migration needed
-    if (localStorage.getItem(CACHE_KEY)) return;
-    // Scan for old per-app keys
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith("pokapali:relays:")) continue;
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      // Copy first match to new key, remove old
-      localStorage.setItem(CACHE_KEY, raw);
-      localStorage.removeItem(key);
-      return;
-    }
-  } catch {
-    // ignore
-  }
-}
-
-function loadCachedRelays(): CachedRelay[] {
-  if (!hasLocalStorage) return [];
-  migrateOldCache();
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return [];
-    const entries: CachedRelay[] = JSON.parse(raw);
-    const now = Date.now();
-    // Drop entries older than max age
-    return entries.filter(
-      (e) => now - e.lastSeen < RELAY_CACHE_MAX_AGE_MS,
+export function extractWssAddrs(
+  pid: string,
+  rawAddrs: string[],
+  isSecureContext: boolean,
+): ReturnType<typeof multiaddr>[] {
+  const p2pSuffix = `/p2p/${pid}`;
+  return rawAddrs
+    .filter((s) => {
+      if (!s.includes("/ws")) return false;
+      if (s.includes("/p2p-circuit")) return false;
+      // In HTTPS contexts, skip plain ws (no /tls/)
+      if (isSecureContext && !s.includes("/tls/")) {
+        return false;
+      }
+      return true;
+    })
+    .map((s) =>
+      multiaddr(
+        s.includes("/p2p/") ? s : s + p2pSuffix,
+      ),
     );
-  } catch {
-    return [];
-  }
-}
-
-function saveCachedRelays(
-  relays: CachedRelay[],
-): void {
-  if (!hasLocalStorage) return;
-  try {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify(relays),
-    );
-  } catch {
-    // quota exceeded, etc.
-  }
-}
-
-function removeCachedRelay(
-  peerId: string,
-): void {
-  const relays = loadCachedRelays();
-  const filtered = relays.filter(
-    (r) => r.peerId !== peerId,
-  );
-  if (filtered.length !== relays.length) {
-    saveCachedRelays(filtered);
-  }
-}
-
-function upsertCachedRelay(
-  peerId: string,
-  addrs: string[],
-): void {
-  const relays = loadCachedRelays();
-  const existing = relays.find(
-    (r) => r.peerId === peerId,
-  );
-  if (existing) {
-    existing.addrs = addrs;
-    existing.lastSeen = Date.now();
-  } else {
-    relays.push({
-      peerId,
-      addrs,
-      lastSeen: Date.now(),
-    });
-  }
-  saveCachedRelays(relays);
 }
 
 // --- Discovery ---
@@ -180,30 +107,15 @@ export function startRoomDiscovery(
     }
   }
 
-  const isSecureContext =
+  const secure =
     typeof globalThis.location !== "undefined" &&
     globalThis.location.protocol === "https:";
 
-  function extractWssAddrs(
+  function wssAddrs(
     pid: string,
     rawAddrs: string[],
-  ): ReturnType<typeof multiaddr>[] {
-    const p2pSuffix = `/p2p/${pid}`;
-    return rawAddrs
-      .filter((s) => {
-        if (!s.includes("/ws")) return false;
-        if (s.includes("/p2p-circuit")) return false;
-        // In HTTPS contexts, skip plain ws (no /tls/)
-        if (isSecureContext && !s.includes("/tls/")) {
-          return false;
-        }
-        return true;
-      })
-      .map((s) =>
-        multiaddr(
-          s.includes("/p2p/") ? s : s + p2pSuffix,
-        ),
-      );
+  ) {
+    return extractWssAddrs(pid, rawAddrs, secure);
   }
 
   function trackRelay(pid: string, addrs: string[]) {
@@ -297,14 +209,14 @@ export function startRoomDiscovery(
         return;
       }
 
-      const wssAddrs = extractWssAddrs(
+      const dialAddrs = wssAddrs(
         pid,
         entry.addrs,
       );
-      if (wssAddrs.length === 0) return;
+      if (dialAddrs.length === 0) return;
 
       const ok = await dialRelay(
-        pid, wssAddrs, entry.addrs,
+        pid, dialAddrs, entry.addrs,
       );
       if (ok) {
         tagRelay(pid);
@@ -383,11 +295,11 @@ export function startRoomDiscovery(
           continue;
         }
 
-        const wssAddrs = extractWssAddrs(pid, addrs);
+        const filtered = wssAddrs(pid, addrs);
 
         const ok = await dialRelay(
           pid,
-          wssAddrs,
+          filtered,
           addrs,
           provider.id,
         );
@@ -444,12 +356,12 @@ export function startRoomDiscovery(
     );
     if (!cached || stopped) return;
 
-    const wssAddrs = extractWssAddrs(
+    const redialAddrs = wssAddrs(
       pid, cached.addrs,
     );
-    if (wssAddrs.length === 0) return;
+    if (redialAddrs.length === 0) return;
 
-    dialRelay(pid, wssAddrs, cached.addrs).then(
+    dialRelay(pid, redialAddrs, cached.addrs).then(
       (ok) => {
         if (ok) {
           trackRelay(pid, cached.addrs);
@@ -539,16 +451,16 @@ export function startRoomDiscovery(
         continue;
       }
 
-      const wssAddrs = extractWssAddrs(
+      const extAddrs = wssAddrs(
         pid, entry.addrs,
       );
-      if (wssAddrs.length === 0) continue;
+      if (extAddrs.length === 0) continue;
 
       log.debug(
         `peer-shared relay ...${short}`,
       );
       const ok = await dialRelay(
-        pid, wssAddrs, entry.addrs,
+        pid, extAddrs, entry.addrs,
       );
       if (ok) {
         tagRelay(pid);
