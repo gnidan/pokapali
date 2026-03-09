@@ -662,6 +662,11 @@ body {
   font-size: 0.7rem;
 }
 
+.cs-detail-warn {
+  color: #ef4444;
+  font-size: 0.7rem;
+}
+
 /* Collaboration cursors */
 
 .collab-cursor {

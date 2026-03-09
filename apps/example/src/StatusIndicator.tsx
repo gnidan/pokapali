@@ -1,9 +1,9 @@
 import type { DocStatus } from "@pokapali/core";
 
 const labels: Record<DocStatus, string> = {
+  synced: "Live",
+  receiving: "Subscribed",
   connecting: "Connecting",
-  synced: "Synced",
-  receiving: "Receiving",
   offline: "Offline",
 };
 
