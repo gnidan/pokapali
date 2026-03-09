@@ -232,6 +232,8 @@ export function App() {
           // user came from, not the bare doc URL
           openDoc(d, true);
           setAutoOpening(false);
+        } else {
+          d.destroy();
         }
       },
       (e) => {
