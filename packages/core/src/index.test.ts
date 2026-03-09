@@ -64,6 +64,7 @@ vi.mock("./peer-discovery.js", () => ({
 vi.mock("@pokapali/sync", () => ({
   setupNamespaceRooms: vi.fn(() => ({
     status: "connected",
+    onStatusChange: vi.fn(),
     destroy: vi.fn(),
   })),
   setupAwarenessRoom: vi.fn(() => ({

@@ -13,12 +13,15 @@ export type { PubSubLike } from
   "./gossipsub-signaling.js";
 
 export interface SyncManager {
-  readonly status:
-    | "connecting"
-    | "connected"
-    | "disconnected";
+  readonly status: SyncStatus;
+  onStatusChange(cb: (s: SyncStatus) => void): void;
   destroy(): void;
 }
+
+export type SyncStatus =
+  | "connecting"
+  | "connected"
+  | "disconnected";
 
 export interface SyncOptions {
   peerOpts?: { config?: RTCConfiguration };
@@ -42,6 +45,15 @@ export function setupNamespaceRooms(
     ? [...signalingUrls, "libp2p:gossipsub"]
     : signalingUrls;
 
+  const statusListeners: Array<
+    (s: SyncStatus) => void
+  > = [];
+
+  function notifyStatus() {
+    const s = aggregateStatus(providers);
+    for (const cb of statusListeners) cb(s);
+  }
+
   for (const ns of Object.keys(keys)) {
     const roomName = `${ipnsName}:${ns}`;
     const password = bytesToHex(keys[ns]);
@@ -53,6 +65,7 @@ export function setupNamespaceRooms(
         peerOpts: options.peerOpts,
       }),
     });
+    provider.on("status", notifyStatus);
     providers.push(provider);
   }
 
@@ -60,8 +73,13 @@ export function setupNamespaceRooms(
     get status() {
       return aggregateStatus(providers);
     },
+    onStatusChange(cb: (s: SyncStatus) => void) {
+      statusListeners.push(cb);
+    },
     destroy() {
+      statusListeners.length = 0;
       for (const p of providers) {
+        p.off("status", notifyStatus);
         p.disconnect();
         p.destroy();
       }
@@ -113,7 +131,7 @@ export function setupAwarenessRoom(
 
 function aggregateStatus(
   providers: WebrtcProvider[],
-): "connecting" | "connected" | "disconnected" {
+): SyncStatus {
   if (providers.length === 0) {
     return "disconnected";
   }

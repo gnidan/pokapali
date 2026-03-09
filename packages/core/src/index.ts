@@ -351,6 +351,8 @@ function createCollabDoc(
     );
   });
 
+  syncManager.onStatusChange(() => checkStatus());
+
   // If the subdoc is already dirty (e.g. _meta was
   // populated before we registered), fire the event
   // so the auto-save debounce starts.

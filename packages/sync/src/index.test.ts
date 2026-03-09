@@ -49,6 +49,9 @@ vi.mock("y-webrtc", () => {
       instances.push(this as unknown as MockInstance);
     }
 
+    on(_event: string, _cb: () => void) {}
+    off(_event: string, _cb: () => void) {}
+
     disconnect() {
       this.disconnected = true;
       this.shouldConnect = false;
