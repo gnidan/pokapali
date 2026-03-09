@@ -164,9 +164,9 @@ function computeStatus(
   return "synced";
 }
 
-const FETCH_RETRIES = 4;
+const FETCH_RETRIES = 6;
 const FETCH_BASE_MS = 2_000;
-const FETCH_TIMEOUT_MS = 10_000;
+const FETCH_TIMEOUT_MS = 15_000;
 
 async function fetchBlock(
   helia: { blockstore: { get(cid: CID, opts?: any): any } },
@@ -325,7 +325,7 @@ function createCollabDoc(
 
   // Periodic re-announce for writers so pinners
   // that join later learn about existing snapshots.
-  const REANNOUNCE_MS = 5 * 60_000;
+  const REANNOUNCE_MS = 30_000;
   let announceTimer: ReturnType<
     typeof setInterval
   > | null = null;
@@ -341,11 +341,20 @@ function createCollabDoc(
     ps.subscribe(announceTopic(params.appId));
     announceTimer = setInterval(() => {
       if (prev) {
+        // Re-put the block so pinners can fetch it
+        const cidStr = prev.toString();
+        const block = blocks.get(cidStr);
+        if (block) {
+          const helia = getHelia();
+          Promise.resolve(
+            helia.blockstore.put(prev, block),
+          ).catch(() => {});
+        }
         announceSnapshot(
           ps as any,
           params.appId,
           ipnsName,
-          prev.toString(),
+          cidStr,
         );
       }
     }, REANNOUNCE_MS);
@@ -359,10 +368,14 @@ function createCollabDoc(
   let stopWatch: (() => void) | null = null;
   let announceHandler: ((evt: CustomEvent) => void)
     | null = null;
+  let retryTimer: ReturnType<typeof setTimeout>
+    | null = null;
   if (isReadOnly && readKey) {
     const pubKeyBytes = hexToBytes(ipnsName);
     const rk = readKey;
     let lastAppliedCid: string | null = null;
+    let pendingCid: string | null = null;
+    const RETRY_INTERVAL_MS = 30_000;
 
     async function applySnapshotFromCID(
       cid: CID,
@@ -377,7 +390,30 @@ function createCollabDoc(
         await decryptSnapshot(node, rk);
       subdocManager.applySnapshot(plaintext);
       lastAppliedCid = cidStr;
+      // Clear pending since we succeeded
+      if (pendingCid === cidStr) pendingCid = null;
       emit("snapshot-applied");
+    }
+
+    function scheduleRetry() {
+      if (retryTimer || !pendingCid) return;
+      retryTimer = setTimeout(async () => {
+        retryTimer = null;
+        if (!pendingCid || destroyed) return;
+        const cidStr = pendingCid;
+        console.log(
+          "[pokapali] retrying fetch for",
+          cidStr.slice(0, 16) + "...",
+        );
+        try {
+          await applySnapshotFromCID(
+            CID.parse(cidStr),
+          );
+        } catch {
+          // Still failing — keep retrying
+          scheduleRetry();
+        }
+      }, RETRY_INTERVAL_MS);
     }
 
     // Listen for GossipSub announcements (instant)
@@ -394,11 +430,15 @@ function createCollabDoc(
           ann.cid.slice(0, 16) + "...",
         );
         const cid = CID.parse(ann.cid);
+        // Track as pending (latest announced CID)
+        pendingCid = ann.cid;
         applySnapshotFromCID(cid).catch((err) => {
           console.error(
             "[pokapali] announce apply failed:",
             err,
           );
+          // Schedule persistent retry
+          scheduleRetry();
         });
       };
       params.pubsub.addEventListener(
@@ -414,10 +454,11 @@ function createCollabDoc(
       pubKeyBytes,
       async (cid) => {
         try {
+          pendingCid = cid.toString();
           await applySnapshotFromCID(cid);
         } catch {
-          // Best-effort: block may not be
-          // available yet
+          // Best-effort — retry loop will pick it up
+          scheduleRetry();
         }
       },
     );
@@ -736,6 +777,9 @@ function createCollabDoc(
       if (stopWatch) {
         stopWatch();
       }
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
       if (announceHandler && params.pubsub) {
         params.pubsub.removeEventListener(
           "message",
@@ -851,6 +895,9 @@ function createCollabDoc(
       }
       if (stopWatch) {
         stopWatch();
+      }
+      if (retryTimer) {
+        clearTimeout(retryTimer);
       }
       if (announceHandler && params.pubsub) {
         params.pubsub.removeEventListener(
