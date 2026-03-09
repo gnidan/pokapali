@@ -229,10 +229,23 @@ export async function resolveIPNS(
       const cidStr = val.startsWith("/ipfs/")
         ? val.slice(6)
         : val;
+      console.log(
+        "[pokapali] IPNS resolve (delegated):"
+          + " " + cidStr.slice(0, 16) + "...",
+      );
       return CIDClass.parse(cidStr);
-    } catch {
-      // Fall through to full resolve
+    } catch (err) {
+      console.log(
+        "[pokapali] IPNS delegated resolve"
+          + " failed, falling back to DHT:",
+        err,
+      );
     }
+  } else {
+    console.warn(
+      "[pokapali] IPNS resolve: no delegated"
+        + " routing available",
+    );
   }
 
   // Fallback: full Helia routing (includes DHT).
@@ -246,8 +259,17 @@ export async function resolveIPNS(
     const result = await name.resolve(publicKey, {
       signal: ctrl.signal,
     });
+    console.log(
+      "[pokapali] IPNS resolve (DHT):"
+        + " " + result.cid.toString().slice(0, 16)
+        + "...",
+    );
     return result.cid;
-  } catch {
+  } catch (err) {
+    console.log(
+      "[pokapali] IPNS resolve failed"
+        + " (both paths):", err,
+    );
     return null;
   } finally {
     clearTimeout(timer);
