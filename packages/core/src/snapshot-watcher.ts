@@ -5,6 +5,7 @@ import {
   announceTopic,
   parseAnnouncement,
   announceSnapshot,
+  base64ToUint8,
 } from "./announce.js";
 import { resolveIPNS, watchIPNS } from
   "./ipns-helpers.js";
@@ -206,6 +207,26 @@ export function createSnapshotWatcher(
       startedAt: Date.now(),
     });
     const cid = CIDClass.parse(ann.cid);
+
+    // If announcement includes block data, put it
+    // in the blockstore so fetchBlock finds it.
+    if (ann.block) {
+      try {
+        const blockBytes = base64ToUint8(ann.block);
+        const helia = getHelia();
+        Promise.resolve(
+          helia.blockstore.put(cid, blockBytes),
+        ).catch((err) => {
+          log.warn(
+            "blockstore.put from announce failed:",
+            err,
+          );
+        });
+      } catch (err) {
+        log.warn("block decode failed:", err);
+      }
+    }
+
     onSnapshot(cid).then(() => {
       if (destroyed) return;
       hasAppliedSnapshot = true;
@@ -389,6 +410,7 @@ export function createSnapshotWatcher(
         ipnsName,
         cidStr,
         seq,
+        block,
       );
     } catch (err) {
       log.warn("re-announce failed:", err);

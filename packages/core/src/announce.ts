@@ -27,6 +27,8 @@ export interface Announcement {
   cid: string;
   seq?: number;
   ack?: AnnouncementAck;
+  /** Base64-encoded snapshot block data. */
+  block?: string;
 }
 
 /**
@@ -45,16 +47,35 @@ export function announceTopic(appId: string): string {
  * @param ipnsName hex-encoded IPNS public key
  * @param cid      CID string of the published snapshot
  */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+export function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export async function announceSnapshot(
   pubsub: AnnouncePubSub,
   appId: string,
   ipnsName: string,
   cid: string,
   seq?: number,
+  block?: Uint8Array,
 ): Promise<void> {
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
   if (seq !== undefined) msg.seq = seq;
+  if (block) msg.block = uint8ToBase64(block);
   const data = new TextEncoder().encode(
     JSON.stringify(msg),
   );
