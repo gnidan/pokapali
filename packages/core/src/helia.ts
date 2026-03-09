@@ -35,6 +35,13 @@ export async function acquireHelia(
   const defaults = libp2pDefaults();
   const libp2pOptions = {
     ...defaults,
+    connectionManager: {
+      ...defaults.connectionManager,
+      // Ensure the connection manager actively maintains
+      // connections to relays, preventing all connections
+      // from being pruned during idle periods.
+      minConnections: 5,
+    },
     peerDiscovery: [
       ...(defaults.peerDiscovery ?? []),
       pubsubPeerDiscovery({
