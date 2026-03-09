@@ -41,6 +41,12 @@ vi.mock("./ipns-helpers.js", () => ({
   publishIPNS: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("./announce.js", () => ({
+  announceSnapshot: vi.fn().mockResolvedValue(
+    undefined,
+  ),
+}));
+
 vi.mock("./peer-discovery.js", () => ({
   startRoomDiscovery: vi.fn(() => ({
     stop: vi.fn(),

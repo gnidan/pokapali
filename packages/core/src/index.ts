@@ -52,6 +52,7 @@ import {
   getHelia,
 } from "./helia.js";
 import { publishIPNS } from "./ipns-helpers.js";
+import { announceSnapshot } from "./announce.js";
 import {
   startRoomDiscovery,
 } from "./peer-discovery.js";
@@ -276,6 +277,30 @@ function createCollabDoc(
     setTimeout(publishRelays, 5_000);
   }
 
+  // Periodic re-announce for writers so pinners
+  // that join later learn about existing snapshots.
+  const REANNOUNCE_MS = 5 * 60_000;
+  let announceTimer: ReturnType<
+    typeof setInterval
+  > | null = null;
+  if (
+    cap.canPushSnapshots &&
+    params.appId &&
+    params.pubsub
+  ) {
+    const ps = params.pubsub;
+    announceTimer = setInterval(() => {
+      if (prev) {
+        announceSnapshot(
+          ps as any,
+          params.appId,
+          ipnsName,
+          prev.toString(),
+        );
+      }
+    }, REANNOUNCE_MS);
+  }
+
   function assertNotDestroyed() {
     if (destroyed) {
       throw new Error("CollabDoc destroyed");
@@ -392,6 +417,16 @@ function createCollabDoc(
       seq++;
       checkStatus();
       emit("snapshot-applied");
+
+      // Announce on GossipSub so pinners discover it
+      if (params.appId && params.pubsub) {
+        await announceSnapshot(
+          params.pubsub as any,
+          params.appId,
+          ipnsName,
+          cid.toString(),
+        );
+      }
     },
 
     async rotate(): Promise<RotateResult> {
@@ -552,6 +587,9 @@ function createCollabDoc(
       if (relayShareTimer) {
         clearInterval(relayShareTimer);
       }
+      if (announceTimer) {
+        clearInterval(announceTimer);
+      }
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
@@ -649,6 +687,9 @@ function createCollabDoc(
       destroyed = true;
       if (relayShareTimer) {
         clearInterval(relayShareTimer);
+      }
+      if (announceTimer) {
+        clearInterval(announceTimer);
       }
       params.roomDiscovery?.stop();
       syncManager.destroy();
