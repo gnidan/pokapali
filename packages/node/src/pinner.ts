@@ -20,7 +20,9 @@ const log = (...args: unknown[]) =>
   console.error("[pokapali:pinner]", ...args);
 
 const RESOLVE_INTERVAL_MS = 5 * 60_000;
-const REPUBLISH_INTERVAL_MS = 60 * 60_000;
+const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
+const REPUBLISH_PER_NAME_DELAY_MS = 5_000;
+const REPUBLISH_TIMEOUT_MS = 15_000;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -211,14 +213,20 @@ export async function createPinner(
 
         // Resolve to get the current record
         const result = await name.resolve(pubKey, {
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(
+            REPUBLISH_TIMEOUT_MS,
+          ),
         });
 
         // Republish without private key
         await name.republishRecord(
           pubKey.toMultihash(),
           result.record,
-          { signal: AbortSignal.timeout(30_000) },
+          {
+            signal: AbortSignal.timeout(
+              REPUBLISH_TIMEOUT_MS,
+            ),
+          },
         );
         log(
           `republished IPNS for`
@@ -232,6 +240,11 @@ export async function createPinner(
             + ` ${msg}`,
         );
       }
+      // Spread out DHT work so it doesn't compete
+      // with relay coordination.
+      await new Promise((r) =>
+        setTimeout(r, REPUBLISH_PER_NAME_DELAY_MS),
+      );
     }
   }
 
@@ -282,8 +295,8 @@ export async function createPinner(
           republishAllIPNS,
           REPUBLISH_INTERVAL_MS,
         );
-        // Initial republish after a short delay
-        setTimeout(republishAllIPNS, 30_000);
+        // Initial republish after startup settles
+        setTimeout(republishAllIPNS, 5 * 60_000);
       }
     },
 
