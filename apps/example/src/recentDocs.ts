@@ -12,13 +12,27 @@ export interface RecentDoc {
   lastOpened: number;
 }
 
+function isValidEntry(v: unknown): v is RecentDoc {
+  if (typeof v !== "object" || v === null) return false;
+  const e = v as Record<string, unknown>;
+  return (
+    typeof e.url === "string" &&
+    e.url.length > 0 &&
+    typeof e.docId === "string" &&
+    e.docId.length > 0 &&
+    typeof e.role === "string" &&
+    typeof e.lastOpened === "number" &&
+    Number.isFinite(e.lastOpened)
+  );
+}
+
 export function loadRecent(): RecentDoc[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed;
+    return parsed.filter(isValidEntry);
   } catch {
     return [];
   }
