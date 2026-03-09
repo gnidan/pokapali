@@ -7,6 +7,13 @@ import {
   announceTopic,
   parseAnnouncement,
 } from "@pokapali/core/announce";
+import {
+  createLogger,
+  setLogLevel,
+} from "@pokapali/log";
+import type { LogLevel } from "@pokapali/log";
+
+const log = createLogger("node");
 
 function parseArgs(argv: string[]): {
   port: number;
@@ -14,12 +21,14 @@ function parseArgs(argv: string[]): {
   relay: boolean;
   pinApps: string[];
   announceAddrs: string[];
+  logLevel: LogLevel | null;
 } {
   let port = 3000;
   let storagePath = "";
   let relay = false;
   let pinApps: string[] = [];
   let announceAddrs: string[] = [];
+  let logLevel: LogLevel | null = null;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -41,6 +50,10 @@ function parseArgs(argv: string[]): {
       announceAddrs = argv[++i]
         .split(",")
         .map((s) => s.trim());
+    } else if (
+      arg === "--log-level" && argv[i + 1]
+    ) {
+      logLevel = argv[++i] as LogLevel;
     }
   }
 
@@ -56,7 +69,8 @@ function parseArgs(argv: string[]): {
   }
 
   return {
-    port, storagePath, relay, pinApps, announceAddrs,
+    port, storagePath, relay, pinApps,
+    announceAddrs, logLevel,
   };
 }
 
@@ -65,19 +79,25 @@ async function main() {
   // channels close unexpectedly. Catch these so the
   // process doesn't crash.
   process.on("uncaughtException", (err) => {
-    console.error("uncaught exception:", err.message);
+    log.error("uncaught exception:", err.message);
   });
 
   const {
-    port, storagePath, relay, pinApps, announceAddrs,
+    port, storagePath, relay, pinApps,
+    announceAddrs, logLevel,
   } = parseArgs(process.argv);
+
+  // CLI --log-level overrides POKAPALI_LOG_LEVEL env
+  if (logLevel) {
+    setLogLevel(logLevel);
+  }
 
   const modes = [
     relay ? "relay" : "",
     pinApps.length > 0 ? "pin" : "",
   ].filter(Boolean).join("+");
-  console.error(`pokapali node starting (${modes})`);
-  console.error(`  storage: ${storagePath}`);
+  log.info(`starting (${modes})`);
+  log.info(`  storage: ${storagePath}`);
 
   let relayHandle: Awaited<
     ReturnType<typeof startRelay>
@@ -94,9 +114,9 @@ async function main() {
         ? pinApps
         : undefined,
     });
-    console.error("relay started");
+    log.info("relay started");
     for (const ma of relayHandle.multiaddrs()) {
-      console.error(`  ${ma}`);
+      log.info(`  ${ma}`);
     }
   }
 
@@ -107,7 +127,7 @@ async function main() {
       helia: relayHandle?.helia,
     });
     await pinner.start();
-    console.error(
+    log.info(
       `pinner started for: ${pinApps.join(", ")}`,
     );
 
@@ -136,7 +156,7 @@ async function main() {
           }
         },
       );
-      console.error(
+      log.info(
         "wired GossipSub announcements to pinner",
       );
     }
@@ -150,14 +170,14 @@ async function main() {
     pinner,
     pinAppIds: pinApps,
   });
-  console.error(`HTTP server on port ${port}`);
+  log.info(`HTTP server on port ${port}`);
 
   async function shutdown() {
-    console.error("shutting down...");
+    log.info("shutting down...");
     server.close();
     if (relayHandle) await relayHandle.stop();
     if (pinner) await pinner.stop();
-    console.error("stopped");
+    log.info("stopped");
     process.exit(0);
   }
 
@@ -166,6 +186,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  log.error(err);
   process.exit(1);
 });

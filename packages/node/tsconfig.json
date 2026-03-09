@@ -5,5 +5,9 @@
     "rootDir": "."
   },
   "include": ["src", "bin"],
-  "references": [{ "path": "../crypto" }, { "path": "../snapshot" }]
+  "references": [
+    { "path": "../log" },
+    { "path": "../crypto" },
+    { "path": "../snapshot" }
+  ]
 }
