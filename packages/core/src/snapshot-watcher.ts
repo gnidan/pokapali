@@ -19,6 +19,7 @@ const RETRY_INTERVAL_MS = 30_000;
 
 export type SnapshotFetchState =
   | { status: "idle" }
+  | { status: "resolving"; startedAt: number }
   | { status: "fetching"; cid: string;
       startedAt: number }
   | { status: "retrying"; cid: string;
@@ -194,6 +195,19 @@ export function createSnapshotWatcher(
           scheduleRetry();
         }
       },
+      {
+        onPollStart: () => {
+          if (
+            fetchState.status !== "fetching" &&
+            fetchState.status !== "resolving"
+          ) {
+            setFetchState({
+              status: "resolving",
+              startedAt: Date.now(),
+            });
+          }
+        },
+      },
     );
   }
 
@@ -203,6 +217,10 @@ export function createSnapshotWatcher(
     ipnsPublicKeyBytes
   ) {
     const pubKeyBytes = ipnsPublicKeyBytes;
+    setFetchState({
+      status: "resolving",
+      startedAt: Date.now(),
+    });
     (async () => {
       try {
         const helia = getHelia();
@@ -233,6 +251,14 @@ export function createSnapshotWatcher(
           log.info("initial snapshot applied");
         } else {
           log.debug("IPNS resolve returned null");
+          retryAttempt++;
+          setFetchState({
+            status: "retrying",
+            cid: "",
+            attempt: retryAttempt,
+            nextRetryAt: Date.now() +
+              RETRY_INTERVAL_MS,
+          });
         }
       } catch (err) {
         log.warn(
