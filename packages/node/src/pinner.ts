@@ -81,6 +81,61 @@ export async function createPinner(
     }
   }
 
+  /**
+   * Fetch a block by CID directly (no IPNS resolve).
+   * Used when we already know the CID from an
+   * announcement.
+   */
+  async function fetchByCid(
+    ipnsName: string,
+    cidStr: string,
+  ): Promise<boolean> {
+    if (!helia) return false;
+
+    try {
+      const tipCid = history.getTip(ipnsName);
+      if (tipCid === cidStr) {
+        return true; // Already have latest
+      }
+
+      const cid = CID.parse(cidStr);
+      const block = await helia.blockstore.get(cid, {
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      const valid = await validateStructure(block);
+      if (!valid) {
+        log(
+          `invalid block`
+          + ` ${ipnsName.slice(0, 12)}...`,
+        );
+        return false;
+      }
+
+      const node = decodeSnapshot(block);
+      knownNames.add(ipnsName);
+      history.add(ipnsName, cid, node.ts);
+      log(
+        `fetched block for`
+        + ` ${ipnsName.slice(0, 12)}...`
+        + ` cid=${cidStr.slice(0, 12)}...`,
+      );
+      return true;
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      log(
+        `fetch failed for`
+        + ` ${ipnsName.slice(0, 12)}...`
+        + ` cid=${cidStr.slice(0, 12)}...: ${msg}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Resolve IPNS name and fetch the block. Used for
+   * periodic re-resolution and startup recovery.
+   */
   async function resolveAndFetch(
     ipnsName: string,
   ): Promise<boolean> {
@@ -93,11 +148,9 @@ export async function createPinner(
       );
       const name = ipns(helia as any);
 
-      // Convert hex ipnsName to public key
       const keyBytes = hexToBytes(ipnsName);
       const pubKey = publicKeyFromRaw(keyBytes);
 
-      // Resolve IPNS name to CID
       const result = await name.resolve(pubKey, {
         signal: AbortSignal.timeout(30_000),
       });
@@ -107,39 +160,7 @@ export async function createPinner(
         + ` -> ${cid.toString().slice(0, 12)}...`,
       );
 
-      // Check if we already have this CID
-      const tipCid = history.getTip(ipnsName);
-      if (tipCid === cid.toString()) {
-        return true; // Already have latest
-      }
-
-      // Fetch the block from the network
-      const block = await helia.blockstore.get(cid, {
-        signal: AbortSignal.timeout(30_000),
-      });
-
-      // Validate structure
-      const valid = await validateStructure(block);
-      if (!valid) {
-        log(
-          `invalid block from IPNS`
-          + ` ${ipnsName.slice(0, 12)}...`,
-        );
-        return false;
-      }
-
-      // Decode to get timestamp
-      const node = decodeSnapshot(block);
-
-      // Track in history
-      knownNames.add(ipnsName);
-      history.add(ipnsName, cid, node.ts);
-      log(
-        `fetched block for ${ipnsName.slice(0, 12)}...`
-        + ` cid=${cid.toString().slice(0, 12)}...`,
-      );
-
-      return true;
+      return fetchByCid(ipnsName, cid.toString());
     } catch (err) {
       const msg = (err as Error).message ?? "";
       log(
@@ -219,9 +240,11 @@ export async function createPinner(
         `announcement: name=${ipnsName.slice(0, 12)}...`
         + ` cid=${cidStr.slice(0, 12)}...`,
       );
-      // Trigger IPNS resolve + block fetch
+      // Fetch the announced CID directly (don't
+      // re-resolve IPNS — the announcement has the
+      // latest CID, IPNS may lag behind).
       if (helia) {
-        resolveAndFetch(ipnsName);
+        fetchByCid(ipnsName, cidStr);
       }
     },
 
