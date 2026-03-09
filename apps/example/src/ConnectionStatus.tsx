@@ -397,7 +397,7 @@ function NetworkDetail({
         <div>
           <div className="cs-detail-row">
             <span className="cs-detail-key">
-              Awareness
+              On document
             </span>
             {info.editors}
           </div>
