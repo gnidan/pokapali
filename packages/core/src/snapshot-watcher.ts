@@ -9,6 +9,9 @@ import {
 import { resolveIPNS, watchIPNS } from
   "./ipns-helpers.js";
 import type { BlockGetter } from "./fetch-block.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("snapshot-watcher");
 import type { Helia } from "helia";
 
 const REANNOUNCE_MS = 30_000;
@@ -60,11 +63,7 @@ export function createSnapshotWatcher(
   // Writers already subscribe for re-announce mesh
   // in startReannounce; readers subscribe here.
   if (!isWriter) {
-    console.log(
-      "[pokapali] subscribing to announce"
-        + " topic:",
-      topic,
-    );
+    log.debug("subscribing to announce topic:", topic);
     pubsub.subscribe(topic);
   }
 
@@ -74,8 +73,8 @@ export function createSnapshotWatcher(
       retryTimer = null;
       if (!pendingCid || destroyed) return;
       const cidStr = pendingCid;
-      console.log(
-        "[pokapali] retrying fetch for",
+      log.debug(
+        "retrying fetch for",
         cidStr.slice(0, 16) + "...",
       );
       try {
@@ -92,17 +91,14 @@ export function createSnapshotWatcher(
     if (detail?.topic !== topic) return;
     const ann = parseAnnouncement(detail.data);
     if (!ann || ann.ipnsName !== ipnsName) return;
-    console.log(
-      "[pokapali] announce received:",
+    log.debug(
+      "announce received:",
       ann.cid.slice(0, 16) + "...",
     );
     pendingCid = ann.cid;
     const cid = CIDClass.parse(ann.cid);
     onSnapshot(cid).catch((err) => {
-      console.error(
-        "[pokapali] announce apply failed:",
-        err,
-      );
+      log.warn("announce apply failed:", err);
       scheduleRetry();
     });
   };
@@ -145,27 +141,20 @@ export function createSnapshotWatcher(
           pubKeyBytes,
         );
         if (tipCid) {
-          console.log(
-            "[pokapali] IPNS resolved:",
+          log.info(
+            "IPNS resolved:",
             tipCid.toString(),
           );
           pendingCid = tipCid.toString();
           await onSnapshot(tipCid);
           pendingCid = null;
-          console.log(
-            "[pokapali] initial snapshot applied",
-          );
+          log.info("initial snapshot applied");
         } else {
-          console.log(
-            "[pokapali] IPNS resolve returned" +
-              " null",
-          );
+          log.debug("IPNS resolve returned null");
         }
       } catch (err) {
-        console.error(
-          "[pokapali] initial snapshot" +
-            " load failed:",
-          err,
+        log.warn(
+          "initial snapshot load failed:", err,
         );
         scheduleRetry();
       }

@@ -1,4 +1,7 @@
 import { CID } from "multiformats/cid";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("fetch-block");
 
 const DEFAULT_RETRIES = 6;
 const DEFAULT_BASE_MS = 2_000;
@@ -48,9 +51,8 @@ export async function fetchBlock(
     } catch (err) {
       if (i === retries) throw err;
       const delay = baseMs * 2 ** i;
-      console.log(
-        `[pokapali] block fetch retry` +
-          ` ${i + 1}/${retries}` +
+      log.debug(
+        `retry ${i + 1}/${retries}` +
           ` in ${delay}ms for`,
         cid.toString().slice(0, 16) + "...",
       );

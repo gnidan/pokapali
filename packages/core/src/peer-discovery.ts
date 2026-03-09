@@ -3,6 +3,7 @@ import { multiaddr } from "@multiformats/multiaddr";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
+import { createLogger } from "@pokapali/log";
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
@@ -12,8 +13,7 @@ const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
 const RELAY_CACHE_MAX_AGE_MS = 48 * 60 * 60_000; // 48h
 
-const log = (...args: unknown[]) =>
-  console.log("[pokapali:discovery]", ...args);
+const log = createLogger("discovery");
 
 async function networkCID(): Promise<CID> {
   const bytes = new TextEncoder().encode(
@@ -173,7 +173,7 @@ export function startRoomDiscovery(
         },
       });
     } catch (err) {
-      log(
+      log.warn(
         "failed to tag relay:",
         (err as Error).message,
       );
@@ -218,7 +218,7 @@ export function startRoomDiscovery(
     peerId?: any,
   ): Promise<boolean> {
     const short = pid.slice(-8);
-    log(
+    log.debug(
       `relay ...${short}, dialing...`,
       wssAddrs.map((ma) => ma.toString()),
     );
@@ -240,17 +240,19 @@ export function startRoomDiscovery(
         return false;
       }
       trackRelay(pid, rawAddrs);
-      log(`relay ...${short} OK`);
+      log.info(`relay ...${short} OK`);
       return true;
     } catch (err) {
       const e = err as any;
-      log(
+      log.debug(
         `relay ...${short} FAIL:`,
         e.message ?? err,
       );
       if (e.errors) {
         for (const sub of e.errors) {
-          log(`  sub-error:`, sub.message ?? sub);
+          log.debug(
+            `  sub-error:`, sub.message ?? sub,
+          );
         }
       }
       return false;
@@ -267,7 +269,9 @@ export function startRoomDiscovery(
     );
     if (fresh.length === 0) return;
 
-    log(`trying ${fresh.length} cached relay(s)`);
+    log.debug(
+      `trying ${fresh.length} cached relay(s)`,
+    );
 
     await Promise.all(fresh.map(async (entry) => {
       if (stopped) return;
@@ -282,7 +286,9 @@ export function startRoomDiscovery(
       if (already) {
         trackRelay(pid, entry.addrs);
         tagRelay(pid);
-        log(`cached relay ...${short} (connected)`);
+        log.debug(
+          `cached relay ...${short} (connected)`,
+        );
         return;
       }
 
@@ -342,7 +348,9 @@ export function startRoomDiscovery(
           trackRelay(pid, addrs);
           tagRelay(pid);
           upsertCachedRelay(pid, addrs);
-          log(`relay ...${short} (connected)`);
+          log.debug(
+            `relay ...${short} (connected)`,
+          );
           continue;
         }
 
@@ -363,7 +371,7 @@ export function startRoomDiscovery(
             a.includes("/p2p-circuit"),
         );
         if (!dialable && addrs.length > 0) {
-          log(
+          log.debug(
             `relay ...${short} skipped`,
             `(no browser-dialable addrs)`,
           );
@@ -386,12 +394,12 @@ export function startRoomDiscovery(
 
       clearTimeout(timeout);
       if (found > 0) {
-        log(`found ${found} relay(s)`);
+        log.info(`found ${found} relay(s)`);
       }
     } catch (err) {
       const msg = (err as Error).message ?? "";
       if (!msg.includes("abort")) {
-        log(`relay discovery error: ${msg}`);
+        log.warn(`discovery error: ${msg}`);
       }
     } finally {
       running = false;
@@ -401,7 +409,7 @@ export function startRoomDiscovery(
   function logStatus() {
     const peers = helia.libp2p.getPeers();
     const addrs = helia.libp2p.getMultiaddrs();
-    log(
+    log.debug(
       `${peers.length} peers,`,
       `${addrs.length} listening addrs`,
     );
@@ -440,7 +448,7 @@ export function startRoomDiscovery(
       if (already) {
         trackRelay(pid, entry.addrs);
         tagRelay(pid);
-        log(
+        log.debug(
           `peer-shared relay ...${short}`,
           `(connected)`,
         );
@@ -453,7 +461,9 @@ export function startRoomDiscovery(
       );
       if (wssAddrs.length === 0) continue;
 
-      log(`peer-shared relay ...${short}`);
+      log.debug(
+        `peer-shared relay ...${short}`,
+      );
       const ok = await dialRelay(
         pid, wssAddrs, entry.addrs,
       );

@@ -74,6 +74,9 @@ import {
 import type {
   RelaySharing,
 } from "./relay-sharing.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("core");
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -260,8 +263,8 @@ function createCollabDoc(
   let snapshotWatcher: SnapshotWatcher | null = null;
   if (readKey && params.pubsub && params.appId) {
     const rk = readKey;
-    console.log(
-      "[pokapali] announce setup: pubsub=" +
+    log.debug(
+      "announce setup: pubsub=" +
         !!params.pubsub +
         " appId=" + params.appId,
     );
@@ -423,30 +426,28 @@ function createCollabDoc(
       // Fire-and-forget: don't block the UI on slow
       // DHT operations.
       const cidShort = cid.toString().slice(0, 16);
-      console.log(
-        "[pokapali] pushSnapshot: cid=" +
+      log.info(
+        "pushSnapshot: cid=" +
           cidShort + "... clockSum=" + clockSum,
       );
       (async () => {
         const helia = getHelia();
-        console.log(
-          "[pokapali] blockstore.put...",
+        log.debug(
+          "blockstore.put...",
           cidShort + "...",
         );
         await Promise.resolve(
           helia.blockstore.put(cid, block),
         );
-        console.log(
-          "[pokapali] blockstore.put done,"
+        log.debug(
+          "blockstore.put done,"
             + " publishing IPNS...",
         );
         await publishIPNS(
           helia, keys.ipnsKeyBytes!, cid,
           clockSum,
         );
-        console.log(
-          "[pokapali] IPNS published, announcing...",
-        );
+        log.debug("IPNS published, announcing...");
         if (params.appId && params.pubsub) {
           await announceSnapshot(
             params.pubsub,
@@ -454,14 +455,11 @@ function createCollabDoc(
             ipnsName,
             cid.toString(),
           );
-          console.log(
-            "[pokapali] announce sent",
-          );
+          log.debug("announce sent");
         }
       })().catch((err: unknown) => {
-        console.error(
-          "[pokapali] IPNS publish/announce failed:",
-          err,
+        log.error(
+          "IPNS publish/announce failed:", err,
         );
       });
     },

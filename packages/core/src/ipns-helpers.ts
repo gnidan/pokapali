@@ -10,6 +10,9 @@ import {
   CID as CIDClass,
   type CID,
 } from "multiformats/cid";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("ipns");
 
 const LIBP2P_KEY_CODEC = 0x72;
 const PUBLISH_TIMEOUT_MS = 30_000;
@@ -38,9 +41,7 @@ async function enqueuePublish(
     // A publish is already in flight. Replace any
     // pending CID with the newest one — stale CIDs
     // are pointless to publish.
-    console.log(
-      "[pokapali] IPNS publish queued (in-flight)",
-    );
+    log.debug("publish queued (in-flight)");
     entry.pending = { cid, seq };
     return;
   }
@@ -52,9 +53,7 @@ async function enqueuePublish(
     try {
       await doPublish(currentCid, currentSeq);
     } catch (err) {
-      console.error(
-        "[pokapali] IPNS publish failed:", err,
-      );
+      log.error("publish failed:", err);
     }
 
     const q = publishQueues.get(keyHex);
@@ -107,9 +106,8 @@ export async function publishIPNS(
     cid,
     BigInt(clockSum),
     async (cidToPublish, seq) => {
-      console.log(
-        "[pokapali] IPNS doPublish: seq=" +
-          seq + " cid=" +
+      log.debug(
+        "doPublish: seq=" + seq + " cid=" +
           cidToPublish.toString().slice(0, 16) +
           "...",
       );
@@ -121,9 +119,9 @@ export async function publishIPNS(
       const delegated = (helia.libp2p.services as any)
         .delegatedRouting;
       if (!delegated?.putIPNS) {
-        console.warn(
-          "[pokapali] IPNS: no delegatedRouting"
-            + ".putIPNS — skipping",
+        log.warn(
+          "no delegatedRouting.putIPNS"
+            + " — skipping",
         );
         return;
       }
@@ -146,24 +144,21 @@ export async function publishIPNS(
             });
           const existingSeq =
             existing.sequence ?? 0n;
-          console.log(
-            "[pokapali] IPNS existing seq=" +
-              existingSeq +
+          log.debug(
+            "existing seq=" + existingSeq +
               " clockSum seq=" + seq,
           );
           if (existingSeq >= effectiveSeq) {
             effectiveSeq = existingSeq + 1n;
           }
         } catch {
-          console.log(
-            "[pokapali] IPNS no existing record",
-          );
+          log.debug("no existing record");
         }
       }
 
-      console.log(
-        "[pokapali] IPNS publishing with"
-          + " effectiveSeq=" + effectiveSeq,
+      log.debug(
+        "publishing with effectiveSeq=" +
+          effectiveSeq,
       );
 
       const record =
@@ -185,9 +180,8 @@ export async function publishIPNS(
           record,
           { signal: ctrl.signal },
         );
-        console.log(
-          "[pokapali] IPNS putIPNS success"
-            + " seq=" + effectiveSeq,
+        log.info(
+          "putIPNS success seq=" + effectiveSeq,
         );
       } finally {
         clearTimeout(timer);
@@ -229,22 +223,21 @@ export async function resolveIPNS(
       const cidStr = val.startsWith("/ipfs/")
         ? val.slice(6)
         : val;
-      console.log(
-        "[pokapali] IPNS resolve (delegated):"
-          + " " + cidStr.slice(0, 16) + "...",
+      log.debug(
+        "resolve (delegated):",
+        cidStr.slice(0, 16) + "...",
       );
       return CIDClass.parse(cidStr);
     } catch (err) {
-      console.log(
-        "[pokapali] IPNS delegated resolve"
-          + " failed, falling back to DHT:",
+      log.debug(
+        "delegated resolve failed,"
+          + " falling back to DHT:",
         err,
       );
     }
   } else {
-    console.warn(
-      "[pokapali] IPNS resolve: no delegated"
-        + " routing available",
+    log.warn(
+      "resolve: no delegated routing available",
     );
   }
 
@@ -259,16 +252,14 @@ export async function resolveIPNS(
     const result = await name.resolve(publicKey, {
       signal: ctrl.signal,
     });
-    console.log(
-      "[pokapali] IPNS resolve (DHT):"
-        + " " + result.cid.toString().slice(0, 16)
-        + "...",
+    log.debug(
+      "resolve (DHT):",
+      result.cid.toString().slice(0, 16) + "...",
     );
     return result.cid;
   } catch (err) {
-    console.log(
-      "[pokapali] IPNS resolve failed"
-        + " (both paths):", err,
+    log.warn(
+      "resolve failed (both paths):", err,
     );
     return null;
   } finally {
