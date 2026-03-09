@@ -1141,3 +1141,4 @@ export type {
   ForwardingRecord,
 } from "./forwarding.js";
 export { getHelia } from "./helia.js";
+export { truncateUrl } from "./url-utils.js";
