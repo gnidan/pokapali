@@ -1,9 +1,111 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type {
   CollabDoc,
   DiagnosticsInfo,
   SnapshotFetchState,
 } from "@pokapali/core";
+
+// --- Ring buffer for sparkline history ---
+
+const MAX_SAMPLES = 60;
+
+interface History {
+  peers: number[];
+  relays: number[];
+  clockSum: number[];
+}
+
+function emptyHistory(): History {
+  return { peers: [], relays: [], clockSum: [] };
+}
+
+function pushSample(
+  h: History,
+  info: DiagnosticsInfo,
+) {
+  const connectedRelays = info.relays.filter(
+    (r) => r.connected,
+  ).length;
+  h.peers.push(info.ipfsPeers);
+  h.relays.push(connectedRelays);
+  h.clockSum.push(info.clockSum);
+  if (h.peers.length > MAX_SAMPLES) h.peers.shift();
+  if (h.relays.length > MAX_SAMPLES) {
+    h.relays.shift();
+  }
+  if (h.clockSum.length > MAX_SAMPLES) {
+    h.clockSum.shift();
+  }
+}
+
+// --- SVG Sparkline ---
+
+function Sparkline({
+  data,
+  color,
+  width = 100,
+  height = 28,
+}: {
+  data: number[];
+  color: string;
+  width?: number;
+  height?: number;
+}) {
+  if (data.length < 2) return null;
+
+  const pad = 1;
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+
+  const points = data.map((v, i) => {
+    const x =
+      (i / (data.length - 1)) * (width - 2 * pad) +
+      pad;
+    const y =
+      height -
+      pad -
+      ((v - min) / range) * (height - 2 * pad);
+    return `${x},${y}`;
+  });
+
+  const line = points.join(" ");
+  // Fill area: close path along bottom edge
+  const fill =
+    line +
+    ` ${width - pad},${height} ${pad},${height}`;
+
+  return (
+    <svg
+      className="sparkline"
+      width={width}
+      height={height}
+      aria-hidden="true"
+    >
+      <polygon
+        points={fill}
+        fill={color}
+        fillOpacity="0.1"
+      />
+      <polyline
+        points={line}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      {/* Current value dot */}
+      <circle
+        cx={points[points.length - 1].split(",")[0]}
+        cy={points[points.length - 1].split(",")[1]}
+        r="2"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+// --- Helpers ---
 
 function Dot({ state }: {
   state: "connected" | "disconnected" | "partial"
@@ -92,7 +194,7 @@ function RelaysSummary({
   );
 }
 
-function EditorsSummary({
+function UsersSummary({
   info,
 }: {
   info: DiagnosticsInfo;
@@ -102,7 +204,7 @@ function EditorsSummary({
       className="cs-section"
       title="Awareness peers"
     >
-      <span className="cs-label">Editors</span>
+      <span className="cs-label">Users</span>
       <span className="cs-value">
         <Dot
           state={
@@ -167,15 +269,17 @@ function SyncSummary({
 
 function PeersDetail({
   info,
+  history,
 }: {
   info: DiagnosticsInfo;
+  history: History;
 }) {
   return (
     <div className="cs-detail-section">
       <div className="cs-detail-heading">Peers</div>
       <div className="cs-detail-row">
         <span className="cs-detail-key">
-          Editors
+          Awareness
         </span>
         {info.editors}
       </div>
@@ -185,14 +289,20 @@ function PeersDetail({
         </span>
         {info.ipfsPeers}
       </div>
+      <Sparkline
+        data={history.peers}
+        color="#2563eb"
+      />
     </div>
   );
 }
 
 function RelaysDetail({
   info,
+  history,
 }: {
   info: DiagnosticsInfo;
+  history: History;
 }) {
   return (
     <div className="cs-detail-section">
@@ -225,6 +335,10 @@ function RelaysDetail({
           </div>
         ))
       )}
+      <Sparkline
+        data={history.relays}
+        color="#22c55e"
+      />
     </div>
   );
 }
@@ -264,8 +378,10 @@ function GossipSubDetail({
 
 function SnapshotsDetail({
   info,
+  history,
 }: {
   info: DiagnosticsInfo;
+  history: History;
 }) {
   return (
     <div className="cs-detail-section">
@@ -312,6 +428,10 @@ function SnapshotsDetail({
           </span>
         </div>
       )}
+      <Sparkline
+        data={history.clockSum}
+        color="#8b5cf6"
+      />
     </div>
   );
 }
@@ -327,13 +447,16 @@ export function ConnectionStatus({
     () => doc.diagnostics(),
   );
   const [expanded, setExpanded] = useState(false);
+  const historyRef = useRef<History>(emptyHistory());
 
   useEffect(() => {
     let active = true;
     const refresh = () => {
       if (!active) return;
       try {
-        setInfo(doc.diagnostics());
+        const d = doc.diagnostics();
+        pushSample(historyRef.current, d);
+        setInfo(d);
       } catch {
         // doc destroyed during teardown
       }
@@ -370,6 +493,7 @@ export function ConnectionStatus({
   const connected = info.relays.filter(
     (r) => r.connected,
   ).length;
+  const h = historyRef.current;
 
   return (
     <div className="connection-status-wrap">
@@ -381,14 +505,14 @@ export function ConnectionStatus({
         aria-label={
           `${info.ipfsPeers} peers, ` +
           `${connected}/${info.relays.length} ` +
-          `relays, ${info.editors} editor(s)`
+          `relays, ${info.editors} user(s)`
         }
       >
         <PeersSummary info={info} />
         <span className="cs-divider" />
         <RelaysSummary info={info} />
         <span className="cs-divider" />
-        <EditorsSummary info={info} />
+        <UsersSummary info={info} />
         <SyncSummary info={info} />
         <span className="cs-expand">
           {expanded ? "\u25B4" : "\u25BE"}
@@ -397,10 +521,10 @@ export function ConnectionStatus({
 
       {expanded && (
         <div className="cs-detail">
-          <PeersDetail info={info} />
-          <RelaysDetail info={info} />
+          <PeersDetail info={info} history={h} />
           <GossipSubDetail info={info} />
-          <SnapshotsDetail info={info} />
+          <RelaysDetail info={info} history={h} />
+          <SnapshotsDetail info={info} history={h} />
         </div>
       )}
     </div>
