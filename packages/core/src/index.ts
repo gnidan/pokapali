@@ -261,6 +261,10 @@ function createCollabDoc(
   subdocManager.on("dirty", () => {
     checkStatus();
     emit("snapshot-recommended");
+    awarenessRoom.awareness.setLocalStateField(
+      "clockSum",
+      computeClockSum(),
+    );
   });
 
   // If the subdoc is already dirty (e.g. _meta was
@@ -328,7 +332,19 @@ function createCollabDoc(
     snapshotWatcher.startReannounce(
       () => snapshotLC.prev,
       (cidStr) => snapshotLC.getBlock(cidStr),
+      () => snapshotLC.lastIpnsSeq,
     );
+  }
+
+  function teardown() {
+    destroyed = true;
+    relaySharing?.destroy();
+    snapshotWatcher?.destroy();
+    params.roomDiscovery?.stop();
+    syncManager.destroy();
+    awarenessRoom.destroy();
+    subdocManager.destroy();
+    releaseHelia();
   }
 
   function assertNotDestroyed() {
@@ -473,6 +489,7 @@ function createCollabDoc(
             params.appId,
             ipnsName,
             cid.toString(),
+            clockSum,
           );
           log.debug("announce sent");
         }
@@ -637,14 +654,7 @@ function createCollabDoc(
       storeForwardingRecord(ipnsName, encoded);
 
       // Destroy old doc
-      destroyed = true;
-      relaySharing?.destroy();
-      snapshotWatcher?.destroy();
-      params.roomDiscovery?.stop();
-      syncManager.destroy();
-      awarenessRoom.destroy();
-      subdocManager.destroy();
-      releaseHelia();
+      teardown();
 
       return {
         newDoc,
@@ -686,14 +696,7 @@ function createCollabDoc(
 
     destroy(): void {
       if (destroyed) return;
-      destroyed = true;
-      relaySharing?.destroy();
-      snapshotWatcher?.destroy();
-      params.roomDiscovery?.stop();
-      syncManager.destroy();
-      awarenessRoom.destroy();
-      subdocManager.destroy();
-      releaseHelia();
+      teardown();
     },
   } as CollabDoc;
 }

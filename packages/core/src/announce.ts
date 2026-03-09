@@ -21,6 +21,7 @@ export interface AnnouncePubSub {
 export interface Announcement {
   ipnsName: string;
   cid: string;
+  seq?: number;
 }
 
 /**
@@ -44,9 +45,11 @@ export async function announceSnapshot(
   appId: string,
   ipnsName: string,
   cid: string,
+  seq?: number,
 ): Promise<void> {
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
+  if (seq !== undefined) msg.seq = seq;
   const data = new TextEncoder().encode(
     JSON.stringify(msg),
   );
