@@ -32,11 +32,19 @@ const LOG_INTERVAL_MS = 30_000;
 const log = (...args: unknown[]) =>
   console.error("[pokapali:relay]", ...args);
 
-async function appIdToCID(
+export async function appIdToCID(
   appId: string,
 ): Promise<CID> {
   const bytes = new TextEncoder().encode(
     "pokapali-relay:" + appId,
+  );
+  const hash = await sha256.digest(bytes);
+  return CID.createV1(RAW_CODEC, hash);
+}
+
+async function networkCID(): Promise<CID> {
+  const bytes = new TextEncoder().encode(
+    "pokapali-network",
   );
   const hash = await sha256.digest(bytes);
   return CID.createV1(RAW_CODEC, hash);
@@ -65,7 +73,6 @@ async function loadOrCreateKey(
 }
 
 export interface RelayConfig {
-  appIds?: string[];
   storagePath: string;
   wsPort?: number;
   // Public multiaddrs to announce (e.g. for autoTLS).
@@ -283,40 +290,28 @@ export async function startRelay(
   log("subscribed to", DISCOVERY_TOPIC);
   log("subscribed to", SIGNALING_TOPIC);
 
-  // Compute well-known CIDs for each app ID
-  const appIds = config.appIds ?? [];
-  const cids = await Promise.all(
-    appIds.map(appIdToCID),
-  );
+  // Provide a single network-wide CID so browsers
+  // can discover any relay regardless of app.
+  const netCID = await networkCID();
 
   async function provideAll() {
-    for (let i = 0; i < cids.length; i++) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(
-          () => ctrl.abort(),
-          60_000,
-        );
-        await helia.routing.provide(cids[i], {
-          signal: ctrl.signal,
-        });
-        clearTimeout(timer);
-        log(
-          `provide OK for ${appIds[i]}`,
-        );
-      } catch (err) {
-        const msg = (err as Error).message ?? "";
-        if (msg.includes("abort")) {
-          log(
-            `provide TIMEOUT for`,
-            `${appIds[i]}`,
-          );
-        } else {
-          log(
-            `provide FAIL for`,
-            `${appIds[i]}: ${msg}`,
-          );
-        }
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(
+        () => ctrl.abort(),
+        60_000,
+      );
+      await helia.routing.provide(netCID, {
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      log("provide OK for network CID");
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      if (msg.includes("abort")) {
+        log("provide TIMEOUT for network CID");
+      } else {
+        log(`provide FAIL for network CID: ${msg}`);
       }
     }
   }

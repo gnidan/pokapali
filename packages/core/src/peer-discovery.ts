@@ -15,11 +15,9 @@ const RELAY_CACHE_MAX_AGE_MS = 48 * 60 * 60_000; // 48h
 const log = (...args: unknown[]) =>
   console.log("[pokapali:discovery]", ...args);
 
-async function appIdToCID(
-  appId: string,
-): Promise<CID> {
+async function networkCID(): Promise<CID> {
   const bytes = new TextEncoder().encode(
-    "pokapali-relay:" + appId,
+    "pokapali-network",
   );
   const hash = await sha256.digest(bytes);
   return CID.createV1(RAW_CODEC, hash);
@@ -36,16 +34,12 @@ interface CachedRelay {
   lastSeen: number;
 }
 
-function cacheKey(appId: string): string {
-  return `pokapali:relays:${appId}`;
-}
+const CACHE_KEY = "pokapali:relays";
 
-function loadCachedRelays(
-  appId: string,
-): CachedRelay[] {
+function loadCachedRelays(): CachedRelay[] {
   if (!hasLocalStorage) return [];
   try {
-    const raw = localStorage.getItem(cacheKey(appId));
+    const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return [];
     const entries: CachedRelay[] = JSON.parse(raw);
     const now = Date.now();
@@ -59,13 +53,12 @@ function loadCachedRelays(
 }
 
 function saveCachedRelays(
-  appId: string,
   relays: CachedRelay[],
 ): void {
   if (!hasLocalStorage) return;
   try {
     localStorage.setItem(
-      cacheKey(appId),
+      CACHE_KEY,
       JSON.stringify(relays),
     );
   } catch {
@@ -74,24 +67,22 @@ function saveCachedRelays(
 }
 
 function removeCachedRelay(
-  appId: string,
   peerId: string,
 ): void {
-  const relays = loadCachedRelays(appId);
+  const relays = loadCachedRelays();
   const filtered = relays.filter(
     (r) => r.peerId !== peerId,
   );
   if (filtered.length !== relays.length) {
-    saveCachedRelays(appId, filtered);
+    saveCachedRelays(filtered);
   }
 }
 
 function upsertCachedRelay(
-  appId: string,
   peerId: string,
   addrs: string[],
 ): void {
-  const relays = loadCachedRelays(appId);
+  const relays = loadCachedRelays();
   const existing = relays.find(
     (r) => r.peerId === peerId,
   );
@@ -105,7 +96,7 @@ function upsertCachedRelay(
       lastSeen: Date.now(),
     });
   }
-  saveCachedRelays(appId, relays);
+  saveCachedRelays(relays);
 }
 
 // --- Discovery ---
@@ -126,9 +117,9 @@ export interface RoomDiscovery {
 }
 
 /**
- * Discover relay nodes by looking up a well-known CID
- * derived from the app ID. Relay nodes provide this CID
- * on the DHT; browsers find them via delegated routing.
+ * Discover relay nodes by looking up a network-wide CID
+ * on the DHT. All relays provide this CID; browsers find
+ * them via delegated routing regardless of app.
  * Once connected, pubsub-peer-discovery (configured in
  * helia.ts) handles browser-to-browser discovery.
  *
@@ -138,7 +129,7 @@ export interface RoomDiscovery {
  */
 export function startRoomDiscovery(
   helia: Helia,
-  appId?: string,
+  _appId?: string,
 ): RoomDiscovery {
   let stopped = false;
   let cycleController: AbortController | null = null;
@@ -243,8 +234,7 @@ export function startRoomDiscovery(
   }
 
   async function dialCachedRelays() {
-    if (!appId) return;
-    const cached = loadCachedRelays(appId);
+    const cached = loadCachedRelays();
     const now = Date.now();
     const fresh = cached.filter(
       (r) => now - r.lastSeen < RELAY_CACHE_TTL_MS,
@@ -281,20 +271,15 @@ export function startRoomDiscovery(
       );
       if (ok) {
         tagRelay(pid);
-        upsertCachedRelay(
-          appId,
-          pid,
-          entry.addrs,
-        );
+        upsertCachedRelay(pid, entry.addrs);
       } else {
         // Purge stale entry (wrong peer ID, etc.)
-        removeCachedRelay(appId, pid);
+        removeCachedRelay(pid);
       }
     }));
   }
 
   async function discoverRelays() {
-    if (!appId) return;
     if (running) return; // skip if previous cycle active
     running = true;
 
@@ -303,7 +288,7 @@ export function startRoomDiscovery(
     const signal = ctrl.signal;
 
     try {
-      const cid = await appIdToCID(appId);
+      const cid = await networkCID();
       const timeout = setTimeout(
         () => ctrl.abort(),
         FIND_TIMEOUT_MS,
@@ -330,7 +315,7 @@ export function startRoomDiscovery(
           ).map((ma: any) => ma.toString());
           trackRelay(pid, addrs);
           tagRelay(pid);
-          upsertCachedRelay(appId, pid, addrs);
+          upsertCachedRelay(pid, addrs);
           log(`relay ...${short} (connected)`);
           continue;
         }
@@ -369,7 +354,7 @@ export function startRoomDiscovery(
         );
         if (ok) {
           tagRelay(pid);
-          upsertCachedRelay(appId, pid, addrs);
+          upsertCachedRelay(pid, addrs);
         }
       }
 
@@ -433,11 +418,7 @@ export function startRoomDiscovery(
           `peer-shared relay ...${short}`,
           `(connected)`,
         );
-        if (appId) {
-          upsertCachedRelay(
-            appId, pid, entry.addrs,
-          );
-        }
+        upsertCachedRelay(pid, entry.addrs);
         continue;
       }
 
@@ -452,11 +433,7 @@ export function startRoomDiscovery(
       );
       if (ok) {
         tagRelay(pid);
-        if (appId) {
-          upsertCachedRelay(
-            appId, pid, entry.addrs,
-          );
-        }
+        upsertCachedRelay(pid, entry.addrs);
       }
     }
   }
