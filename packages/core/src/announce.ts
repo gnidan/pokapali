@@ -18,10 +18,15 @@ export interface AnnouncePubSub {
   ): Promise<unknown>;
 }
 
+export interface AnnouncementAck {
+  peerId: string;
+}
+
 export interface Announcement {
   ipnsName: string;
   cid: string;
   seq?: number;
+  ack?: AnnouncementAck;
 }
 
 /**
@@ -50,6 +55,30 @@ export async function announceSnapshot(
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
   if (seq !== undefined) msg.seq = seq;
+  const data = new TextEncoder().encode(
+    JSON.stringify(msg),
+  );
+  await pubsub.publish(topic, data);
+}
+
+/**
+ * Publish a pinner acknowledgment on GossipSub.
+ * Sent after a pinner successfully fetches and
+ * validates a snapshot block.
+ */
+export async function announceAck(
+  pubsub: AnnouncePubSub,
+  appId: string,
+  ipnsName: string,
+  cid: string,
+  peerId: string,
+): Promise<void> {
+  const topic = announceTopic(appId);
+  const msg: Announcement = {
+    ipnsName,
+    cid,
+    ack: { peerId },
+  };
   const data = new TextEncoder().encode(
     JSON.stringify(msg),
   );

@@ -498,10 +498,12 @@ describe("@pokapali/core", () => {
         ipnsSeq: null,
         fetchState: { status: "idle" },
         hasAppliedSnapshot: false,
+        ackedBy: [],
       };
       expect(info.ipfsPeers).toBe(0);
       expect(info.relays).toEqual([]);
       expect(info.gossipsub.meshPeers).toBe(0);
+      expect(info.ackedBy).toEqual([]);
     });
   });
 

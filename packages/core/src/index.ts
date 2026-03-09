@@ -133,6 +133,8 @@ export interface DiagnosticsInfo {
   ipnsSeq: number | null;
   fetchState: SnapshotFetchState;
   hasAppliedSnapshot: boolean;
+  /** Peer IDs of pinners that acked the latest CID. */
+  ackedBy: string[];
 }
 
 export type DocRole = "admin" | "writer" | "reader";
@@ -165,6 +167,8 @@ export interface CollabDoc {
   readonly snapshotFetchState: SnapshotFetchState;
   /** True after first remote snapshot applied. */
   readonly hasAppliedSnapshot: boolean;
+  /** Peer IDs of pinners that acked the latest CID. */
+  readonly ackedBy: ReadonlySet<string>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -184,6 +188,7 @@ export interface CollabDoc {
     event: "fetch-state",
     cb: (state: SnapshotFetchState) => void,
   ): void;
+  on(event: "ack", cb: (peerId: string) => void): void;
   off(
     event: "status",
     cb: (status: DocStatus) => void,
@@ -200,6 +205,7 @@ export interface CollabDoc {
     event: "fetch-state",
     cb: (state: SnapshotFetchState) => void,
   ): void;
+  off(event: "ack", cb: (peerId: string) => void): void;
   diagnostics(): DiagnosticsInfo;
   history(): Promise<
     Array<{
@@ -385,6 +391,9 @@ function createCollabDoc(
       ipnsPublicKeyBytes: hexToBytes(ipnsName),
       performInitialResolve:
         params.performInitialResolve,
+      onAck: (peerId) => {
+        emit("ack", peerId);
+      },
       onFetchStateChange: (state) => {
         emit("fetch-state", state);
         // If we return to idle after resolving and
@@ -554,6 +563,11 @@ function createCollabDoc(
         ?.hasAppliedSnapshot ?? false;
     },
 
+    get ackedBy(): ReadonlySet<string> {
+      return snapshotWatcher?.ackedBy
+        ?? new Set();
+    },
+
     whenReady(): Promise<void> {
       return readyPromise;
     },
@@ -612,6 +626,9 @@ function createCollabDoc(
             ipnsName,
             cid.toString(),
             clockSum,
+          );
+          snapshotWatcher?.trackCidForAcks(
+            cid.toString(),
           );
           log.debug("announce sent");
         }
@@ -892,6 +909,9 @@ function createCollabDoc(
           ?? { status: "idle" },
         hasAppliedSnapshot:
           snapshotWatcher?.hasAppliedSnapshot ?? false,
+        ackedBy: [
+          ...(snapshotWatcher?.ackedBy ?? []),
+        ],
       };
     },
 

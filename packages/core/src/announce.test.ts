@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   announceTopic,
   announceSnapshot,
+  announceAck,
   parseAnnouncement,
 } from "./announce.js";
 import type { AnnouncePubSub } from "./announce.js";
@@ -51,6 +52,39 @@ describe("announceSnapshot", () => {
   });
 });
 
+describe("announceAck", () => {
+  it("publishes ack JSON on the correct topic", async () => {
+    const mockPublish = vi.fn().mockResolvedValue(
+      undefined,
+    );
+    const pubsub: AnnouncePubSub = {
+      publish: mockPublish,
+    };
+
+    await announceAck(
+      pubsub,
+      "test-app",
+      "abc123",
+      "bafyexample",
+      "peer-id-123",
+    );
+
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    const [topic, data] = mockPublish.mock.calls[0];
+    expect(topic).toBe(
+      "/pokapali/app/test-app/announce",
+    );
+    const parsed = JSON.parse(
+      new TextDecoder().decode(data),
+    );
+    expect(parsed).toEqual({
+      ipnsName: "abc123",
+      cid: "bafyexample",
+      ack: { peerId: "peer-id-123" },
+    });
+  });
+});
+
 describe("parseAnnouncement", () => {
   it("parses valid announcement", () => {
     const data = new TextEncoder().encode(
@@ -89,5 +123,22 @@ describe("parseAnnouncement", () => {
     expect(
       parseAnnouncement(new Uint8Array(0)),
     ).toBeNull();
+  });
+
+  it("parses ack announcement", () => {
+    const data = new TextEncoder().encode(
+      JSON.stringify({
+        ipnsName: "abc",
+        cid: "bafyfoo",
+        ack: { peerId: "peer123" },
+      }),
+    );
+    const result = parseAnnouncement(data);
+    expect(result).toEqual({
+      ipnsName: "abc",
+      cid: "bafyfoo",
+      ack: { peerId: "peer123" },
+    });
+    expect(result?.ack?.peerId).toBe("peer123");
   });
 });
