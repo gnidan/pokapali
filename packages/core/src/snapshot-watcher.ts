@@ -127,12 +127,13 @@ export function createSnapshotWatcher(
       });
       try {
         await onSnapshot(CIDClass.parse(cidStr));
+        if (destroyed) return;
         hasAppliedSnapshot = true;
         pendingCid = null;
         retryAttempt = 0;
         setFetchState({ status: "idle" });
       } catch {
-        scheduleRetry();
+        if (!destroyed) scheduleRetry();
       }
     }, RETRY_INTERVAL_MS);
   }
@@ -216,6 +217,7 @@ export function createSnapshotWatcher(
         try {
           pendingCid = cidStr;
           await onSnapshot(cid);
+          if (destroyed) return;
           hasAppliedSnapshot = true;
           pendingCid = null;
           setFetchState({ status: "idle" });
@@ -224,7 +226,7 @@ export function createSnapshotWatcher(
             latestAnnouncedSeq || undefined,
           );
         } catch {
-          scheduleRetry();
+          if (!destroyed) scheduleRetry();
         }
       },
       {
@@ -274,6 +276,7 @@ export function createSnapshotWatcher(
             startedAt: Date.now(),
           });
           await onSnapshot(tipCid);
+          if (destroyed) return;
           hasAppliedSnapshot = true;
           pendingCid = null;
           setFetchState({ status: "idle" });
