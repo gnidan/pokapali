@@ -266,6 +266,11 @@ export function EditorView({
       (n) => n.connected && n.roles.includes("pinner"),
     ),
   );
+  const [docTitle, setDocTitle] = useState("Untitled");
+  const [editingTitle, setEditingTitle] =
+    useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const titleBtnRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
 
   const isReadOnly =
@@ -425,12 +430,35 @@ export function EditorView({
     [],
   );
 
+  const commitTitle = useCallback(() => {
+    setEditingTitle(false);
+    requestAnimationFrame(() => {
+      titleBtnRef.current?.focus();
+    });
+  }, []);
+
+  const handleTitleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        (e.target as HTMLInputElement).blur();
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (editingName && nameRef.current) {
       nameRef.current.focus();
       nameRef.current.select();
     }
   }, [editingName]);
+
+  useEffect(() => {
+    if (editingTitle && titleRef.current) {
+      titleRef.current.focus();
+      titleRef.current.select();
+    }
+  }, [editingTitle]);
 
   useEffect(() => {
     if (showShare && sharePanelRef.current) {
@@ -442,13 +470,50 @@ export function EditorView({
     <div className="app">
       <div className="header">
         <button
-          className="back-link"
+          className="back-arrow"
           onClick={onBack}
           aria-label="Back to document list"
         >
-          Back
+          &#x2039;
         </button>
         <h1>Pokapali</h1>
+        {!isReadOnly && editingTitle ? (
+          <input
+            ref={titleRef}
+            className="doc-title-input"
+            value={docTitle}
+            placeholder="Untitled"
+            aria-label="Document title"
+            onChange={(e) =>
+              setDocTitle(e.target.value)
+            }
+            onBlur={commitTitle}
+            onKeyDown={handleTitleKeyDown}
+            maxLength={80}
+          />
+        ) : (
+          <button
+            ref={titleBtnRef}
+            className={
+              "doc-title" +
+              (isReadOnly ? " read-only" : "")
+            }
+            onClick={
+              isReadOnly
+                ? undefined
+                : () => setEditingTitle(true)
+            }
+            title={
+              isReadOnly
+                ? docTitle || "Untitled"
+                : "Click to rename"
+            }
+            aria-label={`Document: ${docTitle || "Untitled"}`}
+            disabled={isReadOnly}
+          >
+            {docTitle || "Untitled"}
+          </button>
+        )}
         <span className="encryption-wrap">
           <button
             className="encryption-btn"
