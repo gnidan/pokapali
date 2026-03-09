@@ -83,7 +83,7 @@ function saveLabel(
   ackCount: number,
 ): string {
   if (saveState === "saved" && ackCount > 0) {
-    return `Saved to ${ackCount} ${ackCount === 1 ? "relay" : "relays"}`;
+    return `Saved to ${ackCount} ${ackCount === 1 ? "pinner" : "pinners"}`;
   }
   return SAVE_LABELS[saveState];
 }
