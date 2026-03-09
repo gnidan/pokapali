@@ -590,12 +590,30 @@ function createCollabDoc(
       // Persist to Helia + publish IPNS + announce.
       // Fire-and-forget: don't block the UI on slow
       // DHT operations.
+      const cidShort = cid.toString().slice(0, 16);
+      console.log(
+        "[pokapali] pushSnapshot: cid=" +
+          cidShort + "... clockSum=" + clockSum,
+      );
       (async () => {
         const helia = getHelia();
-        await helia.blockstore.put(cid, block);
+        console.log(
+          "[pokapali] blockstore.put...",
+          cidShort + "...",
+        );
+        await Promise.resolve(
+          helia.blockstore.put(cid, block),
+        );
+        console.log(
+          "[pokapali] blockstore.put done,"
+            + " publishing IPNS...",
+        );
         await publishIPNS(
           helia, keys.ipnsKeyBytes!, cid,
           clockSum,
+        );
+        console.log(
+          "[pokapali] IPNS published, announcing...",
         );
         if (params.appId && params.pubsub) {
           await announceSnapshot(
@@ -603,6 +621,9 @@ function createCollabDoc(
             params.appId,
             ipnsName,
             cid.toString(),
+          );
+          console.log(
+            "[pokapali] announce sent",
           );
         }
       })().catch((err: unknown) => {

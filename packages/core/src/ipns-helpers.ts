@@ -38,6 +38,9 @@ async function enqueuePublish(
     // A publish is already in flight. Replace any
     // pending CID with the newest one — stale CIDs
     // are pointless to publish.
+    console.log(
+      "[pokapali] IPNS publish queued (in-flight)",
+    );
     entry.pending = { cid, seq };
     return;
   }
@@ -104,6 +107,12 @@ export async function publishIPNS(
     cid,
     BigInt(clockSum),
     async (cidToPublish, seq) => {
+      console.log(
+        "[pokapali] IPNS doPublish: seq=" +
+          seq + " cid=" +
+          cidToPublish.toString().slice(0, 16) +
+          "...",
+      );
       const privateKey = await generateKeyPairFromSeed(
         "Ed25519",
         ipnsKeyBytes,
@@ -111,7 +120,13 @@ export async function publishIPNS(
 
       const delegated = (helia.libp2p.services as any)
         .delegatedRouting;
-      if (!delegated?.putIPNS) return;
+      if (!delegated?.putIPNS) {
+        console.warn(
+          "[pokapali] IPNS: no delegatedRouting"
+            + ".putIPNS — skipping",
+        );
+        return;
+      }
 
       const keyCid = CIDClass.createV1(
         LIBP2P_KEY_CODEC,
@@ -131,13 +146,25 @@ export async function publishIPNS(
             });
           const existingSeq =
             existing.sequence ?? 0n;
+          console.log(
+            "[pokapali] IPNS existing seq=" +
+              existingSeq +
+              " clockSum seq=" + seq,
+          );
           if (existingSeq >= effectiveSeq) {
             effectiveSeq = existingSeq + 1n;
           }
         } catch {
-          // No existing record or fetch failed
+          console.log(
+            "[pokapali] IPNS no existing record",
+          );
         }
       }
+
+      console.log(
+        "[pokapali] IPNS publishing with"
+          + " effectiveSeq=" + effectiveSeq,
+      );
 
       const record =
         await (createIPNSRecord as Function)(
@@ -157,6 +184,10 @@ export async function publishIPNS(
           keyCid,
           record,
           { signal: ctrl.signal },
+        );
+        console.log(
+          "[pokapali] IPNS putIPNS success"
+            + " seq=" + effectiveSeq,
         );
       } finally {
         clearTimeout(timer);
