@@ -263,6 +263,18 @@ function createCollabDoc(
     emit("snapshot-recommended");
   });
 
+  // If the subdoc is already dirty (e.g. _meta was
+  // populated before we registered), fire the event
+  // so the auto-save debounce starts.
+  if (subdocManager.isDirty) {
+    // Defer to next microtask so callers can attach
+    // event listeners first.
+    queueMicrotask(() => {
+      checkStatus();
+      emit("snapshot-recommended");
+    });
+  }
+
   // Share relay info with WebRTC peers via awareness.
   let relaySharing: RelaySharing | null = null;
   if (params.roomDiscovery) {
