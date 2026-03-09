@@ -481,7 +481,7 @@ function SnapshotsDetail({
             Acked
           </span>
           <span className="cs-detail-mono">
-            {info.ackedBy.length} pinner(s)
+            {info.ackedBy.length} {info.ackedBy.length === 1 ? "pinner" : "pinners"}
           </span>
         </div>
       )}
@@ -557,7 +557,7 @@ export function ConnectionStatus({
         aria-expanded={expanded}
         aria-label={
           `${info.editors} user(s), ` +
-          `${connectedNodes} node(s), ` +
+          `${connectedNodes} ${connectedNodes === 1 ? "node" : "nodes"}, ` +
           `${info.ipfsPeers} network peers`
         }
       >
