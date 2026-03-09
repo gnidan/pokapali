@@ -273,18 +273,30 @@ export async function resolveIPNS(
  *
  * @returns a stop function to cancel polling
  */
+export interface WatchIPNSOptions {
+  intervalMs?: number;
+  onPollStart?: () => void;
+}
+
 export function watchIPNS(
   helia: Helia,
   publicKeyBytes: Uint8Array,
   onUpdate: (cid: CID) => void,
-  intervalMs = 30_000,
+  intervalOrOpts?: number | WatchIPNSOptions,
 ): () => void {
+  const opts = typeof intervalOrOpts === "number"
+    ? { intervalMs: intervalOrOpts }
+    : intervalOrOpts ?? {};
+  const intervalMs = opts.intervalMs ?? 30_000;
+
   let lastCid: string | null = null;
   let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null =
+    null;
 
   async function poll() {
     if (stopped) return;
+    opts.onPollStart?.();
     try {
       const cid = await resolveIPNS(
         helia,
