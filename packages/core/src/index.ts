@@ -55,6 +55,7 @@ import {
 } from "./helia.js";
 import {
   publishIPNS,
+  resolveIPNS,
   watchIPNS,
 } from "./ipns-helpers.js";
 import {
@@ -1222,10 +1223,51 @@ export function createCollabLib(
           );
       }
 
-      // Initial IPNS resolve + snapshot load is handled
-      // inside createCollabDoc via watchIPNS (fires
-      // immediately on first poll) and applySnapshotFromCID
-      // which properly updates seq/prev chain state.
+      // Resolve IPNS to load the latest snapshot from
+      // the network on startup. Works for both writers
+      // (recovery after all tabs closed) and readers.
+      // Non-blocking so the doc opens immediately for
+      // WebRTC sync; Yjs CRDT merge is safe.
+      if (keys.readKey) {
+        (async () => {
+          try {
+            const pubKeyBytes =
+              hexToBytes(ipnsName);
+            const helia = getHelia();
+            const tipCid = await resolveIPNS(
+              helia,
+              pubKeyBytes,
+            );
+            if (tipCid) {
+              console.log(
+                "[pokapali] IPNS resolved:",
+                tipCid.toString(),
+              );
+              const block =
+                await fetchBlock(helia, tipCid);
+              const node = decodeSnapshot(block);
+              const rk = keys.readKey!;
+              const plaintext =
+                await decryptSnapshot(node, rk);
+              subdocManager.applySnapshot(plaintext);
+              console.log(
+                "[pokapali] initial snapshot applied",
+              );
+            } else {
+              console.log(
+                "[pokapali] IPNS resolve returned" +
+                  " null",
+              );
+            }
+          } catch (err) {
+            console.error(
+              "[pokapali] initial snapshot" +
+                " load failed:",
+              err,
+            );
+          }
+        })();
+      }
 
       const doc = createCollabDoc({
         subdocManager,
