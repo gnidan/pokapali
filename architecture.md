@@ -1,6 +1,6 @@
 # P2P Collaborative Text Editor — Architecture Reference
 
-A serverless, encrypted, peer-to-peer collaborative document sync library using Yjs subdocuments, WebRTC, IndexedDB, and Helia/IPFS for offline persistence. Designed to be dropped into any Yjs-aware editor (TipTap, ProseMirror, CodeMirror, etc.) with minimal integration surface. Namespace write enforcement is structural: each namespace is a separate Yjs subdocument synced over its own y-webrtc room, and peers only join rooms for namespaces they can write to. Read-only access to all namespaces is delivered via IPNS pubsub-driven snapshot updates.
+A serverless, encrypted, peer-to-peer collaborative document sync library using Yjs subdocuments, WebRTC, IndexedDB, and Helia/IPFS for offline persistence. Designed to be dropped into any Yjs-aware editor (TipTap, ProseMirror, CodeMirror, etc.) with minimal integration surface. Namespace write enforcement is structural: each namespace is a separate Yjs subdocument synced over its own y-webrtc room, and peers only join rooms for namespaces they can write to. Read-only access to all namespaces is delivered via GossipSub-announced and IPNS-polled snapshot updates.
 
 ---
 
@@ -16,7 +16,7 @@ A serverless, encrypted, peer-to-peer collaborative document sync library using 
 - **App namespacing** is a public string baked into key derivation — not a secret, not authentication
 - **Recoverability is structural** — every IPFS snapshot is a complete, self-sufficient document state
 - **Namespace enforcement is structural** — each namespace is a separate Yjs subdocument with its own y-webrtc room; peers only join rooms for namespaces they can write to, so unauthorized writes are impossible at the transport level
-- **Read access is all-or-nothing and snapshot-driven** — `readKey` decrypts all namespaces; peers receive read-only namespace updates via IPNS pubsub-triggered snapshot fetches, not WebRTC, so read latency equals snapshot interval
+- **Read access is all-or-nothing and snapshot-driven** — `readKey` decrypts all namespaces; peers receive read-only namespace updates via GossipSub-announced and IPNS-polled snapshot fetches, not WebRTC, so read latency equals snapshot interval
 - **The library has no opinion on content** — it enforces which namespace access key gates which subdocument; what lives in those subdocuments is entirely the application's business
 - **The library has no opinion on snapshot timing** — it exposes `pushSnapshot()` and emits `snapshot-recommended`; when to call it is application policy
 
@@ -49,7 +49,7 @@ import { createCollabLib } from "your-collab-lib";
 // namespaces: the set of subdocuments the library manages.
 // Each namespace becomes its own Y.Doc. Writable namespaces are synced
 // in real-time via y-webrtc; read-only namespaces are updated via
-// IPNS pubsub-driven snapshot fetches.
+// GossipSub-announced and IPNS-polled snapshot fetches.
 // The application decides what each namespace means — 'comments', 'suggestions',
 // 'reactions', 'tracked-changes', etc. The library just enforces access.
 const collab = createCollabLib({
@@ -104,7 +104,7 @@ const editor = new Editor({
 });
 ```
 
-Read-only peers should not be connected to the content WebRTC room — they receive content updates via IPNS pubsub snapshot fetches. The application should reflect this in the editor configuration:
+Read-only peers should not be connected to the content WebRTC room — they receive content updates via GossipSub-announced and IPNS-polled snapshot fetches. The application should reflect this in the editor configuration:
 
 ```ts
 const isReadOnly = !doc.capability.namespaces.has("content");
@@ -128,7 +128,7 @@ The library deliberately does not call `pushSnapshot()` automatically on any tri
 
 ### Snapshot frequency affects read-only peer latency
 
-Peers who can only read a namespace (not write to it) receive updates for that namespace via IPNS pubsub-driven snapshot fetches — not via WebRTC. This means **snapshot frequency directly determines how stale read-only content appears to limited-capability peers.**
+Peers who can only read a namespace (not write to it) receive updates for that namespace via GossipSub-announced and IPNS-polled snapshot fetches — not via WebRTC. This means **snapshot frequency directly determines how stale read-only content appears to limited-capability peers.**
 
 For apps with comment-only or suggestion-only collaborators who need to see current content while annotating, a snapshot interval of **30–60 seconds during active editing** is a reasonable target. This balances read-only freshness against pinner load and IPFS overhead. The snapshot is event-driven from the read-only peer's perspective: the peer's Helia node is subscribed to the IPNS name's pubsub topic, so it receives the new IPNS record immediately when a trusted peer pushes, then fetches the block from a pinner. There is no polling. Total additional latency beyond the snapshot interval is typically a few seconds (pubsub propagation + pinner fetch).
 
@@ -291,7 +291,7 @@ An alternative design would use a single shared `Y.Doc` with namespace enforceme
 
 ### Read-only peers
 
-A peer with only `readKey` (no namespace access keys) joins no content rooms — only the awareness room. It receives all subdoc content from IPFS snapshots, updated via IPNS pubsub whenever a trusted peer pushes. The application should set the editor to read-only mode (`editable: false` in TipTap, `readOnly` in CodeMirror, etc.).
+A peer with only `readKey` (no namespace access keys) joins no content rooms — only the awareness room. It receives all subdoc content from IPFS snapshots, updated via GossipSub announcements (instant) and IPNS polling (30s fallback) whenever a trusted peer pushes. The application should set the editor to read-only mode (`editable: false` in TipTap, `readOnly` in CodeMirror, etc.).
 
 Read-only content is not real-time — it updates at snapshot frequency. For a commenter viewing content while annotating, this is typically fine: comments anchor via `Y.RelativePosition` against the local content state, and the positions resolve correctly regardless of minor staleness.
 
@@ -688,4 +688,4 @@ This could also evolve toward DIDs, UCANs, or other external identity layers wit
 
 P2P systems are inherently difficult to integration-test — there's no central server to assert against, and behavior depends on the combination of peers, capability levels, network timing, and CRDT merge order. Plan for this early; retrofitting a test harness onto a P2P library is painful.
 
-The library should include a test harness that spins up multiple in-process Yjs/Helia nodes with different capability URLs — e.g., one admin, one content+comments writer, one comments-only writer, one read-only peer — and exercises the core invariants: namespace isolation (a comments-only peer's local content mutations don't propagate), snapshot round-tripping (push a snapshot, cold-bootstrap a new peer from it, verify state), CRDT merge convergence (two writers edit concurrently, verify all peers converge), read-only delivery (push a snapshot, verify read-only peer receives it via IPNS pubsub), and revocation (rotate keys, verify old-capability peers are locked out of new rooms). The snapshot fetch coalescing logic (concurrent fetches, first-success-wins, CID list pruning) deserves its own unit tests with simulated fetch latencies.
+The library should include a test harness that spins up multiple in-process Yjs/Helia nodes with different capability URLs — e.g., one admin, one content+comments writer, one comments-only writer, one read-only peer — and exercises the core invariants: namespace isolation (a comments-only peer's local content mutations don't propagate), snapshot round-tripping (push a snapshot, cold-bootstrap a new peer from it, verify state), CRDT merge convergence (two writers edit concurrently, verify all peers converge), read-only delivery (push a snapshot, verify read-only peer receives it via GossipSub announcement), and revocation (rotate keys, verify old-capability peers are locked out of new rooms). The snapshot fetch coalescing logic (concurrent fetches, first-success-wins, CID list pruning) deserves its own unit tests with simulated fetch latencies.
