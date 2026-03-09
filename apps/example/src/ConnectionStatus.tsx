@@ -613,6 +613,26 @@ export function ConnectionStatus({
         </span>
 
         <SyncSummary info={info} />
+
+        {doc.capability.canPushSnapshots &&
+          !info.nodes.some(
+            (n) =>
+              n.connected &&
+              n.roles.includes("pinner"),
+          ) && (
+          <>
+            <span className="cs-divider" />
+            <span
+              className="cs-section cs-no-pinner"
+              title={
+                "No pinners connected — " +
+                "changes may not persist"
+              }
+            >
+              No pinners
+            </span>
+          </>
+        )}
       </button>
 
       {expanded && (

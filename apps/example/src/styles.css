@@ -548,13 +548,6 @@ body {
   background: #f3f4f6;
 }
 
-.no-pinner-warning {
-  font-size: 0.7rem;
-  color: #b45309;
-  background: #fef3c7;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-}
 
 .last-updated {
   font-size: 0.75rem;
@@ -731,6 +724,15 @@ body {
   font-size: 0.7rem;
   font-weight: 500;
   color: #ef4444;
+}
+
+.cs-no-pinner {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: #b45309;
+  background: #fef3c7;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
 }
 
 .cs-expand {
