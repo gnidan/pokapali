@@ -51,6 +51,7 @@ import {
   getHeliaPubsub,
   getHelia,
 } from "./helia.js";
+import { publishIPNS } from "./ipns-helpers.js";
 import {
   startRoomDiscovery,
 } from "./peer-discovery.js";
@@ -377,9 +378,20 @@ function createCollabDoc(
       const hash = await sha256.digest(block);
       const cid = CID.createV1(DAG_CBOR_CODE, hash);
       blocks.set(cid.toString(), block);
+
+      // Persist to Helia blockstore and publish IPNS
+      const helia = getHelia();
+      await helia.blockstore.put(cid, block);
+      await publishIPNS(
+        helia,
+        keys.ipnsKeyBytes!,
+        cid,
+      );
+
       prev = cid;
       seq++;
       checkStatus();
+      emit("snapshot-applied");
     },
 
     async rotate(): Promise<RotateResult> {
