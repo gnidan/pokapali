@@ -10,6 +10,12 @@ import {
 const startedAt = Date.now();
 const log = createLogger("http");
 
+// Hard cap on request body size to prevent memory
+// exhaustion before the pinner's rate limiter runs.
+// Slightly above the default maxBlockSizeBytes (5 MB)
+// to account for encoding overhead.
+const MAX_BODY_BYTES = 6_000_000;
+
 export interface HttpConfig {
   port: number;
   relay: Relay | null;
@@ -136,8 +142,27 @@ export function startHttpServer(
       if (req.method === "POST" && ingestMatch) {
         const ipnsName = ingestMatch[1];
         const chunks: Buffer[] = [];
+        let size = 0;
+        let aborted = false;
         for await (const chunk of req) {
+          size += (chunk as Buffer).length;
+          if (size > MAX_BODY_BYTES) {
+            aborted = true;
+            req.destroy();
+            break;
+          }
           chunks.push(chunk as Buffer);
+        }
+        if (aborted) {
+          res.writeHead(413, {
+            "content-type": "application/json",
+          });
+          res.end(
+            JSON.stringify({
+              error: "body too large",
+            }),
+          );
+          return;
         }
         const body = new Uint8Array(
           Buffer.concat(chunks),
