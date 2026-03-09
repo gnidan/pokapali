@@ -51,6 +51,7 @@ export interface SnapshotWatcher {
   ): void;
   readonly latestAnnouncedSeq: number;
   readonly fetchState: SnapshotFetchState;
+  readonly hasAppliedSnapshot: boolean;
   destroy(): void;
 }
 
@@ -74,6 +75,7 @@ export function createSnapshotWatcher(
   let retryAttempt = 0;
   let fetchState: SnapshotFetchState =
     { status: "idle" };
+  let hasAppliedSnapshot = false;
   let retryTimer: ReturnType<
     typeof setTimeout
   > | null = null;
@@ -117,6 +119,7 @@ export function createSnapshotWatcher(
       });
       try {
         await onSnapshot(CIDClass.parse(cidStr));
+        hasAppliedSnapshot = true;
         pendingCid = null;
         retryAttempt = 0;
         setFetchState({ status: "idle" });
@@ -150,6 +153,7 @@ export function createSnapshotWatcher(
     });
     const cid = CIDClass.parse(ann.cid);
     onSnapshot(cid).then(() => {
+      hasAppliedSnapshot = true;
       setFetchState({ status: "idle" });
       announceSnapshot(
         pubsub, appId, ipnsName, ann.cid,
@@ -185,6 +189,7 @@ export function createSnapshotWatcher(
         try {
           pendingCid = cidStr;
           await onSnapshot(cid);
+          hasAppliedSnapshot = true;
           pendingCid = null;
           setFetchState({ status: "idle" });
           announceSnapshot(
@@ -242,6 +247,7 @@ export function createSnapshotWatcher(
             startedAt: Date.now(),
           });
           await onSnapshot(tipCid);
+          hasAppliedSnapshot = true;
           pendingCid = null;
           setFetchState({ status: "idle" });
           announceSnapshot(
@@ -311,6 +317,10 @@ export function createSnapshotWatcher(
 
     get fetchState() {
       return fetchState;
+    },
+
+    get hasAppliedSnapshot() {
+      return hasAppliedSnapshot;
     },
 
     destroy() {

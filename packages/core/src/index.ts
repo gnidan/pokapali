@@ -131,6 +131,8 @@ export interface CollabDoc {
   readonly latestAnnouncedSeq: number;
   /** Current snapshot fetch lifecycle state. */
   readonly snapshotFetchState: SnapshotFetchState;
+  /** True after first remote snapshot applied. */
+  readonly hasAppliedSnapshot: boolean;
   pushSnapshot(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
@@ -462,6 +464,11 @@ function createCollabDoc(
     get snapshotFetchState(): SnapshotFetchState {
       return snapshotWatcher?.fetchState
         ?? { status: "idle" };
+    },
+
+    get hasAppliedSnapshot(): boolean {
+      return snapshotWatcher
+        ?.hasAppliedSnapshot ?? false;
     },
 
     async pushSnapshot(): Promise<void> {
