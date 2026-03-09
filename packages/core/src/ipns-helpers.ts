@@ -13,6 +13,8 @@ import type { CID } from "multiformats/cid";
  * @param ipnsKeyBytes 32-byte Ed25519 seed
  * @param cid          CID to publish
  */
+const PUBLISH_TIMEOUT_MS = 30_000;
+
 export async function publishIPNS(
   helia: Helia,
   ipnsKeyBytes: Uint8Array,
@@ -23,7 +25,18 @@ export async function publishIPNS(
     ipnsKeyBytes,
   );
   const name = ipns(helia);
-  await name.publish(privateKey, cid);
+  const ctrl = new AbortController();
+  const timer = setTimeout(
+    () => ctrl.abort(),
+    PUBLISH_TIMEOUT_MS,
+  );
+  try {
+    await name.publish(privateKey, cid, {
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -33,17 +46,28 @@ export async function publishIPNS(
  * @param publicKeyBytes raw 32-byte Ed25519 public key
  * @returns resolved CID or null if resolution fails
  */
+const RESOLVE_TIMEOUT_MS = 15_000;
+
 export async function resolveIPNS(
   helia: Helia,
   publicKeyBytes: Uint8Array,
 ): Promise<CID | null> {
   const publicKey = publicKeyFromRaw(publicKeyBytes);
   const name = ipns(helia);
+  const ctrl = new AbortController();
+  const timer = setTimeout(
+    () => ctrl.abort(),
+    RESOLVE_TIMEOUT_MS,
+  );
   try {
-    const result = await name.resolve(publicKey);
+    const result = await name.resolve(publicKey, {
+      signal: ctrl.signal,
+    });
     return result.cid;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

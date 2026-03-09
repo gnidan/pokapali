@@ -77,6 +77,9 @@ describe("publishIPNS", () => {
     expect(mockPublish).toHaveBeenCalledWith(
       fakePrivKey,
       cid,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 });
@@ -106,6 +109,9 @@ describe("resolveIPNS", () => {
     );
     expect(mockResolve).toHaveBeenCalledWith(
       fakePubKey,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
     );
     expect(result).toBe(cid);
   });
