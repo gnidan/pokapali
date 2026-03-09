@@ -74,123 +74,10 @@ function CopyRow({
   );
 }
 
-function InviteButton({
-  doc,
-}: {
-  doc: CollabDoc;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(
-    null,
-  );
-  const timer = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
-
-  const flashCopied = useCallback(() => {
-    setCopied(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(
-      () => setCopied(false),
-      1500,
-    );
-  }, []);
-
-  const generate = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const inviteUrl = await doc.inviteUrl({
-        namespaces: ["content"],
-      });
-      setUrl(inviteUrl);
-      await navigator.clipboard.writeText(inviteUrl);
-      flashCopied();
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : String(e),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [doc, flashCopied]);
-
-  const copyExisting = useCallback(() => {
-    if (!url) return;
-    navigator.clipboard.writeText(url).then(() => {
-      flashCopied();
-    });
-  }, [url, flashCopied]);
-
-  return (
-    <div className="share-card">
-      <div className="share-card-header">
-        <span className="share-card-label">
-          Invite
-        </span>
-        <span className="share-card-desc">
-          Generate a write-access link for a
-          collaborator
-        </span>
-      </div>
-      {url ? (
-        <div className="share-card-row">
-          <input
-            type="text"
-            readOnly
-            value={truncateUrl(url)}
-            title={url}
-            onFocus={(e) => {
-              e.target.value = url;
-              e.target.select();
-            }}
-            onBlur={(e) => {
-              e.target.value = truncateUrl(url);
-            }}
-          />
-          <button
-            className="copy-btn"
-            onClick={copyExisting}
-          >
-            {copied ? "Copied!" : "Copy link"}
-          </button>
-        </div>
-      ) : (
-        <div className="share-card-row">
-          <button
-            className="generate-btn"
-            onClick={generate}
-            disabled={loading}
-          >
-            {loading
-              ? "Generating\u2026"
-              : "Generate invite link"}
-          </button>
-        </div>
-      )}
-      {error && (
-        <div className="share-error">{error}</div>
-      )}
-    </div>
-  );
-}
-
 export const SharePanel = forwardRef<
   HTMLDivElement,
   { doc: CollabDoc }
 >(function SharePanel({ doc }, ref) {
-  const isAdmin = doc.capability.isAdmin;
-  const canWrite =
-    doc.capability.namespaces.has("content");
-
   return (
     <div
       className="share-panel"
@@ -222,12 +109,9 @@ export const SharePanel = forwardRef<
       )}
       <CopyRow
         label="Read"
-        description="View only \u2014 cannot make changes"
+        description="View only — cannot make changes"
         value={doc.readUrl}
       />
-      {(isAdmin || canWrite) && (
-        <InviteButton doc={doc} />
-      )}
     </div>
   );
 });
