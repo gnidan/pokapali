@@ -621,4 +621,215 @@ describe("startRoomDiscovery", () => {
       rd.stop();
     });
   });
+
+  describe("discoverRelays", () => {
+    const PROVIDER_PID = "12D3KooWProvider1234";
+    const PROVIDER_ADDRS = [
+      "/ip4/5.6.7.8/tcp/4001/ws",
+    ];
+
+    function makeProvider(
+      pid: string,
+      addrs: string[],
+    ) {
+      return {
+        id: { toString: () => pid },
+        multiaddrs: addrs.map(
+          (a) => ({ toString: () => a }),
+        ),
+      };
+    }
+
+    it("finds and dials DHT provider",
+      async () => {
+      helia.routing.findProviders =
+        vi.fn(async function* () {
+          yield makeProvider(
+            PROVIDER_PID,
+            PROVIDER_ADDRS,
+          );
+        });
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(rd.relayPeerIds.has(PROVIDER_PID))
+        .toBe(true);
+      expect(helia.libp2p.dial)
+        .toHaveBeenCalled();
+      expect(upsertCachedRelay)
+        .toHaveBeenCalledWith(
+          PROVIDER_PID,
+          PROVIDER_ADDRS,
+        );
+
+      rd.stop();
+    });
+
+    it("skips already-connected provider",
+      async () => {
+      helia.libp2p.getConnections
+        .mockReturnValue([{
+          remotePeer: {
+            toString: () => PROVIDER_PID,
+          },
+        }]);
+
+      helia.routing.findProviders =
+        vi.fn(async function* () {
+          yield makeProvider(
+            PROVIDER_PID,
+            PROVIDER_ADDRS,
+          );
+        });
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+
+      // Should track without dialing
+      expect(rd.relayPeerIds.has(PROVIDER_PID))
+        .toBe(true);
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+
+      rd.stop();
+    });
+
+    it("skips provider with no browser-dialable " +
+       "addrs", async () => {
+      helia.routing.findProviders =
+        vi.fn(async function* () {
+          yield makeProvider(PROVIDER_PID, [
+            "/ip4/1.2.3.4/tcp/4001",
+            "/ip4/1.2.3.4/udp/4001/quic",
+          ]);
+        });
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(rd.relayPeerIds.has(PROVIDER_PID))
+        .toBe(false);
+
+      rd.stop();
+    });
+
+    it("aborts after FIND_TIMEOUT_MS",
+      async () => {
+      let abortSignal: AbortSignal | undefined;
+      helia.routing.findProviders =
+        vi.fn(async function* (
+          _cid: any,
+          opts?: { signal?: AbortSignal },
+        ) {
+          abortSignal = opts?.signal;
+          await new Promise<void>((_, reject) => {
+            opts?.signal?.addEventListener(
+              "abort",
+              () => reject(
+                new Error("aborted"),
+              ),
+            );
+          });
+        });
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(abortSignal).toBeDefined();
+      expect(abortSignal!.aborted).toBe(false);
+
+      // Advance past FIND_TIMEOUT_MS (15s)
+      await vi.advanceTimersByTimeAsync(16_000);
+
+      expect(abortSignal!.aborted).toBe(true);
+
+      rd.stop();
+    });
+
+    it("re-entrance guard prevents " +
+       "concurrent cycles", async () => {
+      // Track how many times findProviders
+      // is entered.
+      let firstCallResolve: () => void =
+        () => {};
+      let callCount = 0;
+      helia.routing.findProviders =
+        vi.fn(async function* () {
+          callCount++;
+          if (callCount === 1) {
+            // Block until we resolve manually
+            await new Promise<void>((resolve) => {
+              firstCallResolve = resolve;
+            });
+          }
+        });
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      // First cycle is running (blocked)
+      expect(callCount).toBe(1);
+
+      // Advance 10s (within FIND_TIMEOUT_MS)
+      // and trigger what would be an interval
+      // if it fired
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      // Still 1 — running flag blocks re-entry
+      expect(callCount).toBe(1);
+
+      // Let first cycle finish
+      firstCallResolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Now the next interval (at 30s) can run
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(callCount).toBe(2);
+
+      rd.stop();
+    });
+
+    it("handles findProviders errors " +
+       "gracefully", async () => {
+      helia.routing.findProviders =
+        vi.fn(async function* () {
+          throw new Error("network failure");
+        });
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+
+      // Should not throw
+      await vi.advanceTimersByTimeAsync(1);
+
+      // Discovery should recover: next cycle
+      // can run (running flag reset)
+      helia.routing.findProviders =
+        vi.fn(async function* () {
+          yield makeProvider(
+            PROVIDER_PID,
+            PROVIDER_ADDRS,
+          );
+        });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(rd.relayPeerIds.has(PROVIDER_PID))
+        .toBe(true);
+
+      rd.stop();
+    });
+  });
 });
