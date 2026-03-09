@@ -33,6 +33,8 @@ const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
 const REPUBLISH_PER_NAME_DELAY_MS = 5_000;
 const REPUBLISH_TIMEOUT_MS = 15_000;
 const REANNOUNCE_INTERVAL_MS = 30_000;
+const PERSIST_INTERVAL_MS = 60_000;
+const PERSIST_DEBOUNCE_MS = 5_000;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -112,6 +114,30 @@ export async function createPinner(
   let reannounceInterval: ReturnType<
     typeof setInterval
   > | null = null;
+  let persistInterval: ReturnType<
+    typeof setInterval
+  > | null = null;
+  let persistDebounceTimer: ReturnType<
+    typeof setTimeout
+  > | null = null;
+  let dirty = false;
+
+  function markDirty(): void {
+    dirty = true;
+    // Debounce: persist within 5s of last change
+    if (persistDebounceTimer) {
+      clearTimeout(persistDebounceTimer);
+    }
+    persistDebounceTimer = setTimeout(() => {
+      persistDebounceTimer = null;
+      if (dirty && !stopped) {
+        dirty = false;
+        persistState().catch((err) => {
+          log.warn("debounced persist failed:", err);
+        });
+      }
+    }, PERSIST_DEBOUNCE_MS);
+  }
 
   async function storeBlock(
     cid: CID,
@@ -180,6 +206,7 @@ export async function createPinner(
       const node = decodeSnapshot(block);
       knownNames.add(ipnsName);
       history.add(ipnsName, cid, node.ts);
+      markDirty();
       log.debug(
         `fetched block for`
         + ` ${ipnsName.slice(0, 12)}...`
@@ -409,6 +436,16 @@ export async function createPinner(
         }, 5 * 60_000);
       }
 
+      // Periodic state persistence as safety net
+      persistInterval = setInterval(() => {
+        if (dirty && !stopped) {
+          dirty = false;
+          persistState().catch((err) => {
+            log.warn("periodic persist failed:", err);
+          });
+        }
+      }, PERSIST_INTERVAL_MS);
+
       // Periodic re-announce with inline blocks
       if (config.pubsub) {
         reannounceInterval = setInterval(
@@ -431,6 +468,12 @@ export async function createPinner(
       }
       if (reannounceInterval) {
         clearInterval(reannounceInterval);
+      }
+      if (persistInterval) {
+        clearInterval(persistInterval);
+      }
+      if (persistDebounceTimer) {
+        clearTimeout(persistDebounceTimer);
       }
       await persistState();
     },
@@ -498,6 +541,7 @@ export async function createPinner(
                 lastAckedCid.set(
                   ipnsName, cidStr,
                 );
+                markDirty();
                 log.debug(
                   `acked`
                   + ` ${ipnsName.slice(0, 12)}...`
@@ -556,6 +600,7 @@ export async function createPinner(
       knownNames.add(ipnsName);
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
+      markDirty();
 
       return true;
     },
