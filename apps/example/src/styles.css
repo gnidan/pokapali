@@ -581,6 +581,12 @@ body {
   background: #e2e8f0;
 }
 
+.cs-behind {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #f97316;
+}
+
 .cs-expand {
   margin-left: auto;
   font-size: 0.7rem;
