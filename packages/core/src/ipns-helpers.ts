@@ -49,9 +49,8 @@ async function enqueuePublish(
     try {
       await doPublish(currentCid, currentSeq);
     } catch (err) {
-      console.log(
-        "[pokapali] IPNS publish failed:",
-        (err as Error).message,
+      console.error(
+        "[pokapali] IPNS publish failed:", err,
       );
     }
 

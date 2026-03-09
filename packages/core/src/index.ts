@@ -474,9 +474,9 @@ function createCollabDoc(
           );
         }
       })().catch((err: unknown) => {
-        console.log(
+        console.error(
           "[pokapali] IPNS publish/announce failed:",
-          (err as Error).message,
+          err,
         );
       });
     },
