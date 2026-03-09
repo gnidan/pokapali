@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "dev:node": "npx pokapali --storage-path /tmp/pokapali-node --app-ids pokapali-example --port 3001"
+    "dev:node": "npx pokapali --storage-path /tmp/pokapali-node --relay --pin pokapali-example --port 3001"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -7,23 +7,33 @@ import { startRelay } from "../src/relay.js";
 function parseArgs(argv: string[]): {
   port: number;
   storagePath: string;
-  appIds: string[];
+  relay: boolean;
+  pinApps: string[];
   announceAddrs: string[];
 } {
   let port = 3000;
   let storagePath = "";
-  let appIds: string[] = [];
+  let relay = false;
+  let pinApps: string[] = [];
   let announceAddrs: string[] = [];
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--port" && argv[i + 1]) {
       port = parseInt(argv[++i], 10);
-    } else if (arg === "--storage-path" && argv[i + 1]) {
+    } else if (
+      arg === "--storage-path" && argv[i + 1]
+    ) {
       storagePath = argv[++i];
-    } else if (arg === "--app-ids" && argv[i + 1]) {
-      appIds = argv[++i].split(",").map((s) => s.trim());
-    } else if (arg === "--announce" && argv[i + 1]) {
+    } else if (arg === "--relay") {
+      relay = true;
+    } else if (arg === "--pin" && argv[i + 1]) {
+      pinApps = argv[++i]
+        .split(",")
+        .map((s) => s.trim());
+    } else if (
+      arg === "--announce" && argv[i + 1]
+    ) {
       announceAddrs = argv[++i]
         .split(",")
         .map((s) => s.trim());
@@ -34,12 +44,16 @@ function parseArgs(argv: string[]): {
     console.error("--storage-path is required");
     process.exit(1);
   }
-  if (appIds.length === 0) {
-    console.error("--app-ids is required");
+  if (!relay && pinApps.length === 0) {
+    console.error(
+      "at least one of --relay or --pin is required",
+    );
     process.exit(1);
   }
 
-  return { port, storagePath, appIds, announceAddrs };
+  return {
+    port, storagePath, relay, pinApps, announceAddrs,
+  };
 }
 
 async function main() {
@@ -50,90 +64,126 @@ async function main() {
     console.error("uncaught exception:", err.message);
   });
 
-  const { port, storagePath, appIds, announceAddrs } =
-    parseArgs(process.argv);
+  const {
+    port, storagePath, relay, pinApps, announceAddrs,
+  } = parseArgs(process.argv);
 
-  const pinner = await createPinner({
-    appIds,
-    storagePath,
-  });
-
-  await pinner.start();
-  console.error(`node started on port ${port}`);
-  console.error(`  app-ids: ${appIds.join(", ")}`);
+  const modes = [
+    relay ? "relay" : "",
+    pinApps.length > 0 ? "pin" : "",
+  ].filter(Boolean).join("+");
+  console.error(`pokapali node starting (${modes})`);
   console.error(`  storage: ${storagePath}`);
 
-  // Start libp2p relay for GossipSub peer discovery
-  // and circuit relay. Browsers find this node via
-  // DHT and connect for signaling relay.
-  const relay = await startRelay({
-    appIds,
-    storagePath,
-    announceAddrs,
-  });
-  console.error("relay started");
-  for (const ma of relay.multiaddrs()) {
-    console.error(`  ${ma}`);
+  let relayHandle: Awaited<
+    ReturnType<typeof startRelay>
+  > | null = null;
+  let pinner: Awaited<
+    ReturnType<typeof createPinner>
+  > | null = null;
+
+  if (relay) {
+    relayHandle = await startRelay({
+      storagePath,
+      announceAddrs,
+    });
+    console.error("relay started");
+    for (const ma of relayHandle.multiaddrs()) {
+      console.error(`  ${ma}`);
+    }
   }
 
-  const server = createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-
-    if (req.method === "GET" && url.pathname === "/health") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-
-    const ingestMatch = url.pathname.match(
-      /^\/ingest\/([a-zA-Z0-9._-]+)$/
+  if (pinApps.length > 0) {
+    pinner = await createPinner({
+      appIds: pinApps,
+      storagePath,
+    });
+    await pinner.start();
+    console.error(
+      `pinner started for: ${pinApps.join(", ")}`,
     );
-    if (req.method === "POST" && ingestMatch) {
-      const ipnsName = ingestMatch[1];
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(chunk as Buffer);
-      }
-      const body = new Uint8Array(Buffer.concat(chunks));
 
-      if (body.length === 0) {
-        res.writeHead(400, {
-          "content-type": "application/json",
-        });
-        res.end(JSON.stringify({ error: "empty body" }));
-        return;
-      }
+    const server = createServer(async (req, res) => {
+      const url = new URL(
+        req.url ?? "/",
+        `http://localhost:${port}`,
+      );
 
-      const accepted = await pinner.ingest(ipnsName, body);
-      if (accepted) {
-        console.error(`ingested block for ${ipnsName}`);
+      if (
+        req.method === "GET" &&
+        url.pathname === "/health"
+      ) {
         res.writeHead(200, {
           "content-type": "application/json",
         });
         res.end(JSON.stringify({ ok: true }));
-      } else {
-        console.error(
-          `rejected block for ${ipnsName}`
-        );
-        res.writeHead(429, {
-          "content-type": "application/json",
-        });
-        res.end(JSON.stringify({ error: "rejected" }));
+        return;
       }
-      return;
-    }
 
-    res.writeHead(404, { "content-type": "application/json" });
-    res.end(JSON.stringify({ error: "not found" }));
-  });
+      const ingestMatch = url.pathname.match(
+        /^\/ingest\/([a-zA-Z0-9._-]+)$/,
+      );
+      if (req.method === "POST" && ingestMatch) {
+        const ipnsName = ingestMatch[1];
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(chunk as Buffer);
+        }
+        const body = new Uint8Array(
+          Buffer.concat(chunks),
+        );
 
-  server.listen(port);
+        if (body.length === 0) {
+          res.writeHead(400, {
+            "content-type": "application/json",
+          });
+          res.end(
+            JSON.stringify({ error: "empty body" }),
+          );
+          return;
+        }
+
+        const accepted = await pinner!.ingest(
+          ipnsName, body,
+        );
+        if (accepted) {
+          console.error(
+            `ingested block for ${ipnsName}`,
+          );
+          res.writeHead(200, {
+            "content-type": "application/json",
+          });
+          res.end(JSON.stringify({ ok: true }));
+        } else {
+          console.error(
+            `rejected block for ${ipnsName}`,
+          );
+          res.writeHead(429, {
+            "content-type": "application/json",
+          });
+          res.end(
+            JSON.stringify({ error: "rejected" }),
+          );
+        }
+        return;
+      }
+
+      res.writeHead(404, {
+        "content-type": "application/json",
+      });
+      res.end(
+        JSON.stringify({ error: "not found" }),
+      );
+    });
+
+    server.listen(port);
+    console.error(`HTTP server on port ${port}`);
+  }
 
   async function shutdown() {
     console.error("shutting down...");
-    server.close();
-    await relay.stop();
-    await pinner.stop();
+    if (relayHandle) await relayHandle.stop();
+    if (pinner) await pinner.stop();
     console.error("stopped");
     process.exit(0);
   }

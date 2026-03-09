@@ -65,7 +65,7 @@ async function loadOrCreateKey(
 }
 
 export interface RelayConfig {
-  appIds: string[];
+  appIds?: string[];
   storagePath: string;
   wsPort?: number;
   // Public multiaddrs to announce (e.g. for autoTLS).
@@ -284,8 +284,9 @@ export async function startRelay(
   log("subscribed to", SIGNALING_TOPIC);
 
   // Compute well-known CIDs for each app ID
+  const appIds = config.appIds ?? [];
   const cids = await Promise.all(
-    config.appIds.map(appIdToCID),
+    appIds.map(appIdToCID),
   );
 
   async function provideAll() {
@@ -301,19 +302,19 @@ export async function startRelay(
         });
         clearTimeout(timer);
         log(
-          `provide OK for ${config.appIds[i]}`,
+          `provide OK for ${appIds[i]}`,
         );
       } catch (err) {
         const msg = (err as Error).message ?? "";
         if (msg.includes("abort")) {
           log(
             `provide TIMEOUT for`,
-            `${config.appIds[i]}`,
+            `${appIds[i]}`,
           );
         } else {
           log(
             `provide FAIL for`,
-            `${config.appIds[i]}: ${msg}`,
+            `${appIds[i]}: ${msg}`,
           );
         }
       }
