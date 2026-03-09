@@ -51,7 +51,10 @@ import {
   getHeliaPubsub,
   getHelia,
 } from "./helia.js";
-import { publishIPNS } from "./ipns-helpers.js";
+import {
+  publishIPNS,
+  resolveIPNS,
+} from "./ipns-helpers.js";
 import { announceSnapshot } from "./announce.js";
 import {
   startRoomDiscovery,
@@ -142,6 +145,14 @@ function bytesToHex(bytes: Uint8Array): string {
     bytes,
     (b) => b.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
 }
 
 type SyncStatus =
@@ -657,11 +668,17 @@ function createCollabDoc(
 
     async loadVersion(cid: CID) {
       assertNotDestroyed();
-      const block = blocks.get(cid.toString());
+      let block = blocks.get(cid.toString());
       if (!block) {
-        throw new Error(
-          "Unknown CID: " + cid.toString(),
-        );
+        // Fall back to Helia blockstore
+        try {
+          const helia = getHelia();
+          block = await helia.blockstore.get(cid);
+        } catch {
+          throw new Error(
+            "Unknown CID: " + cid.toString(),
+          );
+        }
       }
       if (!readKey) {
         throw new Error("No readKey available");
@@ -947,6 +964,33 @@ export function createCollabLib(
           await ed25519KeyPairFromSeed(
             keys.ipnsKeyBytes,
           );
+      }
+
+      // Read-only: resolve IPNS to load initial
+      // snapshot from the network.
+      const isReadOnly =
+        !keys.namespaceKeys ||
+        Object.keys(keys.namespaceKeys).length === 0;
+      if (isReadOnly && keys.readKey) {
+        const pubKeyBytes = hexToBytes(ipnsName);
+        const helia = getHelia();
+        const tipCid = await resolveIPNS(
+          helia,
+          pubKeyBytes,
+        );
+        if (tipCid) {
+          try {
+            const block =
+              await helia.blockstore.get(tipCid);
+            const node = decodeSnapshot(block);
+            const plaintext =
+              await decryptSnapshot(node, keys.readKey);
+            subdocManager.applySnapshot(plaintext);
+          } catch {
+            // Best-effort: snapshot may not be
+            // available yet
+          }
+        }
       }
 
       return createCollabDoc({

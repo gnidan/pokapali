@@ -31,7 +31,9 @@ vi.mock("./helia.js", () => ({
   getHelia: vi.fn(() => ({
     blockstore: {
       put: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn(),
+      get: vi.fn().mockRejectedValue(
+        new Error("Not found"),
+      ),
     },
   })),
   _resetHeliaState: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock("./helia.js", () => ({
 
 vi.mock("./ipns-helpers.js", () => ({
   publishIPNS: vi.fn().mockResolvedValue(undefined),
+  resolveIPNS: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("./announce.js", () => ({
