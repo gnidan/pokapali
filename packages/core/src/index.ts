@@ -52,6 +52,12 @@ import {
   getHelia,
 } from "./helia.js";
 import {
+  publishIPNS,
+  resolveIPNS,
+  watchIPNS,
+} from "./ipns-helpers.js";
+import { announceSnapshot } from "./announce.js";
+import {
   startRoomDiscovery,
 } from "./peer-discovery.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
@@ -140,6 +146,14 @@ function bytesToHex(bytes: Uint8Array): string {
     bytes,
     (b) => b.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
 }
 
 type SyncStatus =
@@ -275,6 +289,60 @@ function createCollabDoc(
     setTimeout(publishRelays, 5_000);
   }
 
+  // Periodic re-announce for writers so pinners
+  // that join later learn about existing snapshots.
+  const REANNOUNCE_MS = 5 * 60_000;
+  let announceTimer: ReturnType<
+    typeof setInterval
+  > | null = null;
+  if (
+    cap.canPushSnapshots &&
+    params.appId &&
+    params.pubsub
+  ) {
+    const ps = params.pubsub;
+    announceTimer = setInterval(() => {
+      if (prev) {
+        announceSnapshot(
+          ps as any,
+          params.appId,
+          ipnsName,
+          prev.toString(),
+        );
+      }
+    }, REANNOUNCE_MS);
+  }
+
+  // Read-only watchers: poll IPNS for live updates
+  const isReadOnly =
+    !keys.namespaceKeys ||
+    Object.keys(keys.namespaceKeys).length === 0;
+  let stopWatch: (() => void) | null = null;
+  if (isReadOnly && readKey) {
+    const pubKeyBytes = hexToBytes(ipnsName);
+    const rk = readKey;
+    stopWatch = watchIPNS(
+      getHelia(),
+      pubKeyBytes,
+      async (cid) => {
+        try {
+          const helia = getHelia();
+          const block =
+            await helia.blockstore.get(cid);
+          blocks.set(cid.toString(), block);
+          const node = decodeSnapshot(block);
+          const plaintext =
+            await decryptSnapshot(node, rk);
+          subdocManager.applySnapshot(plaintext);
+          emit("snapshot-applied");
+        } catch {
+          // Best-effort: block may not be
+          // available yet
+        }
+      },
+    );
+  }
+
   function assertNotDestroyed() {
     if (destroyed) {
       throw new Error("CollabDoc destroyed");
@@ -377,9 +445,30 @@ function createCollabDoc(
       const hash = await sha256.digest(block);
       const cid = CID.createV1(DAG_CBOR_CODE, hash);
       blocks.set(cid.toString(), block);
+
+      // Persist to Helia blockstore and publish IPNS
+      const helia = getHelia();
+      await helia.blockstore.put(cid, block);
+      await publishIPNS(
+        helia,
+        keys.ipnsKeyBytes!,
+        cid,
+      );
+
       prev = cid;
       seq++;
       checkStatus();
+      emit("snapshot-applied");
+
+      // Announce on GossipSub so pinners discover it
+      if (params.appId && params.pubsub) {
+        await announceSnapshot(
+          params.pubsub as any,
+          params.appId,
+          ipnsName,
+          cid.toString(),
+        );
+      }
     },
 
     async rotate(): Promise<RotateResult> {
@@ -540,6 +629,12 @@ function createCollabDoc(
       if (relayShareTimer) {
         clearInterval(relayShareTimer);
       }
+      if (announceTimer) {
+        clearInterval(announceTimer);
+      }
+      if (stopWatch) {
+        stopWatch();
+      }
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
@@ -607,11 +702,17 @@ function createCollabDoc(
 
     async loadVersion(cid: CID) {
       assertNotDestroyed();
-      const block = blocks.get(cid.toString());
+      let block = blocks.get(cid.toString());
       if (!block) {
-        throw new Error(
-          "Unknown CID: " + cid.toString(),
-        );
+        // Fall back to Helia blockstore
+        try {
+          const helia = getHelia();
+          block = await helia.blockstore.get(cid);
+        } catch {
+          throw new Error(
+            "Unknown CID: " + cid.toString(),
+          );
+        }
       }
       if (!readKey) {
         throw new Error("No readKey available");
@@ -637,6 +738,12 @@ function createCollabDoc(
       destroyed = true;
       if (relayShareTimer) {
         clearInterval(relayShareTimer);
+      }
+      if (announceTimer) {
+        clearInterval(announceTimer);
+      }
+      if (stopWatch) {
+        stopWatch();
       }
       params.roomDiscovery?.stop();
       syncManager.destroy();
@@ -894,6 +1001,33 @@ export function createCollabLib(
           await ed25519KeyPairFromSeed(
             keys.ipnsKeyBytes,
           );
+      }
+
+      // Read-only: resolve IPNS to load initial
+      // snapshot from the network.
+      const isReadOnly =
+        !keys.namespaceKeys ||
+        Object.keys(keys.namespaceKeys).length === 0;
+      if (isReadOnly && keys.readKey) {
+        const pubKeyBytes = hexToBytes(ipnsName);
+        const helia = getHelia();
+        const tipCid = await resolveIPNS(
+          helia,
+          pubKeyBytes,
+        );
+        if (tipCid) {
+          try {
+            const block =
+              await helia.blockstore.get(tipCid);
+            const node = decodeSnapshot(block);
+            const plaintext =
+              await decryptSnapshot(node, keys.readKey);
+            subdocManager.applySnapshot(plaintext);
+          } catch {
+            // Best-effort: snapshot may not be
+            // available yet
+          }
+        }
       }
 
       return createCollabDoc({

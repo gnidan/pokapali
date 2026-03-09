@@ -28,8 +28,27 @@ vi.mock("./helia.js", () => ({
     getSubscribers: vi.fn(() => []),
     getTopics: vi.fn(() => []),
   })),
-  getHelia: vi.fn(() => ({})),
+  getHelia: vi.fn(() => ({
+    blockstore: {
+      put: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockRejectedValue(
+        new Error("Not found"),
+      ),
+    },
+  })),
   _resetHeliaState: vi.fn(),
+}));
+
+vi.mock("./ipns-helpers.js", () => ({
+  publishIPNS: vi.fn().mockResolvedValue(undefined),
+  resolveIPNS: vi.fn().mockResolvedValue(null),
+  watchIPNS: vi.fn().mockReturnValue(() => {}),
+}));
+
+vi.mock("./announce.js", () => ({
+  announceSnapshot: vi.fn().mockResolvedValue(
+    undefined,
+  ),
 }));
 
 vi.mock("./peer-discovery.js", () => ({
