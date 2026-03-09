@@ -17,6 +17,8 @@ export interface BlockGetter {
   blockstore: {
     get(cid: CID, opts?: { signal?: AbortSignal }):
       Promise<Uint8Array> | Uint8Array;
+    put?(cid: CID, block: Uint8Array):
+      Promise<CID> | CID | void;
   };
 }
 

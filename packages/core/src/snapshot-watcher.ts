@@ -98,7 +98,11 @@ export function createSnapshotWatcher(
     if (destroyed) return;
     pendingCid = ann.cid;
     const cid = CIDClass.parse(ann.cid);
-    onSnapshot(cid).catch((err) => {
+    onSnapshot(cid).then(() => {
+      announceSnapshot(
+        pubsub, appId, ipnsName, ann.cid,
+      );
+    }).catch((err) => {
       log.warn("announce apply failed:", err);
       scheduleRetry();
     });
@@ -119,9 +123,13 @@ export function createSnapshotWatcher(
       async (cid) => {
         if (destroyed) return;
         try {
-          pendingCid = cid.toString();
+          const cidStr = cid.toString();
+          pendingCid = cidStr;
           await onSnapshot(cid);
           pendingCid = null;
+          announceSnapshot(
+            pubsub, appId, ipnsName, cidStr,
+          );
         } catch {
           scheduleRetry();
         }
@@ -147,9 +155,13 @@ export function createSnapshotWatcher(
             "IPNS resolved:",
             tipCid.toString(),
           );
-          pendingCid = tipCid.toString();
+          const cidStr = tipCid.toString();
+          pendingCid = cidStr;
           await onSnapshot(tipCid);
           pendingCid = null;
+          announceSnapshot(
+            pubsub, appId, ipnsName, cidStr,
+          );
           log.info("initial snapshot applied");
         } else {
           log.debug("IPNS resolve returned null");

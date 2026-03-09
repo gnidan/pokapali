@@ -126,6 +126,15 @@ export function createSnapshotLifecycle(
         await decryptSnapshot(node, readKey);
 
       blocks.set(cidStr, block);
+
+      // Serve the validated block to other peers
+      // via bitswap.
+      if (helia.blockstore.put) {
+        Promise.resolve(
+          helia.blockstore.put(cid, block),
+        ).catch(() => {});
+      }
+
       onApply(plaintext);
 
       if (node.seq >= seq) {
