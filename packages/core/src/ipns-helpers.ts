@@ -15,22 +15,17 @@ const PUBLISH_TIMEOUT_MS = 30_000;
 /**
  * Publish an IPNS record mapping ipnsKeyBytes → cid.
  *
- * Creates the record offline, then publishes in two
- * parallel paths:
- *
- * 1. Direct delegated HTTP publish (fast, reliable) —
- *    we await this and resolve once it succeeds.
- *
- * 2. Full Helia routing publish (DHT + delegated) —
- *    fire-and-forget in the background. May hang in
- *    browser due to sparse DHT, but if it works the
- *    record propagates more broadly.
+ * Creates the record offline (no routing), then
+ * publishes directly via delegated HTTP. We bypass
+ * Helia's composed routing because it uses Promise.all
+ * across all routers — the DHT hangs indefinitely in
+ * browsers with sparse routing tables, blocking the
+ * entire publish.
  *
  * NOTE: Accessing helia.libp2p.services.delegatedRouting
- * directly is a code smell (couples us to Helia's
- * default service name). If Helia changes how it
- * registers the delegated router, this will silently
- * fall back to the full routing path only. Tracked as
+ * directly couples us to Helia's default service name.
+ * If Helia changes how it registers the delegated
+ * router, publish will silently no-op. Tracked as
  * tech debt.
  */
 export async function publishIPNS(
@@ -72,10 +67,6 @@ export async function publishIPNS(
     }
   }
 
-  // Path 2: Full Helia routing (DHT + delegated).
-  // Fire-and-forget — may hang in browser, but if
-  // it works, the record propagates more broadly.
-  name.publish(privateKey, cid).catch(() => {});
 }
 
 /**
