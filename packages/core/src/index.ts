@@ -593,6 +593,12 @@ function createCollabDoc(
       checkStatus();
       emit("snapshot-applied");
 
+      // Reset ack tracking synchronously so the UI
+      // clears immediately and early acks aren't dropped.
+      snapshotWatcher?.trackCidForAcks(
+        cid.toString(),
+      );
+
       // Persist to Helia + publish IPNS + announce.
       // Fire-and-forget: don't block the UI on slow
       // DHT operations.
@@ -626,9 +632,6 @@ function createCollabDoc(
             ipnsName,
             cid.toString(),
             clockSum,
-          );
-          snapshotWatcher?.trackCidForAcks(
-            cid.toString(),
           );
           log.debug("announce sent");
         }
