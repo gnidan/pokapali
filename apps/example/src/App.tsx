@@ -2,6 +2,12 @@ import { useState, useCallback, useEffect } from "react";
 import { createCollabLib } from "@pokapali/core";
 import type { CollabDoc } from "@pokapali/core";
 import { EditorView } from "./Editor";
+import {
+  loadRecent,
+  saveRecent,
+  removeRecent,
+  type RecentDoc,
+} from "./recentDocs";
 
 const LOCAL_SIGNALING = "ws://localhost:4444";
 const PUBLIC_SIGNALING =
@@ -24,35 +30,129 @@ const collab = createCollabLib({
   signalingUrls,
 });
 
+function roleOf(doc: CollabDoc): string {
+  if (doc.capability.isAdmin) return "Admin";
+  if (doc.capability.namespaces.size > 0) return "Writer";
+  return "Reader";
+}
+
+function recordDoc(doc: CollabDoc) {
+  const url =
+    doc.adminUrl ?? doc.writeUrl ?? doc.readUrl;
+  saveRecent(url, roleOf(doc));
+}
+
+function formatAge(ts: number): string {
+  const sec = Math.round((Date.now() - ts) / 1000);
+  if (sec < 60) return "just now";
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  return `${Math.round(sec / 86400)}d ago`;
+}
+
+function RecentDocsList({
+  onOpen,
+  loading,
+}: {
+  onOpen: (url: string) => void;
+  loading: boolean;
+}) {
+  const [docs, setDocs] = useState<RecentDoc[]>(
+    loadRecent,
+  );
+
+  if (docs.length === 0) return null;
+
+  return (
+    <div className="recent-docs">
+      <h3>Recent documents</h3>
+      <ul className="recent-list">
+        {docs.map((d) => (
+          <li key={d.docId} className="recent-item">
+            <button
+              className="recent-link"
+              disabled={loading}
+              onClick={() => onOpen(d.url)}
+            >
+              <span className="recent-id">
+                {d.docId}
+              </span>
+              <span className={
+                "badge " + d.role.toLowerCase()
+              }>
+                {d.role}
+              </span>
+              <span className="recent-age">
+                {formatAge(d.lastOpened)}
+              </span>
+            </button>
+            <button
+              className="recent-remove"
+              title="Remove"
+              onClick={() =>
+                setDocs((prev) => {
+                  removeRecent(d.docId);
+                  return prev.filter(
+                    (e) => e.docId !== d.docId,
+                  );
+                })
+              }
+            >
+              &times;
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const openAndRecord = useCallback(
+    (doc: CollabDoc) => {
+      recordDoc(doc);
+      onDoc(doc);
+    },
+    [onDoc],
+  );
 
   const handleCreate = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const doc = await collab.create();
-      onDoc(doc);
+      openAndRecord(doc);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
     }
-  }, [onDoc]);
+  }, [openAndRecord]);
+
+  const openByUrl = useCallback(
+    async (rawUrl: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const doc = await collab.open(rawUrl);
+        openAndRecord(doc);
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : String(e),
+        );
+        setLoading(false);
+      }
+    },
+    [openAndRecord],
+  );
 
   const handleOpen = useCallback(async () => {
     if (!url.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const doc = await collab.open(url.trim());
-      onDoc(doc);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setLoading(false);
-    }
-  }, [url, onDoc]);
+    await openByUrl(url.trim());
+  }, [url, openByUrl]);
 
   return (
     <div className="landing">
@@ -78,6 +178,10 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
         </div>
         {error && <p style={{ color: "#ef4444" }}>{error}</p>}
       </div>
+      <RecentDocsList
+        onOpen={openByUrl}
+        loading={loading}
+      />
     </div>
   );
 }
@@ -110,7 +214,10 @@ export function App() {
     setAutoOpening(true);
     collab.open(url).then(
       (d) => {
-        if (!cancelled) setDoc(d);
+        if (!cancelled) {
+          recordDoc(d);
+          setDoc(d);
+        }
       },
       (e) => {
         if (!cancelled) {
