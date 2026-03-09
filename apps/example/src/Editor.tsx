@@ -317,12 +317,18 @@ export function EditorView({
   }, [doc, startDebounce]);
 
   const contentDoc = doc.subdoc("content");
+  // Only gate on fragment readiness for read-only
+  // users. Writers need to mount immediately so they
+  // can create content. Readers must wait so Tiptap
+  // doesn't insert a default empty paragraph that
+  // merges as a spurious newline.
   const fragmentReady = useFragmentReady(contentDoc);
+  const shouldMount = !isReadOnly || fragmentReady;
 
   const editor = useEditor(
     {
       editable: !isReadOnly,
-      extensions: fragmentReady
+      extensions: shouldMount
         ? [
             StarterKit.configure({ history: false }),
             Collaboration.configure({
@@ -339,7 +345,7 @@ export function EditorView({
           ]
         : [StarterKit.configure({ history: false })],
     },
-    [doc, fragmentReady],
+    [doc, shouldMount],
   );
 
   useEffect(() => {
