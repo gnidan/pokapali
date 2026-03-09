@@ -21,7 +21,6 @@ const log = (...args: unknown[]) =>
 
 const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 60 * 60_000;
-const LIBP2P_KEY_CODEC = 0x72;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -187,42 +186,38 @@ export async function createPinner(
 
   /**
    * Re-put existing IPNS records to keep them alive
-   * on the delegated routing server. No private key
-   * needed — records are already signed by writers.
+   * on the DHT. No private key needed — records are
+   * already signed by writers. Uses @helia/ipns
+   * republishRecord which goes through Helia's
+   * composed routing (DHT on node side).
    */
   async function republishAllIPNS(): Promise<void> {
     if (!helia) return;
-    const delegated = (helia.libp2p.services as any)
-      .delegatedRouting;
-    if (!delegated?.getIPNS || !delegated?.putIPNS) {
-      return;
-    }
 
+    const { ipns } = await import("@helia/ipns");
     const { publicKeyFromRaw } = await import(
       "@libp2p/crypto/keys"
     );
 
+    const name = ipns(helia as any);
     const names = [...knownNames];
     if (names.length === 0) return;
     log(`republishing IPNS for ${names.length} names`);
 
-    // Process sequentially to avoid flooding the
-    // delegated server with concurrent requests.
     for (const ipnsName of names) {
       try {
         const keyBytes = hexToBytes(ipnsName);
         const pubKey = publicKeyFromRaw(keyBytes);
-        const keyCid = CID.createV1(
-          LIBP2P_KEY_CODEC,
+
+        // Resolve to get the current record
+        const result = await name.resolve(pubKey, {
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        // Republish without private key
+        await name.republishRecord(
           pubKey.toMultihash(),
-        );
-        const record = await delegated.getIPNS(
-          keyCid,
-          { signal: AbortSignal.timeout(30_000) },
-        );
-        await delegated.putIPNS(
-          keyCid,
-          record,
+          result.record,
           { signal: AbortSignal.timeout(30_000) },
         );
         log(
