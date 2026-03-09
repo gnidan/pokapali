@@ -262,28 +262,20 @@ The fragment always contains `readKey` and `awarenessRoomPassword` (both require
 
 ## Namespace Enforcement via Subdocuments and Room Isolation
 
-Each namespace is a separate Yjs subdocument (`Y.Doc`) with its own y-webrtc room. Write enforcement is structural: a peer only joins the y-webrtc room for namespaces it has access keys for. Read access to all namespaces is delivered via IPNS pubsub-driven snapshot fetches.
+Each namespace is a separate Yjs subdocument (`Y.Doc`) with its own y-webrtc room. Write enforcement is structural: a peer only joins the y-webrtc room for namespaces it has access keys for. Read access to all namespaces is delivered via IPNS-resolved and GossipSub-announced snapshot fetches.
 
 ### Sync architecture
 
 For each namespace in the peer's capability set (`doc.capability.namespaces`), the library creates a `WebrtcProvider` connecting to a room named `${ipnsName}:${namespace}`. This gives the peer real-time bidirectional CRDT sync for that namespace — standard y-webrtc, no custom protocol.
 
-For namespaces the peer can only read (not in its capability set), the library does **not** connect to the WebRTC room. Instead:
+All clients — writers **and** readers — resolve IPNS on `open()` to load the latest snapshot from the network (non-blocking; Yjs CRDT merge is safe). Writers need this for recovery after all tabs close. Both also watch for live updates via two channels:
 
-1. On connect, the peer loads the latest IPFS snapshot and applies each read-only subdoc's state via `Y.applyUpdate`
-2. The peer's Helia node subscribes to the IPNS name's pubsub topic (already required for snapshot discovery)
-3. When a trusted peer pushes a new snapshot, the IPNS pubsub delivers the new record immediately
-4. The library fetches the new snapshot block via Helia (typically from a pinner) and applies the updated subdoc states
+1. **GossipSub announcements** (primary, instant): writers publish `{ "ipnsName", "cid" }` on `/pokapali/app/{appId}/announce` after each `pushSnapshot()`. All clients subscribe and apply snapshots directly from the announced CID.
+2. **IPNS polling** (fallback, 30s interval): catches updates when no GossipSub peers are connected.
 
-> **Implementation note: snapshot fetch coalescing.** There is a non-trivial interaction between IPNS pubsub update frequency and block propagation latency. During active editing with frequent snapshots, the read-only peer may receive multiple IPNS pubsub notifications (CID_n, CID_n+1, CID_n+2...) before any single fetch completes. Since every snapshot is full state, any successfully fetched snapshot is a valid update.
->
-> IPFS block fetching does not provide a fast "not found" response. Provider discovery (DHT walk or delegated routing) can take seconds to tens of seconds before concluding that no provider has the block yet. A sequential fallback strategy (try newest, timeout, try next-oldest) would burn through the entire snapshot interval on timeouts alone.
->
-> Recommended approach: **concurrent fetches, first-success-wins.** Maintain an ordered list of known CIDs from pubsub notifications (newest first). When a new CID arrives, immediately start fetching it. Keep up to 2–3 concurrent fetch requests in flight (the most recent known CIDs). The first fetch to return a block wins — apply `Y.applyUpdate` for all subdocs from that snapshot, cancel all other in-flight requests, and prune the CID list of anything older than the successfully applied snapshot. When a new pubsub notification arrives, prepend the new CID to the list, start fetching it, and cancel the oldest in-flight fetch if the concurrency limit is exceeded.
->
-> This means CID_n (which has had the most time to propagate to pinners) may resolve before CID_n+2 (which was just published). That's fine — the peer gets a slightly older but still valid full state, and the next successful fetch will bring it forward. The Yjs CRDT merge ensures correctness regardless of which snapshot the peer lands on or what order they arrive in. The library should not surface transient fetch failures to the application; the read-only subdoc simply stays at its previous state until a fetch succeeds.
+For namespaces the peer can only read (not in its capability set), the library does **not** connect to the WebRTC room. The peer receives all subdoc content from snapshot updates (announced or polled). Block fetches use exponential backoff retry (6 retries, 2s base, 15s timeout per attempt) to handle IPFS propagation latency. Transient fetch failures are not surfaced to the application; the subdoc stays at its previous state until a fetch succeeds.
 
-This is event-driven, not polling. Read-only latency equals the snapshot push interval — during active editing with 30–60 second snapshots, this is the staleness window for read-only namespaces.
+Read-only latency equals the snapshot push interval — during active editing with 30–60 second snapshots, this is the staleness window for read-only namespaces.
 
 Awareness (cursor presence, selection state) is shared via a lightweight y-webrtc room on a dummy Y.Doc that carries no content. All peers join this room regardless of capability level. The room is password-protected using `awarenessRoomPassword` (included in every capability URL) — every legitimate peer can join, but an observer who only knows the IPNS name cannot eavesdrop on presence information.
 
@@ -354,7 +346,7 @@ interface SnapshotNode {
     Uint8Array; // Y.encodeStateAsUpdate — complete encrypted state for this subdoc
   };
   prev: CID | null; // link to previous snapshot
-  seq: number; // monotonically increasing for IPNS ordering
+  seq: number; // Y.Doc clockSum (sum of all state vector clocks) — deterministic IPNS ordering
   ts: number; // unix timestamp
   signature: Uint8Array; // signs (subdocs | prev | seq | ts) with ipnsKey
   publicKey: Uint8Array; // ipnsKey public key — verifiable against canPushSnapshots allowlist
@@ -371,16 +363,35 @@ prev chain = version history only, not load-bearing for recoverability
 
 ---
 
-## IPNS Routing: Pubsub + DHT
+## IPNS Publishing and Resolution
 
-| Router | Speed     | Persistence              | Use                                                        |
-| ------ | --------- | ------------------------ | ---------------------------------------------------------- |
-| Pubsub | Immediate | Ephemeral                | Fast propagation to online pinners **and read-only peers** |
-| DHT    | ~seconds  | Persistent, expires ~24h | Cold bootstrap                                             |
+### Publishing
 
-Use both simultaneously. Pinners re-publish DHT records every ~12 hours to prevent expiry.
+Writers publish IPNS records via **delegated HTTP routing** (`delegatedRouting.putIPNS`). Browser-side DHT publishing is not used — it hangs in browser environments. The publish is fire-and-forget from `pushSnapshot()`'s perspective: the UI updates immediately while IPNS propagation continues in the background.
 
-IPNS pubsub serves double duty: it notifies pinners of new snapshots to pin, and it notifies read-only peers that new content is available to fetch. Both receive the IPNS record update immediately when a trusted peer publishes. The read-only peer then resolves the new CID via Helia — in practice, fetching the block from a pinner that has already ingested it on the same pubsub notification. Total latency for a read-only peer is snapshot interval + IPNS pubsub propagation (sub-second) + block fetch from pinner (network-dependent, typically a few seconds).
+The IPNS sequence number is the **Y.Doc clockSum** — the sum of all state vector clocks across all subdocuments. This is deterministic: the same document state always produces the same seq, so multiple browsers publishing the same snapshot produce identical IPNS records (no race). A browser with more edits naturally gets a higher seq. On publish, the library guards against stale seq after page reload: `effectiveSeq = max(existingSeq + 1, clockSum)`, fetching the existing record from delegated routing to compare.
+
+Publishes are serialized per key within a tab via a publish queue. If a publish is in-flight and a newer CID is queued, the stale CID is skipped.
+
+### Resolution
+
+All clients (writers **and** readers) resolve IPNS on `open()` to load the latest snapshot from the network. This is non-blocking — the doc opens immediately for WebRTC sync, and the resolved snapshot is applied via Yjs CRDT merge (safe regardless of local state). Writers need this for recovery after all tabs close.
+
+Resolution tries **delegated HTTP first** (fast, reliable), falling back to **full Helia routing** (includes DHT) if delegated fails. Both paths have a 15s timeout.
+
+### Snapshot notification channels
+
+| Channel                  | Speed     | Persistence              | Use                                                         |
+| ------------------------ | --------- | ------------------------ | ----------------------------------------------------------- |
+| GossipSub announcements  | Immediate | Ephemeral                | Fast propagation to online pinners **and all peers**        |
+| IPNS polling (30s)       | Delayed   | N/A                      | Fallback when no GossipSub peers are connected              |
+| DHT (IPNS resolve)       | ~seconds  | Persistent, expires ~24h | Cold bootstrap, pinner re-resolution                        |
+
+Writers publish a GossipSub announcement (`{ "ipnsName": "<hex>", "cid": "..." }` JSON on topic `/pokapali/app/{appId}/announce`) immediately after each `pushSnapshot()`. Writers also re-announce every 30 seconds (and re-put the block to the blockstore so late-joining pinners can fetch it). All clients — both readers and writers — subscribe to announcements and apply snapshots directly from the announced CID, which is faster than waiting for IPNS to propagate.
+
+As a fallback, all clients poll IPNS via `watchIPNS` (30s interval) to catch updates when no GossipSub peers are connected.
+
+Pinners re-publish DHT IPNS records every ~4 hours (via `republishRecord`, which re-puts the existing signed record without needing the private key) to prevent expiry. This keeps records alive when writers are offline. Republishing is sequential with 5s delays between names to avoid overwhelming the relay's DHT connections.
 
 ---
 
@@ -390,18 +401,18 @@ Pinners are structurally zero-knowledge. They never possess `readKey` and cannot
 
 ### Discovery
 
-When a peer pushes a snapshot, the library publishes the block to the Helia blockstore, publishes an IPNS record pointing to the CID, then announces on the GossipSub topic `/pokapali/app/{appId}/announce` with a JSON message `{ "ipnsName": "<hex>", "cid": "..." }`. Pinners subscribed to that topic discover documents automatically — this is the primary discovery path.
+When a peer pushes a snapshot, the library publishes the block to the Helia blockstore, publishes an IPNS record via delegated HTTP routing, then announces on the GossipSub topic `/pokapali/app/{appId}/announce` with a JSON message `{ "ipnsName": "<hex>", "cid": "..." }`. Pinners subscribed to that topic discover documents automatically — this is the primary discovery path. Relay nodes subscribe to announcement topics for their configured `pinAppIds` and forward messages between browsers and pinners via the GossipSub mesh.
 
-Pinners use a pull model: on receiving an announcement, they resolve the IPNS name to get the latest CID, fetch the block, validate structure, and store it. They periodically re-resolve all known IPNS names (every 5 minutes) to catch updates even if announcements are missed.
+On receiving an announcement, pinners **fetch the announced CID directly** via `blockstore.get` — they do not re-resolve IPNS, which may lag behind the announcement. They validate structure and store the block. As a fallback, pinners periodically re-resolve all known IPNS names (every 5 minutes) to catch updates if announcements are missed.
 
 ### Jobs
 
 Once a pinner discovers an IPNS name, its ongoing jobs are:
 
-1. Resolve IPNS name → verify snapshot signature is structurally valid (well-formed Ed25519) → pin the block
+1. Fetch announced CIDs directly (or resolve IPNS as fallback) → verify snapshot signature is structurally valid (well-formed Ed25519) → pin the block
 2. **Keep all snapshots from the last 24 hours** — time-windowed, not count-based
 3. Prune snapshots older than 24 hours (always keep the tip regardless of age)
-4. Re-publish DHT IPNS record every ~12 hours
+4. **Re-publish DHT IPNS records every ~4 hours** — uses `republishRecord` (no private key needed), sequential with 5s per-name delays to limit DHT load on the relay
 
 ### What pinners can and cannot verify
 
@@ -439,21 +450,13 @@ Delegated routing defaults to `delegated-ipfs.dev`, Protocol Labs' well-maintain
 
 Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Labs-operated. Once connected, peer discovery is organic through the DHT — bootstrap nodes are only needed for initial network entry.
 
-### Lean Configuration
+### Server-side: `@pokapali/node`
 
-```ts
-const libp2p = await createLibp2p({
-  connectionManager: { maxConnections: 20, minConnections: 5 },
-  peerDiscovery: [],
-  nat: { enabled: false },
-});
-const helia = await createHelia({
-  libp2p,
-  routers: [delegatedHTTPRouting("https://delegated-ipfs.dev")],
-});
-```
+The `@pokapali/node` package provides both `startRelay()` and `createPinner()`. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
 
-Bandwidth at steady state is near-zero. Suitable for homelab behind standard NAT. Behind CGNAT, degrades gracefully to pinning + IPNS publishing (can't serve blocks inbound, other pinners cover it).
+The relay runs Helia with full libp2p defaults, client-mode DHT, GossipSub (`floodPublish: true`, tuned D/Dlo/Dhi for small networks), autoTLS for WSS, and persistent key + datastore. It subscribes to peer discovery, signaling, and announcement topics, and provides a network-wide CID on the DHT for browser discovery.
+
+Bandwidth at steady state is low. Suitable for a VPS or homelab behind standard NAT.
 
 ---
 
@@ -593,12 +596,23 @@ degradation on low-traffic topics. Periodic re-announce
 (every 15 s) ensures late-joining peers discover existing
 rooms.
 
-Relay nodes subscribe to the signaling topic and forward
-messages between browsers. Browsers discover relays via
-DHT (looking up a network-wide CID derived from the
-string `"pokapali-network"`) and cached relay addresses
-in `localStorage`. This makes relays generic network
-infrastructure — any relay serves any app.
+Relay nodes (`@pokapali/node`) subscribe to the signaling
+topic, the peer discovery topic, and announcement topics
+for configured `pinAppIds`. They forward messages between
+browsers via the GossipSub mesh. Relays use autoTLS
+(`@ipshipyard/libp2p-auto-tls`) for automatic WSS
+certificate provisioning, and run client-mode DHT to
+provide records without serving DHT queries.
+
+Browsers discover relays via DHT (looking up a
+network-wide CID derived from `sha256("pokapali-network")`)
+and cached relay addresses in `localStorage` (24h TTL,
+48h max age). On startup, browsers try cached relays first
+(fast direct dial) then run DHT discovery in parallel.
+Connected peers also share relay addresses via the
+awareness channel, so a browser that discovers a relay
+propagates it to all collaborators. This makes relays
+generic network infrastructure — any relay serves any app.
 
 Two browsers sharing the same document URL can collaborate
 with zero self-hosted infrastructure — only public
@@ -637,12 +651,16 @@ The library should document expected bundle sizes for each configuration tier.
 | `yjs`                                         | CRDT engine; subdocument support for namespace isolation                           |
 | `y-webrtc`                                    | P2P real-time sync — one room per writable namespace, plus a shared awareness room |
 | `y-indexeddb`                                 | Local persistence in browser (per-subdoc)                                          |
-| `helia`                                       | IPFS in browser and pinner; delivers read-only namespace updates via IPNS pubsub   |
-| `@helia/dag-cbor`                             | IPFS block encoding for snapshots                                                  |
-| `@helia/ipns`                                 | IPNS publish/resolve                                                               |
-| `@helia/delegated-routing-v1-http-api-client` | Lean routing for pinner                                                            |
-| `@chainsafe/libp2p-gossipsub`                 | GossipSub pubsub for libp2p — primary signaling channel for WebRTC SDP/ICE relay  |
-| `@libp2p/crypto/keys`                         | IPNS keypair derivation                                                            |
+| `helia`                                       | IPFS in browser and relay/pinner; delivers snapshot updates via delegated routing   |
+| `@ipld/dag-cbor`                              | IPFS block encoding for snapshots (IPLD-native CID handling)                       |
+| `@helia/ipns`                                 | IPNS publish (delegated HTTP) / resolve (delegated + DHT fallback)                 |
+| `ipns`                                        | IPNS record creation and validation                                                |
+| `@chainsafe/libp2p-gossipsub`                 | GossipSub pubsub — signaling, peer discovery, and snapshot announcements           |
+| `@libp2p/crypto/keys`                         | IPNS keypair derivation from seed                                                  |
+| `@libp2p/pubsub-peer-discovery`               | Browser peer discovery via GossipSub                                               |
+| `@libp2p/kad-dht`                             | DHT for relay (client-mode) — record providing and IPNS republish                  |
+| `@ipshipyard/libp2p-auto-tls`                 | Automatic TLS certificates for relay WSS                                           |
+| `datastore-level`                             | Persistent LevelDB datastore for relay                                             |
 | `@tiptap/*`                                   | Example editor integration (app-side, not in library)                              |
 
 ---

@@ -55,8 +55,20 @@ strategies.
 
 ## @helia/ipns ^8.0.0
 
-IPNS publish/resolve for Helia. v8.x supports both pubsub and DHT
-routing (both needed — pubsub for immediacy, DHT for persistence).
+IPNS publish/resolve for Helia. Browser clients publish via
+delegated HTTP routing (`delegatedRouting.putIPNS`) and resolve
+via delegated HTTP first with DHT fallback. The pinner uses
+`republishRecord` to re-put existing signed IPNS records on
+the DHT without needing the writer's private key — this keeps
+records alive when writers are offline.
+
+## ipns
+
+IPNS record creation (`createIPNSRecord`) and validation
+(`ipnsValidator`, `ipnsSelector`). Used by `@pokapali/core`
+to create signed IPNS records with the Y.Doc clockSum as
+sequence number, and by `@pokapali/node` relay for DHT
+validation.
 
 ## y-protocols ^1.0.6
 
@@ -73,12 +85,50 @@ dependencies only, not part of the library.
 
 ## @chainsafe/libp2p-gossipsub ^14.1.2
 
-GossipSub pubsub for WebRTC signaling and peer discovery.
-Used in @pokapali/core (browser) and @pokapali/node
-(relay). Configured with `floodPublish: true` for
-low-traffic signaling — ensures all messages reach every
-peer without mesh optimization delays. Pinned to versions
-compatible with helia ^5.5.1 / libp2p 2.
+GossipSub pubsub for WebRTC signaling, peer discovery,
+and snapshot announcements. Used in @pokapali/core
+(browser) and @pokapali/node (relay). Configured with
+`floodPublish: true` for low-traffic topics — ensures
+all messages reach every peer without mesh optimization
+delays. Tuned D/Dlo/Dhi for small networks (2-3 relays
++ transient browsers). IP colocation scoring disabled
+because browser peers connect via p2p-circuit through
+relay IPs, triggering false positives. Pinned to
+versions compatible with helia ^5.5.1 / libp2p 2.
+
+## @libp2p/crypto/keys
+
+Keypair generation from seed (`generateKeyPairFromSeed`)
+and public key reconstruction (`publicKeyFromRaw`). Used
+by `@pokapali/core` for IPNS publishing and by
+`@pokapali/node` for relay identity persistence.
+
+## @libp2p/pubsub-peer-discovery
+
+Browser peer discovery via GossipSub. Peers announce
+themselves on a shared topic
+(`pokapali._peer-discovery._p2p._pubsub`) and discover
+each other without needing a centralized registry.
+
+## @libp2p/kad-dht
+
+Kademlia DHT for `@pokapali/node` relay. Runs in
+client-mode: provides records (network-wide CID for
+relay discovery, IPNS records for persistence) but does
+not serve DHT queries, avoiding inbound connections from
+DHT walkers. Configured with IPNS validator/selector.
+
+## @ipshipyard/libp2p-auto-tls
+
+Automatic TLS certificate provisioning for relay WSS
+endpoints. On startup, the relay obtains a certificate
+from the libp2p certificate authority, enabling browsers
+on HTTPS pages to connect directly via secure WebSocket.
+
+## datastore-level
+
+Persistent LevelDB-backed datastore for relay. Stores
+the libp2p peer store and DHT records across restarts.
 
 ## react / react-dom ^19.0.0
 
