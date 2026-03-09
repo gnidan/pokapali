@@ -10,13 +10,13 @@ interface RelayInfo {
 interface ConnectionInfo {
   ipfsPeers: number;
   relays: RelayInfo[];
-  webrtcPeers: number;
+  editors: number;
 }
 
 function gatherInfo(doc: CollabDoc): ConnectionInfo {
   let ipfsPeers = 0;
   const relays: RelayInfo[] = [];
-  let webrtcPeers = 0;
+  let editors = 1; // count self
 
   try {
     const helia = getHelia();
@@ -45,13 +45,12 @@ function gatherInfo(doc: CollabDoc): ConnectionInfo {
 
   try {
     const states = doc.awareness.getStates();
-    // Subtract 1 for self
-    webrtcPeers = Math.max(0, states.size - 1);
+    editors = Math.max(1, states.size);
   } catch {
     // awareness not ready
   }
 
-  return { ipfsPeers, relays, webrtcPeers };
+  return { ipfsPeers, relays, editors };
 }
 
 export function ConnectionStatus({
@@ -62,7 +61,7 @@ export function ConnectionStatus({
   const [info, setInfo] = useState<ConnectionInfo>({
     ipfsPeers: 0,
     relays: [],
-    webrtcPeers: 0,
+    editors: 1,
   });
 
   useEffect(() => {
@@ -133,19 +132,19 @@ export function ConnectionStatus({
 
       <span
         className="cs-section"
-        title="Collaborators via WebRTC"
+        title="Editors on this document"
       >
-        <span className="cs-label">WebRTC</span>
+        <span className="cs-label">Editors</span>
         <span className="cs-value">
-          {info.webrtcPeers > 0 ? (
+          {info.editors > 1 ? (
             <>
               <span className="cs-dot connected" />
-              {info.webrtcPeers}
+              {info.editors}
             </>
           ) : (
             <>
               <span className="cs-dot inactive" />
-              0
+              1
             </>
           )}
         </span>
