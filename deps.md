@@ -16,9 +16,9 @@ deployed.
 ## y-webrtc ^10.3.0
 
 P2P real-time sync provider. v10.x includes the `password` option for
-room encryption (used for namespace access key enforcement). Note:
-requires a signaling server; public `wss://signaling.yjs.dev` is
-available, or self-host the ~30-line server from the y-webrtc repo.
+room encryption (used for namespace access key enforcement). Signaling
+is handled exclusively via GossipSub through the libp2p mesh — no
+WebSocket signaling servers are used.
 
 Patched via `patch-package` (two patches): (1) fixes a
 `glareToken` crash in the original code; (2) exports
@@ -129,6 +129,16 @@ on HTTPS pages to connect directly via secure WebSocket.
 
 Persistent LevelDB-backed datastore for relay. Stores
 the libp2p peer store and DHT records across restarts.
+
+## @pokapali/log (internal)
+
+Zero-dependency structured logging package. Provides
+`createLogger(module)` factory with level filtering
+(`LOG_LEVEL` env var or `localStorage` key). Used by all
+other `@pokapali/*` packages. Placed as a separate leaf
+package (not in `@pokapali/core`) to avoid a dependency
+cycle — `@pokapali/sync` does not depend on core, but both
+need logging.
 
 ## react / react-dom ^19.0.0
 

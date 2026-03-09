@@ -275,6 +275,8 @@ All clients — writers **and** readers — resolve IPNS on `open()` to load the
 
 For namespaces the peer can only read (not in its capability set), the library does **not** connect to the WebRTC room. The peer receives all subdoc content from snapshot updates (announced or polled). Block fetches use exponential backoff retry (6 retries, 2s base, 15s timeout per attempt) to handle IPFS propagation latency. Transient fetch failures are not surfaced to the application; the subdoc stays at its previous state until a fetch succeeds.
 
+After successfully applying a remote snapshot, **all clients** (not just writers) store the fetched block in their Helia blockstore (`blockstore.put`) and re-announce the CID on the GossipSub announce topic. This makes every connected peer — including read-only peers — a block provider via bitswap and a propagation amplifier via GossipSub. The block is content-addressed (can't be forged) and encrypted (no plaintext leak), so this is safe regardless of capability level. Block availability is session-scoped (Helia uses `MemoryBlockstore` by default; blocks do not persist across tab close).
+
 Read-only latency equals the snapshot push interval — during active editing with 30–60 second snapshots, this is the staleness window for read-only namespaces.
 
 Awareness (cursor presence, selection state) is shared via a lightweight y-webrtc room on a dummy Y.Doc that carries no content. All peers join this room regardless of capability level. The room is password-protected using `awarenessRoomPassword` (included in every capability URL) — every legitimate peer can join, but an observer who only knows the IPNS name cannot eavesdrop on presence information.
@@ -283,7 +285,7 @@ Awareness (cursor presence, selection state) is shared via a lightweight y-webrt
 
 A peer without the access key for a namespace never joins that namespace's WebRTC room. There is no code path — honest or malicious — through which they can inject mutations into the real-time sync for that namespace. y-webrtc is unmodified; enforcement comes from room membership, not from intercepting messages.
 
-A malicious client could attempt to connect to a room it shouldn't have access to. y-webrtc rooms are identified by name, so a peer could construct the room name and subscribe to it on the signaling server. However, the room uses y-webrtc's `password` option, set to the hex-encoded namespace access key bytes (see Key Derivation). The password is used to derive a `CryptoKey` that encrypts all signaling messages (SDP offers, answers, ICE candidates). A peer without the correct access key cannot produce the correct password, cannot decrypt incoming signaling messages from legitimate peers, and its own incorrectly-encrypted signaling messages are rejected by legitimate peers (decryption fails silently). Since the WebRTC SDP exchange cannot complete, no peer connection is established, and no data channel exists to sync over. This is the structural enforcement mechanism — the access key gates the room password, the password gates signaling, and without signaling, the WebRTC connection is physically impossible.
+A malicious client could attempt to connect to a room it shouldn't have access to. y-webrtc rooms are identified by name, so a peer could construct the room name and join the GossipSub signaling topic. However, the room uses y-webrtc's `password` option, set to the hex-encoded namespace access key bytes (see Key Derivation). The password is used to derive a `CryptoKey` that encrypts all signaling messages (SDP offers, answers, ICE candidates). A peer without the correct access key cannot produce the correct password, cannot decrypt incoming signaling messages from legitimate peers, and its own incorrectly-encrypted signaling messages are rejected by legitimate peers (decryption fails silently). Since the WebRTC SDP exchange cannot complete, no peer connection is established, and no data channel exists to sync over. This is the structural enforcement mechanism — the access key gates the room password, the password gates signaling, and without signaling, the WebRTC connection is physically impossible.
 
 > **Note:** WebRTC data channel messages are not application-layer encrypted by y-webrtc (they rely on WebRTC's built-in DTLS transport encryption). This is fine — the access control boundary is at connection establishment, not at the message level. If a peer somehow obtained a valid data channel connection (which requires the password), they're authorized.
 
@@ -292,6 +294,8 @@ An alternative design would use a single shared `Y.Doc` with namespace enforceme
 ### Read-only peers
 
 A peer with only `readKey` (no namespace access keys) joins no content rooms — only the awareness room. It receives all subdoc content from IPFS snapshots, updated via GossipSub announcements (instant) and IPNS polling (30s fallback) whenever a trusted peer pushes. The application should set the editor to read-only mode (`editable: false` in TipTap, `readOnly` in CodeMirror, etc.).
+
+Read-only peers participate in gossip propagation: after applying a snapshot, they store the block in their Helia blockstore (making it available to other peers via bitswap) and re-announce the CID on the GossipSub announce topic. This amplifies snapshot availability without requiring write keys — the announcement is just metadata (`{ipnsName, cid}`), and any receiving peer validates the block independently. Writers additionally re-announce on a periodic 30s timer; readers re-announce only once per received snapshot.
 
 Read-only content is not real-time — it updates at snapshot frequency. For a commenter viewing content while annotating, this is typically fine: comments anchor via `Y.RelativePosition` against the local content state, and the positions resolve correctly regardless of minor staleness.
 
@@ -387,7 +391,7 @@ Resolution tries **delegated HTTP first** (fast, reliable), falling back to **fu
 | IPNS polling (30s)       | Delayed   | N/A                      | Fallback when no GossipSub peers are connected              |
 | DHT (IPNS resolve)       | ~seconds  | Persistent, expires ~24h | Cold bootstrap, pinner re-resolution                        |
 
-Writers publish a GossipSub announcement (`{ "ipnsName": "<hex>", "cid": "..." }` JSON on topic `/pokapali/app/{appId}/announce`) immediately after each `pushSnapshot()`. Writers also re-announce every 30 seconds (and re-put the block to the blockstore so late-joining pinners can fetch it). All clients — both readers and writers — subscribe to announcements and apply snapshots directly from the announced CID, which is faster than waiting for IPNS to propagate.
+Writers publish a GossipSub announcement (`{ "ipnsName": "<hex>", "cid": "..." }` JSON on topic `/pokapali/app/{appId}/announce`) immediately after each `pushSnapshot()`. Writers also re-announce every 30 seconds (and re-put the block to the blockstore so late-joining pinners can fetch it). All clients — both readers and writers — subscribe to announcements, apply snapshots directly from the announced CID, and then re-announce the CID and store the block in their local blockstore. This makes every connected peer a gossip amplifier and block provider, improving availability in sparse networks.
 
 As a fallback, all clients poll IPNS via `watchIPNS` (30s interval) to catch updates when no GossipSub peers are connected.
 
@@ -452,9 +456,13 @@ Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Lab
 
 ### Server-side: `@pokapali/node`
 
-The `@pokapali/node` package provides both `startRelay()` and `createPinner()`. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
+The `@pokapali/node` package provides `startRelay()`, `createPinner()`, and an HTTP server for health monitoring. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
 
 The relay runs Helia with full libp2p defaults, client-mode DHT, GossipSub (`floodPublish: true`, tuned D/Dlo/Dhi for small networks), autoTLS for WSS, and persistent key + datastore. It subscribes to peer discovery, signaling, and announcement topics, and provides a network-wide CID on the DHT for browser discovery.
+
+The HTTP server exposes:
+- `GET /healthz` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
+- `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, and pinner state
 
 Bandwidth at steady state is low. Suitable for a VPS or homelab behind standard NAT.
 
@@ -558,9 +566,9 @@ Can observe IPNS names and fetch encrypted blocks. Cannot decrypt, forge, or pub
 
 Can observe IPNS names and encrypted blocks (neither sensitive). Can refuse to pin (DoS, covered by other pinners). Can serve a stale snapshot (degraded bootstrap, not data loss — CRDT merge corrects on peer connect). Cannot decrypt or forge. **Tolerable worst case.**
 
-### Threat 7: Signaling server misbehaves
+### Threat 7: Relay node misbehaves
 
-Can observe which IPNS names are active as WebRTC rooms (already public). Can block connections (DoS). Cannot read content. **Tolerable worst case.**
+A relay node forwards GossipSub signaling messages between browsers. It can observe which IPNS names are active as WebRTC rooms (already public). It can block connections (DoS, mitigated by multiple relays). It cannot read content. **Tolerable worst case.**
 
 ### Threat 8: URL leak
 
@@ -619,15 +627,6 @@ with zero self-hosted infrastructure — only public
 IPFS/libp2p bootstrap nodes are needed for initial peer
 discovery.
 
-**Optional: WebSocket signaling servers.** Traditional
-y-webrtc WebSocket signaling (`wss://signaling.yjs.dev`,
-self-hosted ~30-line server) remains available as an
-optional parallel path. If `signalingUrls` are provided,
-y-webrtc connects to those servers in addition to the
-GossipSub channel. This provides faster initial connection
-in environments where libp2p bootstrap is slow, or as a
-fallback when libp2p connectivity is limited.
-
 ---
 
 ## Bundle Size Considerations
@@ -661,6 +660,7 @@ The library should document expected bundle sizes for each configuration tier.
 | `@libp2p/kad-dht`                             | DHT for relay (client-mode) — record providing and IPNS republish                  |
 | `@ipshipyard/libp2p-auto-tls`                 | Automatic TLS certificates for relay WSS                                           |
 | `datastore-level`                             | Persistent LevelDB datastore for relay                                             |
+| `@pokapali/log`                                | Zero-dependency structured logging (`createLogger(module)`) — leaf package used by all other packages |
 | `@tiptap/*`                                   | Example editor integration (app-side, not in library)                              |
 
 ---
