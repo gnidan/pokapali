@@ -26,6 +26,7 @@ interface ConnectionInfo {
   maxPeerClockSum: number;
   latestAnnouncedSeq: number;
   fetchState: SnapshotFetchState;
+  hasAppliedSnapshot: boolean;
   ipnsSeq: number | null;
 }
 
@@ -107,6 +108,7 @@ function gatherInfo(doc: CollabDoc): ConnectionInfo {
     maxPeerClockSum,
     latestAnnouncedSeq: doc.latestAnnouncedSeq,
     fetchState: doc.snapshotFetchState,
+    hasAppliedSnapshot: doc.hasAppliedSnapshot,
     ipnsSeq: doc.ipnsSeq,
   };
 }
@@ -139,6 +141,7 @@ export function ConnectionStatus({
       maxPeerClockSum: 0,
       latestAnnouncedSeq: 0,
       fetchState: { status: "idle" },
+      hasAppliedSnapshot: doc.hasAppliedSnapshot,
       ipnsSeq: doc.ipnsSeq,
     }),
   );
@@ -235,8 +238,15 @@ export function ConnectionStatus({
             info.latestAnnouncedSeq,
           ) - info.clockSum;
           const fs = info.fetchState;
+          // Show "Resolving…" when we haven't loaded
+          // any snapshot yet, even if fetch state is
+          // idle (between IPNS resolution attempts)
+          const stillResolving =
+            !info.hasAppliedSnapshot &&
+            (fs.status === "idle" ||
+              fs.status === "retrying");
           const fetchHint =
-            fs.status === "resolving"
+            fs.status === "resolving" || stillResolving
               ? "Resolving document\u2026"
               : fs.status === "fetching"
                 ? " \u2014 fetching\u2026"
@@ -247,7 +257,8 @@ export function ConnectionStatus({
                     : "";
           const isFailed = fs.status === "failed";
           const isResolving =
-            fs.status === "resolving";
+            fs.status === "resolving" ||
+            stillResolving;
 
           if (
             behind <= 0 &&
