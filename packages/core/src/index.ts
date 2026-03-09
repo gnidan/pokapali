@@ -76,6 +76,12 @@ import {
 import type {
   SnapshotLifecycle,
 } from "./snapshot-lifecycle.js";
+import {
+  createSnapshotWatcher,
+} from "./snapshot-watcher.js";
+import type {
+  SnapshotWatcher,
+} from "./snapshot-watcher.js";
 
 const DAG_CBOR_CODE = 0x71;
 
@@ -296,203 +302,47 @@ function createCollabDoc(
     setTimeout(publishRelays, 5_000);
   }
 
-  // Periodic re-announce for writers so pinners
-  // that join later learn about existing snapshots.
-  const REANNOUNCE_MS = 30_000;
-  let announceTimer: ReturnType<
-    typeof setInterval
-  > | null = null;
-  if (
-    cap.canPushSnapshots &&
-    params.appId &&
-    params.pubsub
-  ) {
-    const ps = params.pubsub;
-    // Subscribe so writer joins the GossipSub mesh
-    // for the announce topic (needed for relay
-    // forwarding to readers).
-    ps.subscribe(announceTopic(params.appId));
-    announceTimer = setInterval(() => {
-      const tip = snapshotLC.prev;
-      if (tip) {
-        // Re-put the block so pinners can fetch it
-        const cidStr = tip.toString();
-        const block = snapshotLC.getBlock(cidStr);
-        if (block) {
-          const helia = getHelia();
-          Promise.resolve(
-            helia.blockstore.put(tip, block),
-          ).catch(() => {});
-        }
-        announceSnapshot(
-          ps as any,
-          params.appId,
-          ipnsName,
-          cidStr,
-        );
-      }
-    }, REANNOUNCE_MS);
-  }
-
-  // IPNS snapshot recovery: all clients (writers and
-  // readers) load the latest snapshot from IPNS on
-  // startup and watch for updates. Writers need this
-  // to recover state when reopening after all tabs
-  // closed. Yjs CRDT merge makes applying snapshots
-  // on top of local edits safe.
-  const isReadOnly =
-    !keys.namespaceKeys ||
-    Object.keys(keys.namespaceKeys).length === 0;
-  let stopWatch: (() => void) | null = null;
-  let announceHandler: ((evt: CustomEvent) => void)
-    | null = null;
-  let retryTimer: ReturnType<typeof setTimeout>
-    | null = null;
-  if (readKey) {
-    const pubKeyBytes = hexToBytes(ipnsName);
+  // Snapshot watching: announce subscription, IPNS
+  // polling, re-announce for writers, initial resolve.
+  let snapshotWatcher: SnapshotWatcher | null = null;
+  if (readKey && params.pubsub && params.appId) {
     const rk = readKey;
-    let pendingCid: string | null = null;
-    const RETRY_INTERVAL_MS = 30_000;
-
-    async function applySnapshotFromCID(
-      cid: CID,
-    ): Promise<void> {
-      const applied = await snapshotLC.applyRemote(
-        cid,
-        rk,
-        (plaintext) =>
-          subdocManager.applySnapshot(plaintext),
-      );
-      if (applied) {
-        // Clear pending since we succeeded
-        const cidStr = cid.toString();
-        if (pendingCid === cidStr) {
-          pendingCid = null;
-        }
-        emit("snapshot-applied");
-      }
-    }
-
-    function scheduleRetry() {
-      if (retryTimer || !pendingCid) return;
-      retryTimer = setTimeout(async () => {
-        retryTimer = null;
-        if (!pendingCid || destroyed) return;
-        const cidStr = pendingCid;
-        console.log(
-          "[pokapali] retrying fetch for",
-          cidStr.slice(0, 16) + "...",
-        );
-        try {
-          await applySnapshotFromCID(
-            CID.parse(cidStr),
-          );
-        } catch {
-          // Still failing — keep retrying
-          scheduleRetry();
-        }
-      }, RETRY_INTERVAL_MS);
-    }
-
-    // Listen for GossipSub announcements (instant).
-    // Writers already subscribe for re-announce mesh,
-    // but readers need to subscribe here too.
     console.log(
       "[pokapali] announce setup: pubsub=" +
         !!params.pubsub +
         " appId=" + params.appId,
     );
-    if (params.pubsub && params.appId) {
-      const topic = announceTopic(params.appId);
-      // Only subscribe if not already done (writers
-      // subscribe above for re-announce mesh).
-      if (!cap.canPushSnapshots) {
-        console.log(
-          "[pokapali] subscribing to announce"
-            + " topic:",
-          topic,
-        );
-        params.pubsub.subscribe(topic);
-      }
-      announceHandler = (evt: CustomEvent) => {
-        const { detail } = evt;
-        if (detail?.topic !== topic) return;
-        const ann = parseAnnouncement(detail.data);
-        if (!ann || ann.ipnsName !== ipnsName) return;
-        console.log(
-          "[pokapali] announce received:",
-          ann.cid.slice(0, 16) + "...",
-        );
-        const cid = CID.parse(ann.cid);
-        // Track as pending (latest announced CID)
-        pendingCid = ann.cid;
-        applySnapshotFromCID(cid).catch((err) => {
-          console.error(
-            "[pokapali] announce apply failed:",
-            err,
+    snapshotWatcher = createSnapshotWatcher({
+      appId: params.appId,
+      ipnsName,
+      pubsub: params.pubsub,
+      getHelia: () => getHelia(),
+      isWriter: cap.canPushSnapshots,
+      ipnsPublicKeyBytes: hexToBytes(ipnsName),
+      performInitialResolve:
+        params.performInitialResolve,
+      onSnapshot: async (cid) => {
+        const applied =
+          await snapshotLC.applyRemote(
+            cid,
+            rk,
+            (plaintext) =>
+              subdocManager.applySnapshot(
+                plaintext,
+              ),
           );
-          // Schedule persistent retry
-          scheduleRetry();
-        });
-      };
-      params.pubsub.addEventListener(
-        "message",
-        announceHandler,
-      );
-    }
-
-    // IPNS polling fallback (for when no GossipSub
-    // peers are connected)
-    stopWatch = watchIPNS(
-      getHelia(),
-      pubKeyBytes,
-      async (cid) => {
-        try {
-          pendingCid = cid.toString();
-          await applySnapshotFromCID(cid);
-        } catch {
-          // Best-effort — retry loop will pick it up
-          scheduleRetry();
+        if (applied) {
+          emit("snapshot-applied");
         }
       },
-    );
+    });
 
-    // Initial IPNS resolve on open(). Uses
-    // applySnapshotFromCID so seq, prev, and
-    // lastAppliedCid are all updated correctly.
-    if (params.performInitialResolve) {
-      (async () => {
-        try {
-          const helia = getHelia();
-          const tipCid = await resolveIPNS(
-            helia,
-            pubKeyBytes,
-          );
-          if (tipCid) {
-            console.log(
-              "[pokapali] IPNS resolved:",
-              tipCid.toString(),
-            );
-            pendingCid = tipCid.toString();
-            await applySnapshotFromCID(tipCid);
-            console.log(
-              "[pokapali] initial snapshot applied",
-            );
-          } else {
-            console.log(
-              "[pokapali] IPNS resolve returned" +
-                " null",
-            );
-          }
-        } catch (err) {
-          console.error(
-            "[pokapali] initial snapshot" +
-              " load failed:",
-            err,
-          );
-          scheduleRetry();
-        }
-      })();
+    // Writers start re-announce
+    if (cap.canPushSnapshots) {
+      snapshotWatcher.startReannounce(
+        () => snapshotLC.prev,
+        (cidStr) => snapshotLC.getBlock(cidStr),
+      );
     }
   }
 
@@ -821,21 +671,7 @@ function createCollabDoc(
       if (relayShareTimer) {
         clearInterval(relayShareTimer);
       }
-      if (announceTimer) {
-        clearInterval(announceTimer);
-      }
-      if (stopWatch) {
-        stopWatch();
-      }
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
-      if (announceHandler && params.pubsub) {
-        params.pubsub.removeEventListener(
-          "message",
-          announceHandler,
-        );
-      }
+      snapshotWatcher?.destroy();
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
@@ -886,21 +722,7 @@ function createCollabDoc(
       if (relayShareTimer) {
         clearInterval(relayShareTimer);
       }
-      if (announceTimer) {
-        clearInterval(announceTimer);
-      }
-      if (stopWatch) {
-        stopWatch();
-      }
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
-      if (announceHandler && params.pubsub) {
-        params.pubsub.removeEventListener(
-          "message",
-          announceHandler,
-        );
-      }
+      snapshotWatcher?.destroy();
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
