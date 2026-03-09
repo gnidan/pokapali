@@ -90,9 +90,18 @@ export async function acquireHelia(
     } : {}),
   };
 
-  const helia = await createHelia({
-    libp2p: libp2pOptions,
-  }) as unknown as HeliaWithPubsub;
+  const BOOTSTRAP_TIMEOUT_MS = 30_000;
+  const helia = await Promise.race([
+    createHelia({ libp2p: libp2pOptions }),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(
+          new Error("Helia bootstrap timed out"),
+        ),
+        BOOTSTRAP_TIMEOUT_MS,
+      ),
+    ),
+  ]) as unknown as HeliaWithPubsub;
 
   sharedHelia = helia;
   refCount = 1;
