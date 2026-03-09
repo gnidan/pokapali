@@ -1,4 +1,9 @@
-import { useState, useCallback } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+} from "react";
 import type { CollabDoc } from "@pokapali/core";
 import { truncateUrl } from "@pokapali/core";
 
@@ -12,10 +17,24 @@ function CopyRow({
   value: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
   const copy = useCallback(() => {
     navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(
+        () => setCopied(false),
+        1500,
+      );
     });
   }, [value]);
 
@@ -65,6 +84,24 @@ function InviteButton({
   const [error, setError] = useState<string | null>(
     null,
   );
+  const timer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  const flashCopied = useCallback(() => {
+    setCopied(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(
+      () => setCopied(false),
+      1500,
+    );
+  }, []);
 
   const generate = useCallback(async () => {
     setLoading(true);
@@ -75,8 +112,7 @@ function InviteButton({
       });
       setUrl(inviteUrl);
       await navigator.clipboard.writeText(inviteUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      flashCopied();
     } catch (e) {
       setError(
         e instanceof Error ? e.message : String(e),
@@ -84,15 +120,14 @@ function InviteButton({
     } finally {
       setLoading(false);
     }
-  }, [doc]);
+  }, [doc, flashCopied]);
 
   const copyExisting = useCallback(() => {
     if (!url) return;
     navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      flashCopied();
     });
-  }, [url]);
+  }, [url, flashCopied]);
 
   return (
     <div className="share-card">
