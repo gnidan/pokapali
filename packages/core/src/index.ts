@@ -449,7 +449,7 @@ function createCollabDoc(
         );
         if (params.appId && params.pubsub) {
           await announceSnapshot(
-            params.pubsub as any,
+            params.pubsub,
             params.appId,
             ipnsName,
             cid.toString(),
