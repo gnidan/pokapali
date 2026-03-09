@@ -147,7 +147,14 @@ export async function startRelay(
         }
         return merged;
       }
-      return result as unknown as Uint8Array;
+      // If get() returned a plain Uint8Array
+      // (future version fix), use it directly.
+      if (result instanceof Uint8Array) {
+        return result;
+      }
+      throw new Error(
+        "unexpected blockstore.get return type",
+      );
     },
   };
 
