@@ -135,6 +135,8 @@ export interface DiagnosticsInfo {
   hasAppliedSnapshot: boolean;
 }
 
+export type DocRole = "admin" | "writer" | "reader";
+
 export interface CollabDoc {
   subdoc(ns: string): Y.Doc;
   readonly provider: {
@@ -145,6 +147,10 @@ export interface CollabDoc {
   readonly adminUrl: string | null;
   readonly writeUrl: string | null;
   readonly readUrl: string;
+  /** Best available URL (admin > write > read). */
+  readonly bestUrl: string;
+  /** Role derived from capability. */
+  readonly role: DocRole;
   inviteUrl(grant: CapabilityGrant): Promise<string>;
   readonly status: DocStatus;
   /** Peer IDs of relays discovered for this app. */
@@ -210,6 +216,8 @@ export interface CollabLib {
   create(): Promise<CollabDoc>;
   open(url: string): Promise<CollabDoc>;
   docIdFromUrl(url: string): string;
+  /** Check if a URL matches this app's doc format. */
+  isDocUrl(url: string): boolean;
 }
 
 
@@ -472,6 +480,18 @@ function createCollabDoc(
     adminUrl: params.adminUrl,
     writeUrl: params.writeUrl,
     readUrl: params.readUrl,
+
+    get bestUrl(): string {
+      return params.adminUrl
+        ?? params.writeUrl
+        ?? params.readUrl;
+    },
+
+    get role(): DocRole {
+      if (cap.isAdmin) return "admin";
+      if (cap.namespaces.size > 0) return "writer";
+      return "reader";
+    },
 
     async inviteUrl(
       grant: CapabilityGrant,
@@ -1173,6 +1193,21 @@ export function createCollabLib(
     docIdFromUrl(url: string): string {
       return docIdFromUrl(url);
     },
+
+    isDocUrl(url: string): boolean {
+      try {
+        const parsed = new URL(url);
+        const prefix = base.replace(/\/$/, "")
+          + "/doc/";
+        const origin = new URL(prefix).origin;
+        const path = new URL(prefix).pathname;
+        return parsed.origin === origin
+          && parsed.pathname.startsWith(path)
+          && parsed.hash.length > 1;
+      } catch {
+        return false;
+      }
+    },
   };
 }
 
@@ -1187,3 +1222,9 @@ export type {
 } from "./forwarding.js";
 export { getHelia } from "./helia.js";
 export { truncateUrl, docIdFromUrl } from "./url-utils.js";
+export {
+  createAutoSaver,
+} from "./auto-save.js";
+export type {
+  AutoSaveOptions,
+} from "./auto-save.js";

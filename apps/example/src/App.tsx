@@ -145,7 +145,7 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
       <p>Collaborative documents, peer-to-peer.</p>
       <div className="landing-actions">
         <button onClick={handleCreate} disabled={loading}>
-          {loading ? "Loading..." : "Create new document"}
+          {loading ? "Loading\u2026" : "Create new document"}
         </button>
         <div className="open-form">
           <input
@@ -296,7 +296,7 @@ export function App() {
     return (
       <div className="landing">
         <h1>Pokapali</h1>
-        <p>Opening document...</p>
+        <p>Loading…</p>
         {error && (
           <div className="landing-error">
             <p>{error}</p>
