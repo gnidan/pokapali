@@ -78,17 +78,29 @@ const SAVE_LABELS: Record<SaveState, string> = {
   saving: "Saving\u2026",
 };
 
+function saveLabel(
+  saveState: SaveState,
+  ackCount: number,
+): string {
+  if (saveState === "published" && ackCount > 0) {
+    return `Saved to ${ackCount} relay(s)`;
+  }
+  return SAVE_LABELS[saveState];
+}
+
 function SaveIndicator({
   saveState,
+  ackCount,
   onPublish,
 }: {
   saveState: SaveState;
+  ackCount: number;
   onPublish: () => void;
 }) {
   return (
     <div className="save-indicator">
       <span className={`save-state ${saveState}`}>
-        {SAVE_LABELS[saveState]}
+        {saveLabel(saveState, ackCount)}
       </span>
       {saveState === "unpublished" && (
         <button
@@ -155,6 +167,9 @@ export function EditorView({
       ? "unpublished"
       : "published",
   );
+  const [ackCount, setAckCount] = useState(
+    doc.ackedBy.size,
+  );
   const [lastPublished, setLastPublished] = useState(
     Date.now(),
   );
@@ -206,14 +221,17 @@ export function EditorView({
         2_000,
       );
     };
+    const onAck = () => setAckCount(doc.ackedBy.size);
     doc.on("status", onStatus);
     doc.on("snapshot-recommended", onSnapshotRec);
     doc.on("snapshot-applied", onSnapshotApplied);
+    doc.on("ack", onAck);
 
     return () => {
       doc.off("status", onStatus);
       doc.off("snapshot-recommended", onSnapshotRec);
       doc.off("snapshot-applied", onSnapshotApplied);
+      doc.off("ack", onAck);
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
@@ -329,6 +347,7 @@ export function EditorView({
         {canSave ? (
           <SaveIndicator
             saveState={saveState}
+            ackCount={ackCount}
             onPublish={doSave}
           />
         ) : (

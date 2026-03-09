@@ -242,6 +242,16 @@ export function ConnectionStatus({
                 {info.ipnsSeq ?? "\u2014"}
               </span>
             </div>
+            {info.ackedBy.length > 0 && (
+              <div className="cs-detail-row">
+                <span className="cs-detail-key">
+                  Acked by
+                </span>
+                <span className="cs-detail-mono">
+                  {info.ackedBy.length} relay(s)
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}
