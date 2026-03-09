@@ -63,8 +63,8 @@ throughout, targeting ES2022/ESNext.
 
 ## Example App
 
-The [example app](apps/example) is a collaborative rich
-text editor built with React and TipTap. It demonstrates
+The [example app](apps/example) is a collaborative text
+editor built with React and TipTap. It demonstrates
 document creation, sharing via capability URLs, real-time
 sync, read-only access, and connection diagnostics.
 
@@ -72,7 +72,7 @@ sync, read-only access, and connection diagnostics.
 npm run dev
 ```
 
-Opens at `http://localhost:5173`. Create a document, copy
+Opens at `http://localhost:3141`. Create a document, copy
 the share URL, open it in another tab — edits sync in
 real-time via WebRTC and persist via IPFS snapshots.
 
