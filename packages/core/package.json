@@ -11,6 +11,7 @@
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
     "@helia/ipns": "^8.0.0",
+    "@libp2p/crypto": "^5.0.0",
     "@ipld/dag-cbor": "^9.2.0",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
     "@pokapali/capability": "0.0.0",
