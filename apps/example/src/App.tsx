@@ -262,10 +262,13 @@ export function App() {
     return () => { cancelled = true; };
   }, [openDoc]);
 
-  // Handle browser back/forward
+  // Handle browser back/forward — only go to landing
+  // if the URL no longer points to a document
   useEffect(() => {
     const onPopState = () => {
-      goToLanding();
+      if (!isDocUrl(window.location.href)) {
+        goToLanding();
+      }
     };
     window.addEventListener("popstate", onPopState);
     return () => {
