@@ -103,6 +103,7 @@ async function main() {
     pinner = await createPinner({
       appIds: pinApps,
       storagePath,
+      helia: relayHandle?.helia,
     });
     await pinner.start();
     console.error(
