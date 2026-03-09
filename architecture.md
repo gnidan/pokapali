@@ -572,33 +572,45 @@ An attacker with access to the device can read IndexedDB contents (unencrypted Y
 ## Signaling
 
 y-webrtc requires signaling to broker WebRTC connections
-(SDP/ICE exchange). Never sees document content.
+(SDP/ICE exchange). Never sees document content. Once
+signaling exchanges SDP/ICE, WebRTC connections are direct
+peer-to-peer.
 
 **Primary: GossipSub via Helia/libp2p.** Each peer runs a
 Helia node with `@chainsafe/libp2p-gossipsub` as a pubsub
-service. The GossipSub adapter subscribes to libp2p pubsub
-topics of the form `/pokapali/signal/{roomName}` and relays
-signaling messages (announces, SDP offers/answers, ICE
-candidates) between peers. The adapter duck-types as a
-y-webrtc `SignalingConn` via `setupSignalingHandlers`,
-allowing y-webrtc to treat it as just another signaling
-channel alongside WebSocket connections. Two browsers
-sharing the same document URL can collaborate with zero
-self-hosted infrastructure — only public IPFS/libp2p
-bootstrap nodes are needed for initial peer discovery.
+service. The GossipSub signaling adapter
+(`packages/sync/src/gossipsub-signaling.ts`) implements the
+y-webrtc `SignalingConn` interface by extending
+`lib0/observable.Observable`. It registers in y-webrtc's
+`signalingConns` map under the key `"libp2p:gossipsub"`.
+
+All rooms share a single GossipSub topic
+(`/pokapali/signaling`); room routing happens via the room
+name in the JSON payload. This avoids per-room topic
+overhead and keeps mesh health simple. GossipSub is
+configured with `floodPublish: true` to prevent mesh
+degradation on low-traffic topics. Periodic re-announce
+(every 15 s) ensures late-joining peers discover existing
+rooms.
+
+Relay nodes subscribe to the signaling topic and forward
+messages between browsers. Browsers discover relays via
+DHT (looking up a CID derived from `appId`) and cached
+relay addresses in `localStorage`.
+
+Two browsers sharing the same document URL can collaborate
+with zero self-hosted infrastructure — only public
+IPFS/libp2p bootstrap nodes are needed for initial peer
+discovery.
 
 **Optional: WebSocket signaling servers.** Traditional
 y-webrtc WebSocket signaling (`wss://signaling.yjs.dev`,
-self-hosted ~30-line server) remains available as a
-parallel, complementary path. If `signalingUrls` are
-provided, y-webrtc connects to those servers in addition to
-the GossipSub channel. This provides faster initial
-connection in environments where libp2p bootstrap is slow,
-or as a fallback when libp2p connectivity is limited.
-
-Each namespace subdoc and the shared awareness channel use
-separate y-webrtc rooms, all routed through both signaling
-paths when available.
+self-hosted ~30-line server) remains available as an
+optional parallel path. If `signalingUrls` are provided,
+y-webrtc connects to those servers in addition to the
+GossipSub channel. This provides faster initial connection
+in environments where libp2p bootstrap is slow, or as a
+fallback when libp2p connectivity is limited.
 
 ---
 
@@ -627,7 +639,7 @@ The library should document expected bundle sizes for each configuration tier.
 | `@helia/dag-cbor`                             | IPFS block encoding for snapshots                                                  |
 | `@helia/ipns`                                 | IPNS publish/resolve                                                               |
 | `@helia/delegated-routing-v1-http-api-client` | Lean routing for pinner                                                            |
-| `@chainsafe/libp2p-gossipsub`                 | GossipSub pubsub for libp2p — peer discovery and signaling message relay           |
+| `@chainsafe/libp2p-gossipsub`                 | GossipSub pubsub for libp2p — primary signaling channel for WebRTC SDP/ICE relay  |
 | `@libp2p/crypto/keys`                         | IPNS keypair derivation                                                            |
 | `@tiptap/*`                                   | Example editor integration (app-side, not in library)                              |
 

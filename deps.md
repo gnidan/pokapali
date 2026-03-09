@@ -20,10 +20,12 @@ room encryption (used for namespace access key enforcement). Note:
 requires a signaling server; public `wss://signaling.yjs.dev` is
 available, or self-host the ~30-line server from the y-webrtc repo.
 
-Patched via `patch-package`: exports `signalingConns` from the module
-and extracts `setupSignalingHandlers` so that the GossipSub signaling
-adapter can duck-type as a `SignalingConn` without subclassing. Also
-patches a `glareToken` crash in the original code.
+Patched via `patch-package` (two patches): (1) fixes a
+`glareToken` crash in the original code; (2) exports
+`signalingConns` from the module and extracts
+`setupSignalingHandlers` so that the GossipSub signaling
+adapter can duck-type as a `SignalingConn` without
+subclassing.
 
 ## y-indexeddb ^9.0.12
 
@@ -71,11 +73,12 @@ dependencies only, not part of the library.
 
 ## @chainsafe/libp2p-gossipsub ^14.1.2
 
-GossipSub implementation for libp2p. Used as a pubsub service
-in the Helia node to relay y-webrtc signaling messages (SDP/ICE
-offers, announces) between peers. Replaces the need for a
-centralized WebSocket signaling server. Added to both
-@pokapali/core (Helia node config) and @pokapali/sync (adapter).
+GossipSub pubsub for WebRTC signaling and peer discovery.
+Used in @pokapali/core (browser) and @pokapali/pinner
+(relay). Configured with `floodPublish: true` for
+low-traffic signaling — ensures all messages reach every
+peer without mesh optimization delays. Pinned to versions
+compatible with helia ^5.5.1 / libp2p 2.
 
 ## react / react-dom ^19.0.0
 
