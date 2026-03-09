@@ -238,32 +238,18 @@ export function ConnectionStatus({
             info.latestAnnouncedSeq,
           ) - info.clockSum;
           const fs = info.fetchState;
-          // Show "Resolving…" when we haven't loaded
-          // any snapshot yet, even if fetch state is
-          // idle (between IPNS resolution attempts)
-          const stillResolving =
+          // "Loading" covers IPNS resolution, block
+          // fetch, and retries — the user doesn't need
+          // to know the internal fetch lifecycle.
+          const isLoading =
             !info.hasAppliedSnapshot &&
-            (fs.status === "idle" ||
-              fs.status === "retrying");
-          const fetchHint =
-            fs.status === "resolving" || stillResolving
-              ? "Resolving document\u2026"
-              : fs.status === "fetching"
-                ? " \u2014 fetching\u2026"
-                : fs.status === "retrying"
-                  ? ` \u2014 retrying (attempt ${fs.attempt})\u2026`
-                  : fs.status === "failed"
-                    ? " \u2014 fetch failed"
-                    : "";
+            fs.status !== "failed";
           const isFailed = fs.status === "failed";
-          const isResolving =
-            fs.status === "resolving" ||
-            stillResolving;
 
           if (
             behind <= 0 &&
             !isFailed &&
-            !isResolving
+            !isLoading
           ) return null;
 
           return (
@@ -283,14 +269,11 @@ export function ConnectionStatus({
                   `${info.latestAnnouncedSeq}`
                 }
               >
-                {isResolving
-                  ? fetchHint
-                  : <>
-                      {behind > 0 && (
-                        <>~{behind} edits behind</>
-                      )}
-                      {fetchHint}
-                    </>
+                {isLoading
+                  ? "Loading\u2026"
+                  : isFailed
+                    ? "Load failed"
+                    : `~${behind} edits behind`
                 }
               </span>
             </>
