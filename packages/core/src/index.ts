@@ -396,11 +396,14 @@ function createCollabDoc(
       },
       onFetchStateChange: (state) => {
         emit("fetch-state", state);
-        // If we return to idle after resolving and
-        // never applied a snapshot, the document is
-        // as ready as it gets.
+        // If we return to idle or hit permanent failure
+        // without ever applying a snapshot, the document
+        // is as ready as it gets — mount the editor so
+        // the user sees status indicators instead of a
+        // blank loading screen.
         if (
-          state.status === "idle" &&
+          (state.status === "idle" ||
+            state.status === "failed") &&
           !readyResolved &&
           !snapshotWatcher?.hasAppliedSnapshot
         ) {

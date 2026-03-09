@@ -16,6 +16,7 @@ import type { Helia } from "helia";
 
 const REANNOUNCE_MS = 30_000;
 const RETRY_INTERVAL_MS = 30_000;
+const MAX_OUTER_RETRIES = 10;
 
 export type SnapshotFetchState =
   | { status: "idle" }
@@ -105,6 +106,18 @@ export function createSnapshotWatcher(
   function scheduleRetry() {
     if (retryTimer || !pendingCid) return;
     retryAttempt++;
+    if (retryAttempt > MAX_OUTER_RETRIES) {
+      log.warn(
+        "max retries exceeded for",
+        pendingCid.slice(0, 16) + "...",
+      );
+      setFetchState({
+        status: "failed",
+        cid: pendingCid,
+        error: "max retries exceeded",
+      });
+      return;
+    }
     const nextRetryAt = Date.now() + RETRY_INTERVAL_MS;
     setFetchState({
       status: "retrying",
