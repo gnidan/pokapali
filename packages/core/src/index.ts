@@ -229,6 +229,7 @@ interface CollabDocParams {
   syncOpts?: SyncOptions;
   pubsub?: PubSubLike;
   roomDiscovery?: RoomDiscovery;
+  performInitialResolve?: boolean;
 }
 
 function createCollabDoc(
@@ -493,6 +494,44 @@ function createCollabDoc(
         }
       },
     );
+
+    // Initial IPNS resolve on open(). Uses
+    // applySnapshotFromCID so seq, prev, and
+    // lastAppliedCid are all updated correctly.
+    if (params.performInitialResolve) {
+      (async () => {
+        try {
+          const helia = getHelia();
+          const tipCid = await resolveIPNS(
+            helia,
+            pubKeyBytes,
+          );
+          if (tipCid) {
+            console.log(
+              "[pokapali] IPNS resolved:",
+              tipCid.toString(),
+            );
+            pendingCid = tipCid.toString();
+            await applySnapshotFromCID(tipCid);
+            console.log(
+              "[pokapali] initial snapshot applied",
+            );
+          } else {
+            console.log(
+              "[pokapali] IPNS resolve returned" +
+                " null",
+            );
+          }
+        } catch (err) {
+          console.error(
+            "[pokapali] initial snapshot" +
+              " load failed:",
+            err,
+          );
+          scheduleRetry();
+        }
+      })();
+    }
   }
 
   function assertNotDestroyed() {
@@ -1223,52 +1262,6 @@ export function createCollabLib(
           );
       }
 
-      // Resolve IPNS to load the latest snapshot from
-      // the network on startup. Works for both writers
-      // (recovery after all tabs closed) and readers.
-      // Non-blocking so the doc opens immediately for
-      // WebRTC sync; Yjs CRDT merge is safe.
-      if (keys.readKey) {
-        (async () => {
-          try {
-            const pubKeyBytes =
-              hexToBytes(ipnsName);
-            const helia = getHelia();
-            const tipCid = await resolveIPNS(
-              helia,
-              pubKeyBytes,
-            );
-            if (tipCid) {
-              console.log(
-                "[pokapali] IPNS resolved:",
-                tipCid.toString(),
-              );
-              const block =
-                await fetchBlock(helia, tipCid);
-              const node = decodeSnapshot(block);
-              const rk = keys.readKey!;
-              const plaintext =
-                await decryptSnapshot(node, rk);
-              subdocManager.applySnapshot(plaintext);
-              console.log(
-                "[pokapali] initial snapshot applied",
-              );
-            } else {
-              console.log(
-                "[pokapali] IPNS resolve returned" +
-                  " null",
-              );
-            }
-          } catch (err) {
-            console.error(
-              "[pokapali] initial snapshot" +
-                " load failed:",
-              err,
-            );
-          }
-        })();
-      }
-
       const doc = createCollabDoc({
         subdocManager,
         syncManager,
@@ -1289,6 +1282,7 @@ export function createCollabLib(
         syncOpts,
         pubsub,
         roomDiscovery,
+        performInitialResolve: !!keys.readKey,
       });
 
       return doc;
