@@ -12,11 +12,15 @@ for running relay + pinner nodes on a VPS.
 ## Key Exports
 
 - **`startRelay(config)`** — starts a Helia node with
-  libp2p, client-mode DHT, GossipSub, autoTLS, and
-  persistent key/datastore
+  libp2p, client-mode DHT, GossipSub, autoTLS, persistent
+  key/datastore, and `FsBlockstore` for persistent block
+  storage. Broadcasts node capabilities on
+  `pokapali._node-caps._p2p._pubsub` every 30 seconds
 - **`createPinner(config)`** — subscribes to announce
   topics, fetches and validates snapshots, maintains a
-  24-hour history window, republishes IPNS records
+  24-hour history window, republishes IPNS records.
+  State (`knownNames`, `tips`, `nameToAppId`) is persisted
+  to `state.json` with dirty-flag debounced writes
 - **`startHttpServer(config)`** — HTTP server with
   `GET /healthz` and `GET /status` endpoints
 - **`createRateLimiter(config)`** — per-IPNS-name rate
