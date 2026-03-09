@@ -36,8 +36,34 @@ interface CachedRelay {
 
 const CACHE_KEY = "pokapali:relays";
 
+// Migrate old per-app cache entries to the new
+// network-wide key. Runs once on first load.
+let migrated = false;
+function migrateOldCache(): void {
+  if (migrated || !hasLocalStorage) return;
+  migrated = true;
+  try {
+    // Already have entries — no migration needed
+    if (localStorage.getItem(CACHE_KEY)) return;
+    // Scan for old per-app keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith("pokapali:relays:")) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      // Copy first match to new key, remove old
+      localStorage.setItem(CACHE_KEY, raw);
+      localStorage.removeItem(key);
+      return;
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function loadCachedRelays(): CachedRelay[] {
   if (!hasLocalStorage) return [];
+  migrateOldCache();
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return [];
