@@ -6,7 +6,6 @@ import {
   parseAnnouncement,
   announceSnapshot,
 } from "./announce.js";
-import type { AnnouncePubSub } from "./announce.js";
 import { resolveIPNS, watchIPNS } from
   "./ipns-helpers.js";
 import type { BlockGetter } from "./fetch-block.js";
@@ -193,13 +192,11 @@ export function createSnapshotWatcher(
         if (block) {
           const helia = getHelia();
           Promise.resolve(
-            (helia as any).blockstore.put(
-              cid, block,
-            ),
+            helia.blockstore.put(cid, block),
           ).catch(() => {});
         }
         announceSnapshot(
-          pubsub as unknown as AnnouncePubSub,
+          pubsub,
           appId,
           ipnsName,
           cidStr,
