@@ -71,6 +71,70 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function EncryptionInfo({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        ref.current &&
+        !ref.current.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () =>
+      document.removeEventListener(
+        "mousedown",
+        handler,
+      );
+  }, [onClose]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () =>
+      document.removeEventListener(
+        "keydown",
+        handler,
+      );
+  }, [onClose]);
+
+  return (
+    <div ref={ref} className="encryption-popover">
+      <div className="encryption-header">
+        <span className="encryption-lock">
+          &#x1F512;
+        </span>
+        End-to-end encrypted
+      </div>
+      <p>
+        Relay and pinner nodes cannot read your
+        content — they only store encrypted blocks.
+      </p>
+      <p>
+        Only people with the document link can
+        read it. Your link determines your access
+        level: admin, writer, or reader.
+      </p>
+      <button
+        className="encryption-close"
+        onClick={onClose}
+        aria-label="Close"
+      >
+        &#x2715;
+      </button>
+    </div>
+  );
+}
+
 const SAVE_LABELS: Record<SaveState, string> = {
   saved: "Published",
   dirty: "Unpublished changes",
@@ -177,6 +241,8 @@ export function EditorView({
     doc.status,
   );
   const [showShare, setShowShare] = useState(false);
+  const [showEncryption, setShowEncryption] =
+    useState(false);
   const [saveState, setSaveState] = useState<SaveState>(
     doc.saveState,
   );
@@ -383,6 +449,25 @@ export function EditorView({
           Back
         </button>
         <h1>Pokapali</h1>
+        <span className="encryption-wrap">
+          <button
+            className="encryption-btn"
+            onClick={() =>
+              setShowEncryption((s) => !s)
+            }
+            aria-label="Encryption info"
+            title="End-to-end encrypted"
+          >
+            &#x1F512;
+          </button>
+          {showEncryption && (
+            <EncryptionInfo
+              onClose={() =>
+                setShowEncryption(false)
+              }
+            />
+          )}
+        </span>
         <span className={`badge ${role}`}>
           {capitalize(role)}
         </span>
