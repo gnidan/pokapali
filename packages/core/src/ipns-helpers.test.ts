@@ -1,5 +1,5 @@
 import {
-  describe, it, expect, vi, beforeEach,
+  describe, it, expect, vi, beforeEach, afterEach,
 } from "vitest";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -16,28 +16,32 @@ async function fakeCID(label: string): Promise<CID> {
 // --- mocks ---
 
 const {
-  mockPublish,
-  mockResolve,
-  mockIpns,
+  mockCreateIPNSRecord,
   mockGenerateKeyPairFromSeed,
   mockPublicKeyFromRaw,
+  mockIpns,
+  mockResolve,
 } = vi.hoisted(() => {
-  const mockPublish = vi.fn().mockResolvedValue({});
+  const mockCreateIPNSRecord =
+    vi.fn().mockResolvedValue({ value: "/ipfs/test" });
   const mockResolve = vi.fn();
   const mockIpns = vi.fn().mockReturnValue({
-    publish: mockPublish,
     resolve: mockResolve,
   });
   const mockGenerateKeyPairFromSeed = vi.fn();
   const mockPublicKeyFromRaw = vi.fn();
   return {
-    mockPublish,
-    mockResolve,
-    mockIpns,
+    mockCreateIPNSRecord,
     mockGenerateKeyPairFromSeed,
     mockPublicKeyFromRaw,
+    mockIpns,
+    mockResolve,
   };
 });
+
+vi.mock("ipns", () => ({
+  createIPNSRecord: mockCreateIPNSRecord,
+}));
 
 vi.mock("@helia/ipns", () => ({
   ipns: mockIpns,
@@ -55,11 +59,15 @@ import {
 } from "./ipns-helpers.js";
 
 const mockPutIPNS = vi.fn().mockResolvedValue(undefined);
+const mockGetIPNS = vi.fn();
 const fakeHelia = {
   fake: "helia",
   libp2p: {
     services: {
-      delegatedRouting: { putIPNS: mockPutIPNS },
+      delegatedRouting: {
+        putIPNS: mockPutIPNS,
+        getIPNS: mockGetIPNS,
+      },
     },
   },
 } as any;
@@ -69,7 +77,7 @@ describe("publishIPNS", () => {
     vi.clearAllMocks();
   });
 
-  it("creates record offline then publishes via delegated routing", async () => {
+  it("creates record with clock sum seq and publishes via delegated routing", async () => {
     const seed = new Uint8Array(32).fill(1);
     const cid = await fakeCID("test");
     const fakeRecord = { value: "/ipfs/test" };
@@ -86,19 +94,19 @@ describe("publishIPNS", () => {
     mockGenerateKeyPairFromSeed.mockResolvedValue(
       fakePrivKey,
     );
-    mockPublish.mockResolvedValue(fakeRecord);
+    mockCreateIPNSRecord.mockResolvedValue(fakeRecord);
 
-    await publishIPNS(fakeHelia, seed, cid);
+    await publishIPNS(fakeHelia, seed, cid, 42);
 
     expect(
       mockGenerateKeyPairFromSeed,
     ).toHaveBeenCalledWith("Ed25519", seed);
-    expect(mockIpns).toHaveBeenCalledWith(fakeHelia);
-    // offline: true — no network routing
-    expect(mockPublish).toHaveBeenCalledWith(
+    // createIPNSRecord called with seq from clock sum
+    expect(mockCreateIPNSRecord).toHaveBeenCalledWith(
       fakePrivKey,
       cid,
-      { offline: true },
+      42n,
+      expect.any(Number),
     );
     // delegated HTTP publish
     expect(mockPutIPNS).toHaveBeenCalledWith(
@@ -116,14 +124,18 @@ describe("resolveIPNS", () => {
     vi.clearAllMocks();
   });
 
-  it("resolves a public key to a CID", async () => {
+  it("resolves via delegated routing first", async () => {
     const pubBytes = new Uint8Array(32).fill(2);
     const cid = await fakeCID("resolved");
-    const fakePubKey = { type: "Ed25519" };
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
     mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
-    mockResolve.mockResolvedValue({
-      cid,
-      path: "",
+    mockGetIPNS.mockResolvedValue({
+      value: `/ipfs/${cid.toString()}`,
     });
 
     const result = await resolveIPNS(
@@ -134,19 +146,52 @@ describe("resolveIPNS", () => {
     expect(mockPublicKeyFromRaw).toHaveBeenCalledWith(
       pubBytes,
     );
-    expect(mockResolve).toHaveBeenCalledWith(
-      fakePubKey,
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-      }),
+    expect(mockGetIPNS).toHaveBeenCalled();
+    expect(result?.toString()).toBe(cid.toString());
+    // Should NOT fall back to ipns().resolve
+    expect(mockIpns).not.toHaveBeenCalled();
+  });
+
+  it("falls back to ipns().resolve when delegated fails", async () => {
+    const pubBytes = new Uint8Array(32).fill(3);
+    const cid = await fakeCID("fallback");
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
+    mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
+    mockGetIPNS.mockRejectedValue(
+      new Error("not found"),
     );
+    mockResolve.mockResolvedValue({
+      cid,
+      path: "",
+    });
+
+    const result = await resolveIPNS(
+      fakeHelia,
+      pubBytes,
+    );
+
+    expect(mockGetIPNS).toHaveBeenCalled();
+    expect(mockIpns).toHaveBeenCalled();
     expect(result).toBe(cid);
   });
 
-  it("returns null on resolution failure", async () => {
-    const pubBytes = new Uint8Array(32).fill(3);
-    const fakePubKey = { type: "Ed25519" };
+  it("returns null on total failure", async () => {
+    const pubBytes = new Uint8Array(32).fill(4);
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
     mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
+    mockGetIPNS.mockRejectedValue(
+      new Error("not found"),
+    );
     mockResolve.mockRejectedValue(
       new Error("not found"),
     );
@@ -162,24 +207,34 @@ describe("resolveIPNS", () => {
 
 describe("watchIPNS", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    mockIpns.mockReturnValue({ resolve: mockResolve });
     vi.useFakeTimers();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("calls onUpdate when CID changes", async () => {
-    const pubBytes = new Uint8Array(32).fill(4);
+    const pubBytes = new Uint8Array(32).fill(5);
     const cid1 = await fakeCID("v1");
     const cid2 = await fakeCID("v2");
-    const fakePubKey = { type: "Ed25519" };
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
     mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
 
     let resolveCount = 0;
-    mockResolve.mockImplementation(async () => {
+    mockGetIPNS.mockImplementation(async () => {
       resolveCount++;
       if (resolveCount <= 2) {
-        return { cid: cid1, path: "" };
+        return { value: `/ipfs/${cid1.toString()}` };
       }
-      return { cid: cid2, path: "" };
+      return { value: `/ipfs/${cid2.toString()}` };
     });
 
     const onUpdate = vi.fn();
@@ -193,7 +248,9 @@ describe("watchIPNS", () => {
     // First poll fires immediately
     await vi.advanceTimersByTimeAsync(0);
     expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate).toHaveBeenCalledWith(cid1);
+    expect(
+      onUpdate.mock.calls[0][0].toString(),
+    ).toBe(cid1.toString());
 
     // Second poll — same CID, no new call
     await vi.advanceTimersByTimeAsync(100);
@@ -202,19 +259,25 @@ describe("watchIPNS", () => {
     // Third poll — CID changes
     await vi.advanceTimersByTimeAsync(100);
     expect(onUpdate).toHaveBeenCalledTimes(2);
-    expect(onUpdate).toHaveBeenCalledWith(cid2);
+    expect(
+      onUpdate.mock.calls[1][0].toString(),
+    ).toBe(cid2.toString());
 
     stop();
   });
 
   it("stop() prevents further polling", async () => {
-    const pubBytes = new Uint8Array(32).fill(5);
+    const pubBytes = new Uint8Array(32).fill(6);
     const cid = await fakeCID("stop-test");
-    const fakePubKey = { type: "Ed25519" };
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
     mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
-    mockResolve.mockResolvedValue({
-      cid,
-      path: "",
+    mockGetIPNS.mockResolvedValue({
+      value: `/ipfs/${cid.toString()}`,
     });
 
     const onUpdate = vi.fn();
@@ -235,19 +298,30 @@ describe("watchIPNS", () => {
   });
 
   it("ignores poll errors gracefully", async () => {
-    const pubBytes = new Uint8Array(32).fill(6);
+    const pubBytes = new Uint8Array(32).fill(7);
     const cid = await fakeCID("after-error");
-    const fakePubKey = { type: "Ed25519" };
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
     mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
 
     let callCount = 0;
-    mockResolve.mockImplementation(async () => {
+    mockGetIPNS.mockImplementation(async () => {
       callCount++;
       if (callCount === 1) {
         throw new Error("network error");
       }
-      return { cid, path: "" };
+      return {
+        value: `/ipfs/${cid.toString()}`,
+      };
     });
+    // Fallback also fails on first call
+    mockResolve.mockRejectedValueOnce(
+      new Error("fallback fail"),
+    );
 
     const onUpdate = vi.fn();
     const stop = watchIPNS(
@@ -264,7 +338,9 @@ describe("watchIPNS", () => {
     // Second poll succeeds
     await vi.advanceTimersByTimeAsync(100);
     expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate).toHaveBeenCalledWith(cid);
+    expect(
+      onUpdate.mock.calls[0][0].toString(),
+    ).toBe(cid.toString());
 
     stop();
   });

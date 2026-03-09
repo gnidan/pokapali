@@ -435,6 +435,21 @@ function createCollabDoc(
       const cid = CID.createV1(DAG_CBOR_CODE, hash);
       blocks.set(cid.toString(), block);
 
+      // Compute IPNS seq from Y.Doc state vector
+      // clock sum. Deterministic: same doc state →
+      // same seq, so cross-browser races produce
+      // identical IPNS records instead of conflicting.
+      let clockSum = 0;
+      for (const ns of namespaces) {
+        const sv = Y.encodeStateVector(
+          subdocManager.subdoc(ns),
+        );
+        const decoded = Y.decodeStateVector(sv);
+        for (const clock of decoded.values()) {
+          clockSum += clock;
+        }
+      }
+
       prev = cid;
       seq++;
       checkStatus();
@@ -448,6 +463,7 @@ function createCollabDoc(
         await helia.blockstore.put(cid, block);
         await publishIPNS(
           helia, keys.ipnsKeyBytes!, cid,
+          clockSum,
         );
         if (params.appId && params.pubsub) {
           await announceSnapshot(

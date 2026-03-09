@@ -1,8 +1,10 @@
-import { ipns } from "@helia/ipns";
+import { createIPNSRecord } from "ipns";
+import type { IPNSRecord } from "ipns";
 import {
   generateKeyPairFromSeed,
   publicKeyFromRaw,
 } from "@libp2p/crypto/keys";
+import { ipns } from "@helia/ipns";
 import type { Helia } from "helia";
 import {
   CID as CIDClass,
@@ -11,62 +13,135 @@ import {
 
 const LIBP2P_KEY_CODEC = 0x72;
 const PUBLISH_TIMEOUT_MS = 30_000;
+const DEFAULT_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Per-key publish queue. Serializes IPNS publishes
+ * within one browser tab so concurrent pushSnapshot
+ * calls don't overlap. If a publish is in flight and a
+ * newer CID is queued, the stale CID is skipped.
+ */
+const publishQueues = new Map<string, {
+  inflight: Promise<void>;
+  pending: { cid: CID; seq: bigint } | null;
+}>();
+
+async function enqueuePublish(
+  keyHex: string,
+  cid: CID,
+  seq: bigint,
+  doPublish: (cid: CID, seq: bigint) => Promise<void>,
+): Promise<void> {
+  const entry = publishQueues.get(keyHex);
+
+  if (entry) {
+    // A publish is already in flight. Replace any
+    // pending CID with the newest one — stale CIDs
+    // are pointless to publish.
+    entry.pending = { cid, seq };
+    return;
+  }
+
+  const run = async (
+    currentCid: CID,
+    currentSeq: bigint,
+  ) => {
+    try {
+      await doPublish(currentCid, currentSeq);
+    } catch (err) {
+      console.log(
+        "[pokapali] IPNS publish failed:",
+        (err as Error).message,
+      );
+    }
+
+    const q = publishQueues.get(keyHex);
+    if (q?.pending) {
+      const next = q.pending;
+      q.pending = null;
+      q.inflight = run(next.cid, next.seq);
+      await q.inflight;
+    } else {
+      publishQueues.delete(keyHex);
+    }
+  };
+
+  const inflight = run(cid, seq);
+  publishQueues.set(keyHex, {
+    inflight,
+    pending: null,
+  });
+  await inflight;
+}
 
 /**
  * Publish an IPNS record mapping ipnsKeyBytes → cid.
  *
- * Creates the record offline (no routing), then
- * publishes directly via delegated HTTP. We bypass
- * Helia's composed routing because it uses Promise.all
- * across all routers — the DHT hangs indefinitely in
- * browsers with sparse routing tables, blocking the
- * entire publish.
+ * Uses the caller-provided `clockSum` (derived from the
+ * Y.Doc state vector) as the IPNS sequence number. This
+ * makes the seq deterministic: same doc state → same
+ * seq, so multiple browsers publishing the same snapshot
+ * produce identical records (no race). A browser with
+ * more edits naturally gets a higher seq.
  *
- * NOTE: Accessing helia.libp2p.services.delegatedRouting
- * directly couples us to Helia's default service name.
- * If Helia changes how it registers the delegated
- * router, publish will silently no-op. Tracked as
- * tech debt.
+ * Serialized per key within a tab via publish queue.
+ *
+ * Publishes directly via delegated HTTP, bypassing
+ * Helia's composed routing (DHT hangs in browsers).
  */
 export async function publishIPNS(
   helia: Helia,
   ipnsKeyBytes: Uint8Array,
   cid: CID,
+  clockSum: number,
 ): Promise<void> {
-  const privateKey = await generateKeyPairFromSeed(
-    "Ed25519",
+  const keyHex = Array.from(
     ipnsKeyBytes,
-  );
-  const name = ipns(helia);
+    (b) => b.toString(16).padStart(2, "0"),
+  ).join("");
 
-  // Create and locally cache the record without
-  // publishing to any routers.
-  const record = await name.publish(
-    privateKey, cid, { offline: true },
-  );
-
-  // Path 1: Direct delegated HTTP publish (fast).
-  const delegated = (helia.libp2p.services as any)
-    .delegatedRouting;
-  if (delegated?.putIPNS) {
-    const keyCid = CIDClass.createV1(
-      LIBP2P_KEY_CODEC,
-      privateKey.publicKey.toMultihash(),
-    );
-    const ctrl = new AbortController();
-    const timer = setTimeout(
-      () => ctrl.abort(),
-      PUBLISH_TIMEOUT_MS,
-    );
-    try {
-      await delegated.putIPNS(
-        keyCid, record, { signal: ctrl.signal },
+  await enqueuePublish(
+    keyHex,
+    cid,
+    BigInt(clockSum),
+    async (cidToPublish, seq) => {
+      const privateKey = await generateKeyPairFromSeed(
+        "Ed25519",
+        ipnsKeyBytes,
       );
-    } finally {
-      clearTimeout(timer);
-    }
-  }
 
+      const record = await (createIPNSRecord as Function)(
+        privateKey,
+        cidToPublish,
+        seq,
+        DEFAULT_LIFETIME_MS,
+      ) as IPNSRecord;
+
+      const delegated = (helia.libp2p.services as any)
+        .delegatedRouting;
+      if (!delegated?.putIPNS) return;
+
+      const keyCid = CIDClass.createV1(
+        LIBP2P_KEY_CODEC,
+        privateKey.publicKey.toMultihash(),
+      );
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(
+        () => ctrl.abort(),
+        PUBLISH_TIMEOUT_MS,
+      );
+      try {
+        await delegated.putIPNS(
+          keyCid,
+          record,
+          { signal: ctrl.signal },
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
 }
 
 /**
@@ -83,6 +158,32 @@ export async function resolveIPNS(
   publicKeyBytes: Uint8Array,
 ): Promise<CID | null> {
   const publicKey = publicKeyFromRaw(publicKeyBytes);
+
+  // Try delegated HTTP first (fast, reliable).
+  const delegated = (helia.libp2p.services as any)
+    .delegatedRouting;
+  if (delegated?.getIPNS) {
+    const keyCid = CIDClass.createV1(
+      LIBP2P_KEY_CODEC,
+      publicKey.toMultihash(),
+    );
+    try {
+      const record: IPNSRecord =
+        await delegated.getIPNS(keyCid, {
+          signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+        });
+      // value is "/ipfs/<cid>" string
+      const val = record.value;
+      const cidStr = val.startsWith("/ipfs/")
+        ? val.slice(6)
+        : val;
+      return CIDClass.parse(cidStr);
+    } catch {
+      // Fall through to full resolve
+    }
+  }
+
+  // Fallback: full Helia routing (includes DHT).
   const name = ipns(helia);
   const ctrl = new AbortController();
   const timer = setTimeout(
