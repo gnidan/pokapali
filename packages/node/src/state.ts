@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 export interface PinnerState {
   knownNames: string[];
   tips: Record<string, string>;
+  /** Maps ipnsName → appId for re-announcing. */
+  nameToAppId?: Record<string, string>;
 }
 
 export async function loadState(path: string): Promise<PinnerState> {

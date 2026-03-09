@@ -325,6 +325,13 @@ export async function createPinner(
     for (const n of state.knownNames) {
       knownNames.add(n);
     }
+    if (state.nameToAppId) {
+      for (const [name, appId] of
+        Object.entries(state.nameToAppId)
+      ) {
+        nameToAppId.set(name, appId);
+      }
+    }
   }
 
   async function persistState(): Promise<void> {
@@ -336,6 +343,9 @@ export async function createPinner(
     await saveState(statePath, {
       knownNames: [...knownNames],
       tips,
+      nameToAppId: Object.fromEntries(
+        nameToAppId,
+      ),
     });
   }
 
