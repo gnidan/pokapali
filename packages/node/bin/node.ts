@@ -15,6 +15,10 @@ import type { LogLevel } from "@pokapali/log";
 
 const log = createLogger("node");
 
+const VALID_LOG_LEVELS: LogLevel[] = [
+  "debug", "info", "warn", "error",
+];
+
 function parseArgs(argv: string[]): {
   port: number;
   storagePath: string;
@@ -53,7 +57,17 @@ function parseArgs(argv: string[]): {
     } else if (
       arg === "--log-level" && argv[i + 1]
     ) {
-      logLevel = argv[++i] as LogLevel;
+      const val = argv[++i];
+      if (
+        !VALID_LOG_LEVELS.includes(val as LogLevel)
+      ) {
+        console.error(
+          `invalid --log-level "${val}".`
+          + ` Valid: ${VALID_LOG_LEVELS.join(", ")}`,
+        );
+        process.exit(1);
+      }
+      logLevel = val as LogLevel;
     }
   }
 

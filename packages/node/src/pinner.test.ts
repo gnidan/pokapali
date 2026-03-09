@@ -94,11 +94,6 @@ function createMockHelia(
   };
 }
 
-// Wait for fire-and-forget async operations
-async function flushAsync(ms = 50): Promise<void> {
-  await new Promise((r) => setTimeout(r, ms));
-}
-
 describe("pinner with mock helia", () => {
   let tmpDir: string;
 
@@ -140,7 +135,7 @@ describe("pinner with mock helia", () => {
         "test-name",
         cid.toString(),
       );
-      await flushAsync();
+      await pinner.flush();
 
       const tip = pinner.history.getTip("test-name");
       expect(tip).toBe(cid.toString());
@@ -177,7 +172,7 @@ describe("pinner with mock helia", () => {
           "test-name",
           cid.toString(),
         );
-        await flushAsync();
+        await pinner.flush();
         expect(
           mockHelia.blockstore.get,
         ).toHaveBeenCalledTimes(1);
@@ -187,7 +182,7 @@ describe("pinner with mock helia", () => {
           "test-name",
           cid.toString(),
         );
-        await flushAsync();
+        await pinner.flush();
         // Still only 1 call — second was skipped
         expect(
           mockHelia.blockstore.get,
@@ -219,7 +214,7 @@ describe("pinner with mock helia", () => {
           "test-name",
           cid.toString(),
         );
-        await flushAsync();
+        await pinner.flush();
 
         // Should not be tracked — invalid block
         const tip = pinner.history.getTip("test-name");
@@ -255,7 +250,7 @@ describe("pinner with mock helia", () => {
           "test-name",
           fakeCid.toString(),
         );
-        await flushAsync();
+        await pinner.flush();
 
         const tip = pinner.history.getTip("test-name");
         expect(tip).toBeNull();
@@ -291,7 +286,7 @@ describe("pinner with mock helia", () => {
           "test-name",
           cid1.toString(),
         );
-        await flushAsync();
+        await pinner.flush();
         expect(
           pinner.history.getTip("test-name"),
         ).toBe(cid1.toString());
@@ -300,7 +295,7 @@ describe("pinner with mock helia", () => {
           "test-name",
           cid2.toString(),
         );
-        await flushAsync();
+        await pinner.flush();
         expect(
           pinner.history.getTip("test-name"),
         ).toBe(cid2.toString());
@@ -347,8 +342,8 @@ describe("pinner with mock helia", () => {
         });
         await pinner2.start();
 
-        // resolveAll fires async on start; wait
-        await flushAsync(200);
+        // resolveAll fires async on start; flush it
+        await pinner2.flush();
 
         expect(mockResolve).toHaveBeenCalled();
 
@@ -390,7 +385,7 @@ describe("pinner with mock helia", () => {
 
         // Should not throw even if resolve fails
         await pinner2.start();
-        await flushAsync(200);
+        await pinner2.flush();
 
         // No blocks fetched (resolve failed)
         expect(

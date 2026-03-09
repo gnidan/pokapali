@@ -40,6 +40,8 @@ export interface PinnerConfig {
 export interface Pinner {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /** Await all pending background work. */
+  flush(): Promise<void>;
   ingest(
     ipnsName: string,
     block: Uint8Array,
@@ -71,6 +73,13 @@ export async function createPinner(
   // In-memory block store as fallback when no Helia
   const memBlocks = new Map<string, Uint8Array>();
   const knownNames = new Set<string>();
+  // Track fire-and-forget async work so tests (and
+  // graceful shutdown) can await completion.
+  const pending = new Set<Promise<unknown>>();
+  function track(p: Promise<unknown>): void {
+    pending.add(p);
+    p.finally(() => pending.delete(p));
+  }
   let resolveInterval: ReturnType<
     typeof setInterval
   > | null = null;
@@ -265,6 +274,10 @@ export async function createPinner(
   return {
     history,
 
+    async flush(): Promise<void> {
+      await Promise.allSettled([...pending]);
+    },
+
     async start(): Promise<void> {
       await restoreState();
 
@@ -275,7 +288,7 @@ export async function createPinner(
           + ` ${knownNames.size} persisted names`,
         );
         // Fire and forget — don't block startup
-        resolveAll();
+        track(resolveAll());
       }
 
       // Periodic re-resolve
@@ -323,7 +336,7 @@ export async function createPinner(
       // re-resolve IPNS — the announcement has the
       // latest CID, IPNS may lag behind).
       if (helia) {
-        fetchByCid(ipnsName, cidStr);
+        track(fetchByCid(ipnsName, cidStr));
       }
     },
 
