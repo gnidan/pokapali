@@ -67,6 +67,9 @@ import {
   startRoomDiscovery,
 } from "./peer-discovery.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
+import {
+  fetchBlock,
+} from "./fetch-block.js";
 
 const DAG_CBOR_CODE = 0x71;
 
@@ -166,47 +169,6 @@ function computeStatus(
   if (syncStatus === "connecting") return "connecting";
   if (isDirty) return "unpushed-changes";
   return "synced";
-}
-
-const FETCH_RETRIES = 6;
-const FETCH_BASE_MS = 2_000;
-const FETCH_TIMEOUT_MS = 15_000;
-
-async function fetchBlock(
-  helia: { blockstore: { get(cid: CID, opts?: any): any } },
-  cid: CID,
-): Promise<Uint8Array> {
-  for (let i = 0; i <= FETCH_RETRIES; i++) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(
-        () => ctrl.abort(),
-        FETCH_TIMEOUT_MS,
-      );
-      try {
-        const block: Uint8Array = await helia
-          .blockstore.get(cid, {
-            signal: ctrl.signal,
-          });
-        return block;
-      } finally {
-        clearTimeout(timer);
-      }
-    } catch (err) {
-      if (i === FETCH_RETRIES) throw err;
-      const delay = FETCH_BASE_MS * 2 ** i;
-      console.log(
-        `[pokapali] block fetch retry` +
-          ` ${i + 1}/${FETCH_RETRIES}` +
-          ` in ${delay}ms for`,
-        cid.toString().slice(0, 16) + "...",
-      );
-      await new Promise(
-        (r) => setTimeout(r, delay),
-      );
-    }
-  }
-  throw new Error("unreachable");
 }
 
 interface CollabDocParams {
