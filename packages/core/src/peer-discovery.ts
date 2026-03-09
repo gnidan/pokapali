@@ -15,7 +15,13 @@ const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
 const RECONNECT_BASE_DELAY_MS = 5_000;
-const MAX_RECONNECT_ATTEMPTS = 3;
+const MAX_RECONNECT_ATTEMPTS = 8;
+// Tag value for relay peers. Protects from connection
+// pruning (pruner drops lowest-value peers first)
+// without using KEEP_ALIVE (which triggers libp2p's
+// ReconnectQueue and causes a dual-reconnection race).
+const RELAY_TAG = "pokapali-relay";
+const RELAY_TAG_VALUE = 100;
 
 const log = createLogger("discovery");
 
@@ -102,14 +108,44 @@ export function startRoomDiscovery(
     return extractWssAddrs(pid, rawAddrs, secure);
   }
 
+  function tagRelay(pid: string) {
+    const conn = helia.libp2p.getConnections()
+      .find(
+        (c) => c.remotePeer.toString() === pid,
+      );
+    if (!conn) return;
+    helia.libp2p.peerStore.merge(
+      conn.remotePeer,
+      {
+        tags: {
+          [RELAY_TAG]: { value: RELAY_TAG_VALUE },
+        },
+      },
+    ).catch(() => {});
+  }
+
+  function untagRelay(pid: string) {
+    const conn = helia.libp2p.getConnections()
+      .find(
+        (c) => c.remotePeer.toString() === pid,
+      );
+    if (!conn) return;
+    helia.libp2p.peerStore.merge(
+      conn.remotePeer,
+      { tags: { [RELAY_TAG]: undefined } },
+    ).catch(() => {});
+  }
+
   function trackRelay(pid: string, addrs: string[]) {
     relayPeerIds.add(pid);
     relayAddrs.set(pid, addrs);
+    tagRelay(pid);
   }
 
   function untrackRelay(pid: string) {
     relayPeerIds.delete(pid);
     relayAddrs.delete(pid);
+    untagRelay(pid);
   }
 
   async function dialRelay(
@@ -336,11 +372,13 @@ export function startRoomDiscovery(
 
   // --- Relay reconnection on disconnect ---
   //
-  // We do NOT use libp2p's keep-alive tag or
-  // ReconnectQueue. Using both our handler and
-  // ReconnectQueue causes a race (dual reconnection)
-  // and re-tagging on reconnect-failure creates an
-  // infinite retry loop.
+  // We tag relays (not KEEP_ALIVE) for pruning
+  // protection. Our own handler manages reconnection
+  // with exponential backoff. Relays stay in
+  // relayPeerIds during the reconnect window so
+  // they remain visible in diagnostics and relay
+  // sharing. Only fully untracked after all attempts
+  // are exhausted.
 
   const reconnectTimers = new Map<
     string,
@@ -356,10 +394,6 @@ export function startRoomDiscovery(
     if (!relayPeerIds.has(pid)) return;
     const short = pid.slice(-8);
 
-    // Remove from tracked set immediately so
-    // relayEntries() doesn't share stale addresses.
-    untrackRelay(pid);
-
     // Cancel any pending redial for this peer.
     const existing = reconnectTimers.get(pid);
     if (existing) clearTimeout(existing);
@@ -371,10 +405,10 @@ export function startRoomDiscovery(
     if (attempts >= MAX_RECONNECT_ATTEMPTS) {
       log.info(
         `relay ...${short} disconnected,`,
-        `max attempts reached — waiting for`,
-        `discovery`,
+        `max attempts reached — removing`,
       );
       reconnectAttempts.delete(pid);
+      untrackRelay(pid);
       return;
     }
 
@@ -395,19 +429,24 @@ export function startRoomDiscovery(
         const cached = loadCachedRelays().find(
           (r) => r.peerId === pid,
         );
-        if (!cached) return;
+        if (!cached) {
+          untrackRelay(pid);
+          return;
+        }
 
         const redialAddrs = wssAddrs(
           pid, cached.addrs,
         );
-        if (redialAddrs.length === 0) return;
+        if (redialAddrs.length === 0) {
+          untrackRelay(pid);
+          return;
+        }
 
         const ok = await dialRelay(
           pid, redialAddrs, cached.addrs,
         );
         if (ok) {
           reconnectAttempts.delete(pid);
-          trackRelay(pid, cached.addrs);
           upsertCachedRelay(pid, cached.addrs);
           log.info(
             `relay ...${short} reconnected`,
