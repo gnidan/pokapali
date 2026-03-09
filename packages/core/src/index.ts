@@ -58,7 +58,11 @@ import {
   resolveIPNS,
   watchIPNS,
 } from "./ipns-helpers.js";
-import { announceSnapshot } from "./announce.js";
+import {
+  announceSnapshot,
+  announceTopic,
+  parseAnnouncement,
+} from "./announce.js";
 import {
   startRoomDiscovery,
 } from "./peer-discovery.js";
@@ -302,28 +306,61 @@ function createCollabDoc(
     }, REANNOUNCE_MS);
   }
 
-  // Read-only watchers: poll IPNS for live updates
+  // Read-only watchers: listen for announcements +
+  // poll IPNS as fallback
   const isReadOnly =
     !keys.namespaceKeys ||
     Object.keys(keys.namespaceKeys).length === 0;
   let stopWatch: (() => void) | null = null;
+  let announceHandler: ((evt: CustomEvent) => void)
+    | null = null;
   if (isReadOnly && readKey) {
     const pubKeyBytes = hexToBytes(ipnsName);
     const rk = readKey;
+    let lastAppliedCid: string | null = null;
+
+    async function applySnapshotFromCID(
+      cid: CID,
+    ): Promise<void> {
+      const cidStr = cid.toString();
+      if (cidStr === lastAppliedCid) return;
+      const helia = getHelia();
+      const block = await helia.blockstore.get(cid);
+      blocks.set(cidStr, block);
+      const node = decodeSnapshot(block);
+      const plaintext =
+        await decryptSnapshot(node, rk);
+      subdocManager.applySnapshot(plaintext);
+      lastAppliedCid = cidStr;
+      emit("snapshot-applied");
+    }
+
+    // Listen for GossipSub announcements (instant)
+    if (params.pubsub && params.appId) {
+      const topic = announceTopic(params.appId);
+      params.pubsub.subscribe(topic);
+      announceHandler = (evt: CustomEvent) => {
+        const { detail } = evt;
+        if (detail?.topic !== topic) return;
+        const ann = parseAnnouncement(detail.data);
+        if (!ann || ann.ipnsName !== ipnsName) return;
+        const cid = CID.parse(ann.cid);
+        applySnapshotFromCID(cid).catch(() => {});
+      };
+      params.pubsub.addEventListener(
+        "message",
+        announceHandler,
+      );
+    }
+
+    // IPNS polling fallback (for when no GossipSub
+    // peers are connected)
     stopWatch = watchIPNS(
       getHelia(),
       pubKeyBytes,
       async (cid) => {
         try {
-          const helia = getHelia();
-          const block =
-            await helia.blockstore.get(cid);
-          blocks.set(cid.toString(), block);
-          const node = decodeSnapshot(block);
-          const plaintext =
-            await decryptSnapshot(node, rk);
-          subdocManager.applySnapshot(plaintext);
-          emit("snapshot-applied");
+          await applySnapshotFromCID(cid);
         } catch {
           // Best-effort: block may not be
           // available yet
@@ -645,6 +682,12 @@ function createCollabDoc(
       if (stopWatch) {
         stopWatch();
       }
+      if (announceHandler && params.pubsub) {
+        params.pubsub.removeEventListener(
+          "message",
+          announceHandler,
+        );
+      }
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
@@ -754,6 +797,12 @@ function createCollabDoc(
       }
       if (stopWatch) {
         stopWatch();
+      }
+      if (announceHandler && params.pubsub) {
+        params.pubsub.removeEventListener(
+          "message",
+          announceHandler,
+        );
       }
       params.roomDiscovery?.stop();
       syncManager.destroy();

@@ -49,6 +49,10 @@ vi.mock("./announce.js", () => ({
   announceSnapshot: vi.fn().mockResolvedValue(
     undefined,
   ),
+  announceTopic: vi.fn().mockReturnValue(
+    "/pokapali/app/test/announce",
+  ),
+  parseAnnouncement: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("./peer-discovery.js", () => ({
