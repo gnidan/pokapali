@@ -6,6 +6,9 @@ export type { RelayConfig, Relay } from "./relay.js";
 export { startRelay } from "./relay.js";
 export { announceTopic } from "@pokapali/core/announce";
 
+export type { HttpConfig } from "./http.js";
+export { startHttpServer } from "./http.js";
+
 export type { RateLimiterConfig, RateLimiter } from "./rate-limiter.js";
 export { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 

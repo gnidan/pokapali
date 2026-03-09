@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { createServer } from "node:http";
 import { createPinner } from "../src/index.js";
 import { startRelay } from "../src/relay.js";
+import { startHttpServer } from "../src/http.js";
 import {
   announceTopic,
   parseAnnouncement,
@@ -140,86 +140,21 @@ async function main() {
         "wired GossipSub announcements to pinner",
       );
     }
-
-    const server = createServer(async (req, res) => {
-      const url = new URL(
-        req.url ?? "/",
-        `http://localhost:${port}`,
-      );
-
-      if (
-        req.method === "GET" &&
-        url.pathname === "/health"
-      ) {
-        res.writeHead(200, {
-          "content-type": "application/json",
-        });
-        res.end(JSON.stringify({ ok: true }));
-        return;
-      }
-
-      const ingestMatch = url.pathname.match(
-        /^\/ingest\/([a-zA-Z0-9._-]+)$/,
-      );
-      if (req.method === "POST" && ingestMatch) {
-        const ipnsName = ingestMatch[1];
-        const chunks: Buffer[] = [];
-        for await (const chunk of req) {
-          chunks.push(chunk as Buffer);
-        }
-        const body = new Uint8Array(
-          Buffer.concat(chunks),
-        );
-
-        if (body.length === 0) {
-          res.writeHead(400, {
-            "content-type": "application/json",
-          });
-          res.end(
-            JSON.stringify({ error: "empty body" }),
-          );
-          return;
-        }
-
-        const accepted = await pinner!.ingest(
-          ipnsName, body,
-        );
-        if (accepted) {
-          console.error(
-            `ingested block for ${ipnsName}`,
-          );
-          res.writeHead(200, {
-            "content-type": "application/json",
-          });
-          res.end(JSON.stringify({ ok: true }));
-        } else {
-          console.error(
-            `rejected block for ${ipnsName}`,
-          );
-          res.writeHead(429, {
-            "content-type": "application/json",
-          });
-          res.end(
-            JSON.stringify({ error: "rejected" }),
-          );
-        }
-        return;
-      }
-
-      res.writeHead(404, {
-        "content-type": "application/json",
-      });
-      res.end(
-        JSON.stringify({ error: "not found" }),
-      );
-    });
-
-    server.listen(port);
-    console.error(`HTTP server on port ${port}`);
   }
+
+  // Always start HTTP server for health/status
+  // endpoints (and pinner ingest if applicable).
+  const server = startHttpServer({
+    port,
+    relay: relayHandle,
+    pinner,
+    pinAppIds: pinApps,
+  });
+  console.error(`HTTP server on port ${port}`);
 
   async function shutdown() {
     console.error("shutting down...");
+    server.close();
     if (relayHandle) await relayHandle.stop();
     if (pinner) await pinner.stop();
     console.error("stopped");
