@@ -543,7 +543,7 @@ export function ConnectionStatus({
         }
       >
         <span className="cs-expand">
-          {expanded ? "\u25B4" : "\u25BE"}
+          {expanded ? "\u25BE" : "\u25B4"}
         </span>
 
         <span
