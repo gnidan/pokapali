@@ -168,9 +168,7 @@ export function EditorView({
   );
   const [showShare, setShowShare] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>(
-    doc.status === "unpushed-changes"
-      ? "unpublished"
-      : "published",
+    "unpublished",
   );
   const [ackCount, setAckCount] = useState(
     doc.ackedBy.size,
@@ -218,6 +216,7 @@ export function EditorView({
     const onStatus = (s: DocStatus) => setStatus(s);
     const onSnapshotRec = () => setSaveState("unpublished");
     const onSnapshotApplied = () => {
+      setSaveState("published");
       setLastPublished(Date.now());
       setUpdateFlash(true);
       if (flashTimer.current) {
