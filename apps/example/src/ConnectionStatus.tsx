@@ -32,22 +32,29 @@ export function ConnectionStatus({
     const refresh = () => setInfo(doc.diagnostics());
     refresh();
 
-    // Immediate updates on doc events
+    // Immediate updates on doc and awareness events
     doc.on("status", refresh);
+    doc.on("snapshot-recommended", refresh);
     doc.on("snapshot-applied", refresh);
     doc.on("ack", refresh);
     doc.on("fetch-state", refresh);
+    const awareness = doc.awareness;
+    awareness.on("change", refresh);
 
     // Slow poll as fallback for libp2p peer counts
-    // (no event available for peer connect/disconnect)
-    const interval = expanded ? 2000 : 10_000;
-    const poll = setInterval(refresh, interval);
+    // (no event for peer connect/disconnect)
+    const poll = setInterval(
+      refresh,
+      expanded ? 2000 : 10_000,
+    );
 
     return () => {
       doc.off("status", refresh);
+      doc.off("snapshot-recommended", refresh);
       doc.off("snapshot-applied", refresh);
       doc.off("ack", refresh);
       doc.off("fetch-state", refresh);
+      awareness.off("change", refresh);
       clearInterval(poll);
     };
   }, [doc, expanded]);
