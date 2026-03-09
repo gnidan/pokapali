@@ -505,6 +505,14 @@ describe("@pokapali/core", () => {
     });
   });
 
+  describe("CollabDoc.whenReady", () => {
+    it("whenReady returns a Promise", () => {
+      type Check = ReturnType<CollabDoc["whenReady"]>;
+      const p: Check = Promise.resolve();
+      expect(p).toBeInstanceOf(Promise);
+    });
+  });
+
   describe("forwarding detection in open()", () => {
     it("follows forwarding to new doc", async () => {
       const lib = createCollabLib(OPTS);

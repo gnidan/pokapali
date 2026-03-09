@@ -159,6 +159,13 @@ export interface CollabDoc {
   readonly snapshotFetchState: SnapshotFetchState;
   /** True after first remote snapshot applied. */
   readonly hasAppliedSnapshot: boolean;
+  /**
+   * Resolves when the document has meaningful state:
+   * either a remote snapshot was applied, initial IPNS
+   * resolution found nothing to load, or the document
+   * was locally created (resolves immediately).
+   */
+  whenReady(): Promise<void>;
   pushSnapshot(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
@@ -262,6 +269,23 @@ function createCollabDoc(
   } = params;
 
   let destroyed = false;
+  let readyResolved = false;
+  let resolveReady: (() => void) | null = null;
+  const readyPromise = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+
+  function markReady() {
+    if (!readyResolved) {
+      readyResolved = true;
+      resolveReady?.();
+    }
+  }
+
+  if (!params.performInitialResolve) {
+    markReady();
+  }
+
   const snapshotLC = createSnapshotLifecycle({
     getHelia: () => getHelia(),
   });
@@ -355,6 +379,16 @@ function createCollabDoc(
         params.performInitialResolve,
       onFetchStateChange: (state) => {
         emit("fetch-state", state);
+        // If we return to idle after resolving and
+        // never applied a snapshot, the document is
+        // as ready as it gets.
+        if (
+          state.status === "idle" &&
+          !readyResolved &&
+          !snapshotWatcher?.hasAppliedSnapshot
+        ) {
+          markReady();
+        }
       },
       onSnapshot: async (cid) => {
         const applied =
@@ -371,6 +405,7 @@ function createCollabDoc(
             computeClockSum(),
           );
           emit("snapshot-applied");
+          markReady();
         }
       },
     });
@@ -497,6 +532,10 @@ function createCollabDoc(
     get hasAppliedSnapshot(): boolean {
       return snapshotWatcher
         ?.hasAppliedSnapshot ?? false;
+    },
+
+    whenReady(): Promise<void> {
+      return readyPromise;
     },
 
     async pushSnapshot(): Promise<void> {
