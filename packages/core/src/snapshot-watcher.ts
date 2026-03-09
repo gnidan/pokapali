@@ -14,7 +14,7 @@ import { createLogger } from "@pokapali/log";
 const log = createLogger("snapshot-watcher");
 import type { Helia } from "helia";
 
-const REANNOUNCE_MS = 30_000;
+const REANNOUNCE_MS = 15_000;
 const RETRY_INTERVAL_MS = 30_000;
 const MAX_OUTER_RETRIES = 10;
 
