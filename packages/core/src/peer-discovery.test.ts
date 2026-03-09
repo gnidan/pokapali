@@ -10,13 +10,6 @@ import {
 vi.mock("./relay-cache.js", () => ({
   loadCachedRelays: vi.fn().mockReturnValue([]),
   upsertCachedRelay: vi.fn(),
-  removeCachedRelay: vi.fn(),
-}));
-
-vi.mock("@libp2p/peer-id", () => ({
-  peerIdFromString: vi.fn(
-    (s: string) => ({ toString: () => s }),
-  ),
 }));
 
 vi.mock("@pokapali/log", () => ({
@@ -161,6 +154,11 @@ describe("startRoomDiscovery", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     helia = makeMockHelia();
+    // Reset to default (empty) — mockReturnValue
+    // from prior tests persists through
+    // clearAllMocks.
+    vi.mocked(loadCachedRelays)
+      .mockReturnValue([]);
   });
 
   afterEach(() => {
@@ -198,46 +196,28 @@ describe("startRoomDiscovery", () => {
         helia as any,
       );
 
-      // Should have registered disconnect and
-      // reconnect-failure listeners
+      // Should have registered disconnect listener
       expect(
         helia.libp2p.addEventListener,
       ).toHaveBeenCalledWith(
         "peer:disconnect",
-        expect.any(Function),
-      );
-      expect(
-        helia.libp2p.addEventListener,
-      ).toHaveBeenCalledWith(
-        "peer:reconnect-failure",
         expect.any(Function),
       );
 
       rd.stop();
 
-      // Both listeners should be removed
+      // Listener should be removed
       expect(
         helia.libp2p.removeEventListener,
       ).toHaveBeenCalledWith(
         "peer:disconnect",
         expect.any(Function),
       );
-      expect(
-        helia.libp2p.removeEventListener,
-      ).toHaveBeenCalledWith(
-        "peer:reconnect-failure",
-        expect.any(Function),
-      );
 
-      // Internal listener sets should be empty
+      // Internal listener set should be empty
       expect(
         helia._listeners.get("peer:disconnect")
           ?.size ?? 0,
-      ).toBe(0);
-      expect(
-        helia._listeners.get(
-          "peer:reconnect-failure",
-        )?.size ?? 0,
       ).toBe(0);
     });
 
@@ -330,8 +310,8 @@ describe("startRoomDiscovery", () => {
       return rd;
     }
 
-    it("untracks relay and triggers redial",
-      async () => {
+    it("untracks relay and triggers redial " +
+       "after backoff delay", async () => {
       vi.mocked(loadCachedRelays)
         .mockReturnValue([{
           peerId: RELAY_PID,
@@ -354,8 +334,13 @@ describe("startRoomDiscovery", () => {
         (e) => e.peerId === RELAY_PID,
       )).toBe(false);
 
-      // Redial should be attempted
+      // No redial yet (backoff delay)
       await vi.advanceTimersByTimeAsync(1);
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+
+      // After 5s base delay, redial fires
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(helia.libp2p.dial)
         .toHaveBeenCalled();
 
@@ -391,13 +376,14 @@ describe("startRoomDiscovery", () => {
 
       rd.stop();
 
-      // Disconnect after stop
+      // Disconnect after stop — timer should
+      // not be scheduled
       helia._emit("peer:disconnect", {
         toString: () => RELAY_PID,
       });
 
-      await vi.advanceTimersByTimeAsync(1);
-      // No redial attempt after stop
+      // Advance past all backoff delays
+      await vi.advanceTimersByTimeAsync(60_000);
       expect(helia.libp2p.dial)
         .not.toHaveBeenCalled();
     });
@@ -415,64 +401,122 @@ describe("startRoomDiscovery", () => {
         toString: () => RELAY_PID,
       });
 
-      await vi.advanceTimersByTimeAsync(1);
+      // Advance past backoff delay
+      await vi.advanceTimersByTimeAsync(6_000);
       expect(helia.libp2p.dial)
         .not.toHaveBeenCalled();
 
       rd.stop();
     });
-  });
 
-  describe("reconnect-failure handler", () => {
-    const RELAY_PID = "12D3KooWRelayPeer5678";
-
-    it("re-tags cached relay peer",
+    it("uses exponential backoff delay",
       async () => {
       vi.mocked(loadCachedRelays)
         .mockReturnValue([{
           peerId: RELAY_PID,
-          addrs: ["/ip4/1.2.3.4/tcp/4001/ws"],
+          addrs: RELAY_ADDRS,
           lastSeen: Date.now(),
         }]);
 
-      const rd = startRoomDiscovery(
-        helia as any,
-      );
-      await vi.advanceTimersByTimeAsync(1);
-      helia.libp2p.peerStore.merge.mockClear();
+      const rd = await setupTrackedRelay(helia);
+      helia.libp2p.dial.mockClear();
 
-      helia._emit("peer:reconnect-failure", {
+      // First disconnect: redial with 5s delay
+      helia.libp2p.dial.mockRejectedValue(
+        new Error("refused"),
+      );
+      helia._emit("peer:disconnect", {
         toString: () => RELAY_PID,
       });
 
-      await vi.advanceTimersByTimeAsync(1);
+      // Not yet at 4s
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
 
-      // Should have called peerStore.merge
-      // to re-tag with keep-alive
-      expect(helia.libp2p.peerStore.merge)
-        .toHaveBeenCalled();
+      // Fires at 5s
+      await vi.advanceTimersByTimeAsync(1_001);
+      expect(helia.libp2p.dial)
+        .toHaveBeenCalledTimes(1);
+
+      // Re-track via addExternalRelays so we
+      // can test second disconnect. First let the
+      // failed addExternalRelays dial finish.
+      await vi.advanceTimersByTimeAsync(1);
+      helia.libp2p.dial.mockResolvedValue({});
+      rd.addExternalRelays([{
+        peerId: RELAY_PID,
+        addrs: RELAY_ADDRS,
+      }]);
+      await vi.advanceTimersByTimeAsync(1);
+      helia.libp2p.dial.mockRejectedValue(
+        new Error("refused"),
+      );
+      helia.libp2p.dial.mockClear();
+
+      // Second disconnect: 10s delay (5s * 2^1)
+      helia._emit("peer:disconnect", {
+        toString: () => RELAY_PID,
+      });
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_001);
+      expect(helia.libp2p.dial)
+        .toHaveBeenCalledTimes(1);
 
       rd.stop();
     });
 
-    it("ignores non-cached peers",
+    it("stops retrying after max attempts",
       async () => {
       vi.mocked(loadCachedRelays)
-        .mockReturnValue([]);
+        .mockReturnValue([{
+          peerId: RELAY_PID,
+          addrs: RELAY_ADDRS,
+          lastSeen: Date.now(),
+        }]);
 
-      const rd = startRoomDiscovery(
-        helia as any,
+      const rd = await setupTrackedRelay(helia);
+      helia.libp2p.dial.mockClear();
+      helia.libp2p.dial.mockRejectedValue(
+        new Error("refused"),
       );
-      await vi.advanceTimersByTimeAsync(1);
-      helia.libp2p.peerStore.merge.mockClear();
 
-      helia._emit("peer:reconnect-failure", {
-        toString: () => "12D3KooWUnknown",
+      // Simulate 3 disconnect+fail cycles
+      for (let i = 0; i < 3; i++) {
+        helia.libp2p.dial.mockClear();
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+        const delay = 5_000 * Math.pow(2, i);
+        await vi.advanceTimersByTimeAsync(
+          delay + 1,
+        );
+        expect(helia.libp2p.dial)
+          .toHaveBeenCalledTimes(1);
+
+        // Re-track for next disconnect
+        await vi.advanceTimersByTimeAsync(1);
+        helia.libp2p.dial.mockResolvedValue({});
+        rd.addExternalRelays([{
+          peerId: RELAY_PID,
+          addrs: RELAY_ADDRS,
+        }]);
+        await vi.advanceTimersByTimeAsync(1);
+        helia.libp2p.dial.mockRejectedValue(
+          new Error("refused"),
+        );
+      }
+
+      // 4th disconnect: max attempts reached,
+      // no redial scheduled
+      helia.libp2p.dial.mockClear();
+      helia._emit("peer:disconnect", {
+        toString: () => RELAY_PID,
       });
-
-      await vi.advanceTimersByTimeAsync(1);
-
-      expect(helia.libp2p.peerStore.merge)
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(helia.libp2p.dial)
         .not.toHaveBeenCalled();
 
       rd.stop();

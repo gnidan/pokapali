@@ -1,6 +1,5 @@
 import type { Helia } from "helia";
 import { multiaddr } from "@multiformats/multiaddr";
-import { peerIdFromString } from "@libp2p/peer-id";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { createLogger } from "@pokapali/log";
@@ -15,6 +14,8 @@ const FIND_TIMEOUT_MS = 15_000;
 const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
+const RECONNECT_BASE_DELAY_MS = 5_000;
+const MAX_RECONNECT_ATTEMPTS = 3;
 
 const log = createLogger("discovery");
 
@@ -89,22 +90,6 @@ export function startRoomDiscovery(
   const relayAddrs = new Map<string, string[]>();
 
   let running = false;
-
-  async function tagRelay(pid: string) {
-    try {
-      const peerId = peerIdFromString(pid);
-      await helia.libp2p.peerStore.merge(peerId, {
-        tags: {
-          "keep-alive": { value: 100 },
-        },
-      });
-    } catch (err) {
-      log.warn(
-        "failed to tag relay:",
-        (err as Error).message,
-      );
-    }
-  }
 
   const secure =
     typeof globalThis.location !== "undefined" &&
@@ -201,7 +186,6 @@ export function startRoomDiscovery(
         );
       if (already) {
         trackRelay(pid, entry.addrs);
-        tagRelay(pid);
         log.debug(
           `cached relay ...${short} (connected)`,
         );
@@ -218,7 +202,6 @@ export function startRoomDiscovery(
         pid, dialAddrs, entry.addrs,
       );
       if (ok) {
-        tagRelay(pid);
         upsertCachedRelay(pid, entry.addrs);
       }
       // Don't evict on failure — the 24h TTL in
@@ -272,7 +255,6 @@ export function startRoomDiscovery(
             provider.multiaddrs ?? []
           ).map((ma: any) => ma.toString());
           trackRelay(pid, addrs);
-          tagRelay(pid);
           upsertCachedRelay(pid, addrs);
           log.debug(
             `relay ...${short} (connected)`,
@@ -328,7 +310,6 @@ export function startRoomDiscovery(
               p.peerId,
             );
             if (ok) {
-              tagRelay(p.pid);
               upsertCachedRelay(p.pid, p.addrs);
             }
           }),
@@ -354,6 +335,18 @@ export function startRoomDiscovery(
   }
 
   // --- Relay reconnection on disconnect ---
+  //
+  // We do NOT use libp2p's keep-alive tag or
+  // ReconnectQueue. Using both our handler and
+  // ReconnectQueue causes a race (dual reconnection)
+  // and re-tagging on reconnect-failure creates an
+  // infinite retry loop.
+
+  const reconnectTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  const reconnectAttempts = new Map<string, number>();
 
   const disconnectHandler = (
     evt: CustomEvent,
@@ -366,69 +359,71 @@ export function startRoomDiscovery(
     // Remove from tracked set immediately so
     // relayEntries() doesn't share stale addresses.
     untrackRelay(pid);
+
+    // Cancel any pending redial for this peer.
+    const existing = reconnectTimers.get(pid);
+    if (existing) clearTimeout(existing);
+
+    if (stopped) return;
+
+    const attempts =
+      reconnectAttempts.get(pid) ?? 0;
+    if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+      log.info(
+        `relay ...${short} disconnected,`,
+        `max attempts reached — waiting for`,
+        `discovery`,
+      );
+      reconnectAttempts.delete(pid);
+      return;
+    }
+
+    const delay = RECONNECT_BASE_DELAY_MS
+      * Math.pow(2, attempts);
     log.info(
       `relay ...${short} disconnected,`,
-      `scheduling redial`,
+      `redial in ${delay / 1000}s`,
+      `(attempt ${attempts + 1})`,
     );
 
-    // Attempt immediate redial from cached addresses.
-    const cached = loadCachedRelays().find(
-      (r) => r.peerId === pid,
-    );
-    if (!cached || stopped) return;
+    reconnectTimers.set(
+      pid,
+      setTimeout(async () => {
+        reconnectTimers.delete(pid);
+        if (stopped) return;
 
-    const redialAddrs = wssAddrs(
-      pid, cached.addrs,
-    );
-    if (redialAddrs.length === 0) return;
+        const cached = loadCachedRelays().find(
+          (r) => r.peerId === pid,
+        );
+        if (!cached) return;
 
-    dialRelay(pid, redialAddrs, cached.addrs).then(
-      (ok) => {
+        const redialAddrs = wssAddrs(
+          pid, cached.addrs,
+        );
+        if (redialAddrs.length === 0) return;
+
+        const ok = await dialRelay(
+          pid, redialAddrs, cached.addrs,
+        );
         if (ok) {
+          reconnectAttempts.delete(pid);
           trackRelay(pid, cached.addrs);
-          tagRelay(pid);
           upsertCachedRelay(pid, cached.addrs);
           log.info(
             `relay ...${short} reconnected`,
           );
+        } else {
+          reconnectAttempts.set(
+            pid, attempts + 1,
+          );
         }
-      },
+      }, delay),
     );
   };
 
   helia.libp2p.addEventListener(
     "peer:disconnect",
     disconnectHandler,
-  );
-
-  // When libp2p's ReconnectQueue exhausts retries it
-  // strips the keep-alive tag. Re-tag the relay so the
-  // next discovery cycle or external relay share can
-  // restore the connection with pruning protection.
-  const reconnectFailHandler = (
-    evt: CustomEvent,
-  ) => {
-    const peerId = evt.detail;
-    const pid = peerId.toString();
-    // Only re-tag peers we originally tracked as relays.
-    // Check relayAddrs (not relayPeerIds, which was
-    // cleared by untrackRelay in the disconnect handler)
-    // via the localStorage cache.
-    const cached = loadCachedRelays().find(
-      (r) => r.peerId === pid,
-    );
-    if (!cached) return;
-    const short = pid.slice(-8);
-    log.debug(
-      `relay ...${short} reconnect failed,`,
-      `re-tagging for future discovery`,
-    );
-    tagRelay(pid);
-  };
-
-  helia.libp2p.addEventListener(
-    "peer:reconnect-failure",
-    reconnectFailHandler,
   );
 
   // Try cached relays and DHT discovery concurrently.
@@ -463,7 +458,6 @@ export function startRoomDiscovery(
         );
       if (already) {
         trackRelay(pid, entry.addrs);
-        tagRelay(pid);
         log.debug(
           `peer-shared relay ...${short}`,
           `(connected)`,
@@ -484,7 +478,6 @@ export function startRoomDiscovery(
         pid, extAddrs, entry.addrs,
       );
       if (ok) {
-        tagRelay(pid);
         upsertCachedRelay(pid, entry.addrs);
       }
     }
@@ -507,13 +500,14 @@ export function startRoomDiscovery(
       cycleController?.abort();
       clearInterval(discoverInterval);
       clearInterval(logInterval);
+      for (const timer of reconnectTimers.values()) {
+        clearTimeout(timer);
+      }
+      reconnectTimers.clear();
+      reconnectAttempts.clear();
       helia.libp2p.removeEventListener(
         "peer:disconnect",
         disconnectHandler,
-      );
-      helia.libp2p.removeEventListener(
-        "peer:reconnect-failure",
-        reconnectFailHandler,
       );
     },
   };
