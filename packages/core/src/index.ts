@@ -76,6 +76,11 @@ import {
 import type {
   RelaySharing,
 } from "./relay-sharing.js";
+import {
+  acquireNodeRegistry,
+  getNodeRegistry,
+} from "./node-registry.js";
+import type { NodeRegistry } from "./node-registry.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
@@ -122,10 +127,13 @@ export interface RotateResult {
 
 export type DocRole = "admin" | "writer" | "reader";
 
-export interface RelayDiagnostic {
+export interface NodeInfo {
   peerId: string;
   short: string;
   connected: boolean;
+  roles: string[];
+  ackedCurrentCid: boolean;
+  lastSeenAt: number;
 }
 
 export interface GossipSubDiagnostic {
@@ -136,7 +144,7 @@ export interface GossipSubDiagnostic {
 
 export interface DiagnosticsInfo {
   ipfsPeers: number;
-  relays: RelayDiagnostic[];
+  nodes: NodeInfo[];
   editors: number;
   gossipsub: GossipSubDiagnostic;
   clockSum: number;
@@ -936,33 +944,35 @@ function createCollabDoc(
     diagnostics(): DiagnosticsInfo {
       assertNotDestroyed();
       let ipfsPeers = 0;
-      const relayList: RelayDiagnostic[] = [];
+      const nodeList: NodeInfo[] = [];
       let gossipsub: GossipSubDiagnostic = {
         peers: 0,
         topics: 0,
         meshPeers: 0,
       };
 
+      const ackedSet = snapshotWatcher?.ackedBy
+        ?? new Set<string>();
+
       try {
         const helia = getHelia();
         const libp2p = (helia as any).libp2p;
         ipfsPeers = libp2p.getPeers().length;
 
-        const knownRelays =
-          params.roomDiscovery?.relayPeerIds
-            ?? new Set<string>();
-        if (knownRelays.size > 0) {
-          const connectedPids = new Set<string>();
-          for (const conn of libp2p.getConnections()) {
-            connectedPids.add(
-              (conn as any).remotePeer.toString(),
-            );
-          }
-          for (const pid of knownRelays) {
-            relayList.push({
-              peerId: pid,
-              short: pid.slice(-8),
-              connected: connectedPids.has(pid),
+        // Build node list from registry
+        const registry = getNodeRegistry();
+        if (registry) {
+          for (const node of registry.nodes
+            .values()
+          ) {
+            nodeList.push({
+              peerId: node.peerId,
+              short: node.peerId.slice(-8),
+              connected: node.connected,
+              roles: node.roles,
+              ackedCurrentCid:
+                ackedSet.has(node.peerId),
+              lastSeenAt: node.lastSeenAt,
             });
           }
         }
@@ -971,7 +981,8 @@ function createCollabDoc(
           const pubsub = libp2p.services.pubsub;
           const topics: string[] =
             pubsub.getTopics?.() ?? [];
-          const gsPeers = pubsub.getPeers?.() ?? [];
+          const gsPeers =
+            pubsub.getPeers?.() ?? [];
           const mesh = (pubsub as any).mesh as
             | Map<string, Set<string>>
             | undefined;
@@ -1010,7 +1021,7 @@ function createCollabDoc(
 
       return {
         ipfsPeers,
-        relays: relayList,
+        nodes: nodeList,
         editors,
         gossipsub,
         clockSum: computeClockSum(),
@@ -1021,10 +1032,9 @@ function createCollabDoc(
         fetchState: snapshotWatcher?.fetchState
           ?? { status: "idle" },
         hasAppliedSnapshot:
-          snapshotWatcher?.hasAppliedSnapshot ?? false,
-        ackedBy: [
-          ...(snapshotWatcher?.ackedBy ?? []),
-        ],
+          snapshotWatcher?.hasAppliedSnapshot
+            ?? false,
+        ackedBy: [...ackedSet],
       };
     },
 
@@ -1064,6 +1074,7 @@ export function createCollabLib(
       try {
       const pubsub =
         getHeliaPubsub() as unknown as PubSubLike;
+      acquireNodeRegistry(pubsub, () => getHelia());
 
       const userIce =
         options.peerOpts?.config?.iceServers;
@@ -1228,6 +1239,7 @@ export function createCollabLib(
       try {
       const pubsub =
         getHeliaPubsub() as unknown as PubSubLike;
+      acquireNodeRegistry(pubsub, () => getHelia());
 
       const userIce =
         options.peerOpts?.config?.iceServers;
@@ -1371,3 +1383,11 @@ export type {
   AutoSaveOptions,
 } from "./auto-save.js";
 export { truncateUrl, docIdFromUrl } from "./url-utils.js";
+export {
+  NODE_CAPS_TOPIC,
+  _resetNodeRegistry,
+} from "./node-registry.js";
+export type {
+  KnownNode,
+  NodeRegistry,
+} from "./node-registry.js";

@@ -2,8 +2,17 @@ export type { PinnerConfig, Pinner } from "./pinner.js";
 
 export { createPinner } from "./pinner.js";
 
-export type { RelayConfig, Relay } from "./relay.js";
-export { startRelay } from "./relay.js";
+export type {
+  RelayConfig,
+  Relay,
+  NodeCapabilities,
+} from "./relay.js";
+export {
+  startRelay,
+  encodeNodeCaps,
+  decodeNodeCaps,
+  NODE_CAPS_TOPIC,
+} from "./relay.js";
 export { announceTopic } from "@pokapali/core/announce";
 
 export type { HttpConfig } from "./http.js";

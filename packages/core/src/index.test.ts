@@ -65,6 +65,14 @@ vi.mock("./peer-discovery.js", () => ({
   })),
 }));
 
+vi.mock("./node-registry.js", () => ({
+  acquireNodeRegistry: vi.fn(),
+  getNodeRegistry: vi.fn(() => null),
+  _resetNodeRegistry: vi.fn(),
+  NODE_CAPS_TOPIC:
+    "pokapali._node-caps._p2p._pubsub",
+}));
+
 vi.mock("@pokapali/sync", () => ({
   setupNamespaceRooms: vi.fn(() => ({
     status: "connected",
@@ -503,7 +511,7 @@ describe("@pokapali/core", () => {
     it("DiagnosticsInfo type is well-formed", () => {
       const info: DiagnosticsInfo = {
         ipfsPeers: 0,
-        relays: [],
+        nodes: [],
         editors: 1,
         gossipsub: {
           peers: 0,
@@ -519,7 +527,7 @@ describe("@pokapali/core", () => {
         ackedBy: [],
       };
       expect(info.ipfsPeers).toBe(0);
-      expect(info.relays).toEqual([]);
+      expect(info.nodes).toEqual([]);
       expect(info.gossipsub.meshPeers).toBe(0);
       expect(info.ackedBy).toEqual([]);
     });
