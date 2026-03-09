@@ -178,6 +178,7 @@ export function createSnapshotWatcher(
     });
     const cid = CIDClass.parse(ann.cid);
     onSnapshot(cid).then(() => {
+      if (destroyed) return;
       hasAppliedSnapshot = true;
       setFetchState({ status: "idle" });
       announceSnapshot(
@@ -185,6 +186,7 @@ export function createSnapshotWatcher(
         ann.seq,
       );
     }).catch((err) => {
+      if (destroyed) return;
       log.warn("announce apply failed:", err);
       scheduleRetry();
     });
