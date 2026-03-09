@@ -390,9 +390,9 @@ Pinners are structurally zero-knowledge. They never possess `readKey` and cannot
 
 ### Discovery
 
-When a peer creates a document or pushes a snapshot, the library publishes an announcement to the app-level pubsub topic `/app/${appId}/announce` containing the document's IPNS name. Pinners subscribed to that topic discover the document automatically. This is the primary discovery path — it's immediate and requires no coordination between the document creator and the pinner operator.
+When a peer pushes a snapshot, the library publishes the block to the Helia blockstore, publishes an IPNS record pointing to the CID, then announces on the GossipSub topic `/pokapali/app/{appId}/announce` with a JSON message `{ "ipnsName": "<hex>", "cid": "..." }`. Pinners subscribed to that topic discover documents automatically — this is the primary discovery path.
 
-As a secondary path, pinners also discover IPNS names via DHT provider records (slower, but works for documents whose creators are no longer online). Pinners should periodically crawl DHT provider records for IPNS names they haven't seen via pubsub.
+Pinners use a pull model: on receiving an announcement, they resolve the IPNS name to get the latest CID, fetch the block, validate structure, and store it. They periodically re-resolve all known IPNS names (every 5 minutes) to catch updates even if announcements are missed.
 
 ### Jobs
 
