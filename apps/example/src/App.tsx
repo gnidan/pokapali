@@ -228,14 +228,13 @@ export function App() {
         }
       },
       (e) => {
-        if (!cancelled) {
-          setError(
-            e instanceof Error
-              ? e.message
-              : String(e),
-          );
-          setAutoOpening(false);
-        }
+        if (cancelled) return;
+        setError(
+          e instanceof Error
+            ? e.message
+            : String(e),
+        );
+        setAutoOpening(false);
       },
     );
     return () => { cancelled = true; };
