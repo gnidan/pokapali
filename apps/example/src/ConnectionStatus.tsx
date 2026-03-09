@@ -11,56 +11,58 @@ const MAX_SAMPLES = 60;
 
 interface History {
   peers: number[];
+  mesh: number[];
   relays: number[];
   clockSum: number[];
 }
 
 function emptyHistory(): History {
-  return { peers: [], relays: [], clockSum: [] };
+  return {
+    peers: [],
+    mesh: [],
+    relays: [],
+    clockSum: [],
+  };
 }
 
 function pushSample(
   h: History,
   info: DiagnosticsInfo,
 ) {
-  const connectedRelays = info.relays.filter(
-    (r) => r.connected,
-  ).length;
   h.peers.push(info.ipfsPeers);
-  h.relays.push(connectedRelays);
+  h.mesh.push(info.gossipsub.meshPeers);
+  h.relays.push(
+    info.relays.filter((r) => r.connected).length,
+  );
   h.clockSum.push(info.clockSum);
-  if (h.peers.length > MAX_SAMPLES) h.peers.shift();
-  if (h.relays.length > MAX_SAMPLES) {
-    h.relays.shift();
-  }
-  if (h.clockSum.length > MAX_SAMPLES) {
-    h.clockSum.shift();
+  for (const key of Object.keys(h) as Array<
+    keyof History
+  >) {
+    if (h[key].length > MAX_SAMPLES) h[key].shift();
   }
 }
 
 // --- SVG Sparkline ---
 
-function Sparkline({
-  data,
-  color,
-  width = 100,
-  height = 28,
-}: {
+interface Series {
   data: number[];
   color: string;
-  width?: number;
-  height?: number;
-}) {
-  if (data.length < 2) return null;
+  label: string;
+}
 
-  const pad = 1;
+function normalizePoints(
+  data: number[],
+  width: number,
+  height: number,
+  pad: number,
+): string[] {
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
-
-  const points = data.map((v, i) => {
+  return data.map((v, i) => {
     const x =
-      (i / (data.length - 1)) * (width - 2 * pad) +
+      (i / (data.length - 1)) *
+        (width - 2 * pad) +
       pad;
     const y =
       height -
@@ -68,24 +70,44 @@ function Sparkline({
       ((v - min) / range) * (height - 2 * pad);
     return `${x},${y}`;
   });
+}
 
-  const line = points.join(" ");
-  // Fill area: close path along bottom edge
+function Sparkline({
+  data,
+  color,
+  height = 28,
+}: {
+  data: number[];
+  color: string;
+  height?: number;
+}) {
+  if (data.length < 2) return null;
+  // Use viewBox so the SVG scales to container width
+  const vw = 200;
+  const pad = 2;
+  const pts = normalizePoints(
+    data,
+    vw,
+    height,
+    pad,
+  );
+  const line = pts.join(" ");
   const fill =
     line +
-    ` ${width - pad},${height} ${pad},${height}`;
+    ` ${vw - pad},${height} ${pad},${height}`;
+  const last = pts[pts.length - 1].split(",");
 
   return (
     <svg
       className="sparkline"
-      width={width}
-      height={height}
+      viewBox={`0 0 ${vw} ${height}`}
+      preserveAspectRatio="none"
       aria-hidden="true"
     >
       <polygon
         points={fill}
         fill={color}
-        fillOpacity="0.1"
+        fillOpacity="0.08"
       />
       <polyline
         points={line}
@@ -94,14 +116,85 @@ function Sparkline({
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
-      {/* Current value dot */}
       <circle
-        cx={points[points.length - 1].split(",")[0]}
-        cy={points[points.length - 1].split(",")[1]}
-        r="2"
+        cx={last[0]}
+        cy={last[1]}
+        r="2.5"
         fill={color}
       />
     </svg>
+  );
+}
+
+function MultiSparkline({
+  series,
+  height = 36,
+}: {
+  series: Series[];
+  height?: number;
+}) {
+  const active = series.filter(
+    (s) => s.data.length >= 2,
+  );
+  if (active.length === 0) return null;
+
+  const vw = 200;
+  const pad = 2;
+
+  return (
+    <div className="sparkline-wrap">
+      <svg
+        className="sparkline sparkline-multi"
+        viewBox={`0 0 ${vw} ${height}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        {active.map((s) => {
+          const pts = normalizePoints(
+            s.data,
+            vw,
+            height,
+            pad,
+          );
+          const line = pts.join(" ");
+          const last =
+            pts[pts.length - 1].split(",");
+          return (
+            <g key={s.label}>
+              <polyline
+                points={line}
+                fill="none"
+                stroke={s.color}
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+                strokeOpacity="0.8"
+              />
+              <circle
+                cx={last[0]}
+                cy={last[1]}
+                r="2.5"
+                fill={s.color}
+              />
+            </g>
+          );
+        })}
+      </svg>
+      <div className="sparkline-legend">
+        {active.map((s) => (
+          <span key={s.label} className="legend-item">
+            <span
+              className="legend-swatch"
+              style={{ background: s.color }}
+            />
+            <span className="legend-label">
+              {s.label}
+              {" "}
+              {s.data[s.data.length - 1]}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -267,42 +360,85 @@ function SyncSummary({
 
 // --- Expanded detail sections ---
 
-function PeersDetail({
+function NetworkDetail({
   info,
   history,
 }: {
   info: DiagnosticsInfo;
   history: History;
 }) {
+  const gs = info.gossipsub;
   return (
-    <div className="cs-detail-section">
-      <div className="cs-detail-heading">Peers</div>
-      <div className="cs-detail-row">
-        <span className="cs-detail-key">
-          Awareness
-        </span>
-        {info.editors}
+    <div className="cs-detail-section cs-detail-wide">
+      <div className="cs-detail-heading">
+        Network
       </div>
-      <div className="cs-detail-row">
-        <span className="cs-detail-key">
-          libp2p
-        </span>
-        {info.ipfsPeers}
-      </div>
-      <Sparkline
-        data={history.peers}
-        color="#2563eb"
+      <MultiSparkline
+        series={[
+          {
+            data: history.peers,
+            color: "#2563eb",
+            label: "libp2p",
+          },
+          {
+            data: history.mesh,
+            color: "#f59e0b",
+            label: "mesh",
+          },
+          {
+            data: history.relays,
+            color: "#22c55e",
+            label: "relays",
+          },
+        ]}
+        height={40}
       />
+      <div className="cs-detail-cols">
+        <div>
+          <div className="cs-detail-row">
+            <span className="cs-detail-key">
+              On document
+            </span>
+            {info.editors}
+          </div>
+          <div className="cs-detail-row">
+            <span className="cs-detail-key">
+              libp2p
+            </span>
+            {info.ipfsPeers}
+          </div>
+        </div>
+        <div>
+          <div className="cs-detail-row">
+            <span className="cs-detail-key">
+              GossipSub
+            </span>
+            {gs.peers}
+          </div>
+          <div className="cs-detail-row">
+            <span className="cs-detail-key">
+              Mesh
+            </span>
+            {gs.meshPeers}
+          </div>
+        </div>
+        <div>
+          <div className="cs-detail-row">
+            <span className="cs-detail-key">
+              Topics
+            </span>
+            {gs.topics}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 function RelaysDetail({
   info,
-  history,
 }: {
   info: DiagnosticsInfo;
-  history: History;
 }) {
   return (
     <div className="cs-detail-section">
@@ -335,43 +471,6 @@ function RelaysDetail({
           </div>
         ))
       )}
-      <Sparkline
-        data={history.relays}
-        color="#22c55e"
-      />
-    </div>
-  );
-}
-
-function GossipSubDetail({
-  info,
-}: {
-  info: DiagnosticsInfo;
-}) {
-  const gs = info.gossipsub;
-  return (
-    <div className="cs-detail-section">
-      <div className="cs-detail-heading">
-        GossipSub
-      </div>
-      <div className="cs-detail-row">
-        <span className="cs-detail-key">
-          Peers
-        </span>
-        {gs.peers}
-      </div>
-      <div className="cs-detail-row">
-        <span className="cs-detail-key">
-          Mesh
-        </span>
-        {gs.meshPeers}
-      </div>
-      <div className="cs-detail-row">
-        <span className="cs-detail-key">
-          Topics
-        </span>
-        {gs.topics}
-      </div>
     </div>
   );
 }
@@ -388,6 +487,10 @@ function SnapshotsDetail({
       <div className="cs-detail-heading">
         Snapshots
       </div>
+      <Sparkline
+        data={history.clockSum}
+        color="#8b5cf6"
+      />
       <div className="cs-detail-row">
         <span className="cs-detail-key">
           Clock
@@ -428,10 +531,6 @@ function SnapshotsDetail({
           </span>
         </div>
       )}
-      <Sparkline
-        data={history.clockSum}
-        color="#8b5cf6"
-      />
     </div>
   );
 }
@@ -521,10 +620,15 @@ export function ConnectionStatus({
 
       {expanded && (
         <div className="cs-detail">
-          <PeersDetail info={info} history={h} />
-          <GossipSubDetail info={info} />
-          <RelaysDetail info={info} history={h} />
-          <SnapshotsDetail info={info} history={h} />
+          <NetworkDetail
+            info={info}
+            history={h}
+          />
+          <RelaysDetail info={info} />
+          <SnapshotsDetail
+            info={info}
+            history={h}
+          />
         </div>
       )}
     </div>
