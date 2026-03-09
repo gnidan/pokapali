@@ -417,8 +417,17 @@ function createCollabDoc(
     }
 
     // Listen for GossipSub announcements (instant)
+    console.log(
+      "[pokapali] announce setup: pubsub=" +
+        !!params.pubsub +
+        " appId=" + params.appId,
+    );
     if (params.pubsub && params.appId) {
       const topic = announceTopic(params.appId);
+      console.log(
+        "[pokapali] subscribing to announce topic:",
+        topic,
+      );
       params.pubsub.subscribe(topic);
       announceHandler = (evt: CustomEvent) => {
         const { detail } = evt;

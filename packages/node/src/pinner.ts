@@ -20,6 +20,8 @@ const log = (...args: unknown[]) =>
   console.error("[pokapali:pinner]", ...args);
 
 const RESOLVE_INTERVAL_MS = 5 * 60_000;
+const REPUBLISH_INTERVAL_MS = 60 * 60_000;
+const LIBP2P_KEY_CODEC = 0x72;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -67,6 +69,9 @@ export async function createPinner(
   const memBlocks = new Map<string, Uint8Array>();
   const knownNames = new Set<string>();
   let resolveInterval: ReturnType<
+    typeof setInterval
+  > | null = null;
+  let republishInterval: ReturnType<
     typeof setInterval
   > | null = null;
 
@@ -180,6 +185,61 @@ export async function createPinner(
     );
   }
 
+  /**
+   * Re-put existing IPNS records to keep them alive
+   * on the delegated routing server. No private key
+   * needed — records are already signed by writers.
+   */
+  async function republishAllIPNS(): Promise<void> {
+    if (!helia) return;
+    const delegated = (helia.libp2p.services as any)
+      .delegatedRouting;
+    if (!delegated?.getIPNS || !delegated?.putIPNS) {
+      return;
+    }
+
+    const { publicKeyFromRaw } = await import(
+      "@libp2p/crypto/keys"
+    );
+
+    const names = [...knownNames];
+    if (names.length === 0) return;
+    log(`republishing IPNS for ${names.length} names`);
+
+    await Promise.allSettled(
+      names.map(async (ipnsName) => {
+        try {
+          const keyBytes = hexToBytes(ipnsName);
+          const pubKey = publicKeyFromRaw(keyBytes);
+          const keyCid = CID.createV1(
+            LIBP2P_KEY_CODEC,
+            pubKey.toMultihash(),
+          );
+          const record = await delegated.getIPNS(
+            keyCid,
+            { signal: AbortSignal.timeout(10_000) },
+          );
+          await delegated.putIPNS(
+            keyCid,
+            record,
+            { signal: AbortSignal.timeout(10_000) },
+          );
+          log(
+            `republished IPNS for`
+              + ` ${ipnsName.slice(0, 12)}...`,
+          );
+        } catch (err) {
+          const msg = (err as Error).message ?? "";
+          log(
+            `IPNS republish failed for`
+              + ` ${ipnsName.slice(0, 12)}...:`
+              + ` ${msg}`,
+          );
+        }
+      }),
+    );
+  }
+
   async function restoreState(): Promise<void> {
     const state = await loadState(statePath);
     for (const n of state.knownNames) {
@@ -221,12 +281,23 @@ export async function createPinner(
           resolveAll,
           RESOLVE_INTERVAL_MS,
         );
+        // Periodic IPNS republish (keeps records
+        // alive when writers are offline)
+        republishInterval = setInterval(
+          republishAllIPNS,
+          REPUBLISH_INTERVAL_MS,
+        );
+        // Initial republish after a short delay
+        setTimeout(republishAllIPNS, 30_000);
       }
     },
 
     async stop(): Promise<void> {
       if (resolveInterval) {
         clearInterval(resolveInterval);
+      }
+      if (republishInterval) {
+        clearInterval(republishInterval);
       }
       await persistState();
     },
