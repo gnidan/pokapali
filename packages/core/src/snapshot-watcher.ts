@@ -51,6 +51,10 @@ export interface SnapshotWatcher {
     ) => Uint8Array | undefined,
     getSeq?: () => number | null,
   ): void;
+  /** Trigger an immediate re-announce (e.g. on new
+   *  relay connect). No-op if startReannounce hasn't
+   *  been called or no snapshot exists yet. */
+  reannounceNow(): void;
   /** Track a newly pushed CID for ack collection. */
   trackCidForAcks(cid: string): void;
   readonly latestAnnouncedSeq: number;
@@ -331,34 +335,57 @@ export function createSnapshotWatcher(
     typeof setInterval
   > | null = null;
 
+  let reannounceGetCid:
+    (() => CID | null) | null = null;
+  let reannounceGetBlock:
+    ((s: string) => Uint8Array | undefined) | null
+    = null;
+  let reannounceGetSeq:
+    (() => number | null) | null = null;
+
+  function doReannounce() {
+    if (!reannounceGetCid) return;
+    const cid = reannounceGetCid();
+    if (!cid) return;
+    const cidStr = cid.toString();
+    const block = reannounceGetBlock?.(cidStr);
+    if (block) {
+      const helia = getHelia();
+      Promise.resolve(
+        helia.blockstore.put(cid, block),
+      ).catch((err) => {
+        log.warn("blockstore.put failed:", err);
+      });
+    }
+    const seq =
+      reannounceGetSeq?.() ?? undefined;
+    announceSnapshot(
+      pubsub,
+      appId,
+      ipnsName,
+      cidStr,
+      seq,
+    );
+  }
+
   return {
     startReannounce(getCid, getBlock, getSeq) {
       if (announceTimer) return;
       // Subscribe so writer joins the GossipSub
       // mesh for the announce topic.
       pubsub.subscribe(topic);
-      announceTimer = setInterval(() => {
-        const cid = getCid();
-        if (!cid) return;
-        const cidStr = cid.toString();
-        const block = getBlock(cidStr);
-        if (block) {
-          const helia = getHelia();
-          Promise.resolve(
-            helia.blockstore.put(cid, block),
-          ).catch((err) => {
-            log.warn("blockstore.put failed:", err);
-          });
-        }
-        const seq = getSeq?.() ?? undefined;
-        announceSnapshot(
-          pubsub,
-          appId,
-          ipnsName,
-          cidStr,
-          seq,
-        );
-      }, REANNOUNCE_MS);
+
+      reannounceGetCid = getCid;
+      reannounceGetBlock = getBlock;
+      reannounceGetSeq = getSeq ?? null;
+
+      announceTimer = setInterval(
+        doReannounce, REANNOUNCE_MS,
+      );
+    },
+
+    reannounceNow() {
+      doReannounce();
     },
 
     trackCidForAcks(cid: string) {

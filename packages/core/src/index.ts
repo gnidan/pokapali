@@ -367,6 +367,8 @@ function createCollabDoc(
 
   // Share relay info with WebRTC peers via awareness.
   let relaySharing: RelaySharing | null = null;
+  let cleanupRelayConnect: (() => void) | null =
+    null;
   if (params.roomDiscovery) {
     relaySharing = createRelaySharing({
       awareness: awarenessRoom.awareness,
@@ -440,10 +442,39 @@ function createCollabDoc(
       (cidStr) => snapshotLC.getBlock(cidStr),
       () => snapshotLC.lastIpnsSeq,
     );
+
+    // Immediately re-announce when a new relay
+    // connects so its pinner discovers the latest
+    // snapshot without waiting for the interval.
+    if (params.roomDiscovery) {
+      const rd = params.roomDiscovery;
+      const sw = snapshotWatcher;
+      const connectHandler = (
+        evt: CustomEvent,
+      ) => {
+        const pid =
+          evt.detail?.toString?.() ?? "";
+        if (rd.relayPeerIds.has(pid)) {
+          sw.reannounceNow();
+        }
+      };
+      const helia = getHelia();
+      helia.libp2p.addEventListener(
+        "peer:connect",
+        connectHandler,
+      );
+      cleanupRelayConnect = () => {
+        helia.libp2p.removeEventListener(
+          "peer:connect",
+          connectHandler,
+        );
+      };
+    }
   }
 
   function teardown() {
     destroyed = true;
+    cleanupRelayConnect?.();
     relaySharing?.destroy();
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();

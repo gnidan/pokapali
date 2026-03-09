@@ -35,6 +35,10 @@ vi.mock("./helia.js", () => ({
         new Error("Not found"),
       ),
     },
+    libp2p: {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    },
   })),
   _resetHeliaState: vi.fn(),
 }));
