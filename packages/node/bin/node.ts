@@ -2,10 +2,11 @@
 
 import { createServer } from "node:http";
 import { createPinner } from "../src/index.js";
+import { startRelay } from "../src/relay.js";
 import {
-  startRelay,
   announceTopic,
-} from "../src/relay.js";
+  parseAnnouncement,
+} from "@pokapali/core/announce";
 
 function parseArgs(argv: string[]): {
   port: number;
@@ -124,22 +125,14 @@ async function main() {
           if (!announceTopics.has(evt.detail.topic)) {
             return;
           }
-          try {
-            const text = new TextDecoder().decode(
-              evt.detail.data,
+          const msg = parseAnnouncement(
+            evt.detail.data,
+          );
+          if (msg) {
+            pinner!.onAnnouncement(
+              msg.ipnsName,
+              msg.cid,
             );
-            const msg = JSON.parse(text);
-            if (
-              typeof msg.ipnsName === "string" &&
-              typeof msg.cid === "string"
-            ) {
-              pinner!.onAnnouncement(
-                msg.ipnsName,
-                msg.cid,
-              );
-            }
-          } catch {
-            // Ignore malformed messages
           }
         },
       );

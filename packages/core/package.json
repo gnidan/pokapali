@@ -4,6 +4,16 @@
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./announce": {
+      "types": "./dist/src/announce.d.ts",
+      "default": "./dist/src/announce.js"
+    }
+  },
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run"

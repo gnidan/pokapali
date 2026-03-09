@@ -190,6 +190,8 @@ export function EditorView({
     doc.pushSnapshot().then(() => {
       setSaveState("published");
       setLastPublished(Date.now());
+    }).catch(() => {
+      setSaveState("unpublished");
     });
   }, [doc, canSave]);
 

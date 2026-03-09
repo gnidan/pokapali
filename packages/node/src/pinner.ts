@@ -5,6 +5,7 @@ import {
   validateStructure,
   decodeSnapshot,
 } from "@pokapali/snapshot";
+import { hexToBytes } from "@pokapali/crypto";
 import {
   createRateLimiter,
   DEFAULT_RATE_LIMITS,
@@ -265,11 +266,3 @@ export async function createPinner(
   };
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const len = hex.length / 2;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}

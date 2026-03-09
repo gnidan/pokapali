@@ -16,6 +16,7 @@ import type { Helia } from "helia";
 import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
+import { announceTopic } from "@pokapali/core/announce";
 
 // Even with client-mode DHT, peers accumulate via
 // identify/ping. Set high enough that the connection
@@ -84,10 +85,6 @@ export interface RelayConfig {
   // each ID, so the relay joins the GossipSub mesh
   // and can forward announcements to the pinner.
   pinAppIds?: string[];
-}
-
-export function announceTopic(appId: string): string {
-  return `/pokapali/app/${appId}/announce`;
 }
 
 export interface Relay {
