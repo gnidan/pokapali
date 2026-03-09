@@ -674,6 +674,34 @@ body {
   font-size: 0.7rem;
 }
 
+/* Node role badges and ack indicator */
+
+.cs-role-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cs-role-relay {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.cs-role-pinner {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.cs-ack-check {
+  color: #22c55e;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-left: 0.15rem;
+}
+
 /* Sparkline charts */
 
 .sparkline {

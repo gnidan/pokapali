@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import type {
   CollabDoc,
   DiagnosticsInfo,
+  NodeInfo,
   SnapshotFetchState,
 } from "@pokapali/core";
 
@@ -12,7 +13,7 @@ const MAX_SAMPLES = 60;
 interface History {
   peers: number[];
   mesh: number[];
-  relays: number[];
+  nodes: number[];
   clockSum: number[];
 }
 
@@ -20,7 +21,7 @@ function emptyHistory(): History {
   return {
     peers: [],
     mesh: [],
-    relays: [],
+    nodes: [],
     clockSum: [],
   };
 }
@@ -31,8 +32,8 @@ function pushSample(
 ) {
   h.peers.push(info.ipfsPeers);
   h.mesh.push(info.gossipsub.meshPeers);
-  h.relays.push(
-    info.relays.filter((r) => r.connected).length,
+  h.nodes.push(
+    info.nodes.filter((n) => n.connected).length,
   );
   h.clockSum.push(info.clockSum);
   for (const key of Object.keys(h) as Array<
@@ -232,7 +233,7 @@ function fetchLabel(fs: SnapshotFetchState): string {
 type Health = "connected" | "partial" | "disconnected"
   | "inactive";
 
-function relayHealth(connected: number): Health {
+function nodeHealth(connected: number): Health {
   if (connected >= 3) return "connected";
   if (connected > 0) return "partial";
   return "disconnected";
@@ -322,9 +323,9 @@ function NetworkDetail({
             label: "mesh",
           },
           {
-            data: history.relays,
+            data: history.nodes,
             color: "#22c55e",
-            label: "relays",
+            label: "nodes",
           },
         ]}
       />
@@ -370,40 +371,58 @@ function NetworkDetail({
   );
 }
 
-function RelaysDetail({
+function RoleBadge({ role }: { role: string }) {
+  return (
+    <span className={`cs-role-badge cs-role-${role}`}>
+      {role}
+    </span>
+  );
+}
+
+function NodeRow({ node }: { node: NodeInfo }) {
+  const isPinner = node.roles.includes("pinner");
+  return (
+    <div className="cs-detail-row">
+      <Dot
+        state={
+          node.connected
+            ? "connected"
+            : "disconnected"
+        }
+      />
+      <span className="cs-detail-mono">
+        ...{node.short}
+      </span>
+      {node.roles.map((r) => (
+        <RoleBadge key={r} role={r} />
+      ))}
+      {isPinner && node.ackedCurrentCid && (
+        <span
+          className="cs-ack-check"
+          title="Acked current snapshot"
+        >
+          &#x2713;
+        </span>
+      )}
+    </div>
+  );
+}
+
+function NodesDetail({
   info,
 }: {
   info: DiagnosticsInfo;
 }) {
   return (
     <div className="cs-detail-section">
-      <div className="cs-detail-heading">Relays</div>
-      {info.relays.length === 0 ? (
+      <div className="cs-detail-heading">Nodes</div>
+      {info.nodes.length === 0 ? (
         <div className="cs-detail-row cs-detail-dim">
-          No relays discovered
+          No nodes discovered
         </div>
       ) : (
-        info.relays.map((r) => (
-          <div
-            key={r.peerId}
-            className="cs-detail-row"
-          >
-            <Dot
-              state={
-                r.connected
-                  ? "connected"
-                  : "disconnected"
-              }
-            />
-            <span className="cs-detail-mono">
-              ...{r.short}
-            </span>
-            <span className="cs-detail-dim">
-              {r.connected
-                ? "connected"
-                : "disconnected"}
-            </span>
-          </div>
+        info.nodes.map((n) => (
+          <NodeRow key={n.peerId} node={n} />
         ))
       )}
     </div>
@@ -524,8 +543,8 @@ export function ConnectionStatus({
     };
   }, [doc, expanded]);
 
-  const connectedRelays = info.relays.filter(
-    (r) => r.connected,
+  const connectedNodes = info.nodes.filter(
+    (n) => n.connected,
   ).length;
   const h = historyRef.current;
 
@@ -538,7 +557,7 @@ export function ConnectionStatus({
         aria-expanded={expanded}
         aria-label={
           `${info.editors} user(s), ` +
-          `${connectedRelays} relay(s), ` +
+          `${connectedNodes} node(s), ` +
           `${info.ipfsPeers} network peers`
         }
       >
@@ -563,14 +582,14 @@ export function ConnectionStatus({
         <span
           className="cs-section"
           title={
-            `${connectedRelays}/` +
-            `${info.relays.length} relays`
+            `${connectedNodes}/` +
+            `${info.nodes.length} nodes`
           }
         >
           <Dot state={
-            relayHealth(connectedRelays)
+            nodeHealth(connectedNodes)
           } />
-          <span className="cs-label">Relays</span>
+          <span className="cs-label">Nodes</span>
         </span>
 
         <span className="cs-divider" />
@@ -598,7 +617,7 @@ export function ConnectionStatus({
             info={info}
             history={h}
           />
-          <RelaysDetail info={info} />
+          <NodesDetail info={info} />
           <SnapshotsDetail
             info={info}
             history={h}
