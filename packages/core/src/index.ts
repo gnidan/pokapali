@@ -961,10 +961,12 @@ function createCollabDoc(
 
         // Build node list from registry
         const registry = getNodeRegistry();
+        const seenPids = new Set<string>();
         if (registry) {
           for (const node of registry.nodes
             .values()
           ) {
+            seenPids.add(node.peerId);
             nodeList.push({
               peerId: node.peerId,
               short: node.peerId.slice(-8),
@@ -973,6 +975,32 @@ function createCollabDoc(
               ackedCurrentCid:
                 ackedSet.has(node.peerId),
               lastSeenAt: node.lastSeenAt,
+            });
+          }
+        }
+
+        // Merge DHT-discovered relays not yet in
+        // the registry (e.g. before first caps
+        // message arrives or relay hasn't deployed
+        // caps broadcasting yet).
+        const dhtRelays =
+          params.roomDiscovery?.relayPeerIds;
+        if (dhtRelays) {
+          for (const pid of dhtRelays) {
+            if (seenPids.has(pid)) continue;
+            const conns = libp2p.getConnections();
+            const connected = conns.some(
+              (c: any) =>
+                c.remotePeer.toString() === pid,
+            );
+            nodeList.push({
+              peerId: pid,
+              short: pid.slice(-8),
+              connected,
+              roles: ["relay"],
+              ackedCurrentCid:
+                ackedSet.has(pid),
+              lastSeenAt: 0,
             });
           }
         }
