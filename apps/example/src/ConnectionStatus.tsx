@@ -589,7 +589,9 @@ export function ConnectionStatus({
           <Dot state={
             nodeHealth(connectedNodes)
           } />
-          <span className="cs-label">Nodes</span>
+          <span className="cs-label">
+            Pokapali nodes
+          </span>
         </span>
 
         <span className="cs-divider" />
@@ -605,7 +607,9 @@ export function ConnectionStatus({
             info.ipfsPeers,
             info.gossipsub.meshPeers,
           )} />
-          <span className="cs-label">Network</span>
+          <span className="cs-label">
+            libp2p network
+          </span>
         </span>
 
         <SyncSummary info={info} />
