@@ -197,7 +197,9 @@ export function createSnapshotWatcher(
           const helia = getHelia();
           Promise.resolve(
             helia.blockstore.put(cid, block),
-          ).catch(() => {});
+          ).catch((err) => {
+            log.warn("blockstore.put failed:", err);
+          });
         }
         const seq = getSeq?.() ?? undefined;
         announceSnapshot(
