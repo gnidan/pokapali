@@ -8,6 +8,7 @@
     "build": "tsc --build",
     "test": "vitest run"
   },
+  "license": "MIT",
   "dependencies": {
     "@noble/ed25519": "^2.2.0"
   },

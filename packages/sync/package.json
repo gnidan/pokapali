@@ -8,6 +8,7 @@
     "build": "tsc --build",
     "test": "vitest run"
   },
+  "license": "MIT",
   "dependencies": {
     "@pokapali/log": "0.0.0",
     "@pokapali/subdocs": "0.0.0",

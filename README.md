@@ -106,4 +106,4 @@ full design.
 
 ## License
 
-MIT
+[MIT](LICENSE)
