@@ -330,6 +330,10 @@ export function EditorView({
             }),
             CollaborationCursor.configure({
               provider: doc.provider,
+              user: {
+                name: user.name || "Anonymous",
+                color: user.color,
+              },
               render: renderCursor,
             }),
           ]
