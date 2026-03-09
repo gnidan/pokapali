@@ -1,3 +1,5 @@
+import { docIdFromUrl } from "@pokapali/core";
+
 const STORAGE_KEY = "pokapali:recent-docs";
 const MAX_ENTRIES = 15;
 
@@ -36,22 +38,6 @@ export function loadRecent(): RecentDoc[] {
   } catch {
     return [];
   }
-}
-
-function docIdFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    // Path looks like /base/doc/<id>
-    const parts = parsed.pathname.split("/");
-    const docIdx = parts.indexOf("doc");
-    if (docIdx >= 0 && parts[docIdx + 1]) {
-      const id = parts[docIdx + 1];
-      return id.length > 12
-        ? id.slice(0, 6) + "\u2026" + id.slice(-6)
-        : id;
-    }
-  } catch {}
-  return "unknown";
 }
 
 export function saveRecent(

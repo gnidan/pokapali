@@ -1,25 +1,6 @@
 import { useState, useCallback } from "react";
 import type { CollabDoc } from "@pokapali/core";
-
-function truncateUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const hash = parsed.hash;
-    if (hash.length > 20) {
-      return (
-        parsed.origin +
-        parsed.pathname +
-        "#" +
-        hash.slice(1, 9) +
-        "\u2026" +
-        hash.slice(-8)
-      );
-    }
-    return url;
-  } catch {
-    return url;
-  }
-}
+import { truncateUrl } from "@pokapali/core";
 
 function CopyRow({
   label,

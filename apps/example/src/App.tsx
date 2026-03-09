@@ -21,18 +21,12 @@ const collab = createCollabLib({
     import.meta.env.BASE_URL.replace(/\/$/, ""),
 });
 
-function roleOf(doc: CollabDoc): string {
-  if (doc.capability.isAdmin) return "Admin";
-  if (doc.capability.namespaces.size > 0) return "Writer";
-  return "Reader";
-}
-
-function bestUrl(doc: CollabDoc): string {
-  return doc.adminUrl ?? doc.writeUrl ?? doc.readUrl;
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function recordDoc(doc: CollabDoc) {
-  saveRecent(bestUrl(doc), roleOf(doc));
+  saveRecent(doc.bestUrl, capitalize(doc.role));
 }
 
 function formatAge(ts: number): string {
@@ -183,21 +177,6 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
   );
 }
 
-function isDocUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    const base = import.meta.env.BASE_URL.replace(
-      /\/$/,
-      "",
-    );
-    return parsed.pathname.startsWith(
-      base + "/doc/",
-    ) && parsed.hash.length > 1;
-  } catch {
-    return false;
-  }
-}
-
 export function App() {
   const [doc, setDoc] = useState<CollabDoc | null>(null);
   const [autoOpening, setAutoOpening] = useState(false);
@@ -211,7 +190,7 @@ export function App() {
     (d: CollabDoc, replace = false) => {
       recordDoc(d);
       setDoc(d);
-      const url = bestUrl(d);
+      const url = d.bestUrl;
       if (replace) {
         window.history.replaceState(null, "", url);
       } else {
@@ -233,7 +212,7 @@ export function App() {
   // Auto-open if URL contains a doc path on mount
   useEffect(() => {
     const url = window.location.href;
-    if (!isDocUrl(url)) return;
+    if (!collab.isDocUrl(url)) return;
 
     let cancelled = false;
     setAutoOpening(true);
@@ -266,7 +245,7 @@ export function App() {
   // if the URL no longer points to a document
   useEffect(() => {
     const onPopState = () => {
-      if (!isDocUrl(window.location.href)) {
+      if (!collab.isDocUrl(window.location.href)) {
         goToLanding();
       }
     };

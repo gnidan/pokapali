@@ -9,6 +9,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import type { CollabDoc, DocStatus } from "@pokapali/core";
+import { createAutoSaver } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SharePanel } from "./SharePanel";
 import { ConnectionStatus } from "./ConnectionStatus";
@@ -62,25 +63,14 @@ function renderCursor(user: { name: string; color: string }) {
   return el;
 }
 
-function capBadge(doc: CollabDoc): { label: string; className: string } {
-  if (doc.capability.isAdmin) {
-    return { label: "Admin", className: "badge admin" };
-  }
-  if (doc.capability.namespaces.size > 0) {
-    return {
-      label: "Writer",
-      className: "badge writer",
-    };
-  }
-  return { label: "Reader", className: "badge reader" };
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 type SaveState =
   | "published"
   | "unpublished"
   | "saving";
-
-const DEBOUNCE_MS = 10_000;
 
 const SAVE_LABELS: Record<SaveState, string> = {
   published: "Published",
@@ -149,55 +139,6 @@ function LastUpdated({
   );
 }
 
-/**
- * Wait for a Y.Doc's XmlFragment to have content,
- * so Tiptap doesn't create a default empty paragraph
- * that merges as a spurious newline. Returns true
- * immediately if the fragment already has content,
- * otherwise polls briefly before giving up.
- */
-function useFragmentReady(
-  ydoc: import("yjs").Doc,
-  field = "default",
-  timeoutMs = 3_000,
-): boolean {
-  const [ready, setReady] = useState(() => {
-    return ydoc.getXmlFragment(field).length > 0;
-  });
-
-  useEffect(() => {
-    if (ready) return;
-    const frag = ydoc.getXmlFragment(field);
-
-    // Check if it already has content
-    if (frag.length > 0) {
-      setReady(true);
-      return;
-    }
-
-    // Listen for changes
-    const observer = () => {
-      if (frag.length > 0) {
-        setReady(true);
-      }
-    };
-    frag.observeDeep(observer);
-
-    // Timeout: render anyway (new doc or offline)
-    const timer = setTimeout(
-      () => setReady(true),
-      timeoutMs,
-    );
-
-    return () => {
-      frag.unobserveDeep(observer);
-      clearTimeout(timer);
-    };
-  }, [ydoc, field, timeoutMs, ready]);
-
-  return ready;
-}
-
 export function EditorView({
   doc,
   onBack,
@@ -205,60 +146,55 @@ export function EditorView({
   doc: CollabDoc;
   onBack: () => void;
 }) {
-  const [status, setStatus] = useState<DocStatus>(doc.status);
+  const [status, setStatus] = useState<DocStatus>(
+    doc.status,
+  );
   const [showShare, setShowShare] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>(
     doc.status === "unpushed-changes"
       ? "unpublished"
       : "published",
   );
-  const debounceRef = useRef<ReturnType<typeof setTimeout>
-    | null>(null);
   const [lastPublished, setLastPublished] = useState(
     Date.now(),
   );
   const [updateFlash, setUpdateFlash] = useState(false);
-  const flashTimer = useRef<ReturnType<typeof setTimeout>
-    | null>(null);
+  const flashTimer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [user, setUser] = useState<StoredUser>(loadUser);
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const [ready, setReady] = useState(false);
 
   const isReadOnly =
     !doc.capability.namespaces.has("content");
   const canSave = doc.capability.canPushSnapshots;
-  const badge = capBadge(doc);
+  const role = doc.role;
 
   const doSave = useCallback(() => {
     if (!canSave) return;
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = null;
-    }
     setSaveState("saving");
-    doc.pushSnapshot().then(() => {
-      setSaveState("published");
-      setLastPublished(Date.now());
-    }).catch(() => {
-      setSaveState("unpublished");
-    });
+    doc
+      .pushSnapshot()
+      .then(() => {
+        setSaveState("published");
+        setLastPublished(Date.now());
+      })
+      .catch(() => {
+        setSaveState("unpublished");
+      });
   }, [doc, canSave]);
 
-  const startDebounce = useCallback(() => {
-    if (!canSave) return;
-    setSaveState("unpublished");
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      doSave();
-    }, DEBOUNCE_MS);
-  }, [canSave, doSave]);
+  // Auto-save: beforeunload, visibilitychange,
+  // debounced snapshot-recommended
+  useEffect(() => {
+    return createAutoSaver(doc);
+  }, [doc]);
 
   useEffect(() => {
     const onStatus = (s: DocStatus) => setStatus(s);
-    const onSnapshotRec = () => startDebounce();
+    const onSnapshotRec = () => setSaveState("unpublished");
     const onSnapshotApplied = () => {
       setLastPublished(Date.now());
       setUpdateFlash(true);
@@ -274,59 +210,32 @@ export function EditorView({
     doc.on("snapshot-recommended", onSnapshotRec);
     doc.on("snapshot-applied", onSnapshotApplied);
 
-    // Best-effort save on unload
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (doc.status === "unpushed-changes") {
-        e.preventDefault();
-      }
-    };
-    const onVisChange = () => {
-      if (
-        document.visibilityState === "hidden" &&
-        doc.status === "unpushed-changes"
-      ) {
-        doc.pushSnapshot();
-      }
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    document.addEventListener(
-      "visibilitychange",
-      onVisChange,
-    );
-
     return () => {
       doc.off("status", onStatus);
       doc.off("snapshot-recommended", onSnapshotRec);
       doc.off("snapshot-applied", onSnapshotApplied);
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
-      window.removeEventListener(
-        "beforeunload",
-        onBeforeUnload,
-      );
-      document.removeEventListener(
-        "visibilitychange",
-        onVisChange,
-      );
       doc.destroy();
     };
-  }, [doc, startDebounce]);
+  }, [doc]);
+
+  // Wait for doc to be ready (snapshot loaded or
+  // confirmed empty) before mounting Collaboration
+  useEffect(() => {
+    let cancelled = false;
+    doc.whenReady().then(() => {
+      if (!cancelled) setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [doc]);
 
   const contentDoc = doc.subdoc("content");
-  const fragmentReady = useFragmentReady(contentDoc);
-  // Gate Collaboration extensions for readers until
-  // fragment has content, preventing Tiptap from
-  // inserting a default empty paragraph.
-  const shouldMount = !isReadOnly || fragmentReady;
-  // Show the editor once we have content or once
-  // sync confirms there's nothing more to load.
-  // The 3s timeout in useFragmentReady is a fallback.
-  const showEditor =
-    fragmentReady || status === "synced";
+  const shouldMount = ready || !isReadOnly;
+  const showEditor = ready || status === "synced";
 
   const editor = useEditor(
     {
@@ -387,7 +296,9 @@ export function EditorView({
           Back
         </button>
         <h1>Pokapali</h1>
-        <span className={badge.className}>{badge.label}</span>
+        <span className={`badge ${role}`}>
+          {capitalize(role)}
+        </span>
         {editingName ? (
           <input
             ref={nameRef}

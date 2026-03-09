@@ -1,117 +1,8 @@
 import { useState, useEffect } from "react";
-import { getHelia } from "@pokapali/core";
 import type {
   CollabDoc,
-  SnapshotFetchState,
+  DiagnosticsInfo,
 } from "@pokapali/core";
-
-interface RelayInfo {
-  short: string;
-  peerId: string;
-  connected: boolean;
-}
-
-interface GossipSubInfo {
-  peers: number;
-  topics: number;
-  meshPeers: number;
-}
-
-interface ConnectionInfo {
-  ipfsPeers: number;
-  relays: RelayInfo[];
-  editors: number;
-  gossipsub: GossipSubInfo;
-  clockSum: number;
-  maxPeerClockSum: number;
-  latestAnnouncedSeq: number;
-  fetchState: SnapshotFetchState;
-  hasAppliedSnapshot: boolean;
-  ipnsSeq: number | null;
-}
-
-function gatherInfo(doc: CollabDoc): ConnectionInfo {
-  let ipfsPeers = 0;
-  const relays: RelayInfo[] = [];
-  let editors = 1;
-  let gossipsub: GossipSubInfo = {
-    peers: 0,
-    topics: 0,
-    meshPeers: 0,
-  };
-
-  try {
-    const helia = getHelia();
-    const libp2p = (helia as any).libp2p;
-    ipfsPeers = libp2p.getPeers().length;
-
-    const knownRelays = doc.relayPeerIds;
-    if (knownRelays.size > 0) {
-      const connectedPids = new Set<string>();
-      for (const conn of libp2p.getConnections()) {
-        connectedPids.add(
-          (conn as any).remotePeer.toString(),
-        );
-      }
-      for (const pid of knownRelays) {
-        relays.push({
-          short: pid.slice(-8),
-          peerId: pid,
-          connected: connectedPids.has(pid),
-        });
-      }
-    }
-
-    // GossipSub info
-    try {
-      const pubsub = libp2p.services.pubsub;
-      const topics: string[] =
-        pubsub.getTopics?.() ?? [];
-      const gsPeers = pubsub.getPeers?.() ?? [];
-      const mesh = (pubsub as any).mesh as
-        | Map<string, Set<string>>
-        | undefined;
-      let meshPeers = 0;
-      if (mesh) {
-        for (const set of mesh.values()) {
-          meshPeers += set.size;
-        }
-      }
-      gossipsub = {
-        peers: gsPeers.length,
-        topics: topics.length,
-        meshPeers,
-      };
-    } catch {}
-  } catch {
-    // Helia not ready
-  }
-
-  let maxPeerClockSum = 0;
-  try {
-    const states = doc.awareness.getStates();
-    editors = Math.max(1, states.size);
-    for (const [, state] of states) {
-      const cs = (state as any)?.clockSum;
-      if (typeof cs === "number" && cs > maxPeerClockSum) {
-        maxPeerClockSum = cs;
-      }
-    }
-  } catch {}
-
-  return {
-    ipfsPeers,
-    relays,
-    editors,
-    gossipsub,
-    clockSum: doc.clockSum,
-    maxPeerClockSum,
-    latestAnnouncedSeq: doc.latestAnnouncedSeq,
-    fetchState: doc.snapshotFetchState,
-    hasAppliedSnapshot: doc.hasAppliedSnapshot,
-    ipnsSeq: doc.ipnsSeq,
-  };
-}
 
 function RelayDot({ connected }: {
   connected: boolean;
@@ -131,28 +22,17 @@ export function ConnectionStatus({
 }: {
   doc: CollabDoc;
 }) {
-  const [info, setInfo] = useState<ConnectionInfo>(
-    () => ({
-      ipfsPeers: 0,
-      relays: [],
-      editors: 1,
-      gossipsub: { peers: 0, topics: 0, meshPeers: 0 },
-      clockSum: doc.clockSum,
-      maxPeerClockSum: 0,
-      latestAnnouncedSeq: 0,
-      fetchState: { status: "idle" },
-      hasAppliedSnapshot: doc.hasAppliedSnapshot,
-      ipnsSeq: doc.ipnsSeq,
-    }),
+  const [info, setInfo] = useState<DiagnosticsInfo>(
+    () => doc.diagnostics(),
   );
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    setInfo(gatherInfo(doc));
+    setInfo(doc.diagnostics());
     // Faster poll when expanded, slower when collapsed
     const interval = expanded ? 2000 : 5000;
     const poll = setInterval(
-      () => setInfo(gatherInfo(doc)),
+      () => setInfo(doc.diagnostics()),
       interval,
     );
     return () => clearInterval(poll);
