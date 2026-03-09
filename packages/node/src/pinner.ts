@@ -84,6 +84,9 @@ export async function createPinner(
   // In-memory block store as fallback when no Helia
   const memBlocks = new Map<string, Uint8Array>();
   const knownNames = new Set<string>();
+  // Track last acked CID per ipnsName to avoid
+  // redundant fetch+ack cycles on re-announces.
+  const lastAckedCid = new Map<string, string>();
   // Track fire-and-forget async work so tests (and
   // graceful shutdown) can await completion.
   const pending = new Set<Promise<unknown>>();
@@ -345,6 +348,34 @@ export async function createPinner(
       appId?: string,
     ): void {
       knownNames.add(ipnsName);
+
+      // Dedup: if we already fetched+acked this CID,
+      // just re-ack (cheap) so new browsers see it.
+      if (lastAckedCid.get(ipnsName) === cidStr) {
+        log.debug(
+          `duplicate: ${cidStr.slice(0, 12)}...`
+          + ` re-acking`,
+        );
+        if (
+          appId &&
+          config.pubsub &&
+          config.peerId
+        ) {
+          track(
+            announceAck(
+              config.pubsub,
+              appId,
+              ipnsName,
+              cidStr,
+              config.peerId,
+            ).catch((err) => {
+              log.warn("re-ack failed:", err);
+            }),
+          );
+        }
+        return;
+      }
+
       log.debug(
         `announcement: name=${ipnsName.slice(0, 12)}...`
         + ` cid=${cidStr.slice(0, 12)}...`,
@@ -368,6 +399,9 @@ export async function createPinner(
                   ipnsName,
                   cidStr,
                   config.peerId,
+                );
+                lastAckedCid.set(
+                  ipnsName, cidStr,
                 );
                 log.debug(
                   `acked`
