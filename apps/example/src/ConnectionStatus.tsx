@@ -29,7 +29,10 @@ export function ConnectionStatus({
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    const refresh = () => setInfo(doc.diagnostics());
+    let active = true;
+    const refresh = () => {
+      if (active) setInfo(doc.diagnostics());
+    };
     refresh();
 
     // Immediate updates on doc and awareness events
@@ -49,6 +52,7 @@ export function ConnectionStatus({
     );
 
     return () => {
+      active = false;
       doc.off("status", refresh);
       doc.off("snapshot-recommended", refresh);
       doc.off("snapshot-applied", refresh);
