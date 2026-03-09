@@ -668,6 +668,7 @@ function createCollabDoc(
             ipnsName,
             cid.toString(),
             clockSum,
+            block,
           );
           log.debug("announce sent");
         }

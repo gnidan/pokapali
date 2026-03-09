@@ -60,6 +60,7 @@ export interface Pinner {
     ipnsName: string,
     cidStr: string,
     appId?: string,
+    blockData?: Uint8Array,
   ): void;
   history: HistoryTracker;
 }
@@ -346,8 +347,29 @@ export async function createPinner(
       ipnsName: string,
       cidStr: string,
       appId?: string,
+      blockData?: Uint8Array,
     ): void {
       knownNames.add(ipnsName);
+
+      // If block data is included, store it so
+      // fetchByCid can find it locally.
+      if (blockData && helia) {
+        try {
+          const cid = CID.parse(cidStr);
+          track(
+            Promise.resolve(
+              helia.blockstore.put(cid, blockData),
+            ).catch((err) => {
+              log.warn(
+                "blockstore.put from announce:",
+                err,
+              );
+            }),
+          );
+        } catch (err) {
+          log.warn("CID parse failed:", err);
+        }
+      }
 
       // Dedup: if we already fetched+acked this CID,
       // just re-ack (cheap) so new browsers see it.
