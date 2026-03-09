@@ -19,8 +19,10 @@ signaling servers required.
 - **`createGossipSubSignaling()`** — GossipSub-based
   signaling adapter that registers in y-webrtc's
   `signalingConns` map
-- **`SyncManager`** — interface for connection status
-  and cleanup
+- **`SyncManager`** — interface for connection status,
+  cleanup, and `onStatusChange(cb)` for reacting to
+  y-webrtc provider status events (e.g. after PBKDF2
+  key derivation completes)
 - **`SyncOptions`** — configuration (ICE servers, peer
   options)
 - **`PubSubLike`** — minimal pubsub interface for
