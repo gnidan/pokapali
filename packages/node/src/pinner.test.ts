@@ -132,12 +132,12 @@ describe("pinner with mock helia", () => {
       await pinner.start();
 
       pinner.onAnnouncement(
-        "test-name",
+        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
         cid.toString(),
       );
       await pinner.flush();
 
-      const tip = pinner.history.getTip("test-name");
+      const tip = pinner.history.getTip("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233");
       expect(tip).toBe(cid.toString());
 
       expect(mockHelia.blockstore.get).
@@ -169,7 +169,7 @@ describe("pinner with mock helia", () => {
 
         // First announcement — should fetch
         pinner.onAnnouncement(
-          "test-name",
+          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
           cid.toString(),
         );
         await pinner.flush();
@@ -179,7 +179,7 @@ describe("pinner with mock helia", () => {
 
         // Same CID again — should skip (dedup)
         pinner.onAnnouncement(
-          "test-name",
+          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
           cid.toString(),
         );
         await pinner.flush();
@@ -211,13 +211,13 @@ describe("pinner with mock helia", () => {
         await pinner.start();
 
         pinner.onAnnouncement(
-          "test-name",
+          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
           cid.toString(),
         );
         await pinner.flush();
 
         // Should not be tracked — invalid block
-        const tip = pinner.history.getTip("test-name");
+        const tip = pinner.history.getTip("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233");
         expect(tip).toBeNull();
 
         await pinner.stop();
@@ -247,12 +247,12 @@ describe("pinner with mock helia", () => {
 
         // Should not throw — errors are caught
         pinner.onAnnouncement(
-          "test-name",
+          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
           fakeCid.toString(),
         );
         await pinner.flush();
 
-        const tip = pinner.history.getTip("test-name");
+        const tip = pinner.history.getTip("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233");
         expect(tip).toBeNull();
 
         await pinner.stop();
@@ -283,21 +283,21 @@ describe("pinner with mock helia", () => {
         await pinner.start();
 
         pinner.onAnnouncement(
-          "test-name",
+          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
           cid1.toString(),
         );
         await pinner.flush();
         expect(
-          pinner.history.getTip("test-name"),
+          pinner.history.getTip("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233"),
         ).toBe(cid1.toString());
 
         pinner.onAnnouncement(
-          "test-name",
+          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
           cid2.toString(),
         );
         await pinner.flush();
         expect(
-          pinner.history.getTip("test-name"),
+          pinner.history.getTip("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233"),
         ).toBe(cid2.toString());
 
         await pinner.stop();
@@ -319,7 +319,7 @@ describe("pinner with mock helia", () => {
           storagePath: tmpDir,
         });
         await pinner1.start();
-        await pinner1.ingest("test-name", block);
+        await pinner1.ingest("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233", block);
         await pinner1.stop();
 
         // Step 2: create new pinner with mock helia.
@@ -367,7 +367,7 @@ describe("pinner with mock helia", () => {
           storagePath: tmpDir,
         });
         await pinner1.start();
-        await pinner1.ingest("test-name", block);
+        await pinner1.ingest("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233", block);
         await pinner1.stop();
 
         const mockHelia = createMockHelia();
@@ -426,7 +426,7 @@ describe("pinner with mock helia", () => {
         await pinner.start();
 
         // Add a known name via ingest
-        await pinner.ingest("test-name", block);
+        await pinner.ingest("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233", block);
 
         // Advance to trigger the initial republish
         // setTimeout(republishAllIPNS, 5*60_000).
@@ -481,7 +481,7 @@ describe("pinner with mock helia", () => {
           helia: mockHelia as any,
         });
         await pinner.start();
-        await pinner.ingest("test-name", block);
+        await pinner.ingest("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233", block);
 
         // Advance in small steps like above
         await vi.advanceTimersByTimeAsync(5 * 60_000);
@@ -491,7 +491,7 @@ describe("pinner with mock helia", () => {
 
         // Should not throw — errors are caught
         // Pinner should still be functional
-        const tip = pinner.history.getTip("test-name");
+        const tip = pinner.history.getTip("aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233");
         expect(tip).toBe(cid.toString());
 
         await pinner.stop();
