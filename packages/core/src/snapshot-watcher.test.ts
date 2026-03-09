@@ -210,6 +210,7 @@ describe("createSnapshotWatcher", () => {
           "test",
           "abc123",
           tipCid.toString(),
+          undefined,
         );
 
         watcher.destroy();
