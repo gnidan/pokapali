@@ -147,17 +147,84 @@ doc.on("snapshot-applied", () => {
 
 ### 7. Document status
 
-```ts
-doc.on("status", (status) => {
-  // "connecting" | "syncing" | "synced"
-  // | "offline" | "unpushed-changes"
-});
+Pokapali separates connectivity from persistence:
 
-// Current status
+**Connectivity** — `doc.status` tells you whether the
+document is connected to peers:
+
+```ts
 doc.status;
+// "connecting" | "synced" | "receiving" | "offline"
+
+doc.on("status", (status) => {
+  // "synced"     — connected, can send and receive
+  // "receiving"  — connected read-only (no write cap)
+  // "connecting" — establishing peer connections
+  // "offline"    — no peers reachable
+});
 ```
 
-### 8. Cleanup
+**Persistence** — `doc.saveState` tells you whether
+local changes have been published to IPFS:
+
+```ts
+doc.saveState;
+// "saved" | "dirty" | "saving" | "unpublished"
+
+doc.on("save-state", (state) => {
+  // "saved"       — snapshot published and acked
+  // "dirty"       — local changes not yet published
+  // "saving"      — snapshot push in progress
+  // "unpublished" — new doc, never published
+});
+```
+
+### 8. Node diagnostics
+
+`doc.diagnostics()` returns detailed network info
+including discovered nodes with their roles:
+
+```ts
+const info = doc.diagnostics();
+
+// info.nodes: NodeInfo[]
+// Each node has:
+//   peerId, short, connected, roles, ackedCurrentCid,
+//   lastSeenAt
+
+// Check for connected pinners
+const hasPinner = info.nodes.some(
+  (n) => n.connected && n.roles.includes("pinner"),
+);
+
+// Check for connected relays
+const hasRelay = info.nodes.some(
+  (n) => n.connected && n.roles.includes("relay"),
+);
+```
+
+Nodes advertise their roles (`"relay"`, `"pinner"`, or
+both) via GossipSub. Use this to show users whether
+their changes will be persisted remotely — if no pinner
+is connected, warn them.
+
+### 9. Auto-save
+
+The `createAutoSaver` utility handles snapshot publishing
+automatically on visibility change, beforeunload, and
+debounced `snapshot-recommended` events:
+
+```ts
+import { createAutoSaver } from "@pokapali/core";
+
+// Returns a cleanup function
+const cleanup = createAutoSaver(doc);
+
+// In React:
+useEffect(() => createAutoSaver(doc), [doc]);
+```
+
+### 10. Cleanup
 
 Always destroy when done to release WebRTC connections,
 awareness rooms, and the shared Helia instance:
@@ -287,6 +354,10 @@ const subdocs = await doc.loadVersion(versions[0].cid);
 - **Capability URLs are secrets** — treat them like
   passwords. The hash fragment is never sent to
   servers, but anyone with the full URL has access.
-- **Relay nodes** are optional. Peers connect directly
-  via WebRTC. Relays improve discovery and provide
-  GossipSub-based signaling for peers behind NAT.
+- **Pokapali nodes** (relays and pinners) are optional.
+  Peers connect directly via WebRTC. Relays improve
+  discovery and provide GossipSub signaling for peers
+  behind NAT. Pinners persist snapshots so documents
+  load even when the author is offline.
+- **Monitor node health** with `doc.diagnostics().nodes`
+  to warn users when no pinners are connected.
