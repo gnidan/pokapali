@@ -111,6 +111,10 @@ export interface CollabDoc {
   readonly status: DocStatus;
   /** Peer IDs of relays discovered for this app. */
   readonly relayPeerIds: ReadonlySet<string>;
+  /** Sum of all Y.Doc state vector clocks. */
+  readonly clockSum: number;
+  /** Last IPNS sequence number used for publish. */
+  readonly ipnsSeq: number | null;
   pushSnapshot(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
@@ -246,6 +250,7 @@ function createCollabDoc(
   let destroyed = false;
   let seq = 1;
   let prev: CID | null = null;
+  let lastIpnsSeq: number | null = null;
   const blocks = new Map<string, Uint8Array>();
   const listeners = new Map<string, Set<Function>>();
 
@@ -554,6 +559,24 @@ function createCollabDoc(
         ?? new Set();
     },
 
+    get clockSum(): number {
+      let sum = 0;
+      for (const ns of namespaces) {
+        const sv = Y.encodeStateVector(
+          subdocManager.subdoc(ns),
+        );
+        const decoded = Y.decodeStateVector(sv);
+        for (const clock of decoded.values()) {
+          sum += clock;
+        }
+      }
+      return sum;
+    },
+
+    get ipnsSeq(): number | null {
+      return lastIpnsSeq;
+    },
+
     async pushSnapshot(): Promise<void> {
       assertNotDestroyed();
       if (
@@ -576,20 +599,10 @@ function createCollabDoc(
       const cid = CID.createV1(DAG_CBOR_CODE, hash);
       blocks.set(cid.toString(), block);
 
-      // Compute IPNS seq from Y.Doc state vector
-      // clock sum. Deterministic: same doc state →
-      // same seq, so cross-browser races produce
-      // identical IPNS records instead of conflicting.
-      let clockSum = 0;
-      for (const ns of namespaces) {
-        const sv = Y.encodeStateVector(
-          subdocManager.subdoc(ns),
-        );
-        const decoded = Y.decodeStateVector(sv);
-        for (const clock of decoded.values()) {
-          clockSum += clock;
-        }
-      }
+      // Use Y.Doc state vector clock sum as IPNS seq.
+      // Deterministic: same doc state → same seq.
+      const clockSum = this.clockSum;
+      lastIpnsSeq = clockSum;
 
       prev = cid;
       seq++;

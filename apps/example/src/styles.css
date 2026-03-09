@@ -425,3 +425,11 @@ body {
   pointer-events: none;
   line-height: 1.2;
 }
+
+.seq-info {
+  margin-top: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-family: monospace;
+}
