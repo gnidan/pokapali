@@ -66,7 +66,7 @@ doc.capability; // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: b
 doc.adminUrl; // keep private — derives everything
 doc.writeUrl; // read + write all namespaces + canPushSnapshots
 doc.readUrl; // read only
-doc.status; // observable: 'syncing' | 'synced' | 'offline' | 'unpushed-changes'
+doc.status; // observable: 'connecting' | 'synced' | 'offline' | 'unpushed-changes'
 
 // Generate a custom capability URL — any subset of namespaces, with or without snapshot pushing
 doc.inviteUrl({
@@ -268,12 +268,14 @@ Each namespace is a separate Yjs subdocument (`Y.Doc`) with its own y-webrtc roo
 
 For each namespace in the peer's capability set (`doc.capability.namespaces`), the library creates a `WebrtcProvider` connecting to a room named `${ipnsName}:${namespace}`. This gives the peer real-time bidirectional CRDT sync for that namespace — standard y-webrtc, no custom protocol.
 
+`SyncManager` listens for y-webrtc `"status"` events on each provider and exposes `onStatusChange(cb)` so that `@pokapali/core` can re-compute `doc.status` whenever the underlying WebRTC connection state changes (e.g., after PBKDF2 key derivation completes and rooms are created).
+
 All clients — writers **and** readers — resolve IPNS on `open()` to load the latest snapshot from the network (non-blocking; Yjs CRDT merge is safe). Writers need this for recovery after all tabs close. Both also watch for live updates via two channels:
 
 1. **GossipSub announcements** (primary, instant): writers publish `{ "ipnsName", "cid" }` on `/pokapali/app/{appId}/announce` after each `pushSnapshot()`. All clients subscribe and apply snapshots directly from the announced CID.
 2. **IPNS polling** (fallback, 30s interval): catches updates when no GossipSub peers are connected.
 
-For namespaces the peer can only read (not in its capability set), the library does **not** connect to the WebRTC room. The peer receives all subdoc content from snapshot updates (announced or polled). Block fetches use exponential backoff retry (6 retries, 2s base, 15s timeout per attempt) to handle IPFS propagation latency. Transient fetch failures are not surfaced to the application; the subdoc stays at its previous state until a fetch succeeds.
+For namespaces the peer can only read (not in its capability set), the library does **not** connect to the WebRTC room. The peer receives all subdoc content from snapshot updates (announced or polled). Block fetches use exponential backoff retry (6 retries, 2s base, 15s timeout per attempt) to handle IPFS propagation latency. Transient fetch failures are retried at the outer level (30s intervals, max 10 attempts) before the snapshot watcher enters a terminal `"failed"` state. On permanent failure, the library calls `markReady()` so the editor mounts with whatever state is available rather than showing a loading screen forever.
 
 After successfully applying a remote snapshot, **all clients** (not just writers) store the fetched block in their Helia blockstore (`blockstore.put`) and re-announce the CID on the GossipSub announce topic. This makes every connected peer — including read-only peers — a block provider via bitswap and a propagation amplifier via GossipSub. The block is content-addressed (can't be forged) and encrypted (no plaintext leak), so this is safe regardless of capability level. Block availability is session-scoped (Helia uses `MemoryBlockstore` by default; blocks do not persist across tab close).
 
@@ -416,7 +418,7 @@ Once a pinner discovers an IPNS name, its ongoing jobs are:
 1. Fetch announced CIDs directly (or resolve IPNS as fallback) → verify snapshot signature is structurally valid (well-formed Ed25519) → pin the block
 2. **Keep all snapshots from the last 24 hours** — time-windowed, not count-based
 3. Prune snapshots older than 24 hours (always keep the tip regardless of age)
-4. **Re-publish DHT IPNS records every ~4 hours** — uses `republishRecord` (no private key needed), sequential with 5s per-name delays to limit DHT load on the relay
+4. **Re-publish DHT IPNS records every ~4 hours** — uses `republishRecord` (no private key needed), sequential with 5s per-name delays to limit DHT load on the relay; checks `stopped` flag between names to allow cancellation during shutdown
 
 ### What pinners can and cannot verify
 
@@ -452,11 +454,13 @@ A sustained snapshot flood is expensive for an attacker and bounded for the pinn
 
 Delegated routing defaults to `delegated-ipfs.dev`, Protocol Labs' well-maintained public infrastructure — a reasonable default, analogous to using a public DNS resolver. Self-hostable via `someguy` if operational independence is required.
 
-Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Labs-operated. Once connected, peer discovery is organic through the DHT — bootstrap nodes are only needed for initial network entry.
+Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Labs-operated. Once connected, peer discovery is organic through the DHT — bootstrap nodes are only needed for initial network entry. Browser-side Helia bootstrap has a 30s timeout (`Promise.race` against `createHelia()`) to prevent indefinite hangs if all bootstrap peers are unreachable.
 
 ### Server-side: `@pokapali/node`
 
 The `@pokapali/node` package provides `startRelay()`, `createPinner()`, and an HTTP server for health monitoring. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
+
+Pinner shutdown is graceful: `stop()` sets a `stopped` flag (checked by the IPNS republish loop between names), cancels the initial republish timer, clears periodic intervals, flushes in-flight fetch operations via `flush()` (`Promise.allSettled` on all tracked promises), and persists known IPNS names to disk.
 
 The relay runs Helia with full libp2p defaults, client-mode DHT, GossipSub (`floodPublish: true`, tuned D/Dlo/Dhi for small networks), autoTLS for WSS, and persistent key + datastore. It subscribes to peer discovery, signaling, and announcement topics, and provides a network-wide CID on the DHT for browser discovery.
 
@@ -615,8 +619,10 @@ provide records without serving DHT queries.
 Browsers discover relays via DHT (looking up a
 network-wide CID derived from `sha256("pokapali-network")`)
 and cached relay addresses in `localStorage` (24h TTL,
-48h max age). On startup, browsers try cached relays first
-(fast direct dial) then run DHT discovery in parallel.
+48h max age). Relay caching logic is in `relay-cache.ts`
+(extracted from `peer-discovery.ts` for testability). On
+startup, browsers try cached relays first (fast direct
+dial) then run DHT discovery in parallel.
 Connected peers also share relay addresses via the
 awareness channel, so a browser that discovers a relay
 propagates it to all collaborators. This makes relays
