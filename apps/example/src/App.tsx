@@ -66,7 +66,10 @@ function RecentDocsList({
               onClick={() => onOpen(d.url)}
               aria-label={`Open ${d.title || "Untitled"}, ${d.role}, ${formatAge(d.lastOpened)}`}
             >
-              <span className="recent-title">
+              <span
+                className="recent-title"
+                title={d.title || "Untitled"}
+              >
                 {d.title || "Untitled"}
               </span>
               <span className="recent-id-pill">

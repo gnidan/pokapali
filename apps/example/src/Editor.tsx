@@ -550,11 +550,7 @@ export function EditorView({
                 ? undefined
                 : () => setEditingTitle(true)
             }
-            title={
-              isReadOnly
-                ? docTitle || "Untitled"
-                : "Click to rename"
-            }
+            title={docTitle || "Untitled"}
             aria-label={`Document: ${docTitle || "Untitled"}`}
             disabled={isReadOnly}
           >
