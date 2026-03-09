@@ -449,7 +449,7 @@ export function EditorView({
           </>
         ) : (
           <div className="loading-doc">
-            Loading\u2026
+            Loading…
           </div>
         )}
       </div>

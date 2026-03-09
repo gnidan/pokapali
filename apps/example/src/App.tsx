@@ -296,7 +296,7 @@ export function App() {
     return (
       <div className="landing">
         <h1>Pokapali</h1>
-        <p>Loading\u2026</p>
+        <p>Loading…</p>
         {error && (
           <div className="landing-error">
             <p>{error}</p>
