@@ -317,13 +317,16 @@ export function EditorView({
   }, [doc, startDebounce]);
 
   const contentDoc = doc.subdoc("content");
-  // Only gate on fragment readiness for read-only
-  // users. Writers need to mount immediately so they
-  // can create content. Readers must wait so Tiptap
-  // doesn't insert a default empty paragraph that
-  // merges as a spurious newline.
   const fragmentReady = useFragmentReady(contentDoc);
+  // Gate Collaboration extensions for readers until
+  // fragment has content, preventing Tiptap from
+  // inserting a default empty paragraph.
   const shouldMount = !isReadOnly || fragmentReady;
+  // Show the editor once we have content or once
+  // sync confirms there's nothing more to load.
+  // The 3s timeout in useFragmentReady is a fallback.
+  const showEditor =
+    fragmentReady || status === "synced";
 
   const editor = useEditor(
     {
@@ -434,17 +437,21 @@ export function EditorView({
       {showShare && <SharePanel doc={doc} />}
 
       <div className="editor-container">
-        {isReadOnly && status === "connecting" && (
-          <div className="resolving-banner">
-            Resolving document\u2026
+        {showEditor ? (
+          <>
+            {isReadOnly && (
+              <div className="read-only-banner">
+                Read-only — you cannot edit
+                this document.
+              </div>
+            )}
+            <EditorContent editor={editor} />
+          </>
+        ) : (
+          <div className="loading-doc">
+            Loading document\u2026
           </div>
         )}
-        {isReadOnly && status !== "connecting" && (
-          <div className="read-only-banner">
-            Read-only — you cannot edit this document.
-          </div>
-        )}
-        <EditorContent editor={editor} />
       </div>
 
       <ConnectionStatus doc={doc} />
