@@ -421,17 +421,26 @@ body {
 
 /* Connection status bar */
 
+.connection-status-wrap {
+  margin-top: 0.5rem;
+}
+
 .connection-status {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.5rem;
+  width: 100%;
   padding: 0.4rem 0.75rem;
   background: #f8fafc;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 0.75rem;
   color: #64748b;
+  cursor: pointer;
+}
+
+.connection-status:hover {
+  background: #f1f5f9;
 }
 
 .cs-section {
@@ -460,6 +469,7 @@ body {
   height: 6px;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .cs-dot.connected {
@@ -484,6 +494,64 @@ body {
   background: #e2e8f0;
 }
 
+.cs-expand {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
+/* Expanded diagnostics panel */
+
+.cs-detail {
+  border: 1px solid #e5e7eb;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: #f8fafc;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.cs-detail-section {
+  min-width: 120px;
+}
+
+.cs-detail-heading {
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  margin-bottom: 0.25rem;
+}
+
+.cs-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+  font-size: 0.75rem;
+  color: #334155;
+}
+
+.cs-detail-key {
+  color: #94a3b8;
+  min-width: 70px;
+}
+
+.cs-detail-mono {
+  font-family: monospace;
+  font-size: 0.7rem;
+}
+
+.cs-detail-dim {
+  color: #94a3b8;
+  font-size: 0.7rem;
+}
+
 /* Collaboration cursors */
 
 .collab-cursor {
@@ -506,10 +574,3 @@ body {
   line-height: 1.2;
 }
 
-.seq-info {
-  margin-top: 0.25rem;
-  padding: 0.25rem 0.75rem;
-  font-size: 0.7rem;
-  color: #94a3b8;
-  font-family: monospace;
-}

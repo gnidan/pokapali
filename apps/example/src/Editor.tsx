@@ -455,27 +455,7 @@ export function EditorView({
       </div>
 
       <ConnectionStatus doc={doc} />
-      <SeqInfo doc={doc} />
     </div>
   );
 }
 
-function SeqInfo({ doc }: { doc: CollabDoc }) {
-  const [, forceUpdate] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(
-      () => forceUpdate((n) => n + 1),
-      2_000,
-    );
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <div className="seq-info">
-      clockSum: {doc.clockSum}
-      {" | "}
-      ipnsSeq: {doc.ipnsSeq ?? "—"}
-    </div>
-  );
-}
