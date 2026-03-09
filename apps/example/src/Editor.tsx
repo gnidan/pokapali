@@ -8,7 +8,11 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
-import type { CollabDoc, DocStatus } from "@pokapali/core";
+import type {
+  CollabDoc,
+  DocStatus,
+  SaveState,
+} from "@pokapali/core";
 import { createAutoSaver } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SharePanel } from "./SharePanel";
@@ -67,22 +71,18 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-type SaveState =
-  | "published"
-  | "unpublished"
-  | "saving";
-
 const SAVE_LABELS: Record<SaveState, string> = {
-  published: "Published",
-  unpublished: "Unpublished changes",
+  saved: "Published",
+  dirty: "Unpublished changes",
   saving: "Saving\u2026",
+  unpublished: "Unpublished",
 };
 
 function saveLabel(
   saveState: SaveState,
   ackCount: number,
 ): string {
-  if (saveState === "published" && ackCount > 0) {
+  if (saveState === "saved" && ackCount > 0) {
     return `Saved to ${ackCount} relay(s)`;
   }
   return SAVE_LABELS[saveState];
@@ -106,7 +106,8 @@ function SaveIndicator({
       <span className={`save-state ${saveState}`}>
         {saveLabel(saveState, ackCount)}
       </span>
-      {saveState === "unpublished" && (
+      {(saveState === "dirty" ||
+        saveState === "unpublished") && (
         <button
           className="publish-now"
           onClick={onPublish}
@@ -168,7 +169,7 @@ export function EditorView({
   );
   const [showShare, setShowShare] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>(
-    "unpublished",
+    doc.saveState,
   );
   const [ackCount, setAckCount] = useState(
     doc.ackedBy.size,
@@ -194,16 +195,7 @@ export function EditorView({
 
   const doSave = useCallback(() => {
     if (!canSave) return;
-    setSaveState("saving");
-    doc
-      .pushSnapshot()
-      .then(() => {
-        setSaveState("published");
-        setLastPublished(Date.now());
-      })
-      .catch(() => {
-        setSaveState("unpublished");
-      });
+    doc.pushSnapshot().catch(() => {});
   }, [doc, canSave]);
 
   // Auto-save: beforeunload, visibilitychange,
@@ -218,9 +210,9 @@ export function EditorView({
     // indicator reacts even if a y-webrtc status event
     // was missed (e.g. silent reconnect).
     const refreshStatus = () => setStatus(doc.status);
-    const onSnapshotRec = () => setSaveState("unpublished");
+    const onSaveState = (s: SaveState) =>
+      setSaveState(s);
     const onSnapshotApplied = () => {
-      setSaveState("published");
       setLastPublished(Date.now());
       setUpdateFlash(true);
       if (flashTimer.current) {
@@ -237,19 +229,20 @@ export function EditorView({
       refreshStatus();
     };
     doc.on("status", onStatus);
-    doc.on("snapshot-recommended", onSnapshotRec);
+    doc.on("save-state", onSaveState);
     doc.on("snapshot-applied", onSnapshotApplied);
     doc.on("ack", onAck);
     const awareness = doc.awareness;
     awareness.on("change", refreshStatus);
 
-    // Catch any status transition between the initial
-    // useState(doc.status) and this subscription.
+    // Catch any transition between the initial
+    // useState and this subscription.
     refreshStatus();
+    setSaveState(doc.saveState);
 
     return () => {
       doc.off("status", onStatus);
-      doc.off("snapshot-recommended", onSnapshotRec);
+      doc.off("save-state", onSaveState);
       doc.off("snapshot-applied", onSnapshotApplied);
       doc.off("ack", onAck);
       awareness.off("change", refreshStatus);

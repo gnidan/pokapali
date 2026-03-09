@@ -279,12 +279,11 @@ body {
 .status-dot.synced {
   background: #22c55e;
 }
-.status-dot.connecting,
-.status-dot.syncing {
+.status-dot.connecting {
   background: #eab308;
 }
-.status-dot.unpushed-changes {
-  background: #f97316;
+.status-dot.receiving {
+  background: #06b6d4;
 }
 .status-dot.offline {
   background: #ef4444;
@@ -440,10 +439,11 @@ body {
   font-weight: 500;
 }
 
-.save-state.published {
+.save-state.saved {
   color: #22c55e;
 }
 
+.save-state.dirty,
 .save-state.unpublished {
   color: #f97316;
 }
