@@ -993,33 +993,39 @@ export function createCollabLib(
       }
 
       // Read-only: resolve IPNS to load initial
-      // snapshot from the network.
+      // snapshot from the network. Non-blocking so
+      // the doc opens immediately for WebRTC sync.
       const isReadOnly =
         !keys.namespaceKeys ||
         Object.keys(keys.namespaceKeys).length === 0;
-      if (isReadOnly && keys.readKey) {
-        const pubKeyBytes = hexToBytes(ipnsName);
-        const helia = getHelia();
-        const tipCid = await resolveIPNS(
-          helia,
-          pubKeyBytes,
-        );
-        if (tipCid) {
-          try {
-            const block =
-              await helia.blockstore.get(tipCid);
-            const node = decodeSnapshot(block);
-            const plaintext =
-              await decryptSnapshot(node, keys.readKey);
-            subdocManager.applySnapshot(plaintext);
-          } catch {
-            // Best-effort: snapshot may not be
-            // available yet
-          }
-        }
-      }
+      const readOnlyResolve =
+        isReadOnly && keys.readKey
+          ? (async () => {
+              try {
+                const pubKeyBytes =
+                  hexToBytes(ipnsName);
+                const helia = getHelia();
+                const tipCid = await resolveIPNS(
+                  helia,
+                  pubKeyBytes,
+                );
+                if (tipCid) {
+                  const block =
+                    await helia.blockstore.get(tipCid);
+                  const node = decodeSnapshot(block);
+                  const rk = keys.readKey!;
+                  const plaintext =
+                    await decryptSnapshot(node, rk);
+                  subdocManager.applySnapshot(plaintext);
+                }
+              } catch {
+                // Best-effort: snapshot may not be
+                // available yet
+              }
+            })()
+          : undefined;
 
-      return createCollabDoc({
+      const doc = createCollabDoc({
         subdocManager,
         syncManager,
         awarenessRoom,
@@ -1040,6 +1046,8 @@ export function createCollabLib(
         pubsub,
         roomDiscovery,
       });
+
+      return doc;
     },
   };
 }
