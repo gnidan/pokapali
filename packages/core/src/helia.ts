@@ -50,6 +50,14 @@ export async function acquireHelia(
         // collapsing message delivery.
         floodPublish: true,
         allowPublishToZeroTopicPeers: true,
+        // Small network: typically 1-2 relays + few
+        // browsers per topic. Default D=6/Dlo=4 can
+        // never be satisfied.
+        D: 2,
+        Dlo: 1,
+        Dhi: 4,
+        Dout: 1,
+        Dscore: 1,
       }),
     },
     // Block plain ws:// dials from HTTPS pages — browsers

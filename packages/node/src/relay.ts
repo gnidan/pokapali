@@ -158,6 +158,15 @@ export async function startRelay(
             // degradation from collapsing delivery.
             floodPublish: true,
             allowPublishToZeroTopicPeers: true,
+            // Our network has very few topic peers
+            // (2 relays + transient browsers). Default
+            // D=6/Dlo=4 can never be satisfied, causing
+            // the heartbeat to churn without grafting.
+            D: 3,
+            Dlo: 1,
+            Dhi: 6,
+            Dout: 1,
+            Dscore: 1,
           }),
           autoTLS: autoTLS({
             autoConfirmAddress: true,
@@ -381,6 +390,42 @@ export async function startRelay(
       `topics: ${gsTopics},`,
       `mesh: ${meshInfo}`,
     );
+
+    // Diagnostic: for each topic, show why peers
+    // are/aren't mesh candidates
+    const gs = pubsub as any;
+    const backoffMap = gs.backoff as
+      Map<string, Map<string, number>> | undefined;
+    const streamsOut = gs.streamsOutbound as
+      Map<string, any> | undefined;
+    for (const topic of gsTopics) {
+      const subs = pubsub.getSubscribers(topic);
+      if (subs.length === 0) continue;
+      const topicMesh = mesh?.get(topic);
+      const topicBackoff = backoffMap?.get(topic);
+      const details = subs.map((p: any) => {
+        const id = p.toString();
+        const short = id.slice(-8);
+        const inMesh = topicMesh?.has(id) ? "M" : "-";
+        const hasStream =
+          streamsOut?.has(id) ? "S" : "!S";
+        const score = gs.score?.score?.(id) ?? "?";
+        const bo = topicBackoff?.has(id)
+          ? `BO:${Math.round(
+              ((topicBackoff.get(id) ?? 0)
+                - Date.now()) / 1000,
+            )}s`
+          : "-";
+        return `${short}[${inMesh}${hasStream} `
+          + `sc:${typeof score === "number"
+            ? score.toFixed(1) : score} ${bo}]`;
+      });
+      const shortTopic = topic.length > 30
+        ? "..." + topic.slice(-25)
+        : topic;
+      log(`  ${shortTopic}: ${details.join(" ")}`);
+    }
+
     if (ma.length !== lastAddrCount) {
       lastAddrCount = ma.length;
       for (const a of ma) {
