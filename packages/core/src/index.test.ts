@@ -92,6 +92,7 @@ import {
   createCollabLib,
   type CollabDoc,
   type DocStatus,
+  type DiagnosticsInfo,
 } from "./index.js";
 
 const OPTS = {
@@ -477,6 +478,30 @@ describe("@pokapali/core", () => {
         parsed.keys.rotationKey!,
       );
       expect(valid).toBe(true);
+    });
+  });
+
+  describe("CollabDoc.diagnostics", () => {
+    it("DiagnosticsInfo type is well-formed", () => {
+      const info: DiagnosticsInfo = {
+        ipfsPeers: 0,
+        relays: [],
+        editors: 1,
+        gossipsub: {
+          peers: 0,
+          topics: 0,
+          meshPeers: 0,
+        },
+        clockSum: 0,
+        maxPeerClockSum: 0,
+        latestAnnouncedSeq: 0,
+        ipnsSeq: null,
+        fetchState: { status: "idle" },
+        hasAppliedSnapshot: false,
+      };
+      expect(info.ipfsPeers).toBe(0);
+      expect(info.relays).toEqual([]);
+      expect(info.gossipsub.meshPeers).toBe(0);
     });
   });
 

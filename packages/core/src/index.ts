@@ -109,6 +109,31 @@ export interface RotateResult {
   forwardingRecord: Uint8Array;
 }
 
+export interface RelayDiagnostic {
+  peerId: string;
+  short: string;
+  connected: boolean;
+}
+
+export interface GossipSubDiagnostic {
+  peers: number;
+  topics: number;
+  meshPeers: number;
+}
+
+export interface DiagnosticsInfo {
+  ipfsPeers: number;
+  relays: RelayDiagnostic[];
+  editors: number;
+  gossipsub: GossipSubDiagnostic;
+  clockSum: number;
+  maxPeerClockSum: number;
+  latestAnnouncedSeq: number;
+  ipnsSeq: number | null;
+  fetchState: SnapshotFetchState;
+  hasAppliedSnapshot: boolean;
+}
+
 export interface CollabDoc {
   subdoc(ns: string): Y.Doc;
   readonly provider: {
@@ -161,6 +186,7 @@ export interface CollabDoc {
     event: "fetch-state",
     cb: (state: SnapshotFetchState) => void,
   ): void;
+  diagnostics(): DiagnosticsInfo;
   history(): Promise<
     Array<{
       cid: CID;
@@ -714,6 +740,98 @@ function createCollabDoc(
       cb: (...args: any[]) => void,
     ) {
       listeners.get(event)?.delete(cb);
+    },
+
+    diagnostics(): DiagnosticsInfo {
+      assertNotDestroyed();
+      let ipfsPeers = 0;
+      const relayList: RelayDiagnostic[] = [];
+      let gossipsub: GossipSubDiagnostic = {
+        peers: 0,
+        topics: 0,
+        meshPeers: 0,
+      };
+
+      try {
+        const helia = getHelia();
+        const libp2p = (helia as any).libp2p;
+        ipfsPeers = libp2p.getPeers().length;
+
+        const knownRelays =
+          params.roomDiscovery?.relayPeerIds
+            ?? new Set<string>();
+        if (knownRelays.size > 0) {
+          const connectedPids = new Set<string>();
+          for (const conn of libp2p.getConnections()) {
+            connectedPids.add(
+              (conn as any).remotePeer.toString(),
+            );
+          }
+          for (const pid of knownRelays) {
+            relayList.push({
+              peerId: pid,
+              short: pid.slice(-8),
+              connected: connectedPids.has(pid),
+            });
+          }
+        }
+
+        try {
+          const pubsub = libp2p.services.pubsub;
+          const topics: string[] =
+            pubsub.getTopics?.() ?? [];
+          const gsPeers = pubsub.getPeers?.() ?? [];
+          const mesh = (pubsub as any).mesh as
+            | Map<string, Set<string>>
+            | undefined;
+          let meshPeers = 0;
+          if (mesh) {
+            for (const set of mesh.values()) {
+              meshPeers += set.size;
+            }
+          }
+          gossipsub = {
+            peers: gsPeers.length,
+            topics: topics.length,
+            meshPeers,
+          };
+        } catch {}
+      } catch {
+        // Helia not ready
+      }
+
+      let maxPeerClockSum = 0;
+      let editors = 1;
+      try {
+        const states =
+          awarenessRoom.awareness.getStates();
+        editors = Math.max(1, states.size);
+        for (const [, state] of states) {
+          const cs = (state as any)?.clockSum;
+          if (
+            typeof cs === "number" &&
+            cs > maxPeerClockSum
+          ) {
+            maxPeerClockSum = cs;
+          }
+        }
+      } catch {}
+
+      return {
+        ipfsPeers,
+        relays: relayList,
+        editors,
+        gossipsub,
+        clockSum: computeClockSum(),
+        maxPeerClockSum,
+        latestAnnouncedSeq:
+          snapshotWatcher?.latestAnnouncedSeq ?? 0,
+        ipnsSeq: snapshotLC.lastIpnsSeq,
+        fetchState: snapshotWatcher?.fetchState
+          ?? { status: "idle" },
+        hasAppliedSnapshot:
+          snapshotWatcher?.hasAppliedSnapshot ?? false,
+      };
     },
 
     async history() {
