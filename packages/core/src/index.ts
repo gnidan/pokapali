@@ -435,29 +435,34 @@ function createCollabDoc(
       const cid = CID.createV1(DAG_CBOR_CODE, hash);
       blocks.set(cid.toString(), block);
 
-      // Persist to Helia blockstore and publish IPNS
-      const helia = getHelia();
-      await helia.blockstore.put(cid, block);
-      await publishIPNS(
-        helia,
-        keys.ipnsKeyBytes!,
-        cid,
-      );
-
       prev = cid;
       seq++;
       checkStatus();
       emit("snapshot-applied");
 
-      // Announce on GossipSub so pinners discover it
-      if (params.appId && params.pubsub) {
-        await announceSnapshot(
-          params.pubsub as any,
-          params.appId,
-          ipnsName,
-          cid.toString(),
+      // Persist to Helia + publish IPNS + announce.
+      // Fire-and-forget: don't block the UI on slow
+      // DHT operations.
+      (async () => {
+        const helia = getHelia();
+        await helia.blockstore.put(cid, block);
+        await publishIPNS(
+          helia, keys.ipnsKeyBytes!, cid,
         );
-      }
+        if (params.appId && params.pubsub) {
+          await announceSnapshot(
+            params.pubsub as any,
+            params.appId,
+            ipnsName,
+            cid.toString(),
+          );
+        }
+      })().catch((err: unknown) => {
+        console.log(
+          "[pokapali] IPNS publish/announce failed:",
+          (err as Error).message,
+        );
+      });
     },
 
     async rotate(): Promise<RotateResult> {
