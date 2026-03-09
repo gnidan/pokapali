@@ -587,6 +587,12 @@ body {
   color: #f97316;
 }
 
+.cs-fetch-failed {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #ef4444;
+}
+
 .cs-expand {
   margin-left: auto;
   font-size: 0.7rem;
