@@ -951,6 +951,7 @@ export function createCollabLib(
   return {
     async create(): Promise<CollabDoc> {
       await acquireHelia({ bootstrapPeers });
+      try {
       const pubsub =
         getHeliaPubsub() as unknown as PubSubLike;
 
@@ -1081,6 +1082,10 @@ export function createCollabLib(
         pubsub,
         roomDiscovery,
       });
+      } catch (err) {
+        await releaseHelia();
+        throw err;
+      }
     },
 
     async open(url: string): Promise<CollabDoc> {
@@ -1110,6 +1115,7 @@ export function createCollabLib(
       }
 
       await acquireHelia({ bootstrapPeers });
+      try {
       const pubsub =
         getHeliaPubsub() as unknown as PubSubLike;
 
@@ -1211,6 +1217,10 @@ export function createCollabLib(
       });
 
       return doc;
+      } catch (err) {
+        await releaseHelia();
+        throw err;
+      }
     },
 
     isDocUrl(url: string): boolean {
