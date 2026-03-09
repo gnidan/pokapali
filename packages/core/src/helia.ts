@@ -58,6 +58,12 @@ export async function acquireHelia(
         Dhi: 4,
         Dout: 1,
         Dscore: 1,
+        // Disable IP colocation penalty. Browsers
+        // connect via p2p-circuit, sharing the relay's
+        // IP, triggering false positives.
+        scoreParams: {
+          IPColocationFactorWeight: 0,
+        },
       }),
     },
     // Block plain ws:// dials from HTTPS pages — browsers

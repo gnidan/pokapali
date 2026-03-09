@@ -167,6 +167,15 @@ export async function startRelay(
             Dhi: 6,
             Dout: 1,
             Dscore: 1,
+            // Disable IP colocation penalty. Browser
+            // peers connect via p2p-circuit through
+            // bootstrap relays, making them all appear
+            // to share the relay's IP. Default threshold
+            // of 10 is easily exceeded, causing -5.0
+            // scores → pruning → mesh collapse.
+            scoreParams: {
+              IPColocationFactorWeight: 0,
+            },
           }),
           autoTLS: autoTLS({
             autoConfirmAddress: true,
