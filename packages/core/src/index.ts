@@ -75,6 +75,7 @@ import {
 import type {
   RelaySharing,
 } from "./relay-sharing.js";
+import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("core");
@@ -111,6 +112,31 @@ export interface RotateResult {
 
 export type DocRole = "admin" | "writer" | "reader";
 
+export interface RelayDiagnostic {
+  peerId: string;
+  short: string;
+  connected: boolean;
+}
+
+export interface GossipSubDiagnostic {
+  peers: number;
+  topics: number;
+  meshPeers: number;
+}
+
+export interface DiagnosticsInfo {
+  ipfsPeers: number;
+  relays: RelayDiagnostic[];
+  editors: number;
+  gossipsub: GossipSubDiagnostic;
+  clockSum: number;
+  maxPeerClockSum: number;
+  latestAnnouncedSeq: number;
+  ipnsSeq: number | null;
+  fetchState: SnapshotFetchState;
+  hasAppliedSnapshot: boolean;
+}
+
 export interface CollabDoc {
   subdoc(ns: string): Y.Doc;
   readonly provider: {
@@ -139,6 +165,13 @@ export interface CollabDoc {
   readonly snapshotFetchState: SnapshotFetchState;
   /** True after first remote snapshot applied. */
   readonly hasAppliedSnapshot: boolean;
+  /**
+   * Resolves when the document has meaningful state:
+   * either a remote snapshot was applied, initial IPNS
+   * resolution found nothing to load, or the document
+   * was locally created (resolves immediately).
+   */
+  whenReady(): Promise<void>;
   pushSnapshot(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
@@ -167,6 +200,7 @@ export interface CollabDoc {
     event: "fetch-state",
     cb: (state: SnapshotFetchState) => void,
   ): void;
+  diagnostics(): DiagnosticsInfo;
   history(): Promise<
     Array<{
       cid: CID;
@@ -183,6 +217,7 @@ export interface CollabLib {
   open(url: string): Promise<CollabDoc>;
   /** Check if a URL matches this app's doc format. */
   isDocUrl(url: string): boolean;
+  docIdFromUrl(url: string): string;
 }
 
 
@@ -242,6 +277,23 @@ function createCollabDoc(
   } = params;
 
   let destroyed = false;
+  let readyResolved = false;
+  let resolveReady: (() => void) | null = null;
+  const readyPromise = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+
+  function markReady() {
+    if (!readyResolved) {
+      readyResolved = true;
+      resolveReady?.();
+    }
+  }
+
+  if (!params.performInitialResolve) {
+    markReady();
+  }
+
   const snapshotLC = createSnapshotLifecycle({
     getHelia: () => getHelia(),
   });
@@ -335,6 +387,16 @@ function createCollabDoc(
         params.performInitialResolve,
       onFetchStateChange: (state) => {
         emit("fetch-state", state);
+        // If we return to idle after resolving and
+        // never applied a snapshot, the document is
+        // as ready as it gets.
+        if (
+          state.status === "idle" &&
+          !readyResolved &&
+          !snapshotWatcher?.hasAppliedSnapshot
+        ) {
+          markReady();
+        }
       },
       onSnapshot: async (cid) => {
         const applied =
@@ -351,6 +413,7 @@ function createCollabDoc(
             computeClockSum(),
           );
           emit("snapshot-applied");
+          markReady();
         }
       },
     });
@@ -489,6 +552,10 @@ function createCollabDoc(
     get hasAppliedSnapshot(): boolean {
       return snapshotWatcher
         ?.hasAppliedSnapshot ?? false;
+    },
+
+    whenReady(): Promise<void> {
+      return readyPromise;
     },
 
     async pushSnapshot(): Promise<void> {
@@ -734,6 +801,98 @@ function createCollabDoc(
       cb: (...args: any[]) => void,
     ) {
       listeners.get(event)?.delete(cb);
+    },
+
+    diagnostics(): DiagnosticsInfo {
+      assertNotDestroyed();
+      let ipfsPeers = 0;
+      const relayList: RelayDiagnostic[] = [];
+      let gossipsub: GossipSubDiagnostic = {
+        peers: 0,
+        topics: 0,
+        meshPeers: 0,
+      };
+
+      try {
+        const helia = getHelia();
+        const libp2p = (helia as any).libp2p;
+        ipfsPeers = libp2p.getPeers().length;
+
+        const knownRelays =
+          params.roomDiscovery?.relayPeerIds
+            ?? new Set<string>();
+        if (knownRelays.size > 0) {
+          const connectedPids = new Set<string>();
+          for (const conn of libp2p.getConnections()) {
+            connectedPids.add(
+              (conn as any).remotePeer.toString(),
+            );
+          }
+          for (const pid of knownRelays) {
+            relayList.push({
+              peerId: pid,
+              short: pid.slice(-8),
+              connected: connectedPids.has(pid),
+            });
+          }
+        }
+
+        try {
+          const pubsub = libp2p.services.pubsub;
+          const topics: string[] =
+            pubsub.getTopics?.() ?? [];
+          const gsPeers = pubsub.getPeers?.() ?? [];
+          const mesh = (pubsub as any).mesh as
+            | Map<string, Set<string>>
+            | undefined;
+          let meshPeers = 0;
+          if (mesh) {
+            for (const set of mesh.values()) {
+              meshPeers += set.size;
+            }
+          }
+          gossipsub = {
+            peers: gsPeers.length,
+            topics: topics.length,
+            meshPeers,
+          };
+        } catch {}
+      } catch {
+        // Helia not ready
+      }
+
+      let maxPeerClockSum = 0;
+      let editors = 1;
+      try {
+        const states =
+          awarenessRoom.awareness.getStates();
+        editors = Math.max(1, states.size);
+        for (const [, state] of states) {
+          const cs = (state as any)?.clockSum;
+          if (
+            typeof cs === "number" &&
+            cs > maxPeerClockSum
+          ) {
+            maxPeerClockSum = cs;
+          }
+        }
+      } catch {}
+
+      return {
+        ipfsPeers,
+        relays: relayList,
+        editors,
+        gossipsub,
+        clockSum: computeClockSum(),
+        maxPeerClockSum,
+        latestAnnouncedSeq:
+          snapshotWatcher?.latestAnnouncedSeq ?? 0,
+        ipnsSeq: snapshotLC.lastIpnsSeq,
+        fetchState: snapshotWatcher?.fetchState
+          ?? { status: "idle" },
+        hasAppliedSnapshot:
+          snapshotWatcher?.hasAppliedSnapshot ?? false,
+      };
     },
 
     async history() {
@@ -1045,6 +1204,10 @@ export function createCollabLib(
         return false;
       }
     },
+
+    docIdFromUrl(url: string): string {
+      return docIdFromUrl(url);
+    },
   };
 }
 
@@ -1064,3 +1227,4 @@ export {
 export type {
   AutoSaveOptions,
 } from "./auto-save.js";
+export { truncateUrl, docIdFromUrl } from "./url-utils.js";
