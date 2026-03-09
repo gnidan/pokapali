@@ -120,12 +120,12 @@ export function createSnapshotLifecycle(
 
       const helia = options.getHelia();
       const block = await fetchBlock(helia, cid);
-      blocks.set(cidStr, block);
 
       const node = decodeSnapshot(block);
       const plaintext =
         await decryptSnapshot(node, readKey);
 
+      blocks.set(cidStr, block);
       onApply(plaintext);
 
       if (node.seq >= seq) {
