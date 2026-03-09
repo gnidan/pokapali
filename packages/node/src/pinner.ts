@@ -132,6 +132,7 @@ export async function createPinner(
   async function fetchByCid(
     ipnsName: string,
     cidStr: string,
+    blockData?: Uint8Array,
   ): Promise<boolean> {
     if (!helia) return false;
 
@@ -142,16 +143,37 @@ export async function createPinner(
       }
 
       const cid = CID.parse(cidStr);
-      const block = await helia.blockstore.get(cid, {
-        signal: AbortSignal.timeout(30_000),
-      });
+
+      // Use provided block data directly if
+      // available, avoiding blockstore race.
+      let block: Uint8Array;
+      if (blockData) {
+        block = blockData;
+        // Store inline block for future use
+        await helia.blockstore.put(cid, blockData);
+      } else {
+        block = await helia.blockstore.get(cid, {
+          signal: AbortSignal.timeout(30_000),
+        });
+      }
 
       const valid = await validateStructure(block);
       if (!valid) {
-        log.warn(
-          `invalid block`
-          + ` ${ipnsName.slice(0, 12)}...`,
-        );
+        try {
+          decodeSnapshot(block);
+          log.warn(
+            `block decode OK but validate failed`
+            + ` ${ipnsName.slice(0, 12)}...`
+            + ` blockSize=${block.length}`,
+          );
+        } catch (decodeErr) {
+          log.warn(
+            `block decode failed`
+            + ` ${ipnsName.slice(0, 12)}...`
+            + ` blockSize=${block.length}`
+            + ` err=${(decodeErr as Error).message}`,
+          );
+        }
         return false;
       }
 
@@ -422,26 +444,6 @@ export async function createPinner(
       knownNames.add(ipnsName);
       if (appId) nameToAppId.set(ipnsName, appId);
 
-      // If block data is included, store it so
-      // fetchByCid can find it locally.
-      if (blockData && helia) {
-        try {
-          const cid = CID.parse(cidStr);
-          track(
-            Promise.resolve(
-              helia.blockstore.put(cid, blockData),
-            ).catch((err) => {
-              log.warn(
-                "blockstore.put from announce:",
-                err,
-              );
-            }),
-          );
-        } catch (err) {
-          log.warn("CID parse failed:", err);
-        }
-      }
-
       // Dedup: if we already fetched+acked this CID,
       // just re-ack (cheap) so new browsers see it.
       if (lastAckedCid.get(ipnsName) === cidStr) {
@@ -478,7 +480,7 @@ export async function createPinner(
       // latest CID, IPNS may lag behind).
       if (helia) {
         track(
-          fetchByCid(ipnsName, cidStr).then(
+          fetchByCid(ipnsName, cidStr, blockData).then(
             async (ok) => {
               if (
                 ok &&
