@@ -73,6 +73,39 @@ body {
   white-space: nowrap;
 }
 
+.landing-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #991b1b;
+}
+
+.landing-error p {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.landing-error button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  background: white;
+  color: #991b1b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.landing-error button:hover {
+  background: #fef2f2;
+}
+
 /* Recent documents */
 
 .recent-docs {
