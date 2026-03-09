@@ -13,6 +13,7 @@ function RelayDot({ connected }: {
         "cs-dot " +
         (connected ? "connected" : "disconnected")
       }
+      aria-hidden="true"
     />
   );
 }
@@ -48,6 +49,14 @@ export function ConnectionStatus({
         className="connection-status"
         onClick={() => setExpanded((e) => !e)}
         title="Click for diagnostics"
+        aria-expanded={expanded}
+        aria-label={
+          `Connection status: ` +
+          `${info.ipfsPeers} IPFS peers, ` +
+          `${connectedRelays.length} of ` +
+          `${info.relays.length} relays, ` +
+          `${info.editors} editor(s)`
+        }
       >
         <span
           className="cs-section"
@@ -66,24 +75,24 @@ export function ConnectionStatus({
           <span className="cs-value">
             {info.relays.length === 0 ? (
               <>
-                <span className="cs-dot inactive" />
+                <span className="cs-dot inactive" aria-hidden="true" />
                 0
               </>
             ) : connectedRelays.length ===
               info.relays.length ? (
               <>
-                <span className="cs-dot connected" />
+                <span className="cs-dot connected" aria-hidden="true" />
                 {info.relays.length}
               </>
             ) : connectedRelays.length > 0 ? (
               <>
-                <span className="cs-dot partial" />
+                <span className="cs-dot partial" aria-hidden="true" />
                 {connectedRelays.length}/
                 {info.relays.length}
               </>
             ) : (
               <>
-                <span className="cs-dot disconnected" />
+                <span className="cs-dot disconnected" aria-hidden="true" />
                 0/{info.relays.length}
               </>
             )}
@@ -100,12 +109,12 @@ export function ConnectionStatus({
           <span className="cs-value">
             {info.editors > 1 ? (
               <>
-                <span className="cs-dot connected" />
+                <span className="cs-dot connected" aria-hidden="true" />
                 {info.editors}
               </>
             ) : (
               <>
-                <span className="cs-dot inactive" />
+                <span className="cs-dot inactive" aria-hidden="true" />
                 1
               </>
             )}

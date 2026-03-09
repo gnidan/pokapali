@@ -8,6 +8,24 @@ const labels: Record<DocStatus, string> = {
   "unpushed-changes": "Unpushed changes",
 };
 
-export function StatusIndicator({ status }: { status: DocStatus }) {
-  return <span className={`status-dot ${status}`} title={labels[status]} />;
+export function StatusIndicator({
+  status,
+}: {
+  status: DocStatus;
+}) {
+  return (
+    <span
+      className={`status-indicator ${status}`}
+      role="status"
+      aria-label={`Connection: ${labels[status]}`}
+    >
+      <span
+        className={`status-dot ${status}`}
+        aria-hidden="true"
+      />
+      <span className="status-text">
+        {labels[status]}
+      </span>
+    </span>
+  );
 }

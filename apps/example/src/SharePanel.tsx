@@ -3,6 +3,7 @@ import {
   useCallback,
   useRef,
   useEffect,
+  forwardRef,
 } from "react";
 import type { CollabDoc } from "@pokapali/core";
 import { truncateUrl } from "@pokapali/core";
@@ -182,17 +183,22 @@ function InviteButton({
   );
 }
 
-export function SharePanel({
-  doc,
-}: {
-  doc: CollabDoc;
-}) {
+export const SharePanel = forwardRef<
+  HTMLDivElement,
+  { doc: CollabDoc }
+>(function SharePanel({ doc }, ref) {
   const isAdmin = doc.capability.isAdmin;
   const canWrite =
     doc.capability.namespaces.has("content");
 
   return (
-    <div className="share-panel">
+    <div
+      className="share-panel"
+      ref={ref}
+      tabIndex={-1}
+      role="region"
+      aria-label="Share panel"
+    >
       <h2>Share this document</h2>
       {doc.adminUrl && (
         <CopyRow
@@ -224,4 +230,4 @@ export function SharePanel({
       )}
     </div>
   );
-}
+});

@@ -98,7 +98,11 @@ function SaveIndicator({
   onPublish: () => void;
 }) {
   return (
-    <div className="save-indicator">
+    <div
+      className="save-indicator"
+      role="status"
+      aria-live="polite"
+    >
       <span className={`save-state ${saveState}`}>
         {saveLabel(saveState, ackCount)}
       </span>
@@ -106,6 +110,7 @@ function SaveIndicator({
         <button
           className="publish-now"
           onClick={onPublish}
+          aria-label="Publish snapshot now"
         >
           Publish now
         </button>
@@ -142,7 +147,7 @@ function LastUpdated({
   }, []);
 
   return (
-    <span className="last-updated">
+    <span className="last-updated" aria-live="polite">
       {flash && (
         <span className="updated-flash">Updated</span>
       )}
@@ -180,6 +185,8 @@ export function EditorView({
   const [user, setUser] = useState<StoredUser>(loadUser);
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const nameBtnRef = useRef<HTMLButtonElement>(null);
+  const sharePanelRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
 
   const isReadOnly =
@@ -293,6 +300,10 @@ export function EditorView({
 
   const commitName = useCallback(() => {
     setEditingName(false);
+    // Return focus to name display button
+    requestAnimationFrame(() => {
+      nameBtnRef.current?.focus();
+    });
   }, []);
 
   const handleNameKeyDown = useCallback(
@@ -311,10 +322,20 @@ export function EditorView({
     }
   }, [editingName]);
 
+  useEffect(() => {
+    if (showShare && sharePanelRef.current) {
+      sharePanelRef.current.focus();
+    }
+  }, [showShare]);
+
   return (
     <div className="app">
       <div className="header">
-        <button className="back-link" onClick={onBack}>
+        <button
+          className="back-link"
+          onClick={onBack}
+          aria-label="Back to document list"
+        >
           Back
         </button>
         <h1>Pokapali</h1>
@@ -327,6 +348,7 @@ export function EditorView({
             className="user-name-input"
             value={user.name}
             placeholder="Your name"
+            aria-label="Your display name"
             onChange={(e) =>
               setUser((u) => ({
                 ...u,
@@ -339,9 +361,11 @@ export function EditorView({
           />
         ) : (
           <button
+            ref={nameBtnRef}
             className="user-name-display"
             onClick={() => setEditingName(true)}
             title="Click to change your name"
+            aria-label={`Your name: ${user.name || "not set"}. Click to edit`}
             style={{ borderColor: user.color }}
           >
             {user.name || "Set name..."}
@@ -363,12 +387,23 @@ export function EditorView({
         <button
           className="toggle-share"
           onClick={() => setShowShare((s) => !s)}
+          aria-expanded={showShare}
+          aria-label={
+            showShare
+              ? "Hide share panel"
+              : "Open share panel"
+          }
         >
           {showShare ? "Hide share" : "Share"}
         </button>
       </div>
 
-      {showShare && <SharePanel doc={doc} />}
+      {showShare && (
+        <SharePanel
+          ref={sharePanelRef}
+          doc={doc}
+        />
+      )}
 
       <div className="editor-container">
         {showEditor ? (
