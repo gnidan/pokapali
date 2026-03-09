@@ -29,14 +29,27 @@ export function ConnectionStatus({
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    setInfo(doc.diagnostics());
-    // Faster poll when expanded, slower when collapsed
-    const interval = expanded ? 2000 : 5000;
-    const poll = setInterval(
-      () => setInfo(doc.diagnostics()),
-      interval,
-    );
-    return () => clearInterval(poll);
+    const refresh = () => setInfo(doc.diagnostics());
+    refresh();
+
+    // Immediate updates on doc events
+    doc.on("status", refresh);
+    doc.on("snapshot-applied", refresh);
+    doc.on("ack", refresh);
+    doc.on("fetch-state", refresh);
+
+    // Slow poll as fallback for libp2p peer counts
+    // (no event available for peer connect/disconnect)
+    const interval = expanded ? 2000 : 10_000;
+    const poll = setInterval(refresh, interval);
+
+    return () => {
+      doc.off("status", refresh);
+      doc.off("snapshot-applied", refresh);
+      doc.off("ack", refresh);
+      doc.off("fetch-state", refresh);
+      clearInterval(poll);
+    };
   }, [doc, expanded]);
 
   const connectedRelays = info.relays.filter(
