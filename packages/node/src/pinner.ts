@@ -206,38 +206,38 @@ export async function createPinner(
     if (names.length === 0) return;
     log(`republishing IPNS for ${names.length} names`);
 
-    await Promise.allSettled(
-      names.map(async (ipnsName) => {
-        try {
-          const keyBytes = hexToBytes(ipnsName);
-          const pubKey = publicKeyFromRaw(keyBytes);
-          const keyCid = CID.createV1(
-            LIBP2P_KEY_CODEC,
-            pubKey.toMultihash(),
-          );
-          const record = await delegated.getIPNS(
-            keyCid,
-            { signal: AbortSignal.timeout(10_000) },
-          );
-          await delegated.putIPNS(
-            keyCid,
-            record,
-            { signal: AbortSignal.timeout(10_000) },
-          );
-          log(
-            `republished IPNS for`
-              + ` ${ipnsName.slice(0, 12)}...`,
-          );
-        } catch (err) {
-          const msg = (err as Error).message ?? "";
-          log(
-            `IPNS republish failed for`
-              + ` ${ipnsName.slice(0, 12)}...:`
-              + ` ${msg}`,
-          );
-        }
-      }),
-    );
+    // Process sequentially to avoid flooding the
+    // delegated server with concurrent requests.
+    for (const ipnsName of names) {
+      try {
+        const keyBytes = hexToBytes(ipnsName);
+        const pubKey = publicKeyFromRaw(keyBytes);
+        const keyCid = CID.createV1(
+          LIBP2P_KEY_CODEC,
+          pubKey.toMultihash(),
+        );
+        const record = await delegated.getIPNS(
+          keyCid,
+          { signal: AbortSignal.timeout(30_000) },
+        );
+        await delegated.putIPNS(
+          keyCid,
+          record,
+          { signal: AbortSignal.timeout(30_000) },
+        );
+        log(
+          `republished IPNS for`
+            + ` ${ipnsName.slice(0, 12)}...`,
+        );
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        log(
+          `IPNS republish failed for`
+            + ` ${ipnsName.slice(0, 12)}...:`
+            + ` ${msg}`,
+        );
+      }
+    }
   }
 
   async function restoreState(): Promise<void> {
