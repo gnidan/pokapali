@@ -20,6 +20,7 @@ interface ConnectionInfo {
   editors: number;
   gossipsub: GossipSubInfo;
   clockSum: number;
+  maxPeerClockSum: number;
   ipnsSeq: number | null;
 }
 
@@ -80,9 +81,16 @@ function gatherInfo(doc: CollabDoc): ConnectionInfo {
     // Helia not ready
   }
 
+  let maxPeerClockSum = 0;
   try {
     const states = doc.awareness.getStates();
     editors = Math.max(1, states.size);
+    for (const [, state] of states) {
+      const cs = (state as any)?.clockSum;
+      if (typeof cs === "number" && cs > maxPeerClockSum) {
+        maxPeerClockSum = cs;
+      }
+    }
   } catch {}
 
   return {
@@ -91,6 +99,7 @@ function gatherInfo(doc: CollabDoc): ConnectionInfo {
     editors,
     gossipsub,
     clockSum: doc.clockSum,
+    maxPeerClockSum,
     ipnsSeq: doc.ipnsSeq,
   };
 }
@@ -120,6 +129,7 @@ export function ConnectionStatus({
       editors: 1,
       gossipsub: { peers: 0, topics: 0, meshPeers: 0 },
       clockSum: doc.clockSum,
+      maxPeerClockSum: 0,
       ipnsSeq: doc.ipnsSeq,
     }),
   );
@@ -127,7 +137,17 @@ export function ConnectionStatus({
 
   useEffect(() => {
     setInfo(gatherInfo(doc));
-    if (!expanded) return;
+    if (!expanded) {
+      // Even when collapsed, listen for awareness
+      // changes to keep staleness indicator current
+      const onAwareness = () => {
+        setInfo(gatherInfo(doc));
+      };
+      doc.awareness.on("change", onAwareness);
+      return () => {
+        doc.awareness.off("change", onAwareness);
+      };
+    }
     const poll = setInterval(() => {
       setInfo(gatherInfo(doc));
     }, 2000);
@@ -207,6 +227,22 @@ export function ConnectionStatus({
             )}
           </span>
         </span>
+
+        {info.maxPeerClockSum > info.clockSum && (
+          <>
+            <span className="cs-divider" />
+            <span
+              className="cs-section cs-behind"
+              title={
+                `Local clock: ${info.clockSum}, ` +
+                `peer max: ${info.maxPeerClockSum}`
+              }
+            >
+              ~{info.maxPeerClockSum - info.clockSum}{" "}
+              edits behind
+            </span>
+          </>
+        )}
 
         <span className="cs-expand">
           {expanded ? "\u25B4" : "\u25BE"}
