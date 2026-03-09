@@ -164,6 +164,32 @@ function computeStatus(
   return "synced";
 }
 
+const FETCH_RETRIES = 4;
+const FETCH_BASE_MS = 2_000;
+
+async function fetchBlock(
+  helia: { blockstore: { get(cid: CID): any } },
+  cid: CID,
+): Promise<Uint8Array> {
+  for (let i = 0; i <= FETCH_RETRIES; i++) {
+    try {
+      return await helia.blockstore.get(cid);
+    } catch (err) {
+      if (i === FETCH_RETRIES) throw err;
+      const delay = FETCH_BASE_MS * 2 ** i;
+      console.log(
+        `[pokapali] block fetch retry` +
+          ` ${i + 1}/${FETCH_RETRIES}` +
+          ` in ${delay}ms`,
+      );
+      await new Promise(
+        (r) => setTimeout(r, delay),
+      );
+    }
+  }
+  throw new Error("unreachable");
+}
+
 interface CollabDocParams {
   subdocManager: SubdocManager;
   syncManager: SyncManager;
@@ -329,7 +355,7 @@ function createCollabDoc(
       const cidStr = cid.toString();
       if (cidStr === lastAppliedCid) return;
       const helia = getHelia();
-      const block = await helia.blockstore.get(cid);
+      const block = await fetchBlock(helia, cid);
       blocks.set(cidStr, block);
       const node = decodeSnapshot(block);
       const plaintext =
@@ -1098,7 +1124,7 @@ export function createCollabLib(
                     tipCid.toString(),
                   );
                   const block =
-                    await helia.blockstore.get(tipCid);
+                    await fetchBlock(helia, tipCid);
                   const node = decodeSnapshot(block);
                   const rk = keys.readKey!;
                   const plaintext =
