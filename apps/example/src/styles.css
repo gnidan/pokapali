@@ -215,7 +215,10 @@ body {
 .header h1 {
   font-size: 1.25rem;
   font-weight: 600;
-  margin-right: auto;
+}
+
+.header-spacer {
+  flex: 1;
 }
 
 /* Encryption info */
