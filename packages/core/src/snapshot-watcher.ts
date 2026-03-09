@@ -88,6 +88,10 @@ export function createSnapshotWatcher(
   let hasAppliedSnapshot = false;
   /** Tracks which CID the acks are for. */
   let ackedCid: string | null = null;
+  /** Dedup: skip re-announce if we already
+   *  announced this CID (prevents amplification
+   *  loop between readers). */
+  let lastAnnouncedCid: string | null = null;
   const ackedBy = new Set<string>();
   let retryTimer: ReturnType<
     typeof setTimeout
@@ -206,10 +210,13 @@ export function createSnapshotWatcher(
       if (destroyed) return;
       hasAppliedSnapshot = true;
       setFetchState({ status: "idle" });
-      announceSnapshot(
-        pubsub, appId, ipnsName, ann.cid,
-        ann.seq,
-      );
+      if (ann.cid !== lastAnnouncedCid) {
+        lastAnnouncedCid = ann.cid;
+        announceSnapshot(
+          pubsub, appId, ipnsName, ann.cid,
+          ann.seq,
+        );
+      }
     }).catch((err) => {
       if (destroyed) return;
       log.warn("announce apply failed:", err);
@@ -245,10 +252,13 @@ export function createSnapshotWatcher(
           hasAppliedSnapshot = true;
           pendingCid = null;
           setFetchState({ status: "idle" });
-          announceSnapshot(
-            pubsub, appId, ipnsName, cidStr,
-            latestAnnouncedSeq || undefined,
-          );
+          if (cidStr !== lastAnnouncedCid) {
+            lastAnnouncedCid = cidStr;
+            announceSnapshot(
+              pubsub, appId, ipnsName, cidStr,
+              latestAnnouncedSeq || undefined,
+            );
+          }
         } catch {
           if (!destroyed) scheduleRetry();
         }
@@ -304,10 +314,13 @@ export function createSnapshotWatcher(
           hasAppliedSnapshot = true;
           pendingCid = null;
           setFetchState({ status: "idle" });
-          announceSnapshot(
-            pubsub, appId, ipnsName, cidStr,
-            latestAnnouncedSeq || undefined,
-          );
+          if (cidStr !== lastAnnouncedCid) {
+            lastAnnouncedCid = cidStr;
+            announceSnapshot(
+              pubsub, appId, ipnsName, cidStr,
+              latestAnnouncedSeq || undefined,
+            );
+          }
           log.info("initial snapshot applied");
         } else if (isWriter) {
           // Writer on a new doc — nothing published yet.
