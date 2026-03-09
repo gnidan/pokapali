@@ -236,16 +236,24 @@ export function ConnectionStatus({
           ) - info.clockSum;
           const fs = info.fetchState;
           const fetchHint =
-            fs.status === "fetching"
-              ? " \u2014 fetching\u2026"
-              : fs.status === "retrying"
-                ? ` \u2014 retrying (attempt ${fs.attempt})\u2026`
-                : fs.status === "failed"
-                  ? " \u2014 fetch failed"
-                  : "";
+            fs.status === "resolving"
+              ? "Resolving document\u2026"
+              : fs.status === "fetching"
+                ? " \u2014 fetching\u2026"
+                : fs.status === "retrying"
+                  ? ` \u2014 retrying (attempt ${fs.attempt})\u2026`
+                  : fs.status === "failed"
+                    ? " \u2014 fetch failed"
+                    : "";
           const isFailed = fs.status === "failed";
+          const isResolving =
+            fs.status === "resolving";
 
-          if (behind <= 0 && !isFailed) return null;
+          if (
+            behind <= 0 &&
+            !isFailed &&
+            !isResolving
+          ) return null;
 
           return (
             <>
@@ -264,10 +272,15 @@ export function ConnectionStatus({
                   `${info.latestAnnouncedSeq}`
                 }
               >
-                {behind > 0 && (
-                  <>~{behind} edits behind</>
-                )}
-                {fetchHint}
+                {isResolving
+                  ? fetchHint
+                  : <>
+                      {behind > 0 && (
+                        <>~{behind} edits behind</>
+                      )}
+                      {fetchHint}
+                    </>
+                }
               </span>
             </>
           );
