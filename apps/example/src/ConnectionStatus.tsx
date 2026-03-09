@@ -212,17 +212,6 @@ function Dot({ state }: {
   );
 }
 
-function relayDotState(
-  connected: number,
-  total: number,
-): "connected" | "disconnected" | "partial"
-  | "inactive" {
-  if (total === 0) return "inactive";
-  if (connected === total) return "connected";
-  if (connected > 0) return "partial";
-  return "disconnected";
-}
-
 function fetchLabel(fs: SnapshotFetchState): string {
   switch (fs.status) {
     case "idle": return "Idle";
@@ -243,73 +232,25 @@ function fetchLabel(fs: SnapshotFetchState): string {
   }
 }
 
-// --- Summary bar sections ---
+// --- Summary bar helpers ---
 
-function PeersSummary({
-  info,
-}: {
-  info: DiagnosticsInfo;
-}) {
-  return (
-    <span
-      className="cs-section"
-      title="libp2p peers"
-    >
-      <span className="cs-label">Peers</span>
-      <span className="cs-value">
-        {info.ipfsPeers}
-      </span>
-    </span>
-  );
+type Health = "connected" | "partial" | "disconnected"
+  | "inactive";
+
+function relayHealth(connected: number): Health {
+  if (connected >= 3) return "connected";
+  if (connected > 0) return "partial";
+  return "disconnected";
 }
 
-function RelaysSummary({
-  info,
-}: {
-  info: DiagnosticsInfo;
-}) {
-  const connected = info.relays.filter(
-    (r) => r.connected,
-  ).length;
-  const total = info.relays.length;
-  return (
-    <span className="cs-section">
-      <span className="cs-label">Relays</span>
-      <span className="cs-value">
-        <Dot state={relayDotState(connected, total)} />
-        {total === 0
-          ? "0"
-          : connected === total
-            ? String(total)
-            : `${connected}/${total}`}
-      </span>
-    </span>
-  );
-}
-
-function UsersSummary({
-  info,
-}: {
-  info: DiagnosticsInfo;
-}) {
-  return (
-    <span
-      className="cs-section"
-      title="Awareness peers"
-    >
-      <span className="cs-label">Users</span>
-      <span className="cs-value">
-        <Dot
-          state={
-            info.editors > 1
-              ? "connected"
-              : "inactive"
-          }
-        />
-        {info.editors}
-      </span>
-    </span>
-  );
+function networkHealth(
+  ipfsPeers: number,
+  meshPeers: number,
+): Health {
+  const total = ipfsPeers + meshPeers;
+  if (total >= 6) return "connected";
+  if (total > 0) return "partial";
+  return "disconnected";
 }
 
 function SyncSummary({
@@ -589,7 +530,7 @@ export function ConnectionStatus({
     };
   }, [doc, expanded]);
 
-  const connected = info.relays.filter(
+  const connectedRelays = info.relays.filter(
     (r) => r.connected,
   ).length;
   const h = historyRef.current;
@@ -602,20 +543,59 @@ export function ConnectionStatus({
         title="Click for diagnostics"
         aria-expanded={expanded}
         aria-label={
-          `${info.ipfsPeers} peers, ` +
-          `${connected}/${info.relays.length} ` +
-          `relays, ${info.editors} user(s)`
+          `${info.editors} user(s), ` +
+          `${connectedRelays} relay(s), ` +
+          `${info.ipfsPeers} network peers`
         }
       >
-        <PeersSummary info={info} />
-        <span className="cs-divider" />
-        <RelaysSummary info={info} />
-        <span className="cs-divider" />
-        <UsersSummary info={info} />
-        <SyncSummary info={info} />
         <span className="cs-expand">
           {expanded ? "\u25B4" : "\u25BE"}
         </span>
+
+        <span
+          className="cs-section"
+          title="Users on this document"
+        >
+          <span className="cs-value">
+            {info.editors}
+          </span>
+          <span className="cs-label">
+            {info.editors === 1 ? "user" : "users"}
+          </span>
+        </span>
+
+        <span className="cs-divider" />
+
+        <span
+          className="cs-section"
+          title={
+            `${connectedRelays}/` +
+            `${info.relays.length} relays`
+          }
+        >
+          <Dot state={
+            relayHealth(connectedRelays)
+          } />
+          <span className="cs-label">Relays</span>
+        </span>
+
+        <span className="cs-divider" />
+
+        <span
+          className="cs-section"
+          title={
+            `${info.ipfsPeers} libp2p, ` +
+            `${info.gossipsub.meshPeers} mesh`
+          }
+        >
+          <Dot state={networkHealth(
+            info.ipfsPeers,
+            info.gossipsub.meshPeers,
+          )} />
+          <span className="cs-label">Network</span>
+        </span>
+
+        <SyncSummary info={info} />
       </button>
 
       {expanded && (
