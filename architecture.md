@@ -595,8 +595,10 @@ rooms.
 
 Relay nodes subscribe to the signaling topic and forward
 messages between browsers. Browsers discover relays via
-DHT (looking up a CID derived from `appId`) and cached
-relay addresses in `localStorage`.
+DHT (looking up a network-wide CID derived from the
+string `"pokapali-network"`) and cached relay addresses
+in `localStorage`. This makes relays generic network
+infrastructure — any relay serves any app.
 
 Two browsers sharing the same document URL can collaborate
 with zero self-hosted infrastructure — only public

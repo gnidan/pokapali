@@ -74,7 +74,7 @@ dependencies only, not part of the library.
 ## @chainsafe/libp2p-gossipsub ^14.1.2
 
 GossipSub pubsub for WebRTC signaling and peer discovery.
-Used in @pokapali/core (browser) and @pokapali/pinner
+Used in @pokapali/core (browser) and @pokapali/node
 (relay). Configured with `floodPublish: true` for
 low-traffic signaling — ensures all messages reach every
 peer without mesh optimization delays. Pinned to versions

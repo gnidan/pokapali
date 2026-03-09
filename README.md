@@ -185,7 +185,7 @@ can generate read-only URLs but not admin URLs.
 | `@pokapali/subdocs`    | Yjs subdocument lifecycle and dirty tracking                   |
 | `@pokapali/snapshot`   | Snapshot encoding/decoding, chain validation, fetch coalescing |
 | `@pokapali/sync`       | WebRTC room setup for namespace sync and awareness             |
-| `@pokapali/pinner`     | Node.js pinning server: ingest, validate, rate-limit, persist  |
+| `@pokapali/node`       | Node.js relay + pinner: relay, ingest, validate, rate-limit    |
 
 Most consumers only need `@pokapali/core`. The other packages
 are the building blocks it composes.

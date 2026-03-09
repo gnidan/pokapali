@@ -51,7 +51,7 @@ async function makeKeysAndSnapshot(
 
 describe("@pokapali/node", () => {
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "pinner-test-"));
+    tmpDir = await mkdtemp(join(tmpdir(), "node-test-"));
     pinner = await createPinner({
       appIds: ["test-app"],
       storagePath: tmpDir,
