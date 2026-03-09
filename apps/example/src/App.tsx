@@ -1,4 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import { createCollabLib } from "@pokapali/core";
 import type { CollabDoc } from "@pokapali/core";
 import { EditorView } from "./Editor";
@@ -22,10 +27,12 @@ function roleOf(doc: CollabDoc): string {
   return "Reader";
 }
 
+function bestUrl(doc: CollabDoc): string {
+  return doc.adminUrl ?? doc.writeUrl ?? doc.readUrl;
+}
+
 function recordDoc(doc: CollabDoc) {
-  const url =
-    doc.adminUrl ?? doc.writeUrl ?? doc.readUrl;
-  saveRecent(url, roleOf(doc));
+  saveRecent(bestUrl(doc), roleOf(doc));
 }
 
 function formatAge(ts: number): string {
@@ -98,25 +105,17 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const openAndRecord = useCallback(
-    (doc: CollabDoc) => {
-      recordDoc(doc);
-      onDoc(doc);
-    },
-    [onDoc],
-  );
-
   const handleCreate = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const doc = await collab.create();
-      openAndRecord(doc);
+      onDoc(doc);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
     }
-  }, [openAndRecord]);
+  }, [onDoc]);
 
   const openByUrl = useCallback(
     async (rawUrl: string) => {
@@ -124,7 +123,7 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
       setError(null);
       try {
         const doc = await collab.open(rawUrl);
-        openAndRecord(doc);
+        onDoc(doc);
       } catch (e) {
         setError(
           e instanceof Error ? e.message : String(e),
@@ -132,7 +131,7 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
         setLoading(false);
       }
     },
-    [openAndRecord],
+    [onDoc],
   );
 
   const handleOpen = useCallback(async () => {
@@ -191,7 +190,35 @@ export function App() {
   const [doc, setDoc] = useState<CollabDoc | null>(null);
   const [autoOpening, setAutoOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const docRef = useRef<CollabDoc | null>(null);
 
+  // Keep ref in sync so popstate handler sees current doc
+  docRef.current = doc;
+
+  const openDoc = useCallback(
+    (d: CollabDoc, replace = false) => {
+      recordDoc(d);
+      setDoc(d);
+      const url = bestUrl(d);
+      if (replace) {
+        window.history.replaceState(null, "", url);
+      } else {
+        window.history.pushState(null, "", url);
+      }
+    },
+    [],
+  );
+
+  const goToLanding = useCallback(() => {
+    if (docRef.current) {
+      docRef.current.destroy();
+    }
+    setDoc(null);
+    setAutoOpening(false);
+    setError(null);
+  }, []);
+
+  // Auto-open if URL contains a doc path on mount
   useEffect(() => {
     const url = window.location.href;
     if (!isDocUrl(url)) return;
@@ -201,31 +228,48 @@ export function App() {
     collab.open(url).then(
       (d) => {
         if (!cancelled) {
-          recordDoc(d);
-          setDoc(d);
+          // Replace so back goes to wherever the
+          // user came from, not the bare doc URL
+          openDoc(d, true);
+          setAutoOpening(false);
         }
       },
       (e) => {
         if (!cancelled) {
           setError(
-            e instanceof Error ? e.message : String(e),
+            e instanceof Error
+              ? e.message
+              : String(e),
           );
           setAutoOpening(false);
         }
       },
     );
     return () => { cancelled = true; };
-  }, []);
+  }, [openDoc]);
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const onPopState = () => {
+      goToLanding();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener(
+        "popstate",
+        onPopState,
+      );
+    };
+  }, [goToLanding]);
 
   const handleBack = useCallback(() => {
-    if (doc) doc.destroy();
-    setDoc(null);
+    goToLanding();
     window.history.pushState(
       null,
       "",
       import.meta.env.BASE_URL,
     );
-  }, [doc]);
+  }, [goToLanding]);
 
   if (doc) {
     return <EditorView doc={doc} onBack={handleBack} />;
@@ -236,10 +280,12 @@ export function App() {
       <div className="landing">
         <h1>Pokapali</h1>
         <p>Opening document...</p>
-        {error && <p style={{ color: "#ef4444" }}>{error}</p>}
+        {error && (
+          <p style={{ color: "#ef4444" }}>{error}</p>
+        )}
       </div>
     );
   }
 
-  return <Landing onDoc={setDoc} />;
+  return <Landing onDoc={openDoc} />;
 }
