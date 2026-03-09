@@ -419,10 +419,13 @@ export async function startRelay(
 
   // Capability advertisement
   pubsub.subscribe(NODE_CAPS_TOPIC);
-  const roles = config.roles
-    ?? ((config.pinAppIds ?? []).length > 0
-      ? ["pinner"]
-      : []);
+  const roles = config.roles ?? (() => {
+    const inferred = ["relay"];
+    if ((config.pinAppIds ?? []).length > 0) {
+      inferred.push("pinner");
+    }
+    return inferred;
+  })();
   const capsMsg = encodeNodeCaps({
     version: 1,
     peerId: helia.libp2p.peerId.toString(),
