@@ -163,7 +163,7 @@ export async function startRelay(
             // D=6/Dlo=4 can never be satisfied, causing
             // the heartbeat to churn without grafting.
             D: 3,
-            Dlo: 1,
+            Dlo: 2,
             Dhi: 6,
             Dout: 1,
             Dscore: 1,

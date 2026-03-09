@@ -54,7 +54,7 @@ export async function acquireHelia(
         // browsers per topic. Default D=6/Dlo=4 can
         // never be satisfied.
         D: 2,
-        Dlo: 1,
+        Dlo: 2,
         Dhi: 4,
         Dout: 1,
         Dscore: 1,
