@@ -158,10 +158,24 @@ body {
   cursor: default;
 }
 
-.recent-id {
+.recent-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.recent-id-pill {
   font-family: monospace;
-  font-size: 0.8rem;
-  color: #2563eb;
+  font-size: 0.65rem;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 .recent-age {
