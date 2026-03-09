@@ -36,6 +36,7 @@ export interface SnapshotWatcher {
     ) => Uint8Array | undefined,
     getSeq?: () => number | null,
   ): void;
+  readonly latestAnnouncedSeq: number;
   destroy(): void;
 }
 
@@ -55,6 +56,7 @@ export function createSnapshotWatcher(
   let destroyed = false;
   const topic = announceTopic(appId);
   let pendingCid: string | null = null;
+  let latestAnnouncedSeq = 0;
   let retryTimer: ReturnType<
     typeof setTimeout
   > | null = null;
@@ -97,6 +99,11 @@ export function createSnapshotWatcher(
       ann.cid.slice(0, 16) + "...",
     );
     if (destroyed) return;
+    if (ann.seq !== undefined) {
+      latestAnnouncedSeq = Math.max(
+        latestAnnouncedSeq, ann.seq,
+      );
+    }
     pendingCid = ann.cid;
     const cid = CIDClass.parse(ann.cid);
     onSnapshot(cid).then(() => {
@@ -210,6 +217,10 @@ export function createSnapshotWatcher(
           seq,
         );
       }, REANNOUNCE_MS);
+    },
+
+    get latestAnnouncedSeq() {
+      return latestAnnouncedSeq;
     },
 
     destroy() {

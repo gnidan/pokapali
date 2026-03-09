@@ -123,6 +123,8 @@ export interface CollabDoc {
   readonly clockSum: number;
   /** Last IPNS sequence number used for publish. */
   readonly ipnsSeq: number | null;
+  /** Highest seq seen in GossipSub announcements. */
+  readonly latestAnnouncedSeq: number;
   pushSnapshot(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
@@ -434,6 +436,10 @@ function createCollabDoc(
 
     get ipnsSeq(): number | null {
       return snapshotLC.lastIpnsSeq;
+    },
+
+    get latestAnnouncedSeq(): number {
+      return snapshotWatcher?.latestAnnouncedSeq ?? 0;
     },
 
     async pushSnapshot(): Promise<void> {
