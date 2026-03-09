@@ -310,13 +310,13 @@ function createCollabDoc(
       },
     });
 
-    // Writers start re-announce
-    if (cap.canPushSnapshots) {
-      snapshotWatcher.startReannounce(
-        () => snapshotLC.prev,
-        (cidStr) => snapshotLC.getBlock(cidStr),
-      );
-    }
+    // Periodically re-announce the latest snapshot
+    // so pinners and new peers discover it even if
+    // the original writer is offline.
+    snapshotWatcher.startReannounce(
+      () => snapshotLC.prev,
+      (cidStr) => snapshotLC.getBlock(cidStr),
+    );
   }
 
   function assertNotDestroyed() {
