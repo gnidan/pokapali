@@ -479,4 +479,146 @@ describe("startRoomDiscovery", () => {
       rd.stop();
     });
   });
+
+  describe("dialRelay (via addExternalRelays)", () => {
+    const RELAY_PID = "12D3KooWDialTest1234";
+    const RELAY_ADDRS = [
+      "/ip4/1.2.3.4/tcp/4001/ws",
+    ];
+
+    it("successful dial tracks relay",
+      async () => {
+      helia.libp2p.dial
+        .mockResolvedValue({});
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+
+      rd.addExternalRelays([{
+        peerId: RELAY_PID,
+        addrs: RELAY_ADDRS,
+      }]);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(true);
+      expect(rd.relayEntries()).toContainEqual(
+        expect.objectContaining({
+          peerId: RELAY_PID,
+        }),
+      );
+      expect(upsertCachedRelay)
+        .toHaveBeenCalledWith(
+          RELAY_PID, RELAY_ADDRS,
+        );
+
+      rd.stop();
+    });
+
+    it("dial timeout returns false " +
+       "(relay not tracked)", async () => {
+      // Make dial hang forever
+      helia.libp2p.dial.mockImplementation(
+        () => new Promise(() => {}),
+      );
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+
+      rd.addExternalRelays([{
+        peerId: RELAY_PID,
+        addrs: RELAY_ADDRS,
+      }]);
+
+      // Advance past DIAL_TIMEOUT_MS (10s)
+      await vi.advanceTimersByTimeAsync(11_000);
+
+      // Relay should NOT be tracked (dial
+      // timed out and was aborted)
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(false);
+
+      rd.stop();
+    });
+
+    it("dial failure returns false",
+      async () => {
+      helia.libp2p.dial.mockRejectedValue(
+        new Error("connection refused"),
+      );
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+
+      rd.addExternalRelays([{
+        peerId: RELAY_PID,
+        addrs: RELAY_ADDRS,
+      }]);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(false);
+
+      rd.stop();
+    });
+
+    it("empty wss addrs skips dial",
+      async () => {
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      helia.libp2p.dial.mockClear();
+
+      // Provide addrs with no /ws in them
+      rd.addExternalRelays([{
+        peerId: RELAY_PID,
+        addrs: ["/ip4/1.2.3.4/tcp/4001"],
+      }]);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(false);
+
+      rd.stop();
+    });
+
+    it("skips already-connected relays",
+      async () => {
+      helia.libp2p.getConnections
+        .mockReturnValue([{
+          remotePeer: {
+            toString: () => RELAY_PID,
+          },
+        }]);
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      helia.libp2p.dial.mockClear();
+
+      rd.addExternalRelays([{
+        peerId: RELAY_PID,
+        addrs: RELAY_ADDRS,
+      }]);
+      await vi.advanceTimersByTimeAsync(1);
+
+      // Should track without dialing
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(true);
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+
+      rd.stop();
+    });
+  });
 });
