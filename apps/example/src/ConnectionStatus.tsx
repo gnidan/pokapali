@@ -126,12 +126,13 @@ export function ConnectionStatus({
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
+    setInfo(gatherInfo(doc));
+    if (!expanded) return;
     const poll = setInterval(() => {
       setInfo(gatherInfo(doc));
     }, 2000);
-    setInfo(gatherInfo(doc));
     return () => clearInterval(poll);
-  }, [doc]);
+  }, [doc, expanded]);
 
   const connectedRelays = info.relays.filter(
     (r) => r.connected,
