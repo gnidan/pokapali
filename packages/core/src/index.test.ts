@@ -42,6 +42,7 @@ vi.mock("./helia.js", () => ({
 vi.mock("./ipns-helpers.js", () => ({
   publishIPNS: vi.fn().mockResolvedValue(undefined),
   resolveIPNS: vi.fn().mockResolvedValue(null),
+  watchIPNS: vi.fn().mockReturnValue(() => {}),
 }));
 
 vi.mock("./announce.js", () => ({

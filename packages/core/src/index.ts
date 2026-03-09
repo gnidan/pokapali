@@ -54,6 +54,7 @@ import {
 import {
   publishIPNS,
   resolveIPNS,
+  watchIPNS,
 } from "./ipns-helpers.js";
 import { announceSnapshot } from "./announce.js";
 import {
@@ -310,6 +311,36 @@ function createCollabDoc(
         );
       }
     }, REANNOUNCE_MS);
+  }
+
+  // Read-only watchers: poll IPNS for live updates
+  const isReadOnly =
+    !keys.namespaceKeys ||
+    Object.keys(keys.namespaceKeys).length === 0;
+  let stopWatch: (() => void) | null = null;
+  if (isReadOnly && readKey) {
+    const pubKeyBytes = hexToBytes(ipnsName);
+    const rk = readKey;
+    stopWatch = watchIPNS(
+      getHelia(),
+      pubKeyBytes,
+      async (cid) => {
+        try {
+          const helia = getHelia();
+          const block =
+            await helia.blockstore.get(cid);
+          blocks.set(cid.toString(), block);
+          const node = decodeSnapshot(block);
+          const plaintext =
+            await decryptSnapshot(node, rk);
+          subdocManager.applySnapshot(plaintext);
+          emit("snapshot-applied");
+        } catch {
+          // Best-effort: block may not be
+          // available yet
+        }
+      },
+    );
   }
 
   function assertNotDestroyed() {
@@ -601,6 +632,9 @@ function createCollabDoc(
       if (announceTimer) {
         clearInterval(announceTimer);
       }
+      if (stopWatch) {
+        stopWatch();
+      }
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
@@ -707,6 +741,9 @@ function createCollabDoc(
       }
       if (announceTimer) {
         clearInterval(announceTimer);
+      }
+      if (stopWatch) {
+        stopWatch();
       }
       params.roomDiscovery?.stop();
       syncManager.destroy();
