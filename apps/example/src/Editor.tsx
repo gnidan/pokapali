@@ -18,9 +18,35 @@ const CURSOR_COLORS = [
   "#9c27b0", "#00bcd4", "#e91e63", "#8bc34a",
 ];
 
-const randomColor =
-  CURSOR_COLORS[Math.floor(Math.random() * CURSOR_COLORS.length)];
-const randomId = Math.floor(Math.random() * 1000);
+const STORAGE_KEY = "pokapali:user";
+
+interface StoredUser {
+  name: string;
+  color: string;
+}
+
+function loadUser(): StoredUser {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.name && parsed.color) return parsed;
+    }
+  } catch {}
+  const color = CURSOR_COLORS[
+    Math.floor(Math.random() * CURSOR_COLORS.length)
+  ];
+  return { name: "", color };
+}
+
+function saveUser(user: StoredUser) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(user),
+    );
+  } catch {}
+}
 
 function renderCursor(user: { name: string; color: string }) {
   const el = document.createElement("span");
@@ -60,6 +86,9 @@ export function EditorView({
   const [showShare, setShowShare] = useState(false);
   const [snapshotHint, setSnapshotHint] = useState(false);
   const snapshotTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [user, setUser] = useState<StoredUser>(loadUser);
+  const [editingName, setEditingName] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const isReadOnly = !doc.capability.namespaces.has("content");
   const badge = capBadge(doc);
@@ -126,11 +155,33 @@ export function EditorView({
   );
 
   useEffect(() => {
+    const displayName = user.name || "Anonymous";
     doc.awareness.setLocalStateField("user", {
-      name: "User " + randomId,
-      color: randomColor,
+      name: displayName,
+      color: user.color,
     });
-  }, [doc]);
+    saveUser(user);
+  }, [doc, user]);
+
+  const commitName = useCallback(() => {
+    setEditingName(false);
+  }, []);
+
+  const handleNameKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        (e.target as HTMLInputElement).blur();
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (editingName && nameRef.current) {
+      nameRef.current.focus();
+      nameRef.current.select();
+    }
+  }, [editingName]);
 
   const handleSnapshot = useCallback(() => {
     doc.pushSnapshot().then(() => {
@@ -146,6 +197,32 @@ export function EditorView({
         </button>
         <h1>Pokapali</h1>
         <span className={badge.className}>{badge.label}</span>
+        {editingName ? (
+          <input
+            ref={nameRef}
+            className="user-name-input"
+            value={user.name}
+            placeholder="Your name"
+            onChange={(e) =>
+              setUser((u) => ({
+                ...u,
+                name: e.target.value,
+              }))
+            }
+            onBlur={commitName}
+            onKeyDown={handleNameKeyDown}
+            maxLength={30}
+          />
+        ) : (
+          <button
+            className="user-name-display"
+            onClick={() => setEditingName(true)}
+            title="Click to change your name"
+            style={{ borderColor: user.color }}
+          >
+            {user.name || "Set name..."}
+          </button>
+        )}
         <StatusIndicator status={status} />
         {doc.capability.canPushSnapshots && (
           <div className="snapshot-controls">
