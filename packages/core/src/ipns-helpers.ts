@@ -109,13 +109,6 @@ export async function publishIPNS(
         ipnsKeyBytes,
       );
 
-      const record = await (createIPNSRecord as Function)(
-        privateKey,
-        cidToPublish,
-        seq,
-        DEFAULT_LIFETIME_MS,
-      ) as IPNSRecord;
-
       const delegated = (helia.libp2p.services as any)
         .delegatedRouting;
       if (!delegated?.putIPNS) return;
@@ -124,6 +117,35 @@ export async function publishIPNS(
         LIBP2P_KEY_CODEC,
         privateKey.publicKey.toMultihash(),
       );
+
+      // Ensure seq exceeds any existing record so the
+      // delegated server accepts the update. Handles
+      // cases where clock sum is temporarily lower
+      // (e.g. page reload before full sync).
+      let effectiveSeq = seq;
+      if (delegated.getIPNS) {
+        try {
+          const existing: IPNSRecord =
+            await delegated.getIPNS(keyCid, {
+              signal: AbortSignal.timeout(5_000),
+            });
+          const existingSeq =
+            existing.sequence ?? 0n;
+          if (existingSeq >= effectiveSeq) {
+            effectiveSeq = existingSeq + 1n;
+          }
+        } catch {
+          // No existing record or fetch failed
+        }
+      }
+
+      const record =
+        await (createIPNSRecord as Function)(
+          privateKey,
+          cidToPublish,
+          effectiveSeq,
+          DEFAULT_LIFETIME_MS,
+        ) as IPNSRecord;
 
       const ctrl = new AbortController();
       const timer = setTimeout(

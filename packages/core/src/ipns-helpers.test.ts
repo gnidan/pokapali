@@ -95,6 +95,10 @@ describe("publishIPNS", () => {
       fakePrivKey,
     );
     mockCreateIPNSRecord.mockResolvedValue(fakeRecord);
+    // No existing IPNS record
+    mockGetIPNS.mockRejectedValue(
+      new Error("not found"),
+    );
 
     await publishIPNS(fakeHelia, seed, cid, 42);
 
@@ -115,6 +119,41 @@ describe("publishIPNS", () => {
       expect.objectContaining({
         signal: expect.any(AbortSignal),
       }),
+    );
+  });
+
+  it("uses existing seq + 1 when clock sum is lower", async () => {
+    const seed = new Uint8Array(32).fill(1);
+    const cid = await fakeCID("bump");
+    const fakeRecord = { value: "/ipfs/bump" };
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(
+        new Uint8Array([0, 1, 2]),
+      ),
+    };
+    const fakePrivKey = {
+      type: "Ed25519",
+      publicKey: fakePubKey,
+    };
+    mockGenerateKeyPairFromSeed.mockResolvedValue(
+      fakePrivKey,
+    );
+    mockCreateIPNSRecord.mockResolvedValue(fakeRecord);
+    // Existing record has seq=100, clock sum is 42
+    mockGetIPNS.mockResolvedValue({
+      sequence: 100n,
+      value: "/ipfs/old",
+    });
+
+    await publishIPNS(fakeHelia, seed, cid, 42);
+
+    // Should use 101n (existing + 1), not 42n
+    expect(mockCreateIPNSRecord).toHaveBeenCalledWith(
+      fakePrivKey,
+      cid,
+      101n,
+      expect.any(Number),
     );
   });
 });
