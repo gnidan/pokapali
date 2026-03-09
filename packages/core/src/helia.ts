@@ -44,7 +44,13 @@ export async function acquireHelia(
     ],
     services: {
       ...defaults.services,
-      pubsub: gossipsub(),
+      pubsub: gossipsub({
+        // Low-traffic signaling: publish to all peers,
+        // not just mesh. Prevents mesh degradation from
+        // collapsing message delivery.
+        floodPublish: true,
+        allowPublishToZeroTopicPeers: true,
+      }),
     },
     // Block plain ws:// dials from HTTPS pages — browsers
     // reject mixed content and the failed attempts waste

@@ -138,7 +138,13 @@ export async function startRelay(
             validators: { ipns: ipnsValidator },
             selectors: { ipns: ipnsSelector },
           }),
-          pubsub: gossipsub(),
+          pubsub: gossipsub({
+            // Low-traffic signaling: publish to all
+            // peers, not just mesh. Prevents mesh
+            // degradation from collapsing delivery.
+            floodPublish: true,
+            allowPublishToZeroTopicPeers: true,
+          }),
           autoTLS: autoTLS({
             autoConfirmAddress: true,
           }),
