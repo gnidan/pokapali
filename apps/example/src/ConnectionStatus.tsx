@@ -31,7 +31,13 @@ export function ConnectionStatus({
   useEffect(() => {
     let active = true;
     const refresh = () => {
-      if (active) setInfo(doc.diagnostics());
+      if (!active) return;
+      try {
+        setInfo(doc.diagnostics());
+      } catch {
+        // doc destroyed during teardown — awareness
+        // disconnect fires before listener removal
+      }
     };
     refresh();
 
