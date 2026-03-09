@@ -190,6 +190,16 @@ export function bytesToHex(bytes: Uint8Array): string {
 }
 
 export function hexToBytes(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0) {
+    throw new Error(
+      "hexToBytes: odd-length hex string",
+    );
+  }
+  if (!/^[0-9a-fA-F]*$/.test(hex)) {
+    throw new Error(
+      "hexToBytes: invalid hex characters",
+    );
+  }
   const len = hex.length / 2;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {

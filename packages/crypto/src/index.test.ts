@@ -8,6 +8,8 @@ import {
   ed25519KeyPairFromSeed,
   signBytes,
   verifySignature,
+  hexToBytes,
+  bytesToHex,
 } from "./index.js";
 
 function base64urlDecode(s: string): Uint8Array {
@@ -198,5 +200,42 @@ describe("Ed25519", () => {
     const tampered = new TextEncoder().encode("tampered");
     const valid = await verifySignature(kp.publicKey, sig, tampered);
     expect(valid).toBe(false);
+  });
+});
+
+describe("hexToBytes / bytesToHex", () => {
+  it("round-trips valid hex", () => {
+    const bytes = new Uint8Array([0, 1, 127, 255]);
+    const hex = bytesToHex(bytes);
+    expect(hex).toBe("00017fff");
+    const back = hexToBytes(hex);
+    expect(arraysEqual(back, bytes)).toBe(true);
+  });
+
+  it("handles empty string", () => {
+    const bytes = hexToBytes("");
+    expect(bytes.length).toBe(0);
+  });
+
+  it("throws on odd-length hex", () => {
+    expect(() => hexToBytes("abc")).toThrow(
+      "odd-length",
+    );
+  });
+
+  it("throws on invalid hex characters", () => {
+    expect(() => hexToBytes("zz")).toThrow(
+      "invalid hex",
+    );
+    expect(() => hexToBytes("0g")).toThrow(
+      "invalid hex",
+    );
+  });
+
+  it("accepts uppercase hex", () => {
+    const bytes = hexToBytes("FF00AB");
+    expect(bytes).toEqual(
+      new Uint8Array([255, 0, 171]),
+    );
   });
 });
