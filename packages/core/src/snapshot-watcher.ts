@@ -152,6 +152,7 @@ export function createSnapshotWatcher(
       setFetchState({ status: "idle" });
       announceSnapshot(
         pubsub, appId, ipnsName, ann.cid,
+        ann.seq,
       );
     }).catch((err) => {
       log.warn("announce apply failed:", err);
@@ -187,6 +188,7 @@ export function createSnapshotWatcher(
           setFetchState({ status: "idle" });
           announceSnapshot(
             pubsub, appId, ipnsName, cidStr,
+            latestAnnouncedSeq || undefined,
           );
         } catch {
           scheduleRetry();
@@ -226,6 +228,7 @@ export function createSnapshotWatcher(
           setFetchState({ status: "idle" });
           announceSnapshot(
             pubsub, appId, ipnsName, cidStr,
+            latestAnnouncedSeq || undefined,
           );
           log.info("initial snapshot applied");
         } else {
