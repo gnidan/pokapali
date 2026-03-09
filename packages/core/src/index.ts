@@ -31,14 +31,7 @@ import type {
   SyncOptions,
   PubSubLike,
 } from "@pokapali/sync";
-import {
-  encodeSnapshot,
-  decodeSnapshot,
-  decryptSnapshot,
-  walkChain,
-} from "@pokapali/snapshot";
 import { CID } from "multiformats/cid";
-import { sha256 } from "multiformats/hashes/sha2";
 import {
   createForwardingRecord,
   encodeForwardingRecord,
@@ -55,21 +48,14 @@ import {
 } from "./helia.js";
 import {
   publishIPNS,
-  resolveIPNS,
-  watchIPNS,
 } from "./ipns-helpers.js";
 import {
   announceSnapshot,
-  announceTopic,
-  parseAnnouncement,
 } from "./announce.js";
 import {
   startRoomDiscovery,
 } from "./peer-discovery.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
-import {
-  fetchBlock,
-} from "./fetch-block.js";
 import {
   createSnapshotLifecycle,
 } from "./snapshot-lifecycle.js";
@@ -88,8 +74,6 @@ import {
 import type {
   RelaySharing,
 } from "./relay-sharing.js";
-
-const DAG_CBOR_CODE = 0x71;
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
