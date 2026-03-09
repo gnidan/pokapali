@@ -75,6 +75,76 @@ function capBadge(doc: CollabDoc): { label: string; className: string } {
   return { label: "Reader", className: "badge reader" };
 }
 
+type SaveState =
+  | "published"
+  | "unpublished"
+  | "saving";
+
+const DEBOUNCE_MS = 10_000;
+
+const SAVE_LABELS: Record<SaveState, string> = {
+  published: "Published",
+  unpublished: "Unpublished changes",
+  saving: "Saving\u2026",
+};
+
+function SaveIndicator({
+  saveState,
+  onPublish,
+}: {
+  saveState: SaveState;
+  onPublish: () => void;
+}) {
+  return (
+    <div className="save-indicator">
+      <span className={`save-state ${saveState}`}>
+        {SAVE_LABELS[saveState]}
+      </span>
+      {saveState === "unpublished" && (
+        <button
+          className="publish-now"
+          onClick={onPublish}
+        >
+          Publish now
+        </button>
+      )}
+    </div>
+  );
+}
+
+function LastUpdated({
+  timestamp,
+}: {
+  timestamp: number;
+}) {
+  const [, forceUpdate] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(
+      () => forceUpdate((n) => n + 1),
+      5_000,
+    );
+    return () => clearInterval(id);
+  }, []);
+
+  const ago = Math.max(
+    0,
+    Math.round((Date.now() - timestamp) / 1000),
+  );
+  const label =
+    ago < 5
+      ? "just now"
+      : ago < 60
+        ? `${ago}s ago`
+        : `${Math.round(ago / 60)}m ago`;
+
+  return (
+    <span className="last-updated">
+      Last updated: {label}
+    </span>
+  );
+}
+
 export function EditorView({
   doc,
   onBack,
@@ -84,29 +154,55 @@ export function EditorView({
 }) {
   const [status, setStatus] = useState<DocStatus>(doc.status);
   const [showShare, setShowShare] = useState(false);
-  const [snapshotHint, setSnapshotHint] = useState(false);
-  const snapshotTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>(
+    doc.status === "unpushed-changes"
+      ? "unpublished"
+      : "published",
+  );
+  const debounceRef = useRef<ReturnType<typeof setTimeout>
+    | null>(null);
+  const [lastPublished, setLastPublished] = useState(
+    Date.now(),
+  );
   const [user, setUser] = useState<StoredUser>(loadUser);
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  const isReadOnly = !doc.capability.namespaces.has("content");
+  const isReadOnly =
+    !doc.capability.namespaces.has("content");
+  const canSave = doc.capability.canPushSnapshots;
   const badge = capBadge(doc);
+
+  const doSave = useCallback(() => {
+    if (!canSave) return;
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    setSaveState("saving");
+    doc.pushSnapshot().then(() => {
+      setSaveState("published");
+      setLastPublished(Date.now());
+    });
+  }, [doc, canSave]);
+
+  const startDebounce = useCallback(() => {
+    if (!canSave) return;
+    setSaveState("unpublished");
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      doSave();
+    }, DEBOUNCE_MS);
+  }, [canSave, doSave]);
 
   useEffect(() => {
     const onStatus = (s: DocStatus) => setStatus(s);
-    const onSnapshotRec = () => setSnapshotHint(true);
+    const onSnapshotRec = () => startDebounce();
     doc.on("status", onStatus);
     doc.on("snapshot-recommended", onSnapshotRec);
-
-    // Periodic snapshot every 2 minutes
-    if (doc.capability.canPushSnapshots) {
-      snapshotTimer.current = setInterval(() => {
-        if (doc.status === "unpushed-changes") {
-          doc.pushSnapshot();
-        }
-      }, 120_000);
-    }
 
     // Best-effort save on unload
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -123,19 +219,28 @@ export function EditorView({
       }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
-    document.addEventListener("visibilitychange", onVisChange);
+    document.addEventListener(
+      "visibilitychange",
+      onVisChange,
+    );
 
     return () => {
       doc.off("status", onStatus);
       doc.off("snapshot-recommended", onSnapshotRec);
-      if (snapshotTimer.current) {
-        clearInterval(snapshotTimer.current);
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
       }
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      document.removeEventListener("visibilitychange", onVisChange);
+      window.removeEventListener(
+        "beforeunload",
+        onBeforeUnload,
+      );
+      document.removeEventListener(
+        "visibilitychange",
+        onVisChange,
+      );
       doc.destroy();
     };
-  }, [doc]);
+  }, [doc, startDebounce]);
 
   const editor = useEditor(
     {
@@ -183,12 +288,6 @@ export function EditorView({
     }
   }, [editingName]);
 
-  const handleSnapshot = useCallback(() => {
-    doc.pushSnapshot().then(() => {
-      setSnapshotHint(false);
-    });
-  }, [doc]);
-
   return (
     <div className="app">
       <div className="header">
@@ -224,13 +323,13 @@ export function EditorView({
           </button>
         )}
         <StatusIndicator status={status} />
-        {doc.capability.canPushSnapshots && (
-          <div className="snapshot-controls">
-            <button onClick={handleSnapshot}>Save snapshot</button>
-            {snapshotHint && (
-              <span className="snapshot-hint">Snapshot recommended</span>
-            )}
-          </div>
+        {canSave ? (
+          <SaveIndicator
+            saveState={saveState}
+            onPublish={doSave}
+          />
+        ) : (
+          <LastUpdated timestamp={lastPublished} />
         )}
         <button
           className="toggle-share"

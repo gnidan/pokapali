@@ -249,31 +249,47 @@ body {
   background: #f3f4f6;
 }
 
-/* Snapshot controls */
+/* Save indicator */
 
-.snapshot-controls {
+.save-indicator {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.snapshot-controls button {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.875rem;
+.save-state {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.save-state.published {
+  color: #22c55e;
+}
+
+.save-state.unpublished {
+  color: #f97316;
+}
+
+.save-state.saving {
+  color: #eab308;
+}
+
+.publish-now {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   background: white;
   cursor: pointer;
 }
 
-.snapshot-controls button:hover {
+.publish-now:hover {
   background: #f3f4f6;
 }
 
-.snapshot-hint {
+.last-updated {
   font-size: 0.75rem;
-  color: #f97316;
-  font-weight: 500;
+  color: #64748b;
 }
 
 .back-link {
