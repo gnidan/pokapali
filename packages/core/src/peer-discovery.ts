@@ -7,7 +7,6 @@ import { createLogger } from "@pokapali/log";
 import {
   loadCachedRelays,
   upsertCachedRelay,
-  removeCachedRelay,
 } from "./relay-cache.js";
 
 const RAW_CODEC = 0x55;
@@ -221,11 +220,17 @@ export function startRoomDiscovery(
       if (ok) {
         tagRelay(pid);
         upsertCachedRelay(pid, entry.addrs);
-      } else {
-        // Purge stale entry (wrong peer ID, etc.)
-        removeCachedRelay(pid);
       }
+      // Don't evict on failure — the 24h TTL in
+      // loadCachedRelays handles natural expiry.
     }));
+  }
+
+  interface ProviderToDial {
+    pid: string;
+    filtered: ReturnType<typeof multiaddr>[];
+    addrs: string[];
+    peerId: any;
   }
 
   async function discoverRelays() {
@@ -243,6 +248,10 @@ export function startRoomDiscovery(
         FIND_TIMEOUT_MS,
       );
 
+      // Phase 1: collect providers from iterator
+      // (bounded by FIND_TIMEOUT_MS). Slow dials no
+      // longer block iteration.
+      const toDial: ProviderToDial[] = [];
       let found = 0;
       for await (const provider of
         helia.routing.findProviders(cid, { signal })
@@ -296,22 +305,34 @@ export function startRoomDiscovery(
         }
 
         const filtered = wssAddrs(pid, addrs);
-
-        const ok = await dialRelay(
-          pid,
-          filtered,
-          addrs,
-          provider.id,
-        );
-        if (ok) {
-          tagRelay(pid);
-          upsertCachedRelay(pid, addrs);
-        }
+        toDial.push({
+          pid, filtered, addrs,
+          peerId: provider.id,
+        });
       }
 
       clearTimeout(timeout);
       if (found > 0) {
         log.info(`found ${found} relay(s)`);
+      }
+
+      // Phase 2: dial all collected providers in
+      // parallel (each with its own DIAL_TIMEOUT).
+      if (toDial.length > 0) {
+        await Promise.allSettled(
+          toDial.map(async (p) => {
+            const ok = await dialRelay(
+              p.pid,
+              p.filtered,
+              p.addrs,
+              p.peerId,
+            );
+            if (ok) {
+              tagRelay(p.pid);
+              upsertCachedRelay(p.pid, p.addrs);
+            }
+          }),
+        );
       }
     } catch (err) {
       const msg = (err as Error).message ?? "";

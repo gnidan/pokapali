@@ -35,7 +35,6 @@ import {
 import {
   loadCachedRelays,
   upsertCachedRelay,
-  removeCachedRelay,
 } from "./relay-cache.js";
 
 const PID = "12D3KooWTestPeerId";
