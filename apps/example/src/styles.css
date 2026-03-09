@@ -73,6 +73,86 @@ body {
   white-space: nowrap;
 }
 
+/* Recent documents */
+
+.recent-docs {
+  width: 100%;
+  max-width: 400px;
+}
+
+.recent-docs h3 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  margin-bottom: 0.5rem;
+}
+
+.recent-list {
+  list-style: none;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.recent-item:last-child {
+  border-bottom: none;
+}
+
+.recent-link {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.25rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.875rem;
+  color: #1a1a1a;
+  border-radius: 4px;
+}
+
+.recent-link:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.recent-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.recent-id {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: #2563eb;
+}
+
+.recent-age {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.recent-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 1rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.recent-remove:hover {
+  color: #ef4444;
+  background: #fef2f2;
+}
+
 /* Header bar */
 
 .header {
