@@ -13,12 +13,16 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
 
-// Mock IPNS modules at the top level so dynamic
-// imports inside timer callbacks resolve correctly.
-const mockResolve = vi.fn();
-const mockRepublish = vi.fn();
-const mockPubKeyFromRaw = vi.fn(() => ({
-  toMultihash: () => "mock-multihash",
+// Use vi.hoisted so mock fns are available when
+// the vi.mock factories run (hoisted above imports).
+const {
+  mockResolve, mockRepublish, mockPubKeyFromRaw,
+} = vi.hoisted(() => ({
+  mockResolve: vi.fn(),
+  mockRepublish: vi.fn(),
+  mockPubKeyFromRaw: vi.fn(() => ({
+    toMultihash: () => "mock-multihash",
+  })),
 }));
 vi.mock("@helia/ipns", () => ({
   ipns: () => ({
@@ -429,15 +433,17 @@ describe("pinner with mock helia", () => {
         // Add a known name via ingest
         await pinner.ingest("test-name", block);
 
-        // Advance past the initial republish delay
-        // (5 min). Advance in steps to let async
-        // work between timer ticks resolve.
-        await vi.advanceTimersByTimeAsync(
-          5 * 60_000 + 1000,
-        );
+        // Advance to trigger the initial republish
+        // setTimeout(republishAllIPNS, 5*60_000).
+        // Break into small steps so async work
+        // (dynamic imports, mock resolutions) settles
+        // between timer ticks.
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        await vi.advanceTimersByTimeAsync(1_000);
         // Advance past REPUBLISH_PER_NAME_DELAY_MS
         // (5s) inside republishAllIPNS
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(6_000);
+        await vi.advanceTimersByTimeAsync(1_000);
 
         // Stop pinner to clear intervals
         await pinner.stop();
@@ -482,11 +488,11 @@ describe("pinner with mock helia", () => {
         await pinner.start();
         await pinner.ingest("test-name", block);
 
-        // Advance in steps like above
-        await vi.advanceTimersByTimeAsync(
-          5 * 60_000 + 1000,
-        );
-        await vi.advanceTimersByTimeAsync(10_000);
+        // Advance in small steps like above
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(6_000);
+        await vi.advanceTimersByTimeAsync(1_000);
 
         // Should not throw — errors are caught
         // Pinner should still be functional
