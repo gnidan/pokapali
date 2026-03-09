@@ -1,0 +1,32 @@
+# @pokapali/sync
+
+> **This package is not published to npm.** It is under
+> active development and not yet ready for production use.
+
+WebRTC room setup for real-time Yjs sync. Creates one
+y-webrtc room per writable namespace (password-protected
+with the namespace access key) and a shared awareness room
+for cursor presence. Signaling is handled via a GossipSub
+adapter over the libp2p mesh — no external WebSocket
+signaling servers required.
+
+## Key Exports
+
+- **`setupNamespaceRooms()`** — creates WebrtcProvider
+  instances for each writable namespace
+- **`setupAwarenessRoom()`** — creates the shared
+  awareness room (all capability levels join)
+- **`createGossipSubSignaling()`** — GossipSub-based
+  signaling adapter that registers in y-webrtc's
+  `signalingConns` map
+- **`SyncManager`** — interface for connection status
+  and cleanup
+- **`SyncOptions`** — configuration (ICE servers, peer
+  options)
+- **`PubSubLike`** — minimal pubsub interface for
+  GossipSub integration
+
+## Links
+
+- [Root README](../../README.md)
+- [Architecture](../../docs/architecture.md)
