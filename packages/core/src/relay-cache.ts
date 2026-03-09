@@ -1,7 +1,9 @@
 // --- Relay cache (localStorage) ---
 
-const hasLocalStorage =
-  typeof globalThis.localStorage !== "undefined";
+function hasLocalStorage(): boolean {
+  return typeof globalThis.localStorage
+    !== "undefined";
+}
 
 export interface CachedRelay {
   peerId: string;
@@ -17,7 +19,7 @@ export const RELAY_CACHE_MAX_AGE_MS =
 // network-wide key. Runs once on first load.
 let migrated = false;
 export function migrateOldCache(): void {
-  if (migrated || !hasLocalStorage) return;
+  if (migrated || !hasLocalStorage()) return;
   migrated = true;
   try {
     // Already have entries — no migration needed
@@ -48,7 +50,7 @@ export function _resetMigrated(): void {
 }
 
 export function loadCachedRelays(): CachedRelay[] {
-  if (!hasLocalStorage) return [];
+  if (!hasLocalStorage()) return [];
   migrateOldCache();
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -68,7 +70,7 @@ export function loadCachedRelays(): CachedRelay[] {
 function saveCachedRelays(
   relays: CachedRelay[],
 ): void {
-  if (!hasLocalStorage) return;
+  if (!hasLocalStorage()) return;
   try {
     localStorage.setItem(
       CACHE_KEY,
