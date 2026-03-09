@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { getHelia } from "@pokapali/core";
-import type { CollabDoc } from "@pokapali/core";
+import type {
+  CollabDoc,
+  SnapshotFetchState,
+} from "@pokapali/core";
 
 interface RelayInfo {
   short: string;
@@ -22,6 +25,7 @@ interface ConnectionInfo {
   clockSum: number;
   maxPeerClockSum: number;
   latestAnnouncedSeq: number;
+  fetchState: SnapshotFetchState;
   ipnsSeq: number | null;
 }
 
@@ -102,6 +106,7 @@ function gatherInfo(doc: CollabDoc): ConnectionInfo {
     clockSum: doc.clockSum,
     maxPeerClockSum,
     latestAnnouncedSeq: doc.latestAnnouncedSeq,
+    fetchState: doc.snapshotFetchState,
     ipnsSeq: doc.ipnsSeq,
   };
 }
@@ -133,6 +138,7 @@ export function ConnectionStatus({
       clockSum: doc.clockSum,
       maxPeerClockSum: 0,
       latestAnnouncedSeq: 0,
+      fetchState: { status: "idle" },
       ipnsSeq: doc.ipnsSeq,
     }),
   );
@@ -223,28 +229,49 @@ export function ConnectionStatus({
           </span>
         </span>
 
-        {Math.max(
-          info.maxPeerClockSum,
-          info.latestAnnouncedSeq,
-        ) > info.clockSum && (
-          <>
-            <span className="cs-divider" />
-            <span
-              className="cs-section cs-behind"
-              title={
-                `Local: ${info.clockSum}, ` +
-                `peers: ${info.maxPeerClockSum}, ` +
-                `announced: ${info.latestAnnouncedSeq}`
-              }
-            >
-              ~{Math.max(
-                info.maxPeerClockSum,
-                info.latestAnnouncedSeq,
-              ) - info.clockSum}{" "}
-              edits behind
-            </span>
-          </>
-        )}
+        {(() => {
+          const behind = Math.max(
+            info.maxPeerClockSum,
+            info.latestAnnouncedSeq,
+          ) - info.clockSum;
+          const fs = info.fetchState;
+          const fetchHint =
+            fs.status === "fetching"
+              ? " \u2014 fetching\u2026"
+              : fs.status === "retrying"
+                ? ` \u2014 retrying (attempt ${fs.attempt})\u2026`
+                : fs.status === "failed"
+                  ? " \u2014 fetch failed"
+                  : "";
+          const isFailed = fs.status === "failed";
+
+          if (behind <= 0 && !isFailed) return null;
+
+          return (
+            <>
+              <span className="cs-divider" />
+              <span
+                className={
+                  "cs-section " +
+                  (isFailed
+                    ? "cs-fetch-failed"
+                    : "cs-behind")
+                }
+                title={
+                  `Local: ${info.clockSum}, ` +
+                  `peers: ${info.maxPeerClockSum}, ` +
+                  `announced: ` +
+                  `${info.latestAnnouncedSeq}`
+                }
+              >
+                {behind > 0 && (
+                  <>~{behind} edits behind</>
+                )}
+                {fetchHint}
+              </span>
+            </>
+          );
+        })()}
 
         <span className="cs-expand">
           {expanded ? "\u25B4" : "\u25BE"}
