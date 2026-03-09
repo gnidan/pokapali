@@ -31,14 +31,7 @@ import type {
   SyncOptions,
   PubSubLike,
 } from "@pokapali/sync";
-import {
-  encodeSnapshot,
-  decodeSnapshot,
-  decryptSnapshot,
-  walkChain,
-} from "@pokapali/snapshot";
 import { CID } from "multiformats/cid";
-import { sha256 } from "multiformats/hashes/sha2";
 import {
   createForwardingRecord,
   encodeForwardingRecord,
@@ -55,20 +48,32 @@ import {
 } from "./helia.js";
 import {
   publishIPNS,
-  resolveIPNS,
-  watchIPNS,
 } from "./ipns-helpers.js";
 import {
   announceSnapshot,
-  announceTopic,
-  parseAnnouncement,
 } from "./announce.js";
 import {
   startRoomDiscovery,
 } from "./peer-discovery.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
-
-const DAG_CBOR_CODE = 0x71;
+import {
+  createSnapshotLifecycle,
+} from "./snapshot-lifecycle.js";
+import type {
+  SnapshotLifecycle,
+} from "./snapshot-lifecycle.js";
+import {
+  createSnapshotWatcher,
+} from "./snapshot-watcher.js";
+import type {
+  SnapshotWatcher,
+} from "./snapshot-watcher.js";
+import {
+  createRelaySharing,
+} from "./relay-sharing.js";
+import type {
+  RelaySharing,
+} from "./relay-sharing.js";
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -168,47 +173,6 @@ function computeStatus(
   return "synced";
 }
 
-const FETCH_RETRIES = 6;
-const FETCH_BASE_MS = 2_000;
-const FETCH_TIMEOUT_MS = 15_000;
-
-async function fetchBlock(
-  helia: { blockstore: { get(cid: CID, opts?: any): any } },
-  cid: CID,
-): Promise<Uint8Array> {
-  for (let i = 0; i <= FETCH_RETRIES; i++) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(
-        () => ctrl.abort(),
-        FETCH_TIMEOUT_MS,
-      );
-      try {
-        const block: Uint8Array = await helia
-          .blockstore.get(cid, {
-            signal: ctrl.signal,
-          });
-        return block;
-      } finally {
-        clearTimeout(timer);
-      }
-    } catch (err) {
-      if (i === FETCH_RETRIES) throw err;
-      const delay = FETCH_BASE_MS * 2 ** i;
-      console.log(
-        `[pokapali] block fetch retry` +
-          ` ${i + 1}/${FETCH_RETRIES}` +
-          ` in ${delay}ms for`,
-        cid.toString().slice(0, 16) + "...",
-      );
-      await new Promise(
-        (r) => setTimeout(r, delay),
-      );
-    }
-  }
-  throw new Error("unreachable");
-}
-
 interface CollabDocParams {
   subdocManager: SubdocManager;
   syncManager: SyncManager;
@@ -249,10 +213,9 @@ function createCollabDoc(
   } = params;
 
   let destroyed = false;
-  let seq = 1;
-  let prev: CID | null = null;
-  let lastIpnsSeq: number | null = null;
-  const blocks = new Map<string, Uint8Array>();
+  const snapshotLC = createSnapshotLifecycle({
+    getHelia: () => getHelia(),
+  });
   const listeners = new Map<string, Set<Function>>();
 
   function emit(event: string, ...args: unknown[]) {
@@ -284,253 +247,55 @@ function createCollabDoc(
   });
 
   // Share relay info with WebRTC peers via awareness.
-  // Periodically publish our known relays and consume
-  // relays from other peers.
-  let relayShareTimer: ReturnType<
-    typeof setInterval
-  > | null = null;
+  let relaySharing: RelaySharing | null = null;
   if (params.roomDiscovery) {
-    const rd = params.roomDiscovery;
-    const awareness = awarenessRoom.awareness;
-
-    // Publish our relay entries into awareness
-    const publishRelays = () => {
-      const entries = rd.relayEntries();
-      if (entries.length > 0) {
-        awareness.setLocalStateField(
-          "relays",
-          entries,
-        );
-      }
-    };
-
-    // Consume relay entries from other peers
-    const onAwarenessUpdate = () => {
-      const states = awareness.getStates();
-      for (const [clientId, state] of states) {
-        if (clientId === awareness.clientID) continue;
-        const relays = state?.relays;
-        if (Array.isArray(relays) && relays.length > 0) {
-          rd.addExternalRelays(relays);
-        }
-      }
-    };
-
-    awareness.on("update", onAwarenessUpdate);
-
-    // Publish every 30s (relays may be discovered
-    // after initial awareness sync)
-    relayShareTimer = setInterval(
-      publishRelays,
-      30_000,
-    );
-    // Initial publish after a short delay to let
-    // discovery run first
-    setTimeout(publishRelays, 5_000);
+    relaySharing = createRelaySharing({
+      awareness: awarenessRoom.awareness,
+      roomDiscovery: params.roomDiscovery,
+    });
   }
 
-  // Periodic re-announce for writers so pinners
-  // that join later learn about existing snapshots.
-  const REANNOUNCE_MS = 30_000;
-  let announceTimer: ReturnType<
-    typeof setInterval
-  > | null = null;
-  if (
-    cap.canPushSnapshots &&
-    params.appId &&
-    params.pubsub
-  ) {
-    const ps = params.pubsub;
-    // Subscribe so writer joins the GossipSub mesh
-    // for the announce topic (needed for relay
-    // forwarding to readers).
-    ps.subscribe(announceTopic(params.appId));
-    announceTimer = setInterval(() => {
-      if (prev) {
-        // Re-put the block so pinners can fetch it
-        const cidStr = prev.toString();
-        const block = blocks.get(cidStr);
-        if (block) {
-          const helia = getHelia();
-          Promise.resolve(
-            helia.blockstore.put(prev, block),
-          ).catch(() => {});
-        }
-        announceSnapshot(
-          ps as any,
-          params.appId,
-          ipnsName,
-          cidStr,
-        );
-      }
-    }, REANNOUNCE_MS);
-  }
-
-  // IPNS snapshot recovery: all clients (writers and
-  // readers) load the latest snapshot from IPNS on
-  // startup and watch for updates. Writers need this
-  // to recover state when reopening after all tabs
-  // closed. Yjs CRDT merge makes applying snapshots
-  // on top of local edits safe.
-  const isReadOnly =
-    !keys.namespaceKeys ||
-    Object.keys(keys.namespaceKeys).length === 0;
-  let stopWatch: (() => void) | null = null;
-  let announceHandler: ((evt: CustomEvent) => void)
-    | null = null;
-  let retryTimer: ReturnType<typeof setTimeout>
-    | null = null;
-  if (readKey) {
-    const pubKeyBytes = hexToBytes(ipnsName);
+  // Snapshot watching: announce subscription, IPNS
+  // polling, re-announce for writers, initial resolve.
+  let snapshotWatcher: SnapshotWatcher | null = null;
+  if (readKey && params.pubsub && params.appId) {
     const rk = readKey;
-    let lastAppliedCid: string | null = null;
-    let pendingCid: string | null = null;
-    const RETRY_INTERVAL_MS = 30_000;
-
-    async function applySnapshotFromCID(
-      cid: CID,
-    ): Promise<void> {
-      const cidStr = cid.toString();
-      if (cidStr === lastAppliedCid) return;
-      const helia = getHelia();
-      const block = await fetchBlock(helia, cid);
-      blocks.set(cidStr, block);
-      const node = decodeSnapshot(block);
-      const plaintext =
-        await decryptSnapshot(node, rk);
-      subdocManager.applySnapshot(plaintext);
-      // Update chain state so subsequent pushSnapshot
-      // continues from this point rather than seq=1.
-      if (node.seq >= seq) {
-        prev = cid;
-        seq = node.seq + 1;
-      }
-      lastAppliedCid = cidStr;
-      // Clear pending since we succeeded
-      if (pendingCid === cidStr) pendingCid = null;
-      emit("snapshot-applied");
-    }
-
-    function scheduleRetry() {
-      if (retryTimer || !pendingCid) return;
-      retryTimer = setTimeout(async () => {
-        retryTimer = null;
-        if (!pendingCid || destroyed) return;
-        const cidStr = pendingCid;
-        console.log(
-          "[pokapali] retrying fetch for",
-          cidStr.slice(0, 16) + "...",
-        );
-        try {
-          await applySnapshotFromCID(
-            CID.parse(cidStr),
-          );
-        } catch {
-          // Still failing — keep retrying
-          scheduleRetry();
-        }
-      }, RETRY_INTERVAL_MS);
-    }
-
-    // Listen for GossipSub announcements (instant).
-    // Writers already subscribe for re-announce mesh,
-    // but readers need to subscribe here too.
     console.log(
       "[pokapali] announce setup: pubsub=" +
         !!params.pubsub +
         " appId=" + params.appId,
     );
-    if (params.pubsub && params.appId) {
-      const topic = announceTopic(params.appId);
-      // Only subscribe if not already done (writers
-      // subscribe above for re-announce mesh).
-      if (!cap.canPushSnapshots) {
-        console.log(
-          "[pokapali] subscribing to announce"
-            + " topic:",
-          topic,
-        );
-        params.pubsub.subscribe(topic);
-      }
-      announceHandler = (evt: CustomEvent) => {
-        const { detail } = evt;
-        if (detail?.topic !== topic) return;
-        const ann = parseAnnouncement(detail.data);
-        if (!ann || ann.ipnsName !== ipnsName) return;
-        console.log(
-          "[pokapali] announce received:",
-          ann.cid.slice(0, 16) + "...",
-        );
-        const cid = CID.parse(ann.cid);
-        // Track as pending (latest announced CID)
-        pendingCid = ann.cid;
-        applySnapshotFromCID(cid).catch((err) => {
-          console.error(
-            "[pokapali] announce apply failed:",
-            err,
+    snapshotWatcher = createSnapshotWatcher({
+      appId: params.appId,
+      ipnsName,
+      pubsub: params.pubsub,
+      getHelia: () => getHelia(),
+      isWriter: cap.canPushSnapshots,
+      ipnsPublicKeyBytes: hexToBytes(ipnsName),
+      performInitialResolve:
+        params.performInitialResolve,
+      onSnapshot: async (cid) => {
+        const applied =
+          await snapshotLC.applyRemote(
+            cid,
+            rk,
+            (plaintext) =>
+              subdocManager.applySnapshot(
+                plaintext,
+              ),
           );
-          // Schedule persistent retry
-          scheduleRetry();
-        });
-      };
-      params.pubsub.addEventListener(
-        "message",
-        announceHandler,
-      );
-    }
-
-    // IPNS polling fallback (for when no GossipSub
-    // peers are connected)
-    stopWatch = watchIPNS(
-      getHelia(),
-      pubKeyBytes,
-      async (cid) => {
-        try {
-          pendingCid = cid.toString();
-          await applySnapshotFromCID(cid);
-        } catch {
-          // Best-effort — retry loop will pick it up
-          scheduleRetry();
+        if (applied) {
+          emit("snapshot-applied");
         }
       },
-    );
+    });
 
-    // Initial IPNS resolve on open(). Uses
-    // applySnapshotFromCID so seq, prev, and
-    // lastAppliedCid are all updated correctly.
-    if (params.performInitialResolve) {
-      (async () => {
-        try {
-          const helia = getHelia();
-          const tipCid = await resolveIPNS(
-            helia,
-            pubKeyBytes,
-          );
-          if (tipCid) {
-            console.log(
-              "[pokapali] IPNS resolved:",
-              tipCid.toString(),
-            );
-            pendingCid = tipCid.toString();
-            await applySnapshotFromCID(tipCid);
-            console.log(
-              "[pokapali] initial snapshot applied",
-            );
-          } else {
-            console.log(
-              "[pokapali] IPNS resolve returned" +
-                " null",
-            );
-          }
-        } catch (err) {
-          console.error(
-            "[pokapali] initial snapshot" +
-              " load failed:",
-            err,
-          );
-          scheduleRetry();
-        }
-      })();
+    // Writers start re-announce
+    if (cap.canPushSnapshots) {
+      snapshotWatcher.startReannounce(
+        () => snapshotLC.prev,
+        (cidStr) => snapshotLC.getBlock(cidStr),
+      );
     }
   }
 
@@ -630,7 +395,7 @@ function createCollabDoc(
     },
 
     get ipnsSeq(): number | null {
-      return lastIpnsSeq;
+      return snapshotLC.lastIpnsSeq;
     },
 
     async pushSnapshot(): Promise<void> {
@@ -643,25 +408,14 @@ function createCollabDoc(
         return;
       }
       const plaintext = subdocManager.encodeAll();
-      const block = await encodeSnapshot(
+      const clockSum = this.clockSum;
+      const { cid, block } = await snapshotLC.push(
         plaintext,
         readKey,
-        prev,
-        seq,
-        Date.now(),
         signingKey,
+        clockSum,
       );
-      const hash = await sha256.digest(block);
-      const cid = CID.createV1(DAG_CBOR_CODE, hash);
-      blocks.set(cid.toString(), block);
 
-      // Use Y.Doc state vector clock sum as IPNS seq.
-      // Deterministic: same doc state → same seq.
-      const clockSum = this.clockSum;
-      lastIpnsSeq = clockSum;
-
-      prev = cid;
-      seq++;
       checkStatus();
       emit("snapshot-applied");
 
@@ -867,24 +621,8 @@ function createCollabDoc(
 
       // Destroy old doc
       destroyed = true;
-      if (relayShareTimer) {
-        clearInterval(relayShareTimer);
-      }
-      if (announceTimer) {
-        clearInterval(announceTimer);
-      }
-      if (stopWatch) {
-        stopWatch();
-      }
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
-      if (announceHandler && params.pubsub) {
-        params.pubsub.removeEventListener(
-          "message",
-          announceHandler,
-        );
-      }
+      relaySharing?.destroy();
+      snapshotWatcher?.destroy();
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
@@ -918,92 +656,22 @@ function createCollabDoc(
 
     async history() {
       assertNotDestroyed();
-      if (!prev) return [];
-
-      const getter = async (cid: CID) => {
-        const block = blocks.get(cid.toString());
-        if (!block) {
-          throw new Error(
-            "Block not found: " + cid.toString(),
-          );
-        }
-        return block;
-      };
-
-      const entries: Array<{
-        cid: CID;
-        seq: number;
-        ts: number;
-      }> = [];
-      let currentCid: CID | null = prev;
-      for await (const node of walkChain(
-        prev,
-        getter,
-      )) {
-        entries.push({
-          cid: currentCid!,
-          seq: node.seq,
-          ts: node.ts,
-        });
-        currentCid = node.prev;
-      }
-      return entries;
+      return snapshotLC.history();
     },
 
     async loadVersion(cid: CID) {
       assertNotDestroyed();
-      let block = blocks.get(cid.toString());
-      if (!block) {
-        // Fall back to Helia blockstore
-        try {
-          const helia = getHelia();
-          block = await helia.blockstore.get(cid);
-        } catch {
-          throw new Error(
-            "Unknown CID: " + cid.toString(),
-          );
-        }
-      }
       if (!readKey) {
         throw new Error("No readKey available");
       }
-      const node = decodeSnapshot(block);
-      const plaintext = await decryptSnapshot(
-        node,
-        readKey,
-      );
-      const result: Record<string, Y.Doc> = {};
-      for (const [ns, bytes] of Object.entries(
-        plaintext,
-      )) {
-        const doc = new Y.Doc();
-        Y.applyUpdate(doc, bytes);
-        result[ns] = doc;
-      }
-      return result;
+      return snapshotLC.loadVersion(cid, readKey);
     },
 
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      if (relayShareTimer) {
-        clearInterval(relayShareTimer);
-      }
-      if (announceTimer) {
-        clearInterval(announceTimer);
-      }
-      if (stopWatch) {
-        stopWatch();
-      }
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
-      if (announceHandler && params.pubsub) {
-        params.pubsub.removeEventListener(
-          "message",
-          announceHandler,
-        );
-      }
+      relaySharing?.destroy();
+      snapshotWatcher?.destroy();
       params.roomDiscovery?.stop();
       syncManager.destroy();
       awarenessRoom.destroy();
