@@ -13,6 +13,11 @@ import {
   type RecentDoc,
 } from "./recentDocs";
 
+function abbreviateId(id: string): string {
+  if (id.length <= 12) return id;
+  return id.slice(0, 4) + "\u2026" + id.slice(-4);
+}
+
 const collab = createCollabLib({
   appId: "pokapali-example",
   namespaces: ["content"],
@@ -59,10 +64,13 @@ function RecentDocsList({
               className="recent-link"
               disabled={loading}
               onClick={() => onOpen(d.url)}
-              aria-label={`Open document ${d.docId}, ${d.role}, ${formatAge(d.lastOpened)}`}
+              aria-label={`Open ${d.title || "Untitled"}, ${d.role}, ${formatAge(d.lastOpened)}`}
             >
-              <span className="recent-id">
-                {d.docId}
+              <span className="recent-title">
+                {d.title || "Untitled"}
+              </span>
+              <span className="recent-id-pill">
+                {abbreviateId(d.docId)}
               </span>
               <span className={
                 "badge " + d.role.toLowerCase()

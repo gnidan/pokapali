@@ -13,10 +13,14 @@ import type {
   DocStatus,
   SaveState,
 } from "@pokapali/core";
-import { createAutoSaver } from "@pokapali/core";
+import {
+  createAutoSaver,
+  docIdFromUrl,
+} from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SharePanel } from "./SharePanel";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { updateRecentTitle } from "./recentDocs";
 
 const CURSOR_COLORS = [
   "#f44336", "#2196f3", "#4caf50", "#ff9800",
@@ -453,17 +457,21 @@ export function EditorView({
   );
 
   // Sync title from _meta subdoc
+  const docId = docIdFromUrl(doc.bestUrl);
   useEffect(() => {
     const observer = () => {
       const t =
         (docMap.get("title") as string) ||
         "Untitled";
       setDocTitle(t);
+      if (t !== "Untitled") {
+        updateRecentTitle(docId, t);
+      }
     };
     docMap.observe(observer);
     observer();
     return () => docMap.unobserve(observer);
-  }, [docMap]);
+  }, [docMap, docId]);
 
   const commitTitle = useCallback(() => {
     setEditingTitle(false);

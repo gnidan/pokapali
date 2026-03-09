@@ -12,6 +12,8 @@ export interface RecentDoc {
   role: string;
   /** Unix ms timestamp of last open */
   lastOpened: number;
+  /** Cached document title */
+  title?: string;
 }
 
 function isValidEntry(v: unknown): v is RecentDoc {
@@ -43,11 +45,15 @@ export function loadRecent(): RecentDoc[] {
 export function saveRecent(
   url: string,
   role: string,
+  title?: string,
 ): void {
   const entries = loadRecent();
   const docId = docIdFromUrl(url);
 
-  // Remove any existing entry with the same docId
+  // Preserve existing title if not provided
+  const existing = entries.find(
+    (e) => e.docId === docId,
+  );
   const filtered = entries.filter(
     (e) => e.docId !== docId,
   );
@@ -57,6 +63,7 @@ export function saveRecent(
     docId,
     role,
     lastOpened: Date.now(),
+    title: title ?? existing?.title,
   });
 
   // Trim to max
@@ -68,6 +75,24 @@ export function saveRecent(
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify(filtered),
+    );
+  } catch {}
+}
+
+export function updateRecentTitle(
+  docId: string,
+  title: string,
+): void {
+  const entries = loadRecent();
+  const entry = entries.find(
+    (e) => e.docId === docId,
+  );
+  if (!entry) return;
+  entry.title = title;
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(entries),
     );
   } catch {}
 }
