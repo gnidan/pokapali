@@ -145,13 +145,14 @@ export function startHttpServer(
         let size = 0;
         let aborted = false;
         for await (const chunk of req) {
-          size += (chunk as Buffer).length;
+          const buf = chunk as Buffer;
+          size += buf.length;
           if (size > MAX_BODY_BYTES) {
             aborted = true;
             req.destroy();
             break;
           }
-          chunks.push(chunk as Buffer);
+          chunks.push(buf);
         }
         if (aborted) {
           res.writeHead(413, {
