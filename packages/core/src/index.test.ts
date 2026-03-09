@@ -78,6 +78,8 @@ vi.mock("@pokapali/sync", () => ({
       setLocalStateField: vi.fn(),
       states: new Map(),
     },
+    connected: true,
+    onStatusChange: vi.fn(),
     destroy: vi.fn(),
   })),
 }));
@@ -97,6 +99,7 @@ import {
   createCollabLib,
   type CollabDoc,
   type DocStatus,
+  type SaveState,
   type DiagnosticsInfo,
 } from "./index.js";
 
@@ -260,39 +263,49 @@ describe("@pokapali/core", () => {
     reader.destroy();
   });
 
-  it("status reflects sync + dirty", async () => {
+  it("status reflects sync state", async () => {
     const lib = createCollabLib(OPTS);
     const doc = await lib.create();
 
-    // After create(), _meta writes trigger
-    // dirty. Push to clear.
-    await doc.pushSnapshot();
+    // With mock sync status "connected",
+    // status should be "synced".
     expect(doc.status).toBe("synced");
+    doc.destroy();
+  });
+
+  it("saveState reflects dirty + saving", async () => {
+    const lib = createCollabLib(OPTS);
+    const doc = await lib.create();
+
+    // After create(), _meta writes trigger dirty.
+    // Push to clear.
+    await doc.pushSnapshot();
+    expect(doc.saveState).toBe("saved");
 
     // Edit a subdoc to trigger dirty
     const content = doc.subdoc("content");
     content.getMap("test").set("key", "value");
-    expect(doc.status).toBe("unpushed-changes");
+    expect(doc.saveState).toBe("dirty");
     doc.destroy();
   });
 
-  it("on('status') fires on change", async () => {
+  it("on('save-state') fires on change", async () => {
     const lib = createCollabLib(OPTS);
     const doc = await lib.create();
 
     // Push snapshot to clear dirty state
     await doc.pushSnapshot();
-    expect(doc.status).toBe("synced");
+    expect(doc.saveState).toBe("saved");
 
-    const statuses: DocStatus[] = [];
-    doc.on("status", (s: DocStatus) => {
-      statuses.push(s);
+    const states: SaveState[] = [];
+    doc.on("save-state", (s: SaveState) => {
+      states.push(s);
     });
 
-    // Edit to trigger dirty → status change
+    // Edit to trigger dirty → save-state change
     const content = doc.subdoc("content");
     content.getMap("test").set("k", "v");
-    expect(statuses).toContain("unpushed-changes");
+    expect(states).toContain("dirty");
     doc.destroy();
   });
 

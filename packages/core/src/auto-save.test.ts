@@ -7,7 +7,7 @@ import { createAutoSaver } from "./auto-save.js";
 // Minimal mock of CollabDoc for auto-save purposes.
 function mockDoc(opts?: {
   canPush?: boolean;
-  status?: string;
+  saveState?: string;
 }) {
   const listeners = new Map<
     string,
@@ -17,7 +17,7 @@ function mockDoc(opts?: {
     capability: {
       canPushSnapshots: opts?.canPush ?? true,
     },
-    status: opts?.status ?? "synced",
+    saveState: opts?.saveState ?? "saved",
     pushSnapshot: vi.fn().mockResolvedValue(
       undefined,
     ),
@@ -184,7 +184,7 @@ describe("createAutoSaver", () => {
   it("visibilitychange to hidden triggers"
     + " immediate pushSnapshot", () => {
     const doc = mockDoc({
-      status: "unpushed-changes",
+      saveState: "dirty",
     });
     const cleanup = createAutoSaver(doc as any);
 
@@ -198,9 +198,9 @@ describe("createAutoSaver", () => {
     cleanup();
   });
 
-  it("skips visibilitychange save when status"
-    + " is synced", () => {
-    const doc = mockDoc({ status: "synced" });
+  it("skips visibilitychange save when"
+    + " saved", () => {
+    const doc = mockDoc({ saveState: "saved" });
     const cleanup = createAutoSaver(doc as any);
 
     documentStub.visibilityState = "hidden";
@@ -214,9 +214,9 @@ describe("createAutoSaver", () => {
   });
 
   it("beforeunload calls preventDefault when"
-    + " unpushed changes", () => {
+    + " dirty", () => {
     const doc = mockDoc({
-      status: "unpushed-changes",
+      saveState: "dirty",
     });
     const cleanup = createAutoSaver(doc as any);
 
@@ -232,8 +232,8 @@ describe("createAutoSaver", () => {
   });
 
   it("beforeunload does not preventDefault"
-    + " when synced", () => {
-    const doc = mockDoc({ status: "synced" });
+    + " when saved", () => {
+    const doc = mockDoc({ saveState: "saved" });
     const cleanup = createAutoSaver(doc as any);
 
     const event = {
@@ -291,7 +291,7 @@ describe("createAutoSaver", () => {
   it("visibilitychange clears pending debounce"
     + " timer", async () => {
     const doc = mockDoc({
-      status: "unpushed-changes",
+      saveState: "dirty",
     });
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 500,
