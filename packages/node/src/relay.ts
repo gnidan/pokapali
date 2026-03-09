@@ -123,6 +123,11 @@ export interface RelayConfig {
   // each ID, so the relay joins the GossipSub mesh
   // and can forward announcements to the pinner.
   pinAppIds?: string[];
+  // Node roles to advertise (e.g. ["relay"],
+  // ["pinner"], or ["relay", "pinner"]).
+  // If omitted, inferred: "pinner" if pinAppIds
+  // is non-empty, otherwise empty.
+  roles?: string[];
 }
 
 export interface Relay {
@@ -414,10 +419,10 @@ export async function startRelay(
 
   // Capability advertisement
   pubsub.subscribe(NODE_CAPS_TOPIC);
-  const roles = ["relay"];
-  if ((config.pinAppIds ?? []).length > 0) {
-    roles.push("pinner");
-  }
+  const roles = config.roles
+    ?? ((config.pinAppIds ?? []).length > 0
+      ? ["pinner"]
+      : []);
   const capsMsg = encodeNodeCaps({
     version: 1,
     peerId: helia.libp2p.peerId.toString(),
