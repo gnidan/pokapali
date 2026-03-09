@@ -95,6 +95,7 @@ export function createSnapshotWatcher(
       "announce received:",
       ann.cid.slice(0, 16) + "...",
     );
+    if (destroyed) return;
     pendingCid = ann.cid;
     const cid = CIDClass.parse(ann.cid);
     onSnapshot(cid).catch((err) => {
@@ -116,6 +117,7 @@ export function createSnapshotWatcher(
       getHelia(),
       ipnsPublicKeyBytes,
       async (cid) => {
+        if (destroyed) return;
         try {
           pendingCid = cid.toString();
           await onSnapshot(cid);
@@ -140,7 +142,7 @@ export function createSnapshotWatcher(
           helia,
           pubKeyBytes,
         );
-        if (tipCid) {
+        if (tipCid && !destroyed) {
           log.info(
             "IPNS resolved:",
             tipCid.toString(),
