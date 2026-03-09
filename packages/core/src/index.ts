@@ -75,6 +75,7 @@ import {
 import type {
   RelaySharing,
 } from "./relay-sharing.js";
+import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("core");
@@ -201,6 +202,7 @@ export interface CollabDoc {
 export interface CollabLib {
   create(): Promise<CollabDoc>;
   open(url: string): Promise<CollabDoc>;
+  docIdFromUrl(url: string): string;
 }
 
 
@@ -1128,6 +1130,10 @@ export function createCollabLib(
 
       return doc;
     },
+
+    docIdFromUrl(url: string): string {
+      return docIdFromUrl(url);
+    },
   };
 }
 
@@ -1141,4 +1147,4 @@ export type {
   ForwardingRecord,
 } from "./forwarding.js";
 export { getHelia } from "./helia.js";
-export { truncateUrl } from "./url-utils.js";
+export { truncateUrl, docIdFromUrl } from "./url-utils.js";

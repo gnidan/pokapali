@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { truncateUrl } from "./url-utils.js";
+import {
+  truncateUrl,
+  docIdFromUrl,
+} from "./url-utils.js";
 
 describe("truncateUrl", () => {
   it("truncates long hash fragments", () => {
@@ -30,5 +33,39 @@ describe("truncateUrl", () => {
     expect(truncateUrl("not-a-url")).toBe(
       "not-a-url",
     );
+  });
+});
+
+describe("docIdFromUrl", () => {
+  it("extracts and truncates the IPNS name", () => {
+    const url =
+      "http://localhost:3141/doc/" +
+      "abcdef1234567890abcdef" +
+      "#fragment";
+    const result = docIdFromUrl(url);
+    expect(result).toBe("abcdef\u2026abcdef");
+  });
+
+  it("returns short IDs untruncated", () => {
+    const url =
+      "http://localhost:3141/doc/shortid#frag";
+    expect(docIdFromUrl(url)).toBe("shortid");
+  });
+
+  it("returns 'unknown' for non-doc URLs", () => {
+    expect(docIdFromUrl(
+      "http://localhost:3141/other",
+    )).toBe("unknown");
+  });
+
+  it("returns 'unknown' for invalid URLs", () => {
+    expect(docIdFromUrl("not-a-url")).toBe("unknown");
+  });
+
+  it("handles base path before /doc/", () => {
+    const url =
+      "http://localhost:3141/app/doc/" +
+      "someid#frag";
+    expect(docIdFromUrl(url)).toBe("someid");
   });
 });
