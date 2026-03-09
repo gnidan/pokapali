@@ -294,6 +294,10 @@ function createCollabDoc(
     params.pubsub
   ) {
     const ps = params.pubsub;
+    // Subscribe so writer joins the GossipSub mesh
+    // for the announce topic (needed for relay
+    // forwarding to readers).
+    ps.subscribe(announceTopic(params.appId));
     announceTimer = setInterval(() => {
       if (prev) {
         announceSnapshot(
@@ -344,8 +348,17 @@ function createCollabDoc(
         if (detail?.topic !== topic) return;
         const ann = parseAnnouncement(detail.data);
         if (!ann || ann.ipnsName !== ipnsName) return;
+        console.log(
+          "[pokapali] announce received:",
+          ann.cid.slice(0, 16) + "...",
+        );
         const cid = CID.parse(ann.cid);
-        applySnapshotFromCID(cid).catch(() => {});
+        applySnapshotFromCID(cid).catch((err) => {
+          console.error(
+            "[pokapali] announce apply failed:",
+            err,
+          );
+        });
       };
       params.pubsub.addEventListener(
         "message",
@@ -1080,6 +1093,10 @@ export function createCollabLib(
                   pubKeyBytes,
                 );
                 if (tipCid) {
+                  console.log(
+                    "[pokapali] IPNS resolved:",
+                    tipCid.toString(),
+                  );
                   const block =
                     await helia.blockstore.get(tipCid);
                   const node = decodeSnapshot(block);
@@ -1087,10 +1104,21 @@ export function createCollabLib(
                   const plaintext =
                     await decryptSnapshot(node, rk);
                   subdocManager.applySnapshot(plaintext);
+                  console.log(
+                    "[pokapali] initial snapshot applied",
+                  );
+                } else {
+                  console.log(
+                    "[pokapali] IPNS resolve returned" +
+                      " null",
+                  );
                 }
-              } catch {
-                // Best-effort: snapshot may not be
-                // available yet
+              } catch (err) {
+                console.error(
+                  "[pokapali] initial snapshot" +
+                    " load failed:",
+                  err,
+                );
               }
             })()
           : undefined;
