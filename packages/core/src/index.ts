@@ -67,6 +67,7 @@ import {
 } from "./snapshot-watcher.js";
 import type {
   SnapshotWatcher,
+  SnapshotFetchState,
 } from "./snapshot-watcher.js";
 import {
   createRelaySharing,
@@ -100,6 +101,9 @@ export type DocStatus =
   | "offline"
   | "unpushed-changes";
 
+export type { SnapshotFetchState } from
+  "./snapshot-watcher.js";
+
 export interface RotateResult {
   newDoc: CollabDoc;
   forwardingRecord: Uint8Array;
@@ -125,6 +129,8 @@ export interface CollabDoc {
   readonly ipnsSeq: number | null;
   /** Highest seq seen in GossipSub announcements. */
   readonly latestAnnouncedSeq: number;
+  /** Current snapshot fetch lifecycle state. */
+  readonly snapshotFetchState: SnapshotFetchState;
   pushSnapshot(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
@@ -133,6 +139,10 @@ export interface CollabDoc {
   ): void;
   on(event: "snapshot-recommended", cb: () => void): void;
   on(event: "snapshot-applied", cb: () => void): void;
+  on(
+    event: "fetch-state",
+    cb: (state: SnapshotFetchState) => void,
+  ): void;
   off(
     event: "status",
     cb: (status: DocStatus) => void,
@@ -144,6 +154,10 @@ export interface CollabDoc {
   off(
     event: "snapshot-applied",
     cb: () => void,
+  ): void;
+  off(
+    event: "fetch-state",
+    cb: (state: SnapshotFetchState) => void,
   ): void;
   history(): Promise<
     Array<{
@@ -309,6 +323,9 @@ function createCollabDoc(
       ipnsPublicKeyBytes: hexToBytes(ipnsName),
       performInitialResolve:
         params.performInitialResolve,
+      onFetchStateChange: (state) => {
+        emit("fetch-state", state);
+      },
       onSnapshot: async (cid) => {
         const applied =
           await snapshotLC.applyRemote(
@@ -440,6 +457,11 @@ function createCollabDoc(
 
     get latestAnnouncedSeq(): number {
       return snapshotWatcher?.latestAnnouncedSeq ?? 0;
+    },
+
+    get snapshotFetchState(): SnapshotFetchState {
+      return snapshotWatcher?.fetchState
+        ?? { status: "idle" };
     },
 
     async pushSnapshot(): Promise<void> {

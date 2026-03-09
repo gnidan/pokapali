@@ -17,6 +17,15 @@ import type { Helia } from "helia";
 const REANNOUNCE_MS = 30_000;
 const RETRY_INTERVAL_MS = 30_000;
 
+export type SnapshotFetchState =
+  | { status: "idle" }
+  | { status: "fetching"; cid: string;
+      startedAt: number }
+  | { status: "retrying"; cid: string;
+      attempt: number; nextRetryAt: number }
+  | { status: "failed"; cid: string;
+      error: string };
+
 export interface SnapshotWatcherOptions {
   appId: string;
   ipnsName: string;
@@ -25,6 +34,9 @@ export interface SnapshotWatcherOptions {
   isWriter: boolean;
   ipnsPublicKeyBytes?: Uint8Array;
   onSnapshot: (cid: CID) => Promise<void>;
+  onFetchStateChange?: (
+    state: SnapshotFetchState,
+  ) => void;
   performInitialResolve?: boolean;
 }
 
@@ -37,6 +49,7 @@ export interface SnapshotWatcher {
     getSeq?: () => number | null,
   ): void;
   readonly latestAnnouncedSeq: number;
+  readonly fetchState: SnapshotFetchState;
   destroy(): void;
 }
 
@@ -57,9 +70,17 @@ export function createSnapshotWatcher(
   const topic = announceTopic(appId);
   let pendingCid: string | null = null;
   let latestAnnouncedSeq = 0;
+  let retryAttempt = 0;
+  let fetchState: SnapshotFetchState =
+    { status: "idle" };
   let retryTimer: ReturnType<
     typeof setTimeout
   > | null = null;
+
+  function setFetchState(s: SnapshotFetchState) {
+    fetchState = s;
+    options.onFetchStateChange?.(s);
+  }
 
   // --- Announce subscription ---
 
@@ -72,6 +93,14 @@ export function createSnapshotWatcher(
 
   function scheduleRetry() {
     if (retryTimer || !pendingCid) return;
+    retryAttempt++;
+    const nextRetryAt = Date.now() + RETRY_INTERVAL_MS;
+    setFetchState({
+      status: "retrying",
+      cid: pendingCid,
+      attempt: retryAttempt,
+      nextRetryAt,
+    });
     retryTimer = setTimeout(async () => {
       retryTimer = null;
       if (!pendingCid || destroyed) return;
@@ -80,9 +109,16 @@ export function createSnapshotWatcher(
         "retrying fetch for",
         cidStr.slice(0, 16) + "...",
       );
+      setFetchState({
+        status: "fetching",
+        cid: cidStr,
+        startedAt: Date.now(),
+      });
       try {
         await onSnapshot(CIDClass.parse(cidStr));
         pendingCid = null;
+        retryAttempt = 0;
+        setFetchState({ status: "idle" });
       } catch {
         scheduleRetry();
       }
@@ -105,8 +141,15 @@ export function createSnapshotWatcher(
       );
     }
     pendingCid = ann.cid;
+    retryAttempt = 0;
+    setFetchState({
+      status: "fetching",
+      cid: ann.cid,
+      startedAt: Date.now(),
+    });
     const cid = CIDClass.parse(ann.cid);
     onSnapshot(cid).then(() => {
+      setFetchState({ status: "idle" });
       announceSnapshot(
         pubsub, appId, ipnsName, ann.cid,
       );
@@ -130,11 +173,18 @@ export function createSnapshotWatcher(
       ipnsPublicKeyBytes,
       async (cid) => {
         if (destroyed) return;
+        const cidStr = cid.toString();
+        retryAttempt = 0;
+        setFetchState({
+          status: "fetching",
+          cid: cidStr,
+          startedAt: Date.now(),
+        });
         try {
-          const cidStr = cid.toString();
           pendingCid = cidStr;
           await onSnapshot(cid);
           pendingCid = null;
+          setFetchState({ status: "idle" });
           announceSnapshot(
             pubsub, appId, ipnsName, cidStr,
           );
@@ -165,8 +215,15 @@ export function createSnapshotWatcher(
           );
           const cidStr = tipCid.toString();
           pendingCid = cidStr;
+          retryAttempt = 0;
+          setFetchState({
+            status: "fetching",
+            cid: cidStr,
+            startedAt: Date.now(),
+          });
           await onSnapshot(tipCid);
           pendingCid = null;
+          setFetchState({ status: "idle" });
           announceSnapshot(
             pubsub, appId, ipnsName, cidStr,
           );
@@ -221,6 +278,10 @@ export function createSnapshotWatcher(
 
     get latestAnnouncedSeq() {
       return latestAnnouncedSeq;
+    },
+
+    get fetchState() {
+      return fetchState;
     },
 
     destroy() {
