@@ -1,7 +1,95 @@
-import { describe, it, expect } from "vitest";
-import { extractWssAddrs } from "./peer-discovery.js";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+} from "vitest";
+
+vi.mock("./relay-cache.js", () => ({
+  loadCachedRelays: vi.fn().mockReturnValue([]),
+  upsertCachedRelay: vi.fn(),
+  removeCachedRelay: vi.fn(),
+}));
+
+vi.mock("@libp2p/peer-id", () => ({
+  peerIdFromString: vi.fn(
+    (s: string) => ({ toString: () => s }),
+  ),
+}));
+
+vi.mock("@pokapali/log", () => ({
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  }),
+}));
+
+import {
+  extractWssAddrs,
+  startRoomDiscovery,
+} from "./peer-discovery.js";
+import {
+  loadCachedRelays,
+  upsertCachedRelay,
+  removeCachedRelay,
+} from "./relay-cache.js";
 
 const PID = "12D3KooWTestPeerId";
+
+// --- Mock Helia factory ---
+
+function makeMockHelia() {
+  const listeners = new Map<
+    string,
+    Set<(...args: any[]) => void>
+  >();
+  return {
+    libp2p: {
+      dial: vi.fn().mockResolvedValue({}),
+      getConnections: vi.fn().mockReturnValue([]),
+      getPeers: vi.fn().mockReturnValue([]),
+      getMultiaddrs: vi.fn().mockReturnValue([]),
+      peerStore: {
+        merge: vi.fn().mockResolvedValue(undefined),
+      },
+      addEventListener: vi.fn(
+        (event: string, handler: any) => {
+          if (!listeners.has(event)) {
+            listeners.set(event, new Set());
+          }
+          listeners.get(event)!.add(handler);
+        },
+      ),
+      removeEventListener: vi.fn(
+        (event: string, handler: any) => {
+          listeners.get(event)?.delete(handler);
+        },
+      ),
+    },
+    routing: {
+      findProviders: vi.fn(async function* () {
+        // empty by default
+      }),
+    },
+    blockstore: { get: vi.fn() },
+    _listeners: listeners,
+    _emit(event: string, detail: any) {
+      const handlers = listeners.get(event);
+      if (!handlers) return;
+      for (const h of handlers) {
+        h(new CustomEvent(event, { detail }));
+      }
+    },
+  };
+}
+
+type MockHelia = ReturnType<typeof makeMockHelia>;
+
+// --- extractWssAddrs tests ---
 
 describe("extractWssAddrs", () => {
   it("filters to /ws/ addresses", () => {
@@ -62,5 +150,333 @@ describe("extractWssAddrs", () => {
     const count =
       (str.match(/\/p2p\//g) || []).length;
     expect(count).toBe(1);
+  });
+});
+
+// --- startRoomDiscovery tests ---
+
+describe("startRoomDiscovery", () => {
+  let helia: MockHelia;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    helia = makeMockHelia();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe("stop() cleanup", () => {
+    it("clears intervals (no more discovery " +
+       "cycles after stop)", async () => {
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+
+      // Let initial async work settle
+      await vi.advanceTimersByTimeAsync(1);
+
+      const callsBefore =
+        helia.routing.findProviders.mock.calls
+          .length;
+
+      rd.stop();
+
+      // Advance past several discovery intervals
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      // No new findProviders calls after stop
+      expect(
+        helia.routing.findProviders.mock.calls
+          .length,
+      ).toBe(callsBefore);
+    });
+
+    it("removes event listeners", () => {
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+
+      // Should have registered disconnect and
+      // reconnect-failure listeners
+      expect(
+        helia.libp2p.addEventListener,
+      ).toHaveBeenCalledWith(
+        "peer:disconnect",
+        expect.any(Function),
+      );
+      expect(
+        helia.libp2p.addEventListener,
+      ).toHaveBeenCalledWith(
+        "peer:reconnect-failure",
+        expect.any(Function),
+      );
+
+      rd.stop();
+
+      // Both listeners should be removed
+      expect(
+        helia.libp2p.removeEventListener,
+      ).toHaveBeenCalledWith(
+        "peer:disconnect",
+        expect.any(Function),
+      );
+      expect(
+        helia.libp2p.removeEventListener,
+      ).toHaveBeenCalledWith(
+        "peer:reconnect-failure",
+        expect.any(Function),
+      );
+
+      // Internal listener sets should be empty
+      expect(
+        helia._listeners.get("peer:disconnect")
+          ?.size ?? 0,
+      ).toBe(0);
+      expect(
+        helia._listeners.get(
+          "peer:reconnect-failure",
+        )?.size ?? 0,
+      ).toBe(0);
+    });
+
+    it("aborts active discovery cycle", async () => {
+      // Make findProviders block until aborted
+      let abortSignal: AbortSignal | undefined;
+      helia.routing.findProviders =
+        vi.fn(async function* (
+          _cid: any,
+          opts?: { signal?: AbortSignal },
+        ) {
+          abortSignal = opts?.signal;
+          // Yield nothing, just hang via a
+          // promise that never resolves
+          // (simulates slow DHT)
+          await new Promise<void>((_, reject) => {
+            opts?.signal?.addEventListener(
+              "abort",
+              () => reject(
+                new Error("aborted"),
+              ),
+            );
+          });
+        });
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+
+      // Let the discovery start (microtask)
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Signal should exist but not be aborted
+      expect(abortSignal).toBeDefined();
+      expect(abortSignal!.aborted).toBe(false);
+
+      rd.stop();
+
+      // Signal should now be aborted
+      expect(abortSignal!.aborted).toBe(true);
+    });
+
+    it("discoverRelays is no-op after stop",
+      async () => {
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+
+      // Let initial cycle complete
+      await vi.advanceTimersByTimeAsync(1);
+
+      const callsBefore =
+        helia.routing.findProviders.mock.calls
+          .length;
+
+      rd.stop();
+
+      // Advance past a discovery interval
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(
+        helia.routing.findProviders.mock.calls
+          .length,
+      ).toBe(callsBefore);
+    });
+  });
+
+  describe("disconnect handler", () => {
+    const RELAY_PID = "12D3KooWRelayPeer1234";
+    const RELAY_ADDRS = [
+      "/ip4/1.2.3.4/tcp/4001/ws",
+    ];
+
+    async function setupTrackedRelay(
+      h: MockHelia,
+    ) {
+      const rd = startRoomDiscovery(h as any);
+      await vi.advanceTimersByTimeAsync(1);
+
+      // Add a relay via addExternalRelays
+      // (dial will succeed via default mock)
+      rd.addExternalRelays([{
+        peerId: RELAY_PID,
+        addrs: RELAY_ADDRS,
+      }]);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(true);
+      return rd;
+    }
+
+    it("untracks relay and triggers redial",
+      async () => {
+      vi.mocked(loadCachedRelays)
+        .mockReturnValue([{
+          peerId: RELAY_PID,
+          addrs: RELAY_ADDRS,
+          lastSeen: Date.now(),
+        }]);
+
+      const rd = await setupTrackedRelay(helia);
+      helia.libp2p.dial.mockClear();
+
+      // Simulate disconnect
+      helia._emit("peer:disconnect", {
+        toString: () => RELAY_PID,
+      });
+
+      // Relay should be untracked immediately
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(false);
+      expect(rd.relayEntries().some(
+        (e) => e.peerId === RELAY_PID,
+      )).toBe(false);
+
+      // Redial should be attempted
+      await vi.advanceTimersByTimeAsync(1);
+      expect(helia.libp2p.dial)
+        .toHaveBeenCalled();
+
+      rd.stop();
+    });
+
+    it("skips non-relay peers", async () => {
+      const rd = await setupTrackedRelay(helia);
+      helia.libp2p.dial.mockClear();
+
+      // Disconnect a peer that's not a relay
+      helia._emit("peer:disconnect", {
+        toString: () => "12D3KooWNotARelay",
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+
+      rd.stop();
+    });
+
+    it("skips redial if stopped", async () => {
+      vi.mocked(loadCachedRelays)
+        .mockReturnValue([{
+          peerId: RELAY_PID,
+          addrs: RELAY_ADDRS,
+          lastSeen: Date.now(),
+        }]);
+
+      const rd = await setupTrackedRelay(helia);
+      helia.libp2p.dial.mockClear();
+
+      rd.stop();
+
+      // Disconnect after stop
+      helia._emit("peer:disconnect", {
+        toString: () => RELAY_PID,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      // No redial attempt after stop
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+    });
+
+    it("skips redial if no cache entry",
+      async () => {
+      // loadCachedRelays returns empty
+      vi.mocked(loadCachedRelays)
+        .mockReturnValue([]);
+
+      const rd = await setupTrackedRelay(helia);
+      helia.libp2p.dial.mockClear();
+
+      helia._emit("peer:disconnect", {
+        toString: () => RELAY_PID,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(helia.libp2p.dial)
+        .not.toHaveBeenCalled();
+
+      rd.stop();
+    });
+  });
+
+  describe("reconnect-failure handler", () => {
+    const RELAY_PID = "12D3KooWRelayPeer5678";
+
+    it("re-tags cached relay peer",
+      async () => {
+      vi.mocked(loadCachedRelays)
+        .mockReturnValue([{
+          peerId: RELAY_PID,
+          addrs: ["/ip4/1.2.3.4/tcp/4001/ws"],
+          lastSeen: Date.now(),
+        }]);
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      helia.libp2p.peerStore.merge.mockClear();
+
+      helia._emit("peer:reconnect-failure", {
+        toString: () => RELAY_PID,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+
+      // Should have called peerStore.merge
+      // to re-tag with keep-alive
+      expect(helia.libp2p.peerStore.merge)
+        .toHaveBeenCalled();
+
+      rd.stop();
+    });
+
+    it("ignores non-cached peers",
+      async () => {
+      vi.mocked(loadCachedRelays)
+        .mockReturnValue([]);
+
+      const rd = startRoomDiscovery(
+        helia as any,
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      helia.libp2p.peerStore.merge.mockClear();
+
+      helia._emit("peer:reconnect-failure", {
+        toString: () => "12D3KooWUnknown",
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(helia.libp2p.peerStore.merge)
+        .not.toHaveBeenCalled();
+
+      rd.stop();
+    });
   });
 });
