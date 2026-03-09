@@ -112,10 +112,22 @@ function SaveIndicator({
   );
 }
 
+function formatAgo(timestamp: number): string {
+  const ago = Math.max(
+    0,
+    Math.round((Date.now() - timestamp) / 1000),
+  );
+  if (ago < 5) return "just now";
+  if (ago < 60) return `${ago}s ago`;
+  return `${Math.round(ago / 60)}m ago`;
+}
+
 function LastUpdated({
   timestamp,
+  flash,
 }: {
   timestamp: number;
+  flash: boolean;
 }) {
   const [, forceUpdate] = useState(0);
 
@@ -127,20 +139,12 @@ function LastUpdated({
     return () => clearInterval(id);
   }, []);
 
-  const ago = Math.max(
-    0,
-    Math.round((Date.now() - timestamp) / 1000),
-  );
-  const label =
-    ago < 5
-      ? "just now"
-      : ago < 60
-        ? `${ago}s ago`
-        : `${Math.round(ago / 60)}m ago`;
-
   return (
     <span className="last-updated">
-      Last updated: {label}
+      {flash && (
+        <span className="updated-flash">Updated</span>
+      )}
+      Last updated: {formatAgo(timestamp)}
     </span>
   );
 }
@@ -164,6 +168,9 @@ export function EditorView({
   const [lastPublished, setLastPublished] = useState(
     Date.now(),
   );
+  const [updateFlash, setUpdateFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout>
+    | null>(null);
   const [user, setUser] = useState<StoredUser>(loadUser);
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -201,8 +208,20 @@ export function EditorView({
   useEffect(() => {
     const onStatus = (s: DocStatus) => setStatus(s);
     const onSnapshotRec = () => startDebounce();
+    const onSnapshotApplied = () => {
+      setLastPublished(Date.now());
+      setUpdateFlash(true);
+      if (flashTimer.current) {
+        clearTimeout(flashTimer.current);
+      }
+      flashTimer.current = setTimeout(
+        () => setUpdateFlash(false),
+        2_000,
+      );
+    };
     doc.on("status", onStatus);
     doc.on("snapshot-recommended", onSnapshotRec);
+    doc.on("snapshot-applied", onSnapshotApplied);
 
     // Best-effort save on unload
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -227,8 +246,12 @@ export function EditorView({
     return () => {
       doc.off("status", onStatus);
       doc.off("snapshot-recommended", onSnapshotRec);
+      doc.off("snapshot-applied", onSnapshotApplied);
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
+      }
+      if (flashTimer.current) {
+        clearTimeout(flashTimer.current);
       }
       window.removeEventListener(
         "beforeunload",
@@ -329,7 +352,10 @@ export function EditorView({
             onPublish={doSave}
           />
         ) : (
-          <LastUpdated timestamp={lastPublished} />
+          <LastUpdated
+            timestamp={lastPublished}
+            flash={updateFlash}
+          />
         )}
         <button
           className="toggle-share"
@@ -342,7 +368,12 @@ export function EditorView({
       {showShare && <SharePanel doc={doc} />}
 
       <div className="editor-container">
-        {isReadOnly && (
+        {isReadOnly && status === "connecting" && (
+          <div className="resolving-banner">
+            Resolving document\u2026
+          </div>
+        )}
+        {isReadOnly && status !== "connecting" && (
           <div className="read-only-banner">
             Read-only — you cannot edit this document.
           </div>
