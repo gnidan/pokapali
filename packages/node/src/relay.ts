@@ -7,6 +7,7 @@ import { kadDHT } from "@libp2p/kad-dht";
 import { ipnsValidator } from "ipns/validator";
 import { ipnsSelector } from "ipns/selector";
 import { LevelDatastore } from "datastore-level";
+import { FsBlockstore } from "blockstore-fs";
 import {
   generateKeyPair,
   privateKeyFromProtobuf,
@@ -106,6 +107,11 @@ export async function startRelay(
   );
   await datastore.open();
 
+  const blockstore = new FsBlockstore(
+    join(config.storagePath, "blockstore"),
+  );
+  await blockstore.open();
+
   const { multiaddr } = await import(
     "@multiformats/multiaddr"
   );
@@ -126,6 +132,7 @@ export async function startRelay(
 
   const defaults = libp2pDefaults();
   const helia = await createHelia({
+    blockstore: blockstore as any,
     datastore: datastore as any,
     libp2p: {
       ...defaults,
