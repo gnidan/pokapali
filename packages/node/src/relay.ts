@@ -326,7 +326,61 @@ export async function startRelay(
   // can discover any relay regardless of app.
   const netCID = await networkCID();
 
+  /**
+   * Find other relays providing the network CID and
+   * dial them. This discovers relays via delegated
+   * routing even when DHT provide fails, ensuring
+   * relays connect to each other for GossipSub.
+   */
+  async function findAndDialProviders() {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(
+        () => ctrl.abort(), 30_000,
+      );
+      let found = 0;
+      for await (
+        const provider
+        of helia.routing.findProviders(netCID, {
+          signal: ctrl.signal,
+        })
+      ) {
+        found++;
+        for (const ma of provider.multiaddrs) {
+          try {
+            await helia.libp2p.dial(ma, {
+              signal: ctrl.signal,
+            });
+            log.info(
+              "dialed relay provider:"
+              + ` ${ma.toString().slice(-20)}`,
+            );
+          } catch {
+            // Dial failure is fine — peer may be
+            // unreachable or already connected.
+          }
+        }
+      }
+      clearTimeout(timer);
+      log.debug(
+        `findProviders found ${found} providers`,
+      );
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      if (!msg.includes("abort")) {
+        log.error(
+          `findProviders failed: ${msg}`,
+        );
+      }
+    }
+  }
+
   async function provideAll() {
+    // Discover and dial existing providers first
+    // so relays connect to each other even if our
+    // own provide fails.
+    await findAndDialProviders();
+
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(
@@ -343,17 +397,21 @@ export async function startRelay(
       if (msg.includes("abort")) {
         log.warn("provide TIMEOUT for network CID");
       } else {
-        log.error(`provide FAIL for network CID: ${msg}`);
+        log.error(
+          `provide FAIL for network CID: ${msg}`,
+        );
       }
     }
   }
 
-  // Initial provide after a short delay to let DHT
-  // routing table fill from bootstrap peer walks.
+  // Initial provide after DHT routing table has
+  // time to populate from the persistent peer store
+  // (afterStart() has a 20s timeout for serial
+  // peer pings).
   setTimeout(() => {
     log.debug("initial provide starting...");
     provideAll();
-  }, 10_000);
+  }, 45_000);
 
   // Re-provide after autoTLS certificate is obtained
   // so the DHT peer record includes WSS addresses.
@@ -361,7 +419,7 @@ export async function startRelay(
     "certificate:provision",
     () => {
       log.info("certificate obtained, re-providing");
-      setTimeout(() => provideAll(), 10_000);
+      setTimeout(() => provideAll(), 15_000);
     },
   );
 
