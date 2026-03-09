@@ -28,9 +28,12 @@ const MAX_CONNECTIONS = 512;
 const DISCOVERY_TOPIC =
   "pokapali._peer-discovery._p2p._pubsub";
 const SIGNALING_TOPIC = "/pokapali/signaling";
+export const NODE_CAPS_TOPIC =
+  "pokapali._node-caps._p2p._pubsub";
 const RAW_CODEC = 0x55;
 const PROVIDE_INTERVAL_MS = 5 * 60_000;
 const LOG_INTERVAL_MS = 30_000;
+const CAPS_INTERVAL_MS = 30_000;
 
 const log = createLogger("relay");
 
@@ -74,6 +77,40 @@ async function loadOrCreateKey(
   }
 }
 
+export interface NodeCapabilities {
+  version: 1;
+  peerId: string;
+  roles: string[];
+}
+
+export function encodeNodeCaps(
+  caps: NodeCapabilities,
+): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify(caps),
+  );
+}
+
+export function decodeNodeCaps(
+  data: Uint8Array,
+): NodeCapabilities | null {
+  try {
+    const obj = JSON.parse(
+      new TextDecoder().decode(data),
+    );
+    if (
+      obj?.version !== 1 ||
+      typeof obj.peerId !== "string" ||
+      !Array.isArray(obj.roles)
+    ) {
+      return null;
+    }
+    return obj as NodeCapabilities;
+  } catch {
+    return null;
+  }
+}
+
 export interface RelayConfig {
   storagePath: string;
   wsPort?: number;
@@ -86,6 +123,11 @@ export interface RelayConfig {
   // each ID, so the relay joins the GossipSub mesh
   // and can forward announcements to the pinner.
   pinAppIds?: string[];
+  // Node roles to advertise (e.g. ["relay"],
+  // ["pinner"], or ["relay", "pinner"]).
+  // If omitted, inferred: "pinner" if pinAppIds
+  // is non-empty, otherwise empty.
+  roles?: string[];
 }
 
 export interface Relay {
@@ -375,6 +417,39 @@ export async function startRelay(
     log.info("subscribed to", topic);
   }
 
+  // Capability advertisement
+  pubsub.subscribe(NODE_CAPS_TOPIC);
+  const roles = config.roles ?? (() => {
+    const inferred = ["relay"];
+    if ((config.pinAppIds ?? []).length > 0) {
+      inferred.push("pinner");
+    }
+    return inferred;
+  })();
+  const capsMsg = encodeNodeCaps({
+    version: 1,
+    peerId: helia.libp2p.peerId.toString(),
+    roles,
+  });
+
+  function publishCaps() {
+    pubsub.publish(NODE_CAPS_TOPIC, capsMsg)
+      .catch((err: unknown) => {
+        log.warn("caps publish failed:", err);
+      });
+  }
+
+  // Publish immediately + on interval
+  publishCaps();
+  const capsInterval = setInterval(
+    publishCaps,
+    CAPS_INTERVAL_MS,
+  );
+  log.info(
+    "advertising capabilities:",
+    roles.join(", "),
+  );
+
   // Provide a single network-wide CID so browsers
   // can discover any relay regardless of app.
   const netCID = await networkCID();
@@ -560,6 +635,7 @@ export async function startRelay(
     async stop() {
       clearInterval(provideInterval);
       clearInterval(logInterval);
+      clearInterval(capsInterval);
       await helia.stop();
       log.info("stopped");
     },
