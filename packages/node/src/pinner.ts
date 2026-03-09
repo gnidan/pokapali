@@ -103,9 +103,8 @@ export async function createPinner(
       });
       const cid = result.cid;
       log(
-        "resolved %s -> %s",
-        ipnsName.slice(0, 12) + "...",
-        cid.toString().slice(0, 12) + "...",
+        `resolved ${ipnsName.slice(0, 12)}...`
+        + ` -> ${cid.toString().slice(0, 12)}...`,
       );
 
       // Check if we already have this CID
@@ -123,8 +122,8 @@ export async function createPinner(
       const valid = await validateStructure(block);
       if (!valid) {
         log(
-          "invalid block from IPNS %s",
-          ipnsName.slice(0, 12) + "...",
+          `invalid block from IPNS`
+          + ` ${ipnsName.slice(0, 12)}...`,
         );
         return false;
       }
@@ -136,18 +135,16 @@ export async function createPinner(
       knownNames.add(ipnsName);
       history.add(ipnsName, cid, node.ts);
       log(
-        "fetched block for %s cid=%s",
-        ipnsName.slice(0, 12) + "...",
-        cid.toString().slice(0, 12) + "...",
+        `fetched block for ${ipnsName.slice(0, 12)}...`
+        + ` cid=${cid.toString().slice(0, 12)}...`,
       );
 
       return true;
     } catch (err) {
       const msg = (err as Error).message ?? "";
       log(
-        "resolve failed for %s: %s",
-        ipnsName.slice(0, 12) + "...",
-        msg,
+        `resolve failed for`
+        + ` ${ipnsName.slice(0, 12)}...: ${msg}`,
       );
       return false;
     }
@@ -156,7 +153,7 @@ export async function createPinner(
   async function resolveAll(): Promise<void> {
     const names = [...knownNames];
     if (names.length === 0) return;
-    log("re-resolving %d names", names.length);
+    log(`re-resolving ${names.length} names`);
     await Promise.allSettled(
       names.map((n) => resolveAndFetch(n)),
     );
@@ -190,8 +187,8 @@ export async function createPinner(
       // Resolve all persisted names on startup
       if (helia && knownNames.size > 0) {
         log(
-          "startup: resolving %d persisted names",
-          knownNames.size,
+          `startup: resolving`
+          + ` ${knownNames.size} persisted names`,
         );
         // Fire and forget — don't block startup
         resolveAll();
@@ -219,9 +216,8 @@ export async function createPinner(
     ): void {
       knownNames.add(ipnsName);
       log(
-        "announcement: name=%s cid=%s",
-        ipnsName.slice(0, 12) + "...",
-        cidStr.slice(0, 12) + "...",
+        `announcement: name=${ipnsName.slice(0, 12)}...`
+        + ` cid=${cidStr.slice(0, 12)}...`,
       );
       // Trigger IPNS resolve + block fetch
       if (helia) {

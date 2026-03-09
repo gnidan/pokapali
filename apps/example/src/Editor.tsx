@@ -149,6 +149,55 @@ function LastUpdated({
   );
 }
 
+/**
+ * Wait for a Y.Doc's XmlFragment to have content,
+ * so Tiptap doesn't create a default empty paragraph
+ * that merges as a spurious newline. Returns true
+ * immediately if the fragment already has content,
+ * otherwise polls briefly before giving up.
+ */
+function useFragmentReady(
+  ydoc: import("yjs").Doc,
+  field = "default",
+  timeoutMs = 3_000,
+): boolean {
+  const [ready, setReady] = useState(() => {
+    return ydoc.getXmlFragment(field).length > 0;
+  });
+
+  useEffect(() => {
+    if (ready) return;
+    const frag = ydoc.getXmlFragment(field);
+
+    // Check if it already has content
+    if (frag.length > 0) {
+      setReady(true);
+      return;
+    }
+
+    // Listen for changes
+    const observer = () => {
+      if (frag.length > 0) {
+        setReady(true);
+      }
+    };
+    frag.observeDeep(observer);
+
+    // Timeout: render anyway (new doc or offline)
+    const timer = setTimeout(
+      () => setReady(true),
+      timeoutMs,
+    );
+
+    return () => {
+      frag.unobserveDeep(observer);
+      clearTimeout(timer);
+    };
+  }, [ydoc, field, timeoutMs, ready]);
+
+  return ready;
+}
+
 export function EditorView({
   doc,
   onBack,
@@ -267,21 +316,26 @@ export function EditorView({
     };
   }, [doc, startDebounce]);
 
+  const contentDoc = doc.subdoc("content");
+  const fragmentReady = useFragmentReady(contentDoc);
+
   const editor = useEditor(
     {
       editable: !isReadOnly,
-      extensions: [
-        StarterKit.configure({ history: false }),
-        Collaboration.configure({
-          document: doc.subdoc("content"),
-        }),
-        CollaborationCursor.configure({
-          provider: doc.provider,
-          render: renderCursor,
-        }),
-      ],
+      extensions: fragmentReady
+        ? [
+            StarterKit.configure({ history: false }),
+            Collaboration.configure({
+              document: contentDoc,
+            }),
+            CollaborationCursor.configure({
+              provider: doc.provider,
+              render: renderCursor,
+            }),
+          ]
+        : [StarterKit.configure({ history: false })],
     },
-    [doc],
+    [doc, fragmentReady],
   );
 
   useEffect(() => {
