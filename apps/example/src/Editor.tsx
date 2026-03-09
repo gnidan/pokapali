@@ -83,7 +83,7 @@ function saveLabel(
   ackCount: number,
 ): string {
   if (saveState === "saved" && ackCount > 0) {
-    return `Saved to ${ackCount} relay(s)`;
+    return `Saved to ${ackCount} ${ackCount === 1 ? "relay" : "relays"}`;
   }
   return SAVE_LABELS[saveState];
 }
@@ -148,10 +148,12 @@ function LastUpdated({
   }, []);
 
   return (
-    <span className="last-updated" aria-live="polite">
-      {flash && (
-        <span className="updated-flash">Updated</span>
-      )}
+    <span
+      className={
+        "last-updated" + (flash ? " flashing" : "")
+      }
+      aria-live="polite"
+    >
       Last updated: {formatAgo(timestamp)}
     </span>
   );

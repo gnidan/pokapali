@@ -468,23 +468,15 @@ body {
 .last-updated {
   font-size: 0.75rem;
   color: #64748b;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  transition: color 1s ease-out;
 }
 
-.updated-flash {
-  font-size: 0.7rem;
-  font-weight: 600;
+.last-updated.flashing {
   color: #22c55e;
-  animation: flash-fade 2s ease-out forwards;
+  font-weight: 600;
+  transition: none;
 }
 
-@keyframes flash-fade {
-  0% { opacity: 1; }
-  70% { opacity: 1; }
-  100% { opacity: 0; }
-}
 
 .loading-doc {
   display: flex;
@@ -672,6 +664,34 @@ body {
 .cs-detail-warn {
   color: #ef4444;
   font-size: 0.7rem;
+}
+
+/* Node role badges and ack indicator */
+
+.cs-role-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cs-role-relay {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.cs-role-pinner {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.cs-ack-check {
+  color: #22c55e;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-left: 0.15rem;
 }
 
 /* Sparkline charts */
