@@ -174,6 +174,13 @@ export function createSnapshotWatcher(
           );
           options.onAck?.(ann.ack.peerId);
         }
+      } else {
+        log.debug(
+          "ack cid mismatch:",
+          ann.cid?.slice(0, 16),
+          "expected:",
+          ackedCid?.slice(0, 16),
+        );
       }
       return;
     }
@@ -359,13 +366,20 @@ export function createSnapshotWatcher(
     }
     const seq =
       reannounceGetSeq?.() ?? undefined;
-    announceSnapshot(
-      pubsub,
-      appId,
-      ipnsName,
-      cidStr,
-      seq,
+    log.debug(
+      "re-announce:", cidStr.slice(0, 16),
     );
+    try {
+      announceSnapshot(
+        pubsub,
+        appId,
+        ipnsName,
+        cidStr,
+        seq,
+      );
+    } catch (err) {
+      log.warn("re-announce failed:", err);
+    }
   }
 
   return {

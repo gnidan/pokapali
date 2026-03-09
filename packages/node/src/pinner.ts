@@ -374,9 +374,24 @@ export async function createPinner(
                   + ` ${ipnsName.slice(0, 12)}...`
                   + ` cid=${cidStr.slice(0, 12)}...`,
                 );
+              } else {
+                log.debug(
+                  `ack skipped:`
+                  + ` ok=${ok}`
+                  + ` appId=${appId}`
+                  + ` pubsub=${!!config.pubsub}`
+                  + ` peerId=${!!config.peerId}`,
+                );
               }
             },
-          ),
+          ).catch((err) => {
+            log.warn(
+              `ack failed:`
+              + ` ${ipnsName.slice(0, 12)}...`
+              + ` cid=${cidStr.slice(0, 12)}...:`,
+              err,
+            );
+          }),
         );
       }
     },
