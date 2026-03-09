@@ -365,8 +365,12 @@ function createCollabDoc(
     }, REANNOUNCE_MS);
   }
 
-  // Read-only watchers: listen for announcements +
-  // poll IPNS as fallback
+  // IPNS snapshot recovery: all clients (writers and
+  // readers) load the latest snapshot from IPNS on
+  // startup and watch for updates. Writers need this
+  // to recover state when reopening after all tabs
+  // closed. Yjs CRDT merge makes applying snapshots
+  // on top of local edits safe.
   const isReadOnly =
     !keys.namespaceKeys ||
     Object.keys(keys.namespaceKeys).length === 0;
@@ -375,7 +379,7 @@ function createCollabDoc(
     | null = null;
   let retryTimer: ReturnType<typeof setTimeout>
     | null = null;
-  if (isReadOnly && readKey) {
+  if (readKey) {
     const pubKeyBytes = hexToBytes(ipnsName);
     const rk = readKey;
     let lastAppliedCid: string | null = null;
@@ -421,7 +425,9 @@ function createCollabDoc(
       }, RETRY_INTERVAL_MS);
     }
 
-    // Listen for GossipSub announcements (instant)
+    // Listen for GossipSub announcements (instant).
+    // Writers already subscribe for re-announce mesh,
+    // but readers need to subscribe here too.
     console.log(
       "[pokapali] announce setup: pubsub=" +
         !!params.pubsub +
@@ -429,11 +435,16 @@ function createCollabDoc(
     );
     if (params.pubsub && params.appId) {
       const topic = announceTopic(params.appId);
-      console.log(
-        "[pokapali] subscribing to announce topic:",
-        topic,
-      );
-      params.pubsub.subscribe(topic);
+      // Only subscribe if not already done (writers
+      // subscribe above for re-announce mesh).
+      if (!cap.canPushSnapshots) {
+        console.log(
+          "[pokapali] subscribing to announce"
+            + " topic:",
+          topic,
+        );
+        params.pubsub.subscribe(topic);
+      }
       announceHandler = (evt: CustomEvent) => {
         const { detail } = evt;
         if (detail?.topic !== topic) return;
@@ -1206,14 +1217,13 @@ export function createCollabLib(
           );
       }
 
-      // Read-only: resolve IPNS to load initial
-      // snapshot from the network. Non-blocking so
-      // the doc opens immediately for WebRTC sync.
-      const isReadOnly =
-        !keys.namespaceKeys ||
-        Object.keys(keys.namespaceKeys).length === 0;
-      const readOnlyResolve =
-        isReadOnly && keys.readKey
+      // Resolve IPNS to load the latest snapshot from
+      // the network on startup. Works for both writers
+      // (recovery after all tabs closed) and readers.
+      // Non-blocking so the doc opens immediately for
+      // WebRTC sync; Yjs CRDT merge is safe.
+      const initialResolve =
+        keys.readKey
           ? (async () => {
               try {
                 const pubKeyBytes =
