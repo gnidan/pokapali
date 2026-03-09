@@ -214,6 +214,10 @@ export function EditorView({
 
   useEffect(() => {
     const onStatus = (s: DocStatus) => setStatus(s);
+    // Re-read live status on awareness activity so the
+    // indicator reacts even if a y-webrtc status event
+    // was missed (e.g. silent reconnect).
+    const refreshStatus = () => setStatus(doc.status);
     const onSnapshotRec = () => setSaveState("unpublished");
     const onSnapshotApplied = () => {
       setSaveState("published");
@@ -226,18 +230,29 @@ export function EditorView({
         () => setUpdateFlash(false),
         2_000,
       );
+      refreshStatus();
     };
-    const onAck = () => setAckCount(doc.ackedBy.size);
+    const onAck = () => {
+      setAckCount(doc.ackedBy.size);
+      refreshStatus();
+    };
     doc.on("status", onStatus);
     doc.on("snapshot-recommended", onSnapshotRec);
     doc.on("snapshot-applied", onSnapshotApplied);
     doc.on("ack", onAck);
+    const awareness = doc.awareness;
+    awareness.on("change", refreshStatus);
+
+    // Catch any status transition between the initial
+    // useState(doc.status) and this subscription.
+    refreshStatus();
 
     return () => {
       doc.off("status", onStatus);
       doc.off("snapshot-recommended", onSnapshotRec);
       doc.off("snapshot-applied", onSnapshotApplied);
       doc.off("ack", onAck);
+      awareness.off("change", refreshStatus);
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
