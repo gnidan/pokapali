@@ -47,6 +47,8 @@ export function announceTopic(appId: string): string {
  * @param ipnsName hex-encoded IPNS public key
  * @param cid      CID string of the published snapshot
  */
+const MAX_INLINE_BLOCK_BYTES = 256 * 1024;
+
 function uint8ToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) {
@@ -75,7 +77,9 @@ export async function announceSnapshot(
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
   if (seq !== undefined) msg.seq = seq;
-  if (block) msg.block = uint8ToBase64(block);
+  if (block && block.length <= MAX_INLINE_BLOCK_BYTES) {
+    msg.block = uint8ToBase64(block);
+  }
   const data = new TextEncoder().encode(
     JSON.stringify(msg),
   );
