@@ -6,6 +6,8 @@ import {
   decodeSnapshot,
 } from "@pokapali/snapshot";
 import { hexToBytes } from "@pokapali/crypto";
+import { ipns } from "@helia/ipns";
+import { publicKeyFromRaw } from "@libp2p/crypto/keys";
 import {
   createRateLimiter,
   DEFAULT_RATE_LIMITS,
@@ -74,6 +76,9 @@ export async function createPinner(
   > | null = null;
   let republishInterval: ReturnType<
     typeof setInterval
+  > | null = null;
+  let initialRepublishTimer: ReturnType<
+    typeof setTimeout
   > | null = null;
 
   async function storeBlock(
@@ -148,12 +153,7 @@ export async function createPinner(
     if (!helia) return false;
 
     try {
-      const { ipns } = await import("@helia/ipns");
-      const { publicKeyFromRaw } = await import(
-        "@libp2p/crypto/keys"
-      );
       const name = ipns(helia as any);
-
       const keyBytes = hexToBytes(ipnsName);
       const pubKey = publicKeyFromRaw(keyBytes);
 
@@ -195,11 +195,6 @@ export async function createPinner(
    */
   async function republishAllIPNS(): Promise<void> {
     if (!helia) return;
-
-    const { ipns } = await import("@helia/ipns");
-    const { publicKeyFromRaw } = await import(
-      "@libp2p/crypto/keys"
-    );
 
     const name = ipns(helia as any);
     const names = [...knownNames];
@@ -296,7 +291,9 @@ export async function createPinner(
           REPUBLISH_INTERVAL_MS,
         );
         // Initial republish after startup settles
-        setTimeout(republishAllIPNS, 5 * 60_000);
+        initialRepublishTimer = setTimeout(
+          republishAllIPNS, 5 * 60_000,
+        );
       }
     },
 
@@ -306,6 +303,9 @@ export async function createPinner(
       }
       if (republishInterval) {
         clearInterval(republishInterval);
+      }
+      if (initialRepublishTimer) {
+        clearTimeout(initialRepublishTimer);
       }
       await persistState();
     },
