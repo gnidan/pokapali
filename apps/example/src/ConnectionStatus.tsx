@@ -132,7 +132,8 @@ export function ConnectionStatus({
           // to know the internal fetch lifecycle.
           const isLoading =
             !info.hasAppliedSnapshot &&
-            fs.status !== "failed";
+            fs.status !== "failed" &&
+            fs.status !== "idle";
           const isFailed = fs.status === "failed";
 
           if (
