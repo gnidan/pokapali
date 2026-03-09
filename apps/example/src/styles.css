@@ -249,9 +249,6 @@ body {
   gap: 0.4rem;
 }
 
-.encryption-lock {
-  font-size: 1rem;
-}
 
 .encryption-popover p {
   margin: 0.4rem 0;
@@ -567,13 +564,56 @@ body {
   font-size: 0.95rem;
 }
 
-.back-link {
-  font-size: 0.875rem;
-  color: #2563eb;
+.back-arrow {
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #64748b;
   cursor: pointer;
   background: none;
   border: none;
-  text-decoration: underline;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.back-arrow:hover {
+  color: #1e293b;
+  background: #f1f5f9;
+}
+
+.doc-title {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1a1a1a;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  cursor: pointer;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-title:hover:not(:disabled) {
+  border-color: #e5e7eb;
+  background: #f9fafb;
+}
+
+.doc-title.read-only {
+  cursor: default;
+  color: #64748b;
+}
+
+.doc-title-input {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1a1a1a;
+  border: 1px solid #2563eb;
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  outline: none;
+  max-width: 200px;
 }
 
 .toggle-share {

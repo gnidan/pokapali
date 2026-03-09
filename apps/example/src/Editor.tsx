@@ -71,6 +71,25 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function LockIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
 function EncryptionInfo({
   onClose,
 }: {
@@ -110,9 +129,7 @@ function EncryptionInfo({
   return (
     <div ref={ref} className="encryption-popover">
       <div className="encryption-header">
-        <span className="encryption-lock">
-          &#x1F512;
-        </span>
+        <LockIcon size={16} />
         End-to-end encrypted
       </div>
       <p>
@@ -266,6 +283,16 @@ export function EditorView({
       (n) => n.connected && n.roles.includes("pinner"),
     ),
   );
+  const metaDoc = doc.subdoc("_meta");
+  const docMap = metaDoc.getMap("doc");
+  const [docTitle, setDocTitle] = useState(
+    () =>
+      (docMap.get("title") as string) || "Untitled",
+  );
+  const [editingTitle, setEditingTitle] =
+    useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const titleBtnRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
 
   const isReadOnly =
@@ -425,12 +452,52 @@ export function EditorView({
     [],
   );
 
+  // Sync title from _meta subdoc
+  useEffect(() => {
+    const observer = () => {
+      const t =
+        (docMap.get("title") as string) ||
+        "Untitled";
+      setDocTitle(t);
+    };
+    docMap.observe(observer);
+    observer();
+    return () => docMap.unobserve(observer);
+  }, [docMap]);
+
+  const commitTitle = useCallback(() => {
+    setEditingTitle(false);
+    const trimmed = docTitle.trim();
+    if (trimmed && trimmed !== "Untitled") {
+      docMap.set("title", trimmed);
+    }
+    requestAnimationFrame(() => {
+      titleBtnRef.current?.focus();
+    });
+  }, [docMap, docTitle]);
+
+  const handleTitleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        (e.target as HTMLInputElement).blur();
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (editingName && nameRef.current) {
       nameRef.current.focus();
       nameRef.current.select();
     }
   }, [editingName]);
+
+  useEffect(() => {
+    if (editingTitle && titleRef.current) {
+      titleRef.current.focus();
+      titleRef.current.select();
+    }
+  }, [editingTitle]);
 
   useEffect(() => {
     if (showShare && sharePanelRef.current) {
@@ -442,13 +509,50 @@ export function EditorView({
     <div className="app">
       <div className="header">
         <button
-          className="back-link"
+          className="back-arrow"
           onClick={onBack}
           aria-label="Back to document list"
         >
-          Back
+          &#x2039;
         </button>
         <h1>Pokapali</h1>
+        {!isReadOnly && editingTitle ? (
+          <input
+            ref={titleRef}
+            className="doc-title-input"
+            value={docTitle}
+            placeholder="Untitled"
+            aria-label="Document title"
+            onChange={(e) =>
+              setDocTitle(e.target.value)
+            }
+            onBlur={commitTitle}
+            onKeyDown={handleTitleKeyDown}
+            maxLength={80}
+          />
+        ) : (
+          <button
+            ref={titleBtnRef}
+            className={
+              "doc-title" +
+              (isReadOnly ? " read-only" : "")
+            }
+            onClick={
+              isReadOnly
+                ? undefined
+                : () => setEditingTitle(true)
+            }
+            title={
+              isReadOnly
+                ? docTitle || "Untitled"
+                : "Click to rename"
+            }
+            aria-label={`Document: ${docTitle || "Untitled"}`}
+            disabled={isReadOnly}
+          >
+            {docTitle || "Untitled"}
+          </button>
+        )}
         <span className="encryption-wrap">
           <button
             className="encryption-btn"
@@ -458,7 +562,7 @@ export function EditorView({
             aria-label="Encryption info"
             title="End-to-end encrypted"
           >
-            &#x1F512;
+            <LockIcon size={14} />
           </button>
           {showEncryption && (
             <EncryptionInfo
