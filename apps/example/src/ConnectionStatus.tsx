@@ -21,6 +21,7 @@ interface ConnectionInfo {
   gossipsub: GossipSubInfo;
   clockSum: number;
   maxPeerClockSum: number;
+  latestAnnouncedSeq: number;
   ipnsSeq: number | null;
 }
 
@@ -100,6 +101,7 @@ function gatherInfo(doc: CollabDoc): ConnectionInfo {
     gossipsub,
     clockSum: doc.clockSum,
     maxPeerClockSum,
+    latestAnnouncedSeq: doc.latestAnnouncedSeq,
     ipnsSeq: doc.ipnsSeq,
   };
 }
@@ -130,6 +132,7 @@ export function ConnectionStatus({
       gossipsub: { peers: 0, topics: 0, meshPeers: 0 },
       clockSum: doc.clockSum,
       maxPeerClockSum: 0,
+      latestAnnouncedSeq: 0,
       ipnsSeq: doc.ipnsSeq,
     }),
   );
@@ -220,17 +223,24 @@ export function ConnectionStatus({
           </span>
         </span>
 
-        {info.maxPeerClockSum > info.clockSum && (
+        {Math.max(
+          info.maxPeerClockSum,
+          info.latestAnnouncedSeq,
+        ) > info.clockSum && (
           <>
             <span className="cs-divider" />
             <span
               className="cs-section cs-behind"
               title={
-                `Local clock: ${info.clockSum}, ` +
-                `peer max: ${info.maxPeerClockSum}`
+                `Local: ${info.clockSum}, ` +
+                `peers: ${info.maxPeerClockSum}, ` +
+                `announced: ${info.latestAnnouncedSeq}`
               }
             >
-              ~{info.maxPeerClockSum - info.clockSum}{" "}
+              ~{Math.max(
+                info.maxPeerClockSum,
+                info.latestAnnouncedSeq,
+              ) - info.clockSum}{" "}
               edits behind
             </span>
           </>
