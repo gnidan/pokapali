@@ -244,6 +244,20 @@ function createCollabDoc(
     }
   }
 
+  function computeClockSum(): number {
+    let sum = 0;
+    for (const ns of namespaces) {
+      const sv = Y.encodeStateVector(
+        subdocManager.subdoc(ns),
+      );
+      const decoded = Y.decodeStateVector(sv);
+      for (const clock of decoded.values()) {
+        sum += clock;
+      }
+    }
+    return sum;
+  }
+
   subdocManager.on("dirty", () => {
     checkStatus();
     emit("snapshot-recommended");
@@ -288,6 +302,9 @@ function createCollabDoc(
               ),
           );
         if (applied) {
+          snapshotLC.setLastIpnsSeq(
+            computeClockSum(),
+          );
           emit("snapshot-applied");
         }
       },
@@ -384,17 +401,7 @@ function createCollabDoc(
     },
 
     get clockSum(): number {
-      let sum = 0;
-      for (const ns of namespaces) {
-        const sv = Y.encodeStateVector(
-          subdocManager.subdoc(ns),
-        );
-        const decoded = Y.decodeStateVector(sv);
-        for (const clock of decoded.values()) {
-          sum += clock;
-        }
-      }
-      return sum;
+      return computeClockSum();
     },
 
     get ipnsSeq(): number | null {
