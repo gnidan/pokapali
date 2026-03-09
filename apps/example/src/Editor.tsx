@@ -253,7 +253,11 @@ export function EditorView({
 
   const contentDoc = doc.subdoc("content");
   const shouldMount = ready || !isReadOnly;
-  const showEditor = ready || status === "synced";
+  // Writers always show the editor — they don't need
+  // to wait for a snapshot load. Readers wait for
+  // ready (snapshot loaded) or synced (peer connected).
+  const showEditor =
+    !isReadOnly || ready || status === "synced";
 
   const editor = useEditor(
     {
