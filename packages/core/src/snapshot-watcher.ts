@@ -34,6 +34,7 @@ export interface SnapshotWatcher {
     getBlock: (
       cidStr: string,
     ) => Uint8Array | undefined,
+    getSeq?: () => number | null,
   ): void;
   destroy(): void;
 }
@@ -182,7 +183,7 @@ export function createSnapshotWatcher(
   > | null = null;
 
   return {
-    startReannounce(getCid, getBlock) {
+    startReannounce(getCid, getBlock, getSeq) {
       if (announceTimer) return;
       // Subscribe so writer joins the GossipSub
       // mesh for the announce topic.
@@ -198,11 +199,13 @@ export function createSnapshotWatcher(
             helia.blockstore.put(cid, block),
           ).catch(() => {});
         }
+        const seq = getSeq?.() ?? undefined;
         announceSnapshot(
           pubsub,
           appId,
           ipnsName,
           cidStr,
+          seq,
         );
       }, REANNOUNCE_MS);
     },

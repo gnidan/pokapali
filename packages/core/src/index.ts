@@ -261,6 +261,10 @@ function createCollabDoc(
   subdocManager.on("dirty", () => {
     checkStatus();
     emit("snapshot-recommended");
+    awarenessRoom.awareness.setLocalStateField(
+      "clockSum",
+      computeClockSum(),
+    );
   });
 
   // If the subdoc is already dirty (e.g. _meta was
@@ -328,6 +332,7 @@ function createCollabDoc(
     snapshotWatcher.startReannounce(
       () => snapshotLC.prev,
       (cidStr) => snapshotLC.getBlock(cidStr),
+      () => snapshotLC.lastIpnsSeq,
     );
   }
 
@@ -473,6 +478,7 @@ function createCollabDoc(
             params.appId,
             ipnsName,
             cid.toString(),
+            clockSum,
           );
           log.debug("announce sent");
         }
