@@ -147,14 +147,26 @@ doc.on("snapshot-applied", () => {
 
 ### 7. Document status
 
-```ts
-doc.on("status", (status) => {
-  // "connecting" | "syncing" | "synced"
-  // | "offline" | "unpushed-changes"
-});
+Connection status and save state are tracked separately:
 
-// Current status
+```ts
+// Connection status (connectivity)
+doc.on("status", (status) => {
+  // "connecting" — bootstrapping
+  // "synced"     — WebRTC connected to peers
+  // "receiving"  — GossipSub active (typical for readers)
+  // "offline"    — no transports active
+});
 doc.status;
+
+// Save state (persistence)
+doc.on("save-state", (state) => {
+  // "unpublished" — no snapshot pushed yet
+  // "dirty"       — local changes not yet pushed
+  // "saving"      — push in progress
+  // "saved"       — snapshot pushed and acked
+});
+doc.saveState;
 ```
 
 ### 8. Cleanup

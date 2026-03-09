@@ -19,8 +19,10 @@ URLs. This is the only package most apps need to import.
   first snapshot application for readers)
 - **`CollabLibOptions`** — configuration: `appId`,
   `namespaces`, `base` URL, optional bootstrap peers
-- **`DocStatus`** — `"connecting"` | `"syncing"` |
-  `"synced"` | `"offline"` | `"unpushed-changes"`
+- **`DocStatus`** — `"connecting"` | `"synced"` |
+  `"receiving"` | `"offline"` (connectivity only)
+- **`SaveState`** — `"saved"` | `"dirty"` | `"saving"` |
+  `"unpublished"` (persistence, via `doc.saveState`)
 
 ## Internal Modules
 
@@ -35,10 +37,13 @@ URLs. This is the only package most apps need to import.
   retry and abort timeout
 - `relay-sharing` — awareness-based relay address exchange
 - `peer-discovery` — relay DHT discovery with disconnect
-  reconnection and keep-alive tag recovery
+  reconnection and exponential backoff
 - `relay-cache` — localStorage relay cache with migration,
   TTL filtering, and upsert/remove helpers (extracted from
   peer-discovery for independent testability)
+- `node-registry` — per-Helia singleton tracking known
+  nodes via capability broadcasts, DHT discovery, and ack
+  data; exposes `NodeInfo[]` for diagnostics
 - `ipns-helpers` — IPNS publish queue and resolve
 - `announce` — GossipSub snapshot announcement protocol
 - `helia` — shared Helia singleton with ref counting and

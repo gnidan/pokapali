@@ -66,7 +66,8 @@ doc.capability; // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: b
 doc.adminUrl; // keep private — derives everything
 doc.writeUrl; // read + write all namespaces + canPushSnapshots
 doc.readUrl; // read only
-doc.status; // observable: 'connecting' | 'synced' | 'offline' | 'unpushed-changes'
+doc.status; // observable: 'connecting' | 'synced' | 'receiving' | 'offline'
+doc.saveState; // observable: 'saved' | 'dirty' | 'saving' | 'unpublished'
 
 // Generate a custom capability URL — any subset of namespaces, with or without snapshot pushing
 doc.inviteUrl({
@@ -123,7 +124,7 @@ The library deliberately does not call `pushSnapshot()` automatically on any tri
 
 - Call `pushSnapshot()` on a periodic timer while the document is open
 - Attempt `pushSnapshot()` in a `beforeunload` / `visibilitychange` handler (best-effort — see caveats below)
-- Optionally show a save indicator tied to `doc.status === 'unpushed-changes'`
+- Optionally show a save indicator tied to `doc.saveState`
 - Listen for `snapshot-recommended` as a hint that a push would be timely
 
 ### Snapshot frequency affects read-only peer latency
@@ -147,7 +148,7 @@ For apps where all collaborators have write access to all namespaces, snapshot f
 ```ts
 // Best-effort: warn the user; the actual save should have happened on a timer already.
 window.addEventListener("beforeunload", (e) => {
-  if (doc.status === "unpushed-changes") {
+  if (doc.saveState === "dirty") {
     e.preventDefault(); // triggers browser "unsaved changes" dialog
   }
 });
@@ -156,14 +157,14 @@ window.addEventListener("beforeunload", (e) => {
 document.addEventListener("visibilitychange", () => {
   if (
     document.visibilityState === "hidden" &&
-    doc.status === "unpushed-changes"
+    doc.saveState === "dirty"
   ) {
     doc.pushSnapshot(); // fire-and-forget; may or may not complete
   }
 });
 ```
 
-The library tracks the last-pushed CID and seq internally (needed for `prev` links and seq incrementing regardless), so `status === 'unpushed-changes'` and `snapshot-recommended` are cheap to emit.
+The library tracks the last-pushed CID and seq internally (needed for `prev` links and seq incrementing regardless), so `saveState` transitions and `snapshot-recommended` are cheap to emit.
 
 ---
 
@@ -268,7 +269,52 @@ Each namespace is a separate Yjs subdocument (`Y.Doc`) with its own y-webrtc roo
 
 For each namespace in the peer's capability set (`doc.capability.namespaces`), the library creates a `WebrtcProvider` connecting to a room named `${ipnsName}:${namespace}`. This gives the peer real-time bidirectional CRDT sync for that namespace — standard y-webrtc, no custom protocol.
 
-`SyncManager` listens for y-webrtc `"status"` events on each provider and exposes `onStatusChange(cb)` so that `@pokapali/core` can re-compute `doc.status` whenever the underlying WebRTC connection state changes (e.g., after PBKDF2 key derivation completes and rooms are created).
+`SyncManager` listens for y-webrtc `"status"` events on each provider and exposes `onStatusChange(cb)` so that `@pokapali/core` can re-compute `doc.status` whenever the underlying WebRTC connection state changes (e.g., after PBKDF2 key derivation completes and rooms are created). `aggregateStatus` uses **any-connected** semantics: if at least one provider is connected, status is `"connected"`. This is correct because partial writers (with access to a subset of namespaces) may have some rooms with peers and others empty — the empty rooms don't indicate a broken connection.
+
+### Document status model
+
+`doc.status` reflects **connectivity** as a composite of
+three transport layers:
+
+```ts
+type DocStatus =
+  | "connecting"  // bootstrapping, no transport ready
+  | "synced"      // WebRTC connected to ≥1 namespace room
+  | "receiving"   // no WebRTC peers, but GossipSub active
+  | "offline";    // no transports active
+```
+
+The derivation considers WebRTC namespace providers,
+awareness room connectivity, and GossipSub liveness
+(a 60-second recency window on received messages, with
+a 30-second decay timer):
+
+1. If any namespace WebRTC provider is connected → `"synced"`
+2. If namespace providers are connecting → `"connecting"`
+3. If the awareness room is connected or a GossipSub
+   message was received within 60 seconds → `"receiving"`
+4. If subscribed to GossipSub but no recent messages →
+   `"connecting"`
+5. Otherwise → `"offline"`
+
+The `"receiving"` state is the typical reader state:
+readers have no namespace providers (empty capability
+set), but they actively receive snapshot updates via
+GossipSub and cursor presence via the awareness room.
+
+**Save state** is tracked separately from connectivity:
+
+```ts
+type SaveState =
+  | "saved"       // snapshot pushed and acked
+  | "dirty"       // local changes not yet pushed
+  | "saving"      // push in progress
+  | "unpublished"; // no snapshot pushed yet (new doc)
+```
+
+Exposed as `doc.saveState`. This separation lets the UI
+show a connection indicator and a save indicator
+independently.
 
 All clients — writers **and** readers — resolve IPNS on `open()` to load the latest snapshot from the network (non-blocking; Yjs CRDT merge is safe). Writers need this for recovery after all tabs close. Both also watch for live updates via two channels:
 
@@ -460,13 +506,72 @@ Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Lab
 
 The `@pokapali/node` package provides `startRelay()`, `createPinner()`, and an HTTP server for health monitoring. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
 
-Pinner shutdown is graceful: `stop()` sets a `stopped` flag (checked by the IPNS republish loop between names), cancels the initial republish timer, clears periodic intervals, flushes in-flight fetch operations via `flush()` (`Promise.allSettled` on all tracked promises), and persists known IPNS names to disk.
+Pinner state (`knownNames`, `tips`, `nameToAppId`) is
+persisted to `state.json` in the storage directory. Writes
+use a dirty-flag + 5-second debounced flush + 60-second
+safety-net interval to avoid excessive disk I/O during
+bursts of announcements. On startup, `tips` and
+`nameToAppId` are restored from `state.json` so the pinner
+can immediately re-announce inline blocks for all known
+documents without waiting for new announcements.
 
-The relay runs Helia with full libp2p defaults, client-mode DHT, GossipSub (`floodPublish: true`, tuned D/Dlo/Dhi for small networks), autoTLS for WSS, and persistent key + datastore. It subscribes to peer discovery, signaling, and announcement topics, and provides a network-wide CID on the DHT for browser discovery.
+Pinner shutdown is graceful: `stop()` sets a `stopped` flag (checked by the IPNS republish loop between names), cancels the initial republish timer, clears periodic intervals, flushes in-flight fetch operations via `flush()` (`Promise.allSettled` on all tracked promises), and persists state to disk.
+
+The relay runs Helia with full libp2p defaults, client-mode DHT, GossipSub (`floodPublish: true`, tuned D/Dlo/Dhi for small networks), autoTLS for WSS, and persistent key + datastore. It subscribes to peer discovery, signaling, and announcement topics, and provides a network-wide CID on the DHT for browser discovery. The relay blockstore is `FsBlockstore` (persistent across restarts) at `storagePath/blockstore`. Note: `FsBlockstore` v3 `get()` returns an `AsyncGenerator`, not a `Uint8Array` — the relay wraps this with a safe type-check adapter.
 
 The HTTP server exposes:
 - `GET /healthz` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
 - `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, and pinner state
+
+### Node capability broadcasting
+
+Nodes advertise their roles via a dedicated GossipSub
+topic `pokapali._node-caps._p2p._pubsub`. Every 30
+seconds, a node publishes a JSON capability message:
+
+```ts
+interface NodeCapabilities {
+  version: 1;
+  peerId: string;
+  roles: string[];  // e.g. ["relay", "pinner"]
+}
+```
+
+Roles are configured at startup — a relay-only node
+advertises `["relay"]`, a pinner-only node `["pinner"]`,
+and a combined node `["relay", "pinner"]`. The roles
+come from the node's config, not inferred from behavior.
+
+On the browser side, `@pokapali/core` maintains a
+**node registry** (per-Helia singleton) that subscribes
+to the caps topic, upserts known nodes on each message,
+prunes stale entries (no message in 90 seconds), and
+cross-references with `libp2p.getConnections()` for live
+connection status. The registry also merges in data from
+existing signals: `relayPeerIds` (DHT discovery) and
+`ackedBy` (GossipSub acks). A node that acked a snapshot
+gets the `"pinner"` role even before its caps message
+arrives.
+
+`DiagnosticsInfo` exposes this as `nodes: NodeInfo[]`
+(replacing the previous `relays: RelayDiagnostic[]`):
+
+```ts
+interface NodeInfo {
+  peerId: string;
+  short: string;
+  connected: boolean;
+  roles: string[];
+  ackedCurrentCid: boolean;
+  lastSeenAt: number;
+}
+```
+
+The distinction between **advertisement** ("I can do
+this") and **proof** ("I did do this") is deliberate:
+caps messages declare capability, acks confirm action.
+Both are useful for the UI — "Connected to N node(s),
+pinned by M."
 
 Bandwidth at steady state is low. Suitable for a VPS or homelab behind standard NAT.
 
@@ -660,7 +765,7 @@ The library should document expected bundle sizes for each configuration tier.
 | `@ipld/dag-cbor`                              | IPFS block encoding for snapshots (IPLD-native CID handling)                       |
 | `@helia/ipns`                                 | IPNS publish (delegated HTTP) / resolve (delegated + DHT fallback)                 |
 | `ipns`                                        | IPNS record creation and validation                                                |
-| `@chainsafe/libp2p-gossipsub`                 | GossipSub pubsub — signaling, peer discovery, and snapshot announcements           |
+| `@chainsafe/libp2p-gossipsub`                 | GossipSub pubsub — signaling, peer discovery, snapshot announcements, and node capability broadcasting |
 | `@libp2p/crypto/keys`                         | IPNS keypair derivation from seed                                                  |
 | `@libp2p/pubsub-peer-discovery`               | Browser peer discovery via GossipSub                                               |
 | `@libp2p/kad-dht`                             | DHT for relay (client-mode) — record providing and IPNS republish                  |
