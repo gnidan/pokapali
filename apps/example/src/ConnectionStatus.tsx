@@ -72,36 +72,36 @@ function normalizePoints(
   });
 }
 
+const SPARK_W = 300;
+const SPARK_H = 40;
+const SPARK_PAD = 2;
+
 function Sparkline({
   data,
   color,
-  height = 28,
 }: {
   data: number[];
   color: string;
-  height?: number;
 }) {
   if (data.length < 2) return null;
-  // Use viewBox so the SVG scales to container width
-  const vw = 200;
-  const pad = 2;
   const pts = normalizePoints(
     data,
-    vw,
-    height,
-    pad,
+    SPARK_W,
+    SPARK_H,
+    SPARK_PAD,
   );
   const line = pts.join(" ");
   const fill =
     line +
-    ` ${vw - pad},${height} ${pad},${height}`;
+    ` ${SPARK_W - SPARK_PAD},${SPARK_H}` +
+    ` ${SPARK_PAD},${SPARK_H}`;
   const last = pts[pts.length - 1].split(",");
 
   return (
     <svg
       className="sparkline"
-      viewBox={`0 0 ${vw} ${height}`}
-      preserveAspectRatio="none"
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
     >
       <polygon
@@ -128,33 +128,28 @@ function Sparkline({
 
 function MultiSparkline({
   series,
-  height = 36,
 }: {
   series: Series[];
-  height?: number;
 }) {
   const active = series.filter(
     (s) => s.data.length >= 2,
   );
   if (active.length === 0) return null;
 
-  const vw = 200;
-  const pad = 2;
-
   return (
     <div className="sparkline-wrap">
       <svg
-        className="sparkline sparkline-multi"
-        viewBox={`0 0 ${vw} ${height}`}
-        preserveAspectRatio="none"
+        className="sparkline"
+        viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+        preserveAspectRatio="xMidYMid meet"
         aria-hidden="true"
       >
         {active.map((s) => {
           const pts = normalizePoints(
             s.data,
-            vw,
-            height,
-            pad,
+            SPARK_W,
+            SPARK_H,
+            SPARK_PAD,
           );
           const line = pts.join(" ");
           const last =
@@ -332,7 +327,6 @@ function NetworkDetail({
             label: "relays",
           },
         ]}
-        height={40}
       />
       <div className="cs-detail-cols">
         <div>
