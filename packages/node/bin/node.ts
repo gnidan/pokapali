@@ -2,7 +2,10 @@
 
 import { createServer } from "node:http";
 import { createPinner } from "../src/index.js";
-import { startRelay } from "../src/relay.js";
+import {
+  startRelay,
+  announceTopic,
+} from "../src/relay.js";
 
 function parseArgs(argv: string[]): {
   port: number;
@@ -86,6 +89,9 @@ async function main() {
     relayHandle = await startRelay({
       storagePath,
       announceAddrs,
+      pinAppIds: pinApps.length > 0
+        ? pinApps
+        : undefined,
     });
     console.error("relay started");
     for (const ma of relayHandle.multiaddrs()) {
@@ -97,11 +103,50 @@ async function main() {
     pinner = await createPinner({
       appIds: pinApps,
       storagePath,
+      helia: relayHandle?.helia,
     });
     await pinner.start();
     console.error(
       `pinner started for: ${pinApps.join(", ")}`,
     );
+
+    // Wire GossipSub announcements to pinner
+    if (relayHandle) {
+      const announceTopics = new Set(
+        pinApps.map(announceTopic),
+      );
+      const pubsub = (
+        relayHandle.helia.libp2p.services as any
+      ).pubsub;
+      pubsub.addEventListener(
+        "message",
+        (evt: any) => {
+          if (!announceTopics.has(evt.detail.topic)) {
+            return;
+          }
+          try {
+            const text = new TextDecoder().decode(
+              evt.detail.data,
+            );
+            const msg = JSON.parse(text);
+            if (
+              typeof msg.ipnsName === "string" &&
+              typeof msg.cid === "string"
+            ) {
+              pinner!.onAnnouncement(
+                msg.ipnsName,
+                msg.cid,
+              );
+            }
+          } catch {
+            // Ignore malformed messages
+          }
+        },
+      );
+      console.error(
+        "wired GossipSub announcements to pinner",
+      );
+    }
 
     const server = createServer(async (req, res) => {
       const url = new URL(

@@ -1,12 +1,24 @@
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
-import { validateStructure, decodeSnapshot } from "@pokapali/snapshot";
-import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
+import {
+  validateStructure,
+  decodeSnapshot,
+} from "@pokapali/snapshot";
+import {
+  createRateLimiter,
+  DEFAULT_RATE_LIMITS,
+} from "./rate-limiter.js";
 import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker } from "./history.js";
 import { loadState, saveState } from "./state.js";
+import type { Helia } from "helia";
+
+const log = (...args: unknown[]) =>
+  console.error("[pokapali:pinner]", ...args);
+
+const RESOLVE_INTERVAL_MS = 5 * 60_000;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -16,29 +28,138 @@ export interface PinnerConfig {
   };
   storagePath: string;
   maxConnections?: number;
+  helia?: Helia;
 }
 
 export interface Pinner {
   start(): Promise<void>;
   stop(): Promise<void>;
-  ingest(ipnsName: string, block: Uint8Array): Promise<boolean>;
+  ingest(
+    ipnsName: string,
+    block: Uint8Array,
+  ): Promise<boolean>;
+  onAnnouncement(
+    ipnsName: string,
+    cidStr: string,
+  ): void;
   history: HistoryTracker;
 }
 
-export async function createPinner(config: PinnerConfig): Promise<Pinner> {
+export async function createPinner(
+  config: PinnerConfig,
+): Promise<Pinner> {
   const rateLimits: RateLimiterConfig = {
     maxSnapshotsPerHour:
-      config.rateLimits?.maxPerHour ?? DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
+      config.rateLimits?.maxPerHour ??
+      DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
     maxBlockSizeBytes:
-      config.rateLimits?.maxSizeBytes ?? DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
+      config.rateLimits?.maxSizeBytes ??
+      DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
   };
   const rateLimiter = createRateLimiter(rateLimits);
   const history = createHistoryTracker();
-  const statePath = config.storagePath + "/state.json";
+  const statePath =
+    config.storagePath + "/state.json";
+  const helia = config.helia;
 
-  // In-memory block store (real version uses Helia)
-  const blocks = new Map<string, Uint8Array>();
+  // In-memory block store as fallback when no Helia
+  const memBlocks = new Map<string, Uint8Array>();
   const knownNames = new Set<string>();
+  let resolveInterval: ReturnType<
+    typeof setInterval
+  > | null = null;
+
+  async function storeBlock(
+    cid: CID,
+    block: Uint8Array,
+  ): Promise<void> {
+    if (helia) {
+      await helia.blockstore.put(cid, block);
+    } else {
+      memBlocks.set(cid.toString(), block);
+    }
+  }
+
+  async function resolveAndFetch(
+    ipnsName: string,
+  ): Promise<boolean> {
+    if (!helia) return false;
+
+    try {
+      const { ipns } = await import("@helia/ipns");
+      const { publicKeyFromRaw } = await import(
+        "@libp2p/crypto/keys"
+      );
+      const name = ipns(helia as any);
+
+      // Convert hex ipnsName to public key
+      const keyBytes = hexToBytes(ipnsName);
+      const pubKey = publicKeyFromRaw(keyBytes);
+
+      // Resolve IPNS name to CID
+      const result = await name.resolve(pubKey, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      const cid = result.cid;
+      log(
+        "resolved %s -> %s",
+        ipnsName.slice(0, 12) + "...",
+        cid.toString().slice(0, 12) + "...",
+      );
+
+      // Check if we already have this CID
+      const tipCid = history.getTip(ipnsName);
+      if (tipCid === cid.toString()) {
+        return true; // Already have latest
+      }
+
+      // Fetch the block from the network
+      const block = await helia.blockstore.get(cid, {
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      // Validate structure
+      const valid = await validateStructure(block);
+      if (!valid) {
+        log(
+          "invalid block from IPNS %s",
+          ipnsName.slice(0, 12) + "...",
+        );
+        return false;
+      }
+
+      // Decode to get timestamp
+      const node = decodeSnapshot(block);
+
+      // Track in history
+      knownNames.add(ipnsName);
+      history.add(ipnsName, cid, node.ts);
+      log(
+        "fetched block for %s cid=%s",
+        ipnsName.slice(0, 12) + "...",
+        cid.toString().slice(0, 12) + "...",
+      );
+
+      return true;
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      log(
+        "resolve failed for %s: %s",
+        ipnsName.slice(0, 12) + "...",
+        msg,
+      );
+      return false;
+    }
+  }
+
+  async function resolveAll(): Promise<void> {
+    const names = [...knownNames];
+    if (names.length === 0) return;
+    log("re-resolving %d names", names.length);
+    await Promise.allSettled(
+      names.map((n) => resolveAndFetch(n)),
+    );
+  }
 
   async function restoreState(): Promise<void> {
     const state = await loadState(statePath);
@@ -64,15 +185,58 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
     async start(): Promise<void> {
       await restoreState();
+
+      // Resolve all persisted names on startup
+      if (helia && knownNames.size > 0) {
+        log(
+          "startup: resolving %d persisted names",
+          knownNames.size,
+        );
+        // Fire and forget — don't block startup
+        resolveAll();
+      }
+
+      // Periodic re-resolve
+      if (helia) {
+        resolveInterval = setInterval(
+          resolveAll,
+          RESOLVE_INTERVAL_MS,
+        );
+      }
     },
 
     async stop(): Promise<void> {
+      if (resolveInterval) {
+        clearInterval(resolveInterval);
+      }
       await persistState();
     },
 
-    async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {
+    onAnnouncement(
+      ipnsName: string,
+      cidStr: string,
+    ): void {
+      knownNames.add(ipnsName);
+      log(
+        "announcement: name=%s cid=%s",
+        ipnsName.slice(0, 12) + "...",
+        cidStr.slice(0, 12) + "...",
+      );
+      // Trigger IPNS resolve + block fetch
+      if (helia) {
+        resolveAndFetch(ipnsName);
+      }
+    },
+
+    async ingest(
+      ipnsName: string,
+      block: Uint8Array,
+    ): Promise<boolean> {
       // Rate limit: block size
-      const check = rateLimiter.check(ipnsName, block.byteLength);
+      const check = rateLimiter.check(
+        ipnsName,
+        block.byteLength,
+      );
       if (!check.allowed) {
         return false;
       }
@@ -91,7 +255,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       const node = decodeSnapshot(block);
 
       // Store block
-      blocks.set(cid.toString(), block);
+      await storeBlock(cid, block);
       knownNames.add(ipnsName);
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
@@ -99,4 +263,13 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       return true;
     },
   };
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const len = hex.length / 2;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
 }
