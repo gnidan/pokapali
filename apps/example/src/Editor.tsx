@@ -156,13 +156,6 @@ function EncryptionInfo({
   );
 }
 
-const SAVE_LABELS: Record<SaveState, string> = {
-  saved: "Published",
-  dirty: "Unpublished changes",
-  saving: "Saving\u2026",
-  unpublished: "Unpublished",
-};
-
 function saveLabel(
   saveState: SaveState,
   ackCount: number,
@@ -170,7 +163,12 @@ function saveLabel(
   if (saveState === "saved" && ackCount > 0) {
     return `Saved to ${ackCount} ${ackCount === 1 ? "pinner" : "pinners"}`;
   }
-  return SAVE_LABELS[saveState];
+  switch (saveState) {
+    case "saved": return "Published";
+    case "dirty": return "Publish changes";
+    case "saving": return "Saving\u2026";
+    case "unpublished": return "Publish now";
+  }
 }
 
 function SaveIndicator({
@@ -182,26 +180,33 @@ function SaveIndicator({
   ackCount: number;
   onPublish: () => void;
 }) {
+  const canPublish =
+    saveState === "dirty" ||
+    saveState === "unpublished";
+
+  const label = saveLabel(saveState, ackCount);
+
+  if (canPublish) {
+    return (
+      <button
+        className={`save-state save-action ${saveState}`}
+        onClick={onPublish}
+        role="status"
+        aria-label={label}
+      >
+        {label}
+      </button>
+    );
+  }
+
   return (
-    <div
-      className="save-indicator"
+    <span
+      className={`save-state ${saveState}`}
       role="status"
       aria-live="polite"
     >
-      <span className={`save-state ${saveState}`}>
-        {saveLabel(saveState, ackCount)}
-      </span>
-      {(saveState === "dirty" ||
-        saveState === "unpublished") && (
-        <button
-          className="publish-now"
-          onClick={onPublish}
-          aria-label="Publish snapshot now"
-        >
-          Publish now
-        </button>
-      )}
-    </div>
+      {label}
+    </span>
   );
 }
 
