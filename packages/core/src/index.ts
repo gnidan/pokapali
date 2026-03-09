@@ -70,6 +70,12 @@ import type { RoomDiscovery } from "./peer-discovery.js";
 import {
   fetchBlock,
 } from "./fetch-block.js";
+import {
+  createSnapshotLifecycle,
+} from "./snapshot-lifecycle.js";
+import type {
+  SnapshotLifecycle,
+} from "./snapshot-lifecycle.js";
 
 const DAG_CBOR_CODE = 0x71;
 
@@ -211,10 +217,9 @@ function createCollabDoc(
   } = params;
 
   let destroyed = false;
-  let seq = 1;
-  let prev: CID | null = null;
-  let lastIpnsSeq: number | null = null;
-  const blocks = new Map<string, Uint8Array>();
+  const snapshotLC = createSnapshotLifecycle({
+    getHelia: () => getHelia(),
+  });
   const listeners = new Map<string, Set<Function>>();
 
   function emit(event: string, ...args: unknown[]) {
@@ -308,14 +313,15 @@ function createCollabDoc(
     // forwarding to readers).
     ps.subscribe(announceTopic(params.appId));
     announceTimer = setInterval(() => {
-      if (prev) {
+      const tip = snapshotLC.prev;
+      if (tip) {
         // Re-put the block so pinners can fetch it
-        const cidStr = prev.toString();
-        const block = blocks.get(cidStr);
+        const cidStr = tip.toString();
+        const block = snapshotLC.getBlock(cidStr);
         if (block) {
           const helia = getHelia();
           Promise.resolve(
-            helia.blockstore.put(prev, block),
+            helia.blockstore.put(tip, block),
           ).catch(() => {});
         }
         announceSnapshot(
@@ -345,32 +351,26 @@ function createCollabDoc(
   if (readKey) {
     const pubKeyBytes = hexToBytes(ipnsName);
     const rk = readKey;
-    let lastAppliedCid: string | null = null;
     let pendingCid: string | null = null;
     const RETRY_INTERVAL_MS = 30_000;
 
     async function applySnapshotFromCID(
       cid: CID,
     ): Promise<void> {
-      const cidStr = cid.toString();
-      if (cidStr === lastAppliedCid) return;
-      const helia = getHelia();
-      const block = await fetchBlock(helia, cid);
-      blocks.set(cidStr, block);
-      const node = decodeSnapshot(block);
-      const plaintext =
-        await decryptSnapshot(node, rk);
-      subdocManager.applySnapshot(plaintext);
-      // Update chain state so subsequent pushSnapshot
-      // continues from this point rather than seq=1.
-      if (node.seq >= seq) {
-        prev = cid;
-        seq = node.seq + 1;
+      const applied = await snapshotLC.applyRemote(
+        cid,
+        rk,
+        (plaintext) =>
+          subdocManager.applySnapshot(plaintext),
+      );
+      if (applied) {
+        // Clear pending since we succeeded
+        const cidStr = cid.toString();
+        if (pendingCid === cidStr) {
+          pendingCid = null;
+        }
+        emit("snapshot-applied");
       }
-      lastAppliedCid = cidStr;
-      // Clear pending since we succeeded
-      if (pendingCid === cidStr) pendingCid = null;
-      emit("snapshot-applied");
     }
 
     function scheduleRetry() {
@@ -592,7 +592,7 @@ function createCollabDoc(
     },
 
     get ipnsSeq(): number | null {
-      return lastIpnsSeq;
+      return snapshotLC.lastIpnsSeq;
     },
 
     async pushSnapshot(): Promise<void> {
@@ -605,25 +605,14 @@ function createCollabDoc(
         return;
       }
       const plaintext = subdocManager.encodeAll();
-      const block = await encodeSnapshot(
+      const clockSum = this.clockSum;
+      const { cid, block } = await snapshotLC.push(
         plaintext,
         readKey,
-        prev,
-        seq,
-        Date.now(),
         signingKey,
+        clockSum,
       );
-      const hash = await sha256.digest(block);
-      const cid = CID.createV1(DAG_CBOR_CODE, hash);
-      blocks.set(cid.toString(), block);
 
-      // Use Y.Doc state vector clock sum as IPNS seq.
-      // Deterministic: same doc state → same seq.
-      const clockSum = this.clockSum;
-      lastIpnsSeq = clockSum;
-
-      prev = cid;
-      seq++;
       checkStatus();
       emit("snapshot-applied");
 
@@ -880,69 +869,15 @@ function createCollabDoc(
 
     async history() {
       assertNotDestroyed();
-      if (!prev) return [];
-
-      const getter = async (cid: CID) => {
-        const block = blocks.get(cid.toString());
-        if (!block) {
-          throw new Error(
-            "Block not found: " + cid.toString(),
-          );
-        }
-        return block;
-      };
-
-      const entries: Array<{
-        cid: CID;
-        seq: number;
-        ts: number;
-      }> = [];
-      let currentCid: CID | null = prev;
-      for await (const node of walkChain(
-        prev,
-        getter,
-      )) {
-        entries.push({
-          cid: currentCid!,
-          seq: node.seq,
-          ts: node.ts,
-        });
-        currentCid = node.prev;
-      }
-      return entries;
+      return snapshotLC.history();
     },
 
     async loadVersion(cid: CID) {
       assertNotDestroyed();
-      let block = blocks.get(cid.toString());
-      if (!block) {
-        // Fall back to Helia blockstore
-        try {
-          const helia = getHelia();
-          block = await helia.blockstore.get(cid);
-        } catch {
-          throw new Error(
-            "Unknown CID: " + cid.toString(),
-          );
-        }
-      }
       if (!readKey) {
         throw new Error("No readKey available");
       }
-      const node = decodeSnapshot(block);
-      const plaintext = await decryptSnapshot(
-        node,
-        readKey,
-      );
-      const result: Record<string, Y.Doc> = {};
-      for (const [ns, bytes] of Object.entries(
-        plaintext,
-      )) {
-        const doc = new Y.Doc();
-        Y.applyUpdate(doc, bytes);
-        result[ns] = doc;
-      }
-      return result;
+      return snapshotLC.loadVersion(cid, readKey);
     },
 
     destroy(): void {
