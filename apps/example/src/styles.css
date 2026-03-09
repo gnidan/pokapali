@@ -511,11 +511,6 @@ body {
 
 /* Save indicator */
 
-.save-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
 
 .save-state {
   font-size: 0.75rem;
@@ -535,17 +530,17 @@ body {
   color: #eab308;
 }
 
-.publish-now {
-  padding: 0.25rem 0.6rem;
-  font-size: 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: white;
+.save-action {
+  background: none;
+  border: none;
   cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
 }
 
-.publish-now:hover {
-  background: #f3f4f6;
+.save-action:hover {
+  text-decoration-style: solid;
 }
 
 
@@ -921,12 +916,7 @@ body {
     padding: 0.3rem 0.5rem;
   }
 
-  .save-indicator {
-    gap: 0.3rem;
-  }
-
   .save-state,
-  .publish-now,
   .last-updated {
     font-size: 0.7rem;
   }
