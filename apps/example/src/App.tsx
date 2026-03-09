@@ -2,7 +2,6 @@ import {
   useState,
   useCallback,
   useEffect,
-  useRef,
 } from "react";
 import { createCollabLib } from "@pokapali/core";
 import type { CollabDoc } from "@pokapali/core";
@@ -185,11 +184,6 @@ export function App() {
   const [doc, setDoc] = useState<CollabDoc | null>(null);
   const [autoOpening, setAutoOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const docRef = useRef<CollabDoc | null>(null);
-
-  // Keep ref in sync so popstate handler sees current doc
-  docRef.current = doc;
-
   const openDoc = useCallback(
     (d: CollabDoc, replace = false) => {
       recordDoc(d);
@@ -205,9 +199,6 @@ export function App() {
   );
 
   const goToLanding = useCallback(() => {
-    if (docRef.current) {
-      docRef.current.destroy();
-    }
     setDoc(null);
     setAutoOpening(false);
     setError(null);
