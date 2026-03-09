@@ -336,6 +336,17 @@ function createCollabDoc(
     );
   }
 
+  function teardown() {
+    destroyed = true;
+    relaySharing?.destroy();
+    snapshotWatcher?.destroy();
+    params.roomDiscovery?.stop();
+    syncManager.destroy();
+    awarenessRoom.destroy();
+    subdocManager.destroy();
+    releaseHelia();
+  }
+
   function assertNotDestroyed() {
     if (destroyed) {
       throw new Error("CollabDoc destroyed");
@@ -643,14 +654,7 @@ function createCollabDoc(
       storeForwardingRecord(ipnsName, encoded);
 
       // Destroy old doc
-      destroyed = true;
-      relaySharing?.destroy();
-      snapshotWatcher?.destroy();
-      params.roomDiscovery?.stop();
-      syncManager.destroy();
-      awarenessRoom.destroy();
-      subdocManager.destroy();
-      releaseHelia();
+      teardown();
 
       return {
         newDoc,
@@ -692,14 +696,7 @@ function createCollabDoc(
 
     destroy(): void {
       if (destroyed) return;
-      destroyed = true;
-      relaySharing?.destroy();
-      snapshotWatcher?.destroy();
-      params.roomDiscovery?.stop();
-      syncManager.destroy();
-      awarenessRoom.destroy();
-      subdocManager.destroy();
-      releaseHelia();
+      teardown();
     },
   } as CollabDoc;
 }
