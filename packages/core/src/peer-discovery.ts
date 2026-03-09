@@ -4,6 +4,11 @@ import { peerIdFromString } from "@libp2p/peer-id";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { createLogger } from "@pokapali/log";
+import {
+  loadCachedRelays,
+  upsertCachedRelay,
+  removeCachedRelay,
+} from "./relay-cache.js";
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
@@ -11,7 +16,6 @@ const FIND_TIMEOUT_MS = 15_000;
 const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
-const RELAY_CACHE_MAX_AGE_MS = 48 * 60 * 60_000; // 48h
 
 const log = createLogger("discovery");
 
@@ -21,108 +25,6 @@ async function networkCID(): Promise<CID> {
   );
   const hash = await sha256.digest(bytes);
   return CID.createV1(RAW_CODEC, hash);
-}
-
-// --- Relay cache (localStorage) ---
-
-const hasLocalStorage =
-  typeof globalThis.localStorage !== "undefined";
-
-interface CachedRelay {
-  peerId: string;
-  addrs: string[];
-  lastSeen: number;
-}
-
-const CACHE_KEY = "pokapali:relays";
-
-// Migrate old per-app cache entries to the new
-// network-wide key. Runs once on first load.
-let migrated = false;
-function migrateOldCache(): void {
-  if (migrated || !hasLocalStorage) return;
-  migrated = true;
-  try {
-    // Already have entries — no migration needed
-    if (localStorage.getItem(CACHE_KEY)) return;
-    // Scan for old per-app keys
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith("pokapali:relays:")) continue;
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      // Copy first match to new key, remove old
-      localStorage.setItem(CACHE_KEY, raw);
-      localStorage.removeItem(key);
-      return;
-    }
-  } catch {
-    // ignore
-  }
-}
-
-function loadCachedRelays(): CachedRelay[] {
-  if (!hasLocalStorage) return [];
-  migrateOldCache();
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return [];
-    const entries: CachedRelay[] = JSON.parse(raw);
-    const now = Date.now();
-    // Drop entries older than max age
-    return entries.filter(
-      (e) => now - e.lastSeen < RELAY_CACHE_MAX_AGE_MS,
-    );
-  } catch {
-    return [];
-  }
-}
-
-function saveCachedRelays(
-  relays: CachedRelay[],
-): void {
-  if (!hasLocalStorage) return;
-  try {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify(relays),
-    );
-  } catch {
-    // quota exceeded, etc.
-  }
-}
-
-function removeCachedRelay(
-  peerId: string,
-): void {
-  const relays = loadCachedRelays();
-  const filtered = relays.filter(
-    (r) => r.peerId !== peerId,
-  );
-  if (filtered.length !== relays.length) {
-    saveCachedRelays(filtered);
-  }
-}
-
-function upsertCachedRelay(
-  peerId: string,
-  addrs: string[],
-): void {
-  const relays = loadCachedRelays();
-  const existing = relays.find(
-    (r) => r.peerId === peerId,
-  );
-  if (existing) {
-    existing.addrs = addrs;
-    existing.lastSeen = Date.now();
-  } else {
-    relays.push({
-      peerId,
-      addrs,
-      lastSeen: Date.now(),
-    });
-  }
-  saveCachedRelays(relays);
 }
 
 // --- Discovery ---
