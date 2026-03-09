@@ -73,6 +73,39 @@ body {
   white-space: nowrap;
 }
 
+.landing-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #991b1b;
+}
+
+.landing-error p {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.landing-error button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  background: white;
+  color: #991b1b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.landing-error button:hover {
+  background: #fef2f2;
+}
+
 /* Recent documents */
 
 .recent-docs {
@@ -287,46 +320,100 @@ body {
   border-radius: 8px;
   background: white;
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .share-panel h2 {
   font-size: 1rem;
-  margin-bottom: 0.75rem;
+  margin: 0;
 }
 
-.share-row {
+.share-card {
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  background: #fafbfc;
+}
+
+.share-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.share-card-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.share-card-desc {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.share-card-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
 }
 
-.share-row label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  min-width: 60px;
-}
-
-.share-row input[type="text"] {
+.share-card-row input[type="text"] {
   flex: 1;
-  padding: 0.4rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
   border: 1px solid #d1d5db;
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-family: monospace;
+  color: #475569;
+  background: white;
 }
 
-.share-row button {
+.copy-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid #2563eb;
+  border-radius: 4px;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.copy-btn:hover {
+  background: #1d4ed8;
+}
+
+.generate-btn {
   padding: 0.4rem 0.75rem;
   font-size: 0.8rem;
-  border: 1px solid #d1d5db;
+  font-weight: 500;
+  border: 1px dashed #94a3b8;
   border-radius: 4px;
   background: white;
+  color: #475569;
   cursor: pointer;
 }
 
-.share-row button:hover {
-  background: #f3f4f6;
+.generate-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #64748b;
+}
+
+.generate-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.share-error {
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin-top: 0.3rem;
 }
 
 /* Save indicator */
@@ -572,5 +659,103 @@ body {
   white-space: nowrap;
   pointer-events: none;
   line-height: 1.2;
+}
+
+/* Mobile responsiveness */
+
+@media (max-width: 600px) {
+  .app {
+    padding: 0.5rem;
+  }
+
+  .header {
+    gap: 0.4rem 0.5rem;
+    padding: 0.4rem 0;
+  }
+
+  .header h1 {
+    font-size: 1rem;
+  }
+
+  .user-name-display,
+  .user-name-input {
+    font-size: 0.75rem;
+  }
+
+  .toggle-share {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.5rem;
+  }
+
+  .save-indicator {
+    gap: 0.3rem;
+  }
+
+  .save-state,
+  .publish-now,
+  .last-updated {
+    font-size: 0.7rem;
+  }
+
+  .editor-container,
+  .editor-container .tiptap {
+    min-height: 250px;
+  }
+
+  .editor-container .tiptap {
+    padding: 0.75rem;
+  }
+
+  /* Share panel */
+  .share-panel {
+    padding: 0.75rem;
+  }
+
+  .share-card-header {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .share-card-row {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .share-card-row input[type="text"] {
+    width: 100%;
+  }
+
+  .copy-btn,
+  .generate-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Landing */
+  .landing {
+    padding: 0 1rem;
+    min-height: 60vh;
+    gap: 1.5rem;
+  }
+
+  .landing h1 {
+    font-size: 1.5rem;
+  }
+
+  .open-form {
+    flex-direction: column;
+  }
+
+  /* Connection status */
+  .connection-status {
+    gap: 0.3rem;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.7rem;
+  }
+
+  .cs-detail {
+    gap: 0.75rem;
+    padding: 0.4rem 0.5rem;
+  }
 }
 

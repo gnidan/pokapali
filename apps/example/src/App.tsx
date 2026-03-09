@@ -161,7 +161,19 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
             Open
           </button>
         </div>
-        {error && <p style={{ color: "#ef4444" }}>{error}</p>}
+        {error && (
+          <div className="landing-error">
+            <p>{error}</p>
+            <button
+              onClick={() => {
+                setError(null);
+                setLoading(false);
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </div>
       <RecentDocsList
         onOpen={openByUrl}
@@ -283,7 +295,12 @@ export function App() {
         <h1>Pokapali</h1>
         <p>Opening document...</p>
         {error && (
-          <p style={{ color: "#ef4444" }}>{error}</p>
+          <div className="landing-error">
+            <p>{error}</p>
+            <button onClick={goToLanding}>
+              Back to home
+            </button>
+          </div>
         )}
       </div>
     );
