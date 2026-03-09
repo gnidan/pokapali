@@ -199,8 +199,11 @@ async function main() {
   async function shutdown() {
     log.info("shutting down...");
     server.close();
+    if (pinner) {
+      await pinner.flush();
+      await pinner.stop();
+    }
     if (relayHandle) await relayHandle.stop();
-    if (pinner) await pinner.stop();
     log.info("stopped");
     process.exit(0);
   }

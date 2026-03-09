@@ -91,6 +91,7 @@ export async function createPinner(
     pending.add(p);
     p.finally(() => pending.delete(p));
   }
+  let stopped = false;
   let resolveInterval: ReturnType<
     typeof setInterval
   > | null = null;
@@ -222,6 +223,7 @@ export async function createPinner(
     log.debug(`republishing IPNS for ${names.length} names`);
 
     for (const ipnsName of names) {
+      if (stopped) break;
       try {
         const keyBytes = hexToBytes(ipnsName);
         const pubKey = publicKeyFromRaw(keyBytes);
@@ -257,9 +259,11 @@ export async function createPinner(
       }
       // Spread out DHT work so it doesn't compete
       // with relay coordination.
-      await new Promise((r) =>
-        setTimeout(r, REPUBLISH_PER_NAME_DELAY_MS),
-      );
+      if (!stopped) {
+        await new Promise((r) =>
+          setTimeout(r, REPUBLISH_PER_NAME_DELAY_MS),
+        );
+      }
     }
   }
 
@@ -315,13 +319,14 @@ export async function createPinner(
           REPUBLISH_INTERVAL_MS,
         );
         // Initial republish after startup settles
-        initialRepublishTimer = setTimeout(
-          republishAllIPNS, 5 * 60_000,
-        );
+        initialRepublishTimer = setTimeout(() => {
+          track(republishAllIPNS());
+        }, 5 * 60_000);
       }
     },
 
     async stop(): Promise<void> {
+      stopped = true;
       if (resolveInterval) {
         clearInterval(resolveInterval);
       }
