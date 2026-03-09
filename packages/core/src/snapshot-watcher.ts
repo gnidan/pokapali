@@ -280,6 +280,13 @@ export function createSnapshotWatcher(
             latestAnnouncedSeq || undefined,
           );
           log.info("initial snapshot applied");
+        } else if (isWriter) {
+          // Writer on a new doc — nothing published yet.
+          // Go idle so the editor mounts immediately.
+          log.debug(
+            "IPNS resolve null (writer, new doc)",
+          );
+          setFetchState({ status: "idle" });
         } else {
           log.debug("IPNS resolve returned null");
           retryAttempt++;
