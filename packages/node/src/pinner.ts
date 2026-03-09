@@ -8,6 +8,9 @@ import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker } from "./history.js";
 import { loadState, saveState } from "./state.js";
 
+const log = (...args: unknown[]) =>
+  console.error("[pokapali:pinner]", ...args);
+
 export interface PinnerConfig {
   appIds: string[];
   rateLimits?: {
@@ -21,7 +24,14 @@ export interface PinnerConfig {
 export interface Pinner {
   start(): Promise<void>;
   stop(): Promise<void>;
-  ingest(ipnsName: string, block: Uint8Array): Promise<boolean>;
+  ingest(
+    ipnsName: string,
+    block: Uint8Array,
+  ): Promise<boolean>;
+  onAnnouncement(
+    ipnsName: string,
+    cidStr: string,
+  ): void;
   history: HistoryTracker;
 }
 
@@ -68,6 +78,18 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
     async stop(): Promise<void> {
       await persistState();
+    },
+
+    onAnnouncement(
+      ipnsName: string,
+      cidStr: string,
+    ): void {
+      knownNames.add(ipnsName);
+      log(
+        "announcement: name=%s cid=%s",
+        ipnsName.slice(0, 12) + "...",
+        cidStr.slice(0, 12) + "...",
+      );
     },
 
     async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {

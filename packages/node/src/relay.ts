@@ -79,12 +79,22 @@ export interface RelayConfig {
   // Needed so autoTLS knows our public IP before any
   // peers connect and report observed addresses.
   announceAddrs?: string[];
+  // App IDs to subscribe to announcement topics for.
+  // Subscribes to /pokapali/app/{appId}/announce for
+  // each ID, so the relay joins the GossipSub mesh
+  // and can forward announcements to the pinner.
+  pinAppIds?: string[];
+}
+
+export function announceTopic(appId: string): string {
+  return `/pokapali/app/${appId}/announce`;
 }
 
 export interface Relay {
   stop(): Promise<void>;
   multiaddrs(): string[];
   peerId(): string;
+  helia: Helia;
 }
 
 export async function startRelay(
@@ -290,6 +300,13 @@ export async function startRelay(
   log("subscribed to", DISCOVERY_TOPIC);
   log("subscribed to", SIGNALING_TOPIC);
 
+  // Subscribe to announcement topics for pinned apps
+  for (const appId of config.pinAppIds ?? []) {
+    const topic = announceTopic(appId);
+    pubsub.subscribe(topic);
+    log("subscribed to", topic);
+  }
+
   // Provide a single network-wide CID so browsers
   // can discover any relay regardless of app.
   const netCID = await networkCID();
@@ -376,6 +393,8 @@ export async function startRelay(
   }, LOG_INTERVAL_MS);
 
   return {
+    helia,
+
     async stop() {
       clearInterval(provideInterval);
       clearInterval(logInterval);
