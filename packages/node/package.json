@@ -19,6 +19,7 @@
     "@libp2p/kad-dht": "^15.1.11",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
     "@pokapali/core": "0.0.0",
+    "@pokapali/log": "0.0.0",
     "@pokapali/crypto": "0.0.0",
     "@pokapali/snapshot": "0.0.0",
     "datastore-level": "^12.0.2",

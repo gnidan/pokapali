@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/log" },
     { "path": "packages/crypto" },
     { "path": "packages/capability" },
     { "path": "packages/subdocs" },

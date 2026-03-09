@@ -14,10 +14,10 @@ import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker } from "./history.js";
 import { loadState, saveState } from "./state.js";
+import { createLogger } from "@pokapali/log";
 import type { Helia } from "helia";
 
-const log = (...args: unknown[]) =>
-  console.error("[pokapali:pinner]", ...args);
+const log = createLogger("pinner");
 
 const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
@@ -111,7 +111,7 @@ export async function createPinner(
 
       const valid = await validateStructure(block);
       if (!valid) {
-        log(
+        log.warn(
           `invalid block`
           + ` ${ipnsName.slice(0, 12)}...`,
         );
@@ -121,7 +121,7 @@ export async function createPinner(
       const node = decodeSnapshot(block);
       knownNames.add(ipnsName);
       history.add(ipnsName, cid, node.ts);
-      log(
+      log.debug(
         `fetched block for`
         + ` ${ipnsName.slice(0, 12)}...`
         + ` cid=${cidStr.slice(0, 12)}...`,
@@ -129,7 +129,7 @@ export async function createPinner(
       return true;
     } catch (err) {
       const msg = (err as Error).message ?? "";
-      log(
+      log.error(
         `fetch failed for`
         + ` ${ipnsName.slice(0, 12)}...`
         + ` cid=${cidStr.slice(0, 12)}...: ${msg}`,
@@ -161,7 +161,7 @@ export async function createPinner(
         signal: AbortSignal.timeout(30_000),
       });
       const cid = result.cid;
-      log(
+      log.debug(
         `resolved ${ipnsName.slice(0, 12)}...`
         + ` -> ${cid.toString().slice(0, 12)}...`,
       );
@@ -169,7 +169,7 @@ export async function createPinner(
       return fetchByCid(ipnsName, cid.toString());
     } catch (err) {
       const msg = (err as Error).message ?? "";
-      log(
+      log.error(
         `resolve failed for`
         + ` ${ipnsName.slice(0, 12)}...: ${msg}`,
       );
@@ -180,7 +180,7 @@ export async function createPinner(
   async function resolveAll(): Promise<void> {
     const names = [...knownNames];
     if (names.length === 0) return;
-    log(`re-resolving ${names.length} names`);
+    log.debug(`re-resolving ${names.length} names`);
     await Promise.allSettled(
       names.map((n) => resolveAndFetch(n)),
     );
@@ -204,7 +204,7 @@ export async function createPinner(
     const name = ipns(helia as any);
     const names = [...knownNames];
     if (names.length === 0) return;
-    log(`republishing IPNS for ${names.length} names`);
+    log.debug(`republishing IPNS for ${names.length} names`);
 
     for (const ipnsName of names) {
       try {
@@ -228,13 +228,13 @@ export async function createPinner(
             ),
           },
         );
-        log(
+        log.debug(
           `republished IPNS for`
             + ` ${ipnsName.slice(0, 12)}...`,
         );
       } catch (err) {
         const msg = (err as Error).message ?? "";
-        log(
+        log.error(
           `IPNS republish failed for`
             + ` ${ipnsName.slice(0, 12)}...:`
             + ` ${msg}`,
@@ -275,7 +275,7 @@ export async function createPinner(
 
       // Resolve all persisted names on startup
       if (helia && knownNames.size > 0) {
-        log(
+        log.info(
           `startup: resolving`
           + ` ${knownNames.size} persisted names`,
         );
@@ -315,7 +315,7 @@ export async function createPinner(
       cidStr: string,
     ): void {
       knownNames.add(ipnsName);
-      log(
+      log.debug(
         `announcement: name=${ipnsName.slice(0, 12)}...`
         + ` cid=${cidStr.slice(0, 12)}...`,
       );

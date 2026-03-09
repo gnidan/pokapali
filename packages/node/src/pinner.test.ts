@@ -12,6 +12,24 @@ import { join } from "node:path";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
+
+// Mock IPNS modules at the top level so dynamic
+// imports inside timer callbacks resolve correctly.
+const mockResolve = vi.fn();
+const mockRepublish = vi.fn();
+const mockPubKeyFromRaw = vi.fn(() => ({
+  toMultihash: () => "mock-multihash",
+}));
+vi.mock("@helia/ipns", () => ({
+  ipns: () => ({
+    resolve: mockResolve,
+    republishRecord: mockRepublish,
+  }),
+}));
+vi.mock("@libp2p/crypto/keys", () => ({
+  publicKeyFromRaw: mockPubKeyFromRaw,
+}));
+
 import {
   generateAdminSecret,
   deriveDocKeys,
@@ -84,6 +102,12 @@ describe("pinner with mock helia", () => {
     tmpDir = await mkdtemp(
       join(tmpdir(), "pinner-test-"),
     );
+    mockResolve.mockReset();
+    mockRepublish.mockReset();
+    mockPubKeyFromRaw.mockClear();
+    mockPubKeyFromRaw.mockReturnValue({
+      toMultihash: () => "mock-multihash",
+    });
   });
 
   afterEach(async () => {
@@ -306,30 +330,13 @@ describe("pinner with mock helia", () => {
         blocks.set(cid.toString(), block);
         const mockHelia = createMockHelia(blocks);
 
-        // Mock the dynamic imports used by
-        // resolveAndFetch
-        const mockResolve = vi.fn(async () => ({
+        // Configure shared mocks for this test
+        mockResolve.mockResolvedValue({
           cid,
           record: new Uint8Array(),
-        }));
-        const mockPubKey = {
-          toMultihash: () => "mock-multihash",
-        };
+        });
 
-        vi.doMock("@helia/ipns", () => ({
-          ipns: () => ({
-            resolve: mockResolve,
-            republishRecord: vi.fn(),
-          }),
-        }));
-        vi.doMock("@libp2p/crypto/keys", () => ({
-          publicKeyFromRaw: () => mockPubKey,
-        }));
-
-        const { createPinner: createPinner2 } =
-          await import("./pinner.js");
-
-        const pinner2 = await createPinner2({
+        const pinner2 = await createPinner({
           appIds: ["test-app"],
           storagePath: tmpDir,
           helia: mockHelia as any,
@@ -348,8 +355,6 @@ describe("pinner with mock helia", () => {
         ).toHaveBeenCalled();
 
         await pinner2.stop();
-        vi.doUnmock("@helia/ipns");
-        vi.doUnmock("@libp2p/crypto/keys");
       },
     );
 
@@ -368,24 +373,12 @@ describe("pinner with mock helia", () => {
 
         const mockHelia = createMockHelia();
 
-        vi.doMock("@helia/ipns", () => ({
-          ipns: () => ({
-            resolve: vi.fn(async () => {
-              throw new Error("resolve failed");
-            }),
-            republishRecord: vi.fn(),
-          }),
-        }));
-        vi.doMock("@libp2p/crypto/keys", () => ({
-          publicKeyFromRaw: () => ({
-            toMultihash: () => "mock-multihash",
-          }),
-        }));
+        // Configure shared mock to reject
+        mockResolve.mockRejectedValue(
+          new Error("resolve failed"),
+        );
 
-        const { createPinner: createPinner2 } =
-          await import("./pinner.js");
-
-        const pinner2 = await createPinner2({
+        const pinner2 = await createPinner({
           appIds: ["test-app"],
           storagePath: tmpDir,
           helia: mockHelia as any,
@@ -401,8 +394,6 @@ describe("pinner with mock helia", () => {
         ).not.toHaveBeenCalled();
 
         await pinner2.stop();
-        vi.doUnmock("@helia/ipns");
-        vi.doUnmock("@libp2p/crypto/keys");
       },
     );
   });
@@ -417,32 +408,18 @@ describe("pinner with mock helia", () => {
         blocks.set(cid.toString(), block);
         const mockHelia = createMockHelia(blocks);
 
-        const mockRepublish = vi.fn(async () => {});
-        const mockResolve = vi.fn(async () => ({
+        // Configure shared mocks
+        mockResolve.mockResolvedValue({
           cid,
           record: new Uint8Array([1, 2, 3]),
-        }));
-
-        vi.doMock("@helia/ipns", () => ({
-          ipns: () => ({
-            resolve: mockResolve,
-            republishRecord: mockRepublish,
-          }),
-        }));
-        vi.doMock("@libp2p/crypto/keys", () => ({
-          publicKeyFromRaw: () => ({
-            toMultihash: () => "mock-multihash",
-          }),
-        }));
-
-        const { createPinner: createPinner2 } =
-          await import("./pinner.js");
+        });
+        mockRepublish.mockResolvedValue(undefined);
 
         // Install fake timers BEFORE start() so the
         // internal setTimeout uses them
-        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.useFakeTimers();
 
-        const pinner = await createPinner2({
+        const pinner = await createPinner({
           appIds: ["test-app"],
           storagePath: tmpDir,
           helia: mockHelia as any,
@@ -453,13 +430,18 @@ describe("pinner with mock helia", () => {
         await pinner.ingest("test-name", block);
 
         // Advance past the initial republish delay
-        // (5 min) + REPUBLISH_PER_NAME_DELAY_MS (5s)
+        // (5 min). Advance in steps to let async
+        // work between timer ticks resolve.
         await vi.advanceTimersByTimeAsync(
-          5 * 60_000 + 10_000,
+          5 * 60_000 + 1000,
         );
+        // Advance past REPUBLISH_PER_NAME_DELAY_MS
+        // (5s) inside republishAllIPNS
+        await vi.advanceTimersByTimeAsync(10_000);
 
+        // Stop pinner to clear intervals
+        await pinner.stop();
         vi.useRealTimers();
-        await flushAsync(200);
 
         expect(mockResolve).toHaveBeenCalled();
         expect(mockRepublish).toHaveBeenCalledWith(
@@ -469,10 +451,6 @@ describe("pinner with mock helia", () => {
             signal: expect.any(AbortSignal),
           }),
         );
-
-        await pinner.stop();
-        vi.doUnmock("@helia/ipns");
-        vi.doUnmock("@libp2p/crypto/keys");
       },
     );
 
@@ -485,30 +463,18 @@ describe("pinner with mock helia", () => {
         blocks.set(cid.toString(), block);
         const mockHelia = createMockHelia(blocks);
 
-        vi.doMock("@helia/ipns", () => ({
-          ipns: () => ({
-            resolve: vi.fn(async () => ({
-              cid,
-              record: new Uint8Array([1, 2, 3]),
-            })),
-            republishRecord: vi.fn(async () => {
-              throw new Error("DHT unavailable");
-            }),
-          }),
-        }));
-        vi.doMock("@libp2p/crypto/keys", () => ({
-          publicKeyFromRaw: () => ({
-            toMultihash: () => "mock-multihash",
-          }),
-        }));
+        // Configure shared mocks — republish fails
+        mockResolve.mockResolvedValue({
+          cid,
+          record: new Uint8Array([1, 2, 3]),
+        });
+        mockRepublish.mockRejectedValue(
+          new Error("DHT unavailable"),
+        );
 
-        const { createPinner: createPinner2 } =
-          await import("./pinner.js");
+        vi.useFakeTimers();
 
-        // Install fake timers BEFORE start()
-        vi.useFakeTimers({ shouldAdvanceTime: true });
-
-        const pinner = await createPinner2({
+        const pinner = await createPinner({
           appIds: ["test-app"],
           storagePath: tmpDir,
           helia: mockHelia as any,
@@ -516,12 +482,11 @@ describe("pinner with mock helia", () => {
         await pinner.start();
         await pinner.ingest("test-name", block);
 
+        // Advance in steps like above
         await vi.advanceTimersByTimeAsync(
-          5 * 60_000 + 10_000,
+          5 * 60_000 + 1000,
         );
-
-        vi.useRealTimers();
-        await flushAsync(200);
+        await vi.advanceTimersByTimeAsync(10_000);
 
         // Should not throw — errors are caught
         // Pinner should still be functional
@@ -529,8 +494,7 @@ describe("pinner with mock helia", () => {
         expect(tip).toBe(cid.toString());
 
         await pinner.stop();
-        vi.doUnmock("@helia/ipns");
-        vi.doUnmock("@libp2p/crypto/keys");
+        vi.useRealTimers();
       },
     );
   });

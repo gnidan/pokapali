@@ -3,6 +3,7 @@ import {
   signalingConns,
   setupSignalingHandlers,
 } from "y-webrtc";
+import { createLogger } from "@pokapali/log";
 
 /**
  * Minimal subset of @libp2p/interface PubSub needed by
@@ -25,8 +26,7 @@ export interface PubSubLike {
 const ADAPTER_KEY = "libp2p:gossipsub";
 const SIGNALING_TOPIC = "/pokapali/signaling";
 
-const log = (...args: unknown[]) =>
-  console.log("[pokapali:gossipsub]", ...args);
+const log = createLogger("gossipsub");
 
 export class GossipSubSignaling extends Observable<string> {
   readonly url = ADAPTER_KEY;
@@ -55,7 +55,7 @@ export class GossipSubSignaling extends Observable<string> {
       try {
         const text = new TextDecoder().decode(msg.data);
         const parsed = JSON.parse(text);
-        log(
+        log.debug(
           `recv ${parsed?.topic}:`,
           parsed?.data?.type,
         );
@@ -83,7 +83,7 @@ export class GossipSubSignaling extends Observable<string> {
         // topic. Subscribe once; y-webrtc filters by
         // room name in the payload.
         if (!this.subscribedTopics.has(SIGNALING_TOPIC)) {
-          log("subscribe", SIGNALING_TOPIC);
+          log.info("subscribe", SIGNALING_TOPIC);
           this.pubsub.subscribe(SIGNALING_TOPIC);
           this.subscribedTopics.add(SIGNALING_TOPIC);
         }
@@ -104,7 +104,7 @@ export class GossipSubSignaling extends Observable<string> {
               data: message.data,
             })
           );
-          log(
+          log.debug(
             `publish ${message.topic}:`,
             (message.data as any)?.type,
           );
@@ -113,9 +113,9 @@ export class GossipSubSignaling extends Observable<string> {
           ).catch((err) => {
             const msg = (err as Error)?.message ?? "";
             if (msg.includes("NoPeersSubscribed")) {
-              log("publish: no peers yet");
+              log.debug("publish: no peers yet");
             } else if (msg) {
-              log("publish error:", msg);
+              log.warn("publish error:", msg);
             }
           });
         }
@@ -137,7 +137,7 @@ export class GossipSubSignaling extends Observable<string> {
               `${t}:${p.toString().slice(-8)}`,
           ),
       );
-      log(
+      log.debug(
         "re-announce,",
         `gs-peers: ${gsPeers.length},`,
         `topics: ${topics},`,

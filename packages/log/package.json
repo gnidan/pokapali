@@ -1,5 +1,5 @@
 {
-  "name": "@pokapali/sync",
+  "name": "@pokapali/log",
   "version": "0.0.0",
   "type": "module",
   "main": "dist/src/index.js",
@@ -7,14 +7,6 @@
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@pokapali/log": "0.0.0",
-    "@pokapali/subdocs": "0.0.0",
-    "lib0": "^0.2.117",
-    "y-webrtc": "^10.3.0",
-    "y-protocols": "^1.0.6",
-    "yjs": "^13.6.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

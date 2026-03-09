@@ -2,8 +2,13 @@ import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { Relay } from "./relay.js";
 import type { Pinner } from "./pinner.js";
+import {
+  createLogger,
+  getLogLevel,
+} from "@pokapali/log";
 
 const startedAt = Date.now();
+const log = createLogger("http");
 
 export interface HttpConfig {
   port: number;
@@ -23,7 +28,9 @@ function getHealthData(config: HttpConfig) {
 
   return {
     ok: true,
-    uptime: Math.floor((Date.now() - startedAt) / 1000),
+    uptime: Math.floor(
+      (Date.now() - startedAt) / 1000,
+    ),
     peerId: relay?.peerId() ?? null,
     peers,
     connections: conns,
@@ -45,11 +52,13 @@ function getStatusData(config: HttpConfig) {
   );
 
   // GossipSub diagnostics
-  let gossipsub: Record<string, unknown> | null = null;
+  let gossipsub:
+    Record<string, unknown> | null = null;
   if (relay) {
     const pubsub =
       (relay.helia.libp2p.services as any).pubsub;
-    const gsTopics: string[] = pubsub.getTopics?.() ?? [];
+    const gsTopics: string[] =
+      pubsub.getTopics?.() ?? [];
     const gsPeers = pubsub.getPeers?.() ?? [];
     const mesh = (pubsub as any).mesh as
       | Map<string, Set<string>>
@@ -81,6 +90,7 @@ function getStatusData(config: HttpConfig) {
     wss,
     gossipsub,
     pinApps: pinAppIds,
+    logLevel: getLogLevel(),
   };
 }
 
@@ -147,7 +157,7 @@ export function startHttpServer(
           ipnsName, body,
         );
         if (accepted) {
-          console.error(
+          log.debug(
             `ingested block for ${ipnsName}`,
           );
           res.writeHead(200, {
@@ -155,7 +165,7 @@ export function startHttpServer(
           });
           res.end(JSON.stringify({ ok: true }));
         } else {
-          console.error(
+          log.warn(
             `rejected block for ${ipnsName}`,
           );
           res.writeHead(429, {

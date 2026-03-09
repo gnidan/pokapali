@@ -17,6 +17,7 @@ import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { announceTopic } from "@pokapali/core/announce";
+import { createLogger } from "@pokapali/log";
 
 // Even with client-mode DHT, peers accumulate via
 // identify/ping. Set high enough that the connection
@@ -30,8 +31,7 @@ const RAW_CODEC = 0x55;
 const PROVIDE_INTERVAL_MS = 5 * 60_000;
 const LOG_INTERVAL_MS = 30_000;
 
-const log = (...args: unknown[]) =>
-  console.error("[pokapali:relay]", ...args);
+const log = createLogger("relay");
 
 export async function appIdToCID(
   appId: string,
@@ -61,14 +61,14 @@ async function loadOrCreateKey(
   try {
     const buf = await readFile(keyPath);
     const key = privateKeyFromProtobuf(buf);
-    log("loaded existing key from", keyPath);
+    log.info("loaded existing key from", keyPath);
     return key;
   } catch {
     // Generate new key and persist it
     const key = await generateKeyPair("Ed25519");
     await mkdir(storagePath, { recursive: true });
     await writeFile(keyPath, privateKeyToProtobuf(key));
-    log("generated new key, saved to", keyPath);
+    log.info("generated new key, saved to", keyPath);
     return key;
   }
 }
@@ -190,26 +190,26 @@ export async function startRelay(
     },
   }) as Helia;
 
-  log("started, peer ID:", helia.libp2p.peerId);
+  log.info("started, peer ID:", helia.libp2p.peerId);
 
   const addrs = helia.libp2p.getMultiaddrs();
   for (const ma of addrs) {
-    log("  listening:", ma.toString());
+    log.info("  listening:", ma.toString());
   }
 
   // Dial ONE bootstrap peer to trigger self:peer:update
   // (needed for autoTLS cert provisioning).
-  log("dialing bootstrap peer...");
+  log.info("dialing bootstrap peer...");
   for (const addr of bootstrapAddrs) {
     try {
       await helia.libp2p.dial(multiaddr(addr));
-      log(
+      log.info(
         "  dialed",
         addr.split("/p2p/")[1]?.slice(0, 12),
       );
       break; // one is enough
     } catch {
-      log(
+      log.warn(
         "  failed to dial",
         addr.split("/p2p/")[1]?.slice(0, 12),
       );
@@ -232,7 +232,7 @@ export async function startRelay(
         resolve(v);
       };
       const timer = setTimeout(() => {
-        log("autoTLS timeout, proceeding without WSS");
+        log.warn("autoTLS timeout, proceeding without WSS");
         done(false);
       }, CERT_WAIT_MS);
 
@@ -240,7 +240,7 @@ export async function startRelay(
         "certificate:provision",
         () => {
           clearTimeout(timer);
-          log("certificate obtained!");
+          log.info("certificate obtained!");
           done(true);
         },
         { once: true },
@@ -254,7 +254,7 @@ export async function startRelay(
         const closeAll = async () => {
           const conns =
             helia.libp2p.getConnections();
-          log(
+          log.debug(
             `closing ${conns.length}`,
             `connections for cert`,
           );
@@ -262,7 +262,7 @@ export async function startRelay(
             conns.map((c) => c.close()),
           );
         };
-        log("cert not yet obtained, closing conns");
+        log.debug("cert not yet obtained, closing conns");
         closeAll();
         closeTimer = setInterval(closeAll, 3_000);
       }, CERT_GRACE_MS);
@@ -283,23 +283,23 @@ export async function startRelay(
       .getMultiaddrs()
       .filter((ma) => ma.toString().includes("/tls/"));
     for (const a of wssAddrs) {
-      log("  WSS:", a.toString());
+      log.info("  WSS:", a.toString());
     }
   }
 
   // Re-dial bootstrap peers — the closeAll() during cert
   // wait killed all DHT peers, so we need to rebuild the
   // routing table before we can provide.
-  log("re-dialing bootstrap peers...");
+  log.info("re-dialing bootstrap peers...");
   for (const addr of bootstrapAddrs) {
     try {
       await helia.libp2p.dial(multiaddr(addr));
-      log(
+      log.info(
         "  dialed",
         addr.split("/p2p/")[1]?.slice(0, 12),
       );
     } catch {
-      log(
+      log.warn(
         "  failed to dial",
         addr.split("/p2p/")[1]?.slice(0, 12),
       );
@@ -312,14 +312,14 @@ export async function startRelay(
   const pubsub = (helia.libp2p.services as any).pubsub;
   pubsub.subscribe(DISCOVERY_TOPIC);
   pubsub.subscribe(SIGNALING_TOPIC);
-  log("subscribed to", DISCOVERY_TOPIC);
-  log("subscribed to", SIGNALING_TOPIC);
+  log.info("subscribed to", DISCOVERY_TOPIC);
+  log.info("subscribed to", SIGNALING_TOPIC);
 
   // Subscribe to announcement topics for pinned apps
   for (const appId of config.pinAppIds ?? []) {
     const topic = announceTopic(appId);
     pubsub.subscribe(topic);
-    log("subscribed to", topic);
+    log.info("subscribed to", topic);
   }
 
   // Provide a single network-wide CID so browsers
@@ -337,13 +337,13 @@ export async function startRelay(
         signal: ctrl.signal,
       });
       clearTimeout(timer);
-      log("provide OK for network CID");
+      log.debug("provide OK for network CID");
     } catch (err) {
       const msg = (err as Error).message ?? "";
       if (msg.includes("abort")) {
-        log("provide TIMEOUT for network CID");
+        log.warn("provide TIMEOUT for network CID");
       } else {
-        log(`provide FAIL for network CID: ${msg}`);
+        log.error(`provide FAIL for network CID: ${msg}`);
       }
     }
   }
@@ -351,7 +351,7 @@ export async function startRelay(
   // Initial provide after a short delay to let DHT
   // routing table fill from bootstrap peer walks.
   setTimeout(() => {
-    log("initial provide starting...");
+    log.debug("initial provide starting...");
     provideAll();
   }, 10_000);
 
@@ -360,7 +360,7 @@ export async function startRelay(
   helia.libp2p.addEventListener(
     "certificate:provision",
     () => {
-      log("certificate obtained, re-providing");
+      log.info("certificate obtained, re-providing");
       setTimeout(() => provideAll(), 10_000);
     },
   );
@@ -391,7 +391,7 @@ export async function startRelay(
           ([t, s]) => `${t}:${s.size}`,
         )
       : "no-mesh";
-    log(
+    log.debug(
       `${conns.length} conns,`,
       `${peers.length} peers,`,
       `gs: ${gsPeers.length} peers,`,
@@ -432,13 +432,13 @@ export async function startRelay(
       const shortTopic = topic.length > 30
         ? "..." + topic.slice(-25)
         : topic;
-      log(`  ${shortTopic}: ${details.join(" ")}`);
+      log.debug(`  ${shortTopic}: ${details.join(" ")}`);
     }
 
     if (ma.length !== lastAddrCount) {
       lastAddrCount = ma.length;
       for (const a of ma) {
-        log("  addr:", a.toString());
+        log.debug("  addr:", a.toString());
       }
     }
   }, LOG_INTERVAL_MS);
@@ -450,7 +450,7 @@ export async function startRelay(
       clearInterval(provideInterval);
       clearInterval(logInterval);
       await helia.stop();
-      log("stopped");
+      log.info("stopped");
     },
 
     multiaddrs() {
