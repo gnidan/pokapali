@@ -55,7 +55,6 @@ import {
 } from "./helia.js";
 import {
   publishIPNS,
-  resolveIPNS,
   watchIPNS,
 } from "./ipns-helpers.js";
 import {
@@ -398,6 +397,12 @@ function createCollabDoc(
       const plaintext =
         await decryptSnapshot(node, rk);
       subdocManager.applySnapshot(plaintext);
+      // Update chain state so subsequent pushSnapshot
+      // continues from this point rather than seq=1.
+      if (node.seq >= seq) {
+        prev = cid;
+        seq = node.seq + 1;
+      }
       lastAppliedCid = cidStr;
       // Clear pending since we succeeded
       if (pendingCid === cidStr) pendingCid = null;
@@ -1217,52 +1222,10 @@ export function createCollabLib(
           );
       }
 
-      // Resolve IPNS to load the latest snapshot from
-      // the network on startup. Works for both writers
-      // (recovery after all tabs closed) and readers.
-      // Non-blocking so the doc opens immediately for
-      // WebRTC sync; Yjs CRDT merge is safe.
-      const initialResolve =
-        keys.readKey
-          ? (async () => {
-              try {
-                const pubKeyBytes =
-                  hexToBytes(ipnsName);
-                const helia = getHelia();
-                const tipCid = await resolveIPNS(
-                  helia,
-                  pubKeyBytes,
-                );
-                if (tipCid) {
-                  console.log(
-                    "[pokapali] IPNS resolved:",
-                    tipCid.toString(),
-                  );
-                  const block =
-                    await fetchBlock(helia, tipCid);
-                  const node = decodeSnapshot(block);
-                  const rk = keys.readKey!;
-                  const plaintext =
-                    await decryptSnapshot(node, rk);
-                  subdocManager.applySnapshot(plaintext);
-                  console.log(
-                    "[pokapali] initial snapshot applied",
-                  );
-                } else {
-                  console.log(
-                    "[pokapali] IPNS resolve returned" +
-                      " null",
-                  );
-                }
-              } catch (err) {
-                console.error(
-                  "[pokapali] initial snapshot" +
-                    " load failed:",
-                  err,
-                );
-              }
-            })()
-          : undefined;
+      // Initial IPNS resolve + snapshot load is handled
+      // inside createCollabDoc via watchIPNS (fires
+      // immediately on first poll) and applySnapshotFromCID
+      // which properly updates seq/prev chain state.
 
       const doc = createCollabDoc({
         subdocManager,
