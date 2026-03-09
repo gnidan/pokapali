@@ -561,7 +561,6 @@ export function EditorView({
             {docTitle || "Untitled"}
           </button>
         )}
-        <span className="header-spacer" />
         <span className="encryption-wrap">
           <button
             className="encryption-btn"

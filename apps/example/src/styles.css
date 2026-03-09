@@ -217,9 +217,6 @@ body {
   font-weight: 600;
 }
 
-.header-spacer {
-  flex: 1;
-}
 
 /* Encryption info */
 
@@ -598,6 +595,8 @@ body {
 }
 
 .doc-title {
+  flex: 1;
+  min-width: 0;
   font-size: 0.95rem;
   font-weight: 500;
   color: #1a1a1a;
@@ -606,10 +605,10 @@ body {
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
   cursor: pointer;
-  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
 
 .doc-title:hover:not(:disabled) {
@@ -623,6 +622,8 @@ body {
 }
 
 .doc-title-input {
+  flex: 1;
+  min-width: 0;
   font-size: 0.95rem;
   font-weight: 500;
   color: #1a1a1a;
@@ -630,7 +631,6 @@ body {
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
   outline: none;
-  max-width: 200px;
 }
 
 .toggle-share {
