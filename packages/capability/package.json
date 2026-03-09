@@ -8,6 +8,7 @@
     "build": "tsc --build",
     "test": "vitest run"
   },
+  "license": "MIT",
   "dependencies": {
     "@pokapali/crypto": "0.0.0"
   },
