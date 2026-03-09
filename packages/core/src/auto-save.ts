@@ -42,7 +42,7 @@ export function createAutoSaver(
   }
 
   function onBeforeUnload(e: BeforeUnloadEvent) {
-    if (doc.status === "unpushed-changes") {
+    if (doc.saveState === "dirty") {
       e.preventDefault();
     }
   }
@@ -50,7 +50,7 @@ export function createAutoSaver(
   function onVisibilityChange() {
     if (
       document.visibilityState === "hidden" &&
-      doc.status === "unpushed-changes"
+      doc.saveState === "dirty"
     ) {
       doSave();
     }

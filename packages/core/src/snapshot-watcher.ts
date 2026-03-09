@@ -29,6 +29,14 @@ export type SnapshotFetchState =
   | { status: "failed"; cid: string;
       error: string };
 
+export type GossipActivity =
+  | "inactive"
+  | "subscribed"
+  | "receiving";
+
+const GOSSIP_RECENCY_MS = 60_000;
+const GOSSIP_DECAY_MS = 30_000;
+
 export interface SnapshotWatcherOptions {
   appId: string;
   ipnsName: string;
@@ -41,6 +49,9 @@ export interface SnapshotWatcherOptions {
     state: SnapshotFetchState,
   ) => void;
   onAck?: (peerId: string) => void;
+  onGossipActivityChange?: (
+    activity: GossipActivity,
+  ) => void;
   performInitialResolve?: boolean;
 }
 
@@ -63,6 +74,9 @@ export interface SnapshotWatcher {
   readonly hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
   readonly ackedBy: ReadonlySet<string>;
+  /** GossipSub liveness: inactive → subscribed →
+   *  receiving. Decays after 60s without messages. */
+  readonly gossipActivity: GossipActivity;
   destroy(): void;
 }
 
@@ -98,6 +112,52 @@ export function createSnapshotWatcher(
     typeof setTimeout
   > | null = null;
 
+  // --- GossipSub liveness tracking ---
+  let lastGossipMessageAt = 0;
+  let gossipSubscribed = false;
+  let gossipDecayTimer: ReturnType<
+    typeof setInterval
+  > | null = null;
+  let lastReportedGossipActivity:
+    GossipActivity = "inactive";
+
+  function currentGossipActivity(): GossipActivity {
+    if (
+      lastGossipMessageAt > 0 &&
+      Date.now() - lastGossipMessageAt
+        < GOSSIP_RECENCY_MS
+    ) {
+      return "receiving";
+    }
+    if (gossipSubscribed) return "subscribed";
+    return "inactive";
+  }
+
+  function checkGossipActivity() {
+    const next = currentGossipActivity();
+    if (next !== lastReportedGossipActivity) {
+      lastReportedGossipActivity = next;
+      options.onGossipActivityChange?.(next);
+    }
+  }
+
+  function touchGossip() {
+    lastGossipMessageAt = Date.now();
+    checkGossipActivity();
+  }
+
+  function markGossipSubscribed() {
+    gossipSubscribed = true;
+    checkGossipActivity();
+  }
+
+  // Decay timer: check every 30s whether
+  // "receiving" has expired.
+  gossipDecayTimer = setInterval(
+    checkGossipActivity,
+    GOSSIP_DECAY_MS,
+  );
+
   function setFetchState(s: SnapshotFetchState) {
     fetchState = s;
     options.onFetchStateChange?.(s);
@@ -110,6 +170,7 @@ export function createSnapshotWatcher(
   if (!isWriter) {
     log.debug("subscribing to announce topic:", topic);
     pubsub.subscribe(topic);
+    markGossipSubscribed();
   }
 
   function scheduleRetry() {
@@ -166,6 +227,8 @@ export function createSnapshotWatcher(
     const ann = parseAnnouncement(detail.data);
     if (!ann || ann.ipnsName !== ipnsName) return;
     if (destroyed) return;
+
+    touchGossip();
 
     // Handle pinner ack
     if (ann.ack) {
@@ -423,6 +486,7 @@ export function createSnapshotWatcher(
       // Subscribe so writer joins the GossipSub
       // mesh for the announce topic.
       pubsub.subscribe(topic);
+      markGossipSubscribed();
 
       reannounceGetCid = getCid;
       reannounceGetBlock = getBlock;
@@ -460,11 +524,19 @@ export function createSnapshotWatcher(
       return ackedBy;
     },
 
+    get gossipActivity(): GossipActivity {
+      return currentGossipActivity();
+    },
+
     destroy() {
       destroyed = true;
       if (announceTimer) {
         clearInterval(announceTimer);
         announceTimer = null;
+      }
+      if (gossipDecayTimer) {
+        clearInterval(gossipDecayTimer);
+        gossipDecayTimer = null;
       }
       if (stopWatch) {
         stopWatch();

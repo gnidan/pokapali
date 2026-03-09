@@ -68,6 +68,7 @@ import {
 import type {
   SnapshotWatcher,
   SnapshotFetchState,
+  GossipActivity,
 } from "./snapshot-watcher.js";
 import {
   createRelaySharing,
@@ -97,10 +98,19 @@ export interface CollabLibOptions {
 
 export type DocStatus =
   | "connecting"
-  | "syncing"
   | "synced"
-  | "offline"
-  | "unpushed-changes";
+  | "receiving"
+  | "offline";
+
+export type SaveState =
+  | "saved"
+  | "unpublished"
+  | "saving"
+  | "dirty";
+
+export type {
+  GossipActivity,
+} from "./snapshot-watcher.js";
 
 export type { SnapshotFetchState } from
   "./snapshot-watcher.js";
@@ -155,6 +165,8 @@ export interface CollabDoc {
   readonly role: DocRole;
   inviteUrl(grant: CapabilityGrant): Promise<string>;
   readonly status: DocStatus;
+  /** Persistence state (dirty → saving → saved). */
+  readonly saveState: SaveState;
   /** Peer IDs of relays discovered for this app. */
   readonly relayPeerIds: ReadonlySet<string>;
   /** Sum of all Y.Doc state vector clocks. */
@@ -189,6 +201,10 @@ export interface CollabDoc {
     cb: (state: SnapshotFetchState) => void,
   ): void;
   on(event: "ack", cb: (peerId: string) => void): void;
+  on(
+    event: "save-state",
+    cb: (state: SaveState) => void,
+  ): void;
   off(
     event: "status",
     cb: (status: DocStatus) => void,
@@ -206,6 +222,10 @@ export interface CollabDoc {
     cb: (state: SnapshotFetchState) => void,
   ): void;
   off(event: "ack", cb: (peerId: string) => void): void;
+  off(
+    event: "save-state",
+    cb: (state: SaveState) => void,
+  ): void;
   diagnostics(): DiagnosticsInfo;
   history(): Promise<
     Array<{
@@ -235,12 +255,26 @@ type SyncStatus =
 
 function computeStatus(
   syncStatus: SyncStatus,
-  isDirty: boolean,
+  awarenessConnected: boolean,
+  gossipActivity: GossipActivity,
 ): DocStatus {
-  if (syncStatus === "disconnected") return "offline";
+  if (syncStatus === "connected") return "synced";
   if (syncStatus === "connecting") return "connecting";
-  if (isDirty) return "unpushed-changes";
-  return "synced";
+  if (awarenessConnected) return "receiving";
+  if (gossipActivity === "receiving") return "receiving";
+  if (gossipActivity === "subscribed") {
+    return "connecting";
+  }
+  return "offline";
+}
+
+function computeSaveState(
+  isDirty: boolean,
+  isSaving: boolean,
+): SaveState {
+  if (isSaving) return "saving";
+  if (isDirty) return "dirty";
+  return "saved";
 }
 
 interface CollabDocParams {
@@ -312,19 +346,40 @@ function createCollabDoc(
     }
   }
 
+  // --- Status tracking (3 inputs) ---
+  let gossipActivity: GossipActivity = "inactive";
+  let isSaving = false;
+
   let lastStatus = computeStatus(
     syncManager.status,
+    awarenessRoom.connected,
+    gossipActivity,
+  );
+  let lastSaveState = computeSaveState(
     subdocManager.isDirty,
+    isSaving,
   );
 
   function checkStatus() {
     const next = computeStatus(
       syncManager.status,
-      subdocManager.isDirty,
+      awarenessRoom.connected,
+      gossipActivity,
     );
     if (next !== lastStatus) {
       lastStatus = next;
       emit("status", next);
+    }
+  }
+
+  function checkSaveState() {
+    const next = computeSaveState(
+      subdocManager.isDirty,
+      isSaving,
+    );
+    if (next !== lastSaveState) {
+      lastSaveState = next;
+      emit("save-state", next);
     }
   }
 
@@ -343,7 +398,7 @@ function createCollabDoc(
   }
 
   subdocManager.on("dirty", () => {
-    checkStatus();
+    checkSaveState();
     emit("snapshot-recommended");
     awarenessRoom.awareness.setLocalStateField(
       "clockSum",
@@ -352,6 +407,7 @@ function createCollabDoc(
   });
 
   syncManager.onStatusChange(() => checkStatus());
+  awarenessRoom.onStatusChange(() => checkStatus());
 
   // If the subdoc is already dirty (e.g. _meta was
   // populated before we registered), fire the event
@@ -360,7 +416,7 @@ function createCollabDoc(
     // Defer to next microtask so callers can attach
     // event listeners first.
     queueMicrotask(() => {
-      checkStatus();
+      checkSaveState();
       emit("snapshot-recommended");
     });
   }
@@ -397,6 +453,10 @@ function createCollabDoc(
         params.performInitialResolve,
       onAck: (peerId) => {
         emit("ack", peerId);
+      },
+      onGossipActivityChange: (activity) => {
+        gossipActivity = activity;
+        checkStatus();
       },
       onFetchStateChange: (state) => {
         emit("fetch-state", state);
@@ -568,7 +628,15 @@ function createCollabDoc(
     get status(): DocStatus {
       return computeStatus(
         syncManager.status,
+        awarenessRoom.connected,
+        gossipActivity,
+      );
+    },
+
+    get saveState(): SaveState {
+      return computeSaveState(
         subdocManager.isDirty,
+        isSaving,
       );
     },
 
@@ -617,6 +685,9 @@ function createCollabDoc(
       ) {
         return;
       }
+      isSaving = true;
+      checkSaveState();
+
       const plaintext = subdocManager.encodeAll();
       const clockSum = this.clockSum;
       const { cid, block } = await snapshotLC.push(
@@ -626,11 +697,13 @@ function createCollabDoc(
         clockSum,
       );
 
-      checkStatus();
+      isSaving = false;
+      checkSaveState();
       emit("snapshot-applied");
 
       // Reset ack tracking synchronously so the UI
-      // clears immediately and early acks aren't dropped.
+      // clears immediately and early acks aren't
+      // dropped.
       snapshotWatcher?.trackCidForAcks(
         cid.toString(),
       );

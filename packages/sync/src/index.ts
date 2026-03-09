@@ -90,6 +90,8 @@ export function setupNamespaceRooms(
 
 export interface AwarenessRoom {
   readonly awareness: Awareness;
+  readonly connected: boolean;
+  onStatusChange(cb: () => void): void;
   destroy(): void;
 }
 
@@ -117,11 +119,27 @@ export function setupAwarenessRoom(
     }),
   });
 
+  const statusListeners: Array<() => void> = [];
+
+  function notifyStatus() {
+    for (const cb of statusListeners) cb();
+  }
+
+  provider.on("status", notifyStatus);
+
   return {
     get awareness(): Awareness {
       return provider.awareness;
     },
+    get connected(): boolean {
+      return provider.connected;
+    },
+    onStatusChange(cb: () => void) {
+      statusListeners.push(cb);
+    },
     destroy() {
+      statusListeners.length = 0;
+      provider.off("status", notifyStatus);
       provider.disconnect();
       provider.destroy();
       dummyDoc.destroy();
@@ -135,18 +153,12 @@ function aggregateStatus(
   if (providers.length === 0) {
     return "disconnected";
   }
-  let allConnected = true;
-  let anyConnecting = false;
-  for (const p of providers) {
-    if (!p.connected) {
-      allConnected = false;
-      if (p.shouldConnect) {
-        anyConnecting = true;
-      }
-    }
+  if (providers.some((p) => p.connected)) {
+    return "connected";
   }
-  if (allConnected) return "connected";
-  if (anyConnecting) return "connecting";
+  if (providers.some((p) => p.shouldConnect)) {
+    return "connecting";
+  }
   return "disconnected";
 }
 
