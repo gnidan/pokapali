@@ -137,20 +137,12 @@ export function ConnectionStatus({
 
   useEffect(() => {
     setInfo(gatherInfo(doc));
-    if (!expanded) {
-      // Even when collapsed, listen for awareness
-      // changes to keep staleness indicator current
-      const onAwareness = () => {
-        setInfo(gatherInfo(doc));
-      };
-      doc.awareness.on("change", onAwareness);
-      return () => {
-        doc.awareness.off("change", onAwareness);
-      };
-    }
-    const poll = setInterval(() => {
-      setInfo(gatherInfo(doc));
-    }, 2000);
+    // Faster poll when expanded, slower when collapsed
+    const interval = expanded ? 2000 : 5000;
+    const poll = setInterval(
+      () => setInfo(gatherInfo(doc)),
+      interval,
+    );
     return () => clearInterval(poll);
   }, [doc, expanded]);
 
