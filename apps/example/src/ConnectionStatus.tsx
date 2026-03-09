@@ -305,7 +305,7 @@ function NetworkDetail({
 }) {
   const gs = info.gossipsub;
   return (
-    <div className="cs-detail-section cs-detail-wide">
+    <div className="cs-detail-section">
       <div className="cs-detail-heading">
         Network
       </div>

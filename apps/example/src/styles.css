@@ -628,10 +628,6 @@ body {
   min-width: 0;
 }
 
-.cs-detail-wide {
-  grid-column: 1 / -1;
-}
-
 .cs-detail-heading {
   font-weight: 600;
   font-size: 0.7rem;
