@@ -9,25 +9,11 @@ import {
   type RecentDoc,
 } from "./recentDocs";
 
-const LOCAL_SIGNALING = "ws://localhost:4444";
-const PUBLIC_SIGNALING =
-  "wss://signaling.yjs.dev";
-
-const signalingParam = new URLSearchParams(
-  window.location.search,
-).get("signaling");
-
-const signalingUrls =
-  window.location.hostname === "localhost"
-    ? [LOCAL_SIGNALING, PUBLIC_SIGNALING]
-    : [signalingParam || PUBLIC_SIGNALING];
-
 const collab = createCollabLib({
   appId: "pokapali-example",
   namespaces: ["content"],
   base: window.location.origin +
     import.meta.env.BASE_URL.replace(/\/$/, ""),
-  signalingUrls,
 });
 
 function roleOf(doc: CollabDoc): string {
