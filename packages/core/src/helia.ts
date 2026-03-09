@@ -41,6 +41,9 @@ export async function acquireHelia(
       // connections to relays, preventing all connections
       // from being pruned during idle periods.
       minConnections: 5,
+      // Keep low to prevent accumulating DHT/bootstrap
+      // peers that trigger pruning of relay connections.
+      maxConnections: 25,
     },
     peerDiscovery: [
       ...(defaults.peerDiscovery ?? []),

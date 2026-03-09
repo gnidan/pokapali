@@ -310,8 +310,9 @@ describe("startRoomDiscovery", () => {
       return rd;
     }
 
-    it("untracks relay and triggers redial " +
-       "after backoff delay", async () => {
+    it("keeps relay tracked during reconnect " +
+       "and triggers redial after backoff",
+      async () => {
       vi.mocked(loadCachedRelays)
         .mockReturnValue([{
           peerId: RELAY_PID,
@@ -327,12 +328,12 @@ describe("startRoomDiscovery", () => {
         toString: () => RELAY_PID,
       });
 
-      // Relay should be untracked immediately
+      // Relay stays tracked during reconnect
       expect(rd.relayPeerIds.has(RELAY_PID))
-        .toBe(false);
+        .toBe(true);
       expect(rd.relayEntries().some(
         (e) => e.peerId === RELAY_PID,
-      )).toBe(false);
+      )).toBe(true);
 
       // No redial yet (backoff delay)
       await vi.advanceTimersByTimeAsync(1);
@@ -439,22 +440,15 @@ describe("startRoomDiscovery", () => {
       expect(helia.libp2p.dial)
         .toHaveBeenCalledTimes(1);
 
-      // Re-track via addExternalRelays so we
-      // can test second disconnect. First let the
-      // failed addExternalRelays dial finish.
+      // Let the failed dial settle. Relay stays
+      // tracked (no re-add needed).
       await vi.advanceTimersByTimeAsync(1);
-      helia.libp2p.dial.mockResolvedValue({});
-      rd.addExternalRelays([{
-        peerId: RELAY_PID,
-        addrs: RELAY_ADDRS,
-      }]);
-      await vi.advanceTimersByTimeAsync(1);
-      helia.libp2p.dial.mockRejectedValue(
-        new Error("refused"),
-      );
       helia.libp2p.dial.mockClear();
 
       // Second disconnect: 10s delay (5s * 2^1)
+      helia.libp2p.dial.mockRejectedValue(
+        new Error("refused"),
+      );
       helia._emit("peer:disconnect", {
         toString: () => RELAY_PID,
       });
@@ -468,8 +462,8 @@ describe("startRoomDiscovery", () => {
       rd.stop();
     });
 
-    it("stops retrying after max attempts",
-      async () => {
+    it("stops retrying after max attempts " +
+       "and untracks relay", async () => {
       vi.mocked(loadCachedRelays)
         .mockReturnValue([{
           peerId: RELAY_PID,
@@ -483,12 +477,17 @@ describe("startRoomDiscovery", () => {
         new Error("refused"),
       );
 
-      // Simulate 3 disconnect+fail cycles
-      for (let i = 0; i < 3; i++) {
+      // Simulate 8 disconnect+fail cycles
+      for (let i = 0; i < 8; i++) {
         helia.libp2p.dial.mockClear();
         helia._emit("peer:disconnect", {
           toString: () => RELAY_PID,
         });
+
+        // Relay stays tracked during window
+        expect(rd.relayPeerIds.has(RELAY_PID))
+          .toBe(true);
+
         const delay = 5_000 * Math.pow(2, i);
         await vi.advanceTimersByTimeAsync(
           delay + 1,
@@ -496,28 +495,48 @@ describe("startRoomDiscovery", () => {
         expect(helia.libp2p.dial)
           .toHaveBeenCalledTimes(1);
 
-        // Re-track for next disconnect
+        // Let failed dial settle
         await vi.advanceTimersByTimeAsync(1);
-        helia.libp2p.dial.mockResolvedValue({});
-        rd.addExternalRelays([{
-          peerId: RELAY_PID,
-          addrs: RELAY_ADDRS,
-        }]);
-        await vi.advanceTimersByTimeAsync(1);
-        helia.libp2p.dial.mockRejectedValue(
-          new Error("refused"),
-        );
       }
 
-      // 4th disconnect: max attempts reached,
-      // no redial scheduled
+      // 9th disconnect: max attempts reached,
+      // relay untracked, no redial scheduled
       helia.libp2p.dial.mockClear();
       helia._emit("peer:disconnect", {
         toString: () => RELAY_PID,
       });
-      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(rd.relayPeerIds.has(RELAY_PID))
+        .toBe(false);
+
+      await vi.advanceTimersByTimeAsync(
+        5_000 * Math.pow(2, 8) + 1,
+      );
       expect(helia.libp2p.dial)
         .not.toHaveBeenCalled();
+
+      rd.stop();
+    });
+
+    it("tags relay peer in peerStore on track",
+      async () => {
+      const remotePeer = {
+        toString: () => RELAY_PID,
+      };
+      helia.libp2p.getConnections
+        .mockReturnValue([{ remotePeer }]);
+
+      const rd = await setupTrackedRelay(helia);
+
+      expect(helia.libp2p.peerStore.merge)
+        .toHaveBeenCalledWith(
+          remotePeer,
+          {
+            tags: {
+              "pokapali-relay": { value: 100 },
+            },
+          },
+        );
 
       rd.stop();
     });
