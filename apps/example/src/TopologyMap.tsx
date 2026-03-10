@@ -369,13 +369,21 @@ function NodeShape({ pos, pulse }: {
       />
     );
   } else if (n.kind === "relay+pinner") {
-    // Hexagon with rounded-rect outline
+    // Composite: relay rounded-rect outline + pinner
+    // hexagon fill — visually conveys both roles
     shape = (
-      <PinnerShape
-        x={pos.x} y={pos.y}
-        fill={fill} stroke={stroke}
-        opacity={op} sw={2.5}
-      />
+      <>
+        <RelayShape
+          x={pos.x} y={pos.y}
+          fill="none" stroke={COLORS.relay}
+          opacity={op} sw={2}
+        />
+        <PinnerShape
+          x={pos.x} y={pos.y}
+          fill={fill} stroke={stroke}
+          opacity={op} sw={1.5}
+        />
+      </>
     );
   } else {
     // Browser peer
@@ -603,12 +611,27 @@ function Legend() {
       <text x={47} y={7} className="topo-legend-text">
         Pinner
       </text>
+      {/* Dual relay+pinner */}
+      <g transform="translate(80,0)">
+        <rect
+          x={-1} y={-1} width={12} height={9}
+          rx={2} fill="none"
+          stroke={COLORS.relay} strokeWidth={1}
+        />
+        <polygon
+          points="5,0 10,3.5 5,7 0,3.5"
+          fill={COLORS["relay+pinner"]}
+        />
+      </g>
+      <text x={95} y={7} className="topo-legend-text">
+        Both
+      </text>
       {/* Browser */}
       <circle
-        cx={80} cy={3.5} r={3.5}
+        cx={116} cy={3.5} r={3.5}
         fill={COLORS.browser}
       />
-      <text x={86} y={7} className="topo-legend-text">
+      <text x={122} y={7} className="topo-legend-text">
         Peer
       </text>
     </g>
