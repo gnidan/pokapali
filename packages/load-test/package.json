@@ -10,10 +10,25 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "start": "node dist/src/index.js",
     "test": "vitest run"
   },
+  "license": "MIT",
   "dependencies": {
-    "@pokapali/log": "0.0.0"
+    "@chainsafe/libp2p-gossipsub": "^14.1.2",
+    "@helia/ipns": "^8.2.4",
+    "@ipld/dag-cbor": "^9.2.0",
+    "@libp2p/crypto": "^5.0.0",
+    "@libp2p/kad-dht": "^15.1.11",
+    "@pokapali/core": "0.0.0",
+    "@pokapali/crypto": "0.0.0",
+    "@pokapali/log": "0.0.0",
+    "@pokapali/snapshot": "0.0.0",
+    "@pokapali/subdocs": "0.0.0",
+    "helia": "^5.5.1",
+    "ipns": "^10.0.0",
+    "multiformats": "^13.3.0",
+    "yjs": "^13.6.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

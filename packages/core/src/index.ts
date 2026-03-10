@@ -132,6 +132,8 @@ export interface NodeInfo {
   short: string;
   connected: boolean;
   roles: string[];
+  /** True after a caps broadcast confirms roles. */
+  rolesConfirmed: boolean;
   ackedCurrentCid: boolean;
   lastSeenAt: number;
 }
@@ -967,22 +969,29 @@ function createCollabDoc(
             .values()
           ) {
             seenPids.add(node.peerId);
+            const acked =
+              ackedSet.has(node.peerId);
+            // If peer acked, it's a pinner even
+            // if caps didn't include that role.
+            const roles = acked &&
+              !node.roles.includes("pinner")
+              ? [...node.roles, "pinner"]
+              : node.roles;
             nodeList.push({
               peerId: node.peerId,
               short: node.peerId.slice(-8),
               connected: node.connected,
-              roles: node.roles,
-              ackedCurrentCid:
-                ackedSet.has(node.peerId),
+              roles,
+              rolesConfirmed: true,
+              ackedCurrentCid: acked,
               lastSeenAt: node.lastSeenAt,
             });
           }
         }
 
         // Merge DHT-discovered relays not yet in
-        // the registry (e.g. before first caps
-        // message arrives or relay hasn't deployed
-        // caps broadcasting yet).
+        // the registry (before caps broadcast).
+        // Roles unknown until caps arrives.
         const dhtRelays =
           params.roomDiscovery?.relayPeerIds;
         if (dhtRelays) {
@@ -993,13 +1002,14 @@ function createCollabDoc(
               (c: any) =>
                 c.remotePeer.toString() === pid,
             );
+            const acked = ackedSet.has(pid);
             nodeList.push({
               peerId: pid,
               short: pid.slice(-8),
               connected,
-              roles: ["relay"],
-              ackedCurrentCid:
-                ackedSet.has(pid),
+              roles: acked ? ["pinner"] : [],
+              rolesConfirmed: false,
+              ackedCurrentCid: acked,
               lastSeenAt: 0,
             });
           }

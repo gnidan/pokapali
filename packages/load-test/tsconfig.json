@@ -6,6 +6,10 @@
   },
   "include": ["src", "bin"],
   "references": [
-    { "path": "../log" }
+    { "path": "../log" },
+    { "path": "../crypto" },
+    { "path": "../snapshot" },
+    { "path": "../subdocs" },
+    { "path": "../core" }
   ]
 }
