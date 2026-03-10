@@ -10,13 +10,13 @@ package would also work but pulls in more code than needed.
 ## yjs ^13.6.0
 
 The CRDT engine. v13 is the current stable line with subdocument
-support required for namespace isolation. Well-maintained and widely
+support required for channel isolation. Well-maintained and widely
 deployed.
 
 ## y-webrtc ^10.3.0
 
 P2P real-time sync provider. v10.x includes the `password` option for
-room encryption (used for namespace access key enforcement). Signaling
+room encryption (used for channel access key enforcement). Signaling
 is handled exclusively via GossipSub through the libp2p mesh — no
 WebSocket signaling servers are used.
 

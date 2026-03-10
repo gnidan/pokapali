@@ -1,6 +1,16 @@
 # P2P Collaborative Text Editor — Architecture Reference
 
-A serverless, encrypted, peer-to-peer collaborative document sync library using Yjs subdocuments, WebRTC, IndexedDB, and Helia/IPFS for offline persistence. Designed to be dropped into any Yjs-aware editor (TipTap, ProseMirror, CodeMirror, etc.) with minimal integration surface. Namespace write enforcement is structural: each namespace is a separate Yjs subdocument synced over its own y-webrtc room, and peers only join rooms for namespaces they can write to. Read-only access to all namespaces is delivered via GossipSub-announced and IPNS-polled snapshot updates.
+A serverless, encrypted, peer-to-peer collaborative
+document sync library using Yjs subdocuments, WebRTC,
+IndexedDB, and Helia/IPFS for offline persistence.
+Designed to be dropped into any Yjs-aware editor (TipTap,
+ProseMirror, CodeMirror, etc.) with minimal integration
+surface. Channel write enforcement is structural: each
+channel is a separate Yjs subdocument synced over its own
+y-webrtc room, and peers only join rooms for channels
+they can write to. Read-only access to all channels is
+delivered via GossipSub-announced and IPNS-polled
+snapshot updates.
 
 ---
 
@@ -9,16 +19,30 @@ A serverless, encrypted, peer-to-peer collaborative document sync library using 
 - **No privileged server** — peers sync directly via WebRTC; pinning servers are permission-less and fungible
 - **Encryption** is symmetric, derived from a shared secret in the URL fragment, invisible to any relay or pinner
 - **Document identity** is an IPNS name (public key hash) in the URL path, stable across snapshot updates
-- **Capability levels** are encoded in the URL fragment as a set of namespace access keys over n namespaces
-- **`canPushSnapshots` is an independent trust flag** — not implied by any namespace set, granted explicitly
+- **Capability levels** are encoded in the URL fragment as a set of channel access keys over n channels
+- **`canPushSnapshots` is an independent trust flag** —
+  not implied by any channel set, granted explicitly
 - **Pinning servers** store and serve encrypted blobs they can't read; anyone can run one
 - **Pinners are structurally zero-knowledge** — they validate block structure and signatures but cannot verify authorization (which keys are _allowed_), because that requires decrypting `_meta` with `readKey`
 - **App namespacing** is a public string baked into key derivation — not a secret, not authentication
 - **Recoverability is structural** — every IPFS snapshot is a complete, self-sufficient document state
-- **Namespace enforcement is structural** — each namespace is a separate Yjs subdocument with its own y-webrtc room; peers only join rooms for namespaces they can write to, so unauthorized writes are impossible at the transport level
-- **Read access is all-or-nothing and snapshot-driven** — `readKey` decrypts all namespaces; peers receive read-only namespace updates via GossipSub-announced and IPNS-polled snapshot fetches, not WebRTC, so read latency equals snapshot interval
-- **The library has no opinion on content** — it enforces which namespace access key gates which subdocument; what lives in those subdocuments is entirely the application's business
-- **The library has no opinion on snapshot timing** — it exposes `pushSnapshot()` and emits `snapshot-recommended`; when to call it is application policy
+- **Channel enforcement is structural** — each channel
+  is a separate Yjs subdocument with its own y-webrtc
+  room; peers only join rooms for channels they can
+  write to, so unauthorized writes are impossible at
+  the transport level
+- **Read access is all-or-nothing and snapshot-driven**
+  — `readKey` decrypts all channels; peers receive
+  read-only channel updates via GossipSub-announced
+  and IPNS-polled snapshot fetches, not WebRTC, so
+  read latency equals snapshot interval
+- **The library has no opinion on content** — it
+  enforces which channel access key gates which
+  subdocument; what lives in those subdocuments is
+  entirely the application's business
+- **The library has no opinion on snapshot timing** —
+  it exposes `publish()` and emits `"publish-needed"`;
+  when to call it is application policy
 
 ---
 
@@ -26,7 +50,13 @@ A serverless, encrypted, peer-to-peer collaborative document sync library using 
 
 These guarantees hold regardless of which peers are online, which capability levels are in play, or how many snapshots exist in the chain.
 
-**Each snapshot is a full `Y.encodeStateAsUpdate` per subdocument** — a complete Yjs state for every namespace, not a delta. Any single snapshot CID is independently sufficient to reconstruct the entire document (all subdocuments) at that point in time. The `prev` chain is for version history traversal only — losing any node (or all but one) does not affect recoverability.
+**Each snapshot is a full `Y.encodeStateAsUpdate` per
+subdocument** — a complete Yjs state for every channel,
+not a delta. Any single snapshot CID is independently
+sufficient to reconstruct the entire document (all
+subdocuments) at that point in time. The `prev` chain
+is for version history traversal only — losing any node
+(or all but one) does not affect recoverability.
 
 **The `prev` chain is append-only and content-addressed.** CIDs are immutable hashes of their content. Nothing in history can be altered or deleted retroactively.
 
@@ -43,99 +73,164 @@ These guarantees hold regardless of which peers are online, which capability lev
 The library owns sync, persistence, and crypto. The integrating app owns the editor binding, UI, and snapshot timing policy.
 
 ```ts
-import { createCollabLib } from "your-collab-lib";
+import { pokapali } from "your-collab-lib";
 
-// Initialize once. appId is a public namespace string — not a secret.
-// namespaces: the set of subdocuments the library manages.
-// Each namespace becomes its own Y.Doc. Writable namespaces are synced
-// in real-time via y-webrtc; read-only namespaces are updated via
-// GossipSub-announced and IPNS-polled snapshot fetches.
-// The application decides what each namespace means — 'comments', 'suggestions',
-// 'reactions', 'tracked-changes', etc. The library just enforces access.
-const collab = createCollabLib({
+// Initialize once. appId is a public string — not a
+// secret.
+// channels: the set of subdocuments the library manages.
+// Each channel becomes its own Y.Doc. Writable channels
+// are synced in real-time via y-webrtc; read-only
+// channels are updated via GossipSub-announced and
+// IPNS-polled snapshot fetches.
+// The application decides what each channel means —
+// "comments", "suggestions", "reactions",
+// "tracked-changes", etc. The library just enforces
+// access.
+const app = pokapali({
   appId: "github.com/yourname/your-editor", // optional
-  namespaces: ["content", "comments"], // or just ['content'], or n of anything
+  channels: ["content", "comments"],
+  // or just ["content"], or n of anything
 });
 
 // Create a new document
-const doc = await collab.create();
-doc.subdoc("content"); // Y.Doc for the 'content' namespace — pass to editor
-doc.subdoc("comments"); // Y.Doc for the 'comments' namespace — pass to comments UI
-doc.provider; // for awareness / cursor presence (shared room, ephemeral)
-doc.capability; // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: bool }
-doc.adminUrl; // keep private — derives everything
-doc.writeUrl; // read + write all namespaces + canPushSnapshots
-doc.readUrl; // read only
-doc.status; // observable: 'connecting' | 'synced' | 'receiving' | 'offline'
-doc.saveState; // observable: 'saved' | 'dirty' | 'saving' | 'unpublished'
+const doc = await app.create();
+doc.channel("content");  // Y.Doc for "content" — pass
+                         // to editor
+doc.channel("comments"); // Y.Doc for "comments" — pass
+                         // to comments UI
+doc.provider; // for awareness / cursor presence
+              // (shared room, ephemeral)
+doc.capability; // { channels: Set<string>,
+                //   canPushSnapshots: bool,
+                //   isAdmin: bool }
+doc.urls.admin; // keep private — derives everything
+doc.urls.write; // read + write all channels
+                // + canPushSnapshots
+doc.urls.read;  // read only
+doc.status;     // observable: "connecting" | "synced"
+                // | "receiving" | "offline"
+doc.saveState;  // observable: "saved" | "dirty"
+                // | "saving" | "unpublished"
 
-// Generate a custom capability URL — any subset of namespaces, with or without snapshot pushing
-doc.inviteUrl({
-  namespaces: ["comments"],
-  canPushSnapshots: true, // explicit — not implied by namespace access
+// Generate a custom capability URL — any subset of
+// channels, with or without snapshot pushing
+doc.invite({
+  channels: ["comments"],
+  canPushSnapshots: true, // explicit — not implied
+                          // by channel access
 });
 
-// Open an existing document — capability inferred from fragment
-const doc = await collab.open(url);
-doc.subdoc("content"); // Y.Doc — readable by all capability levels
-doc.subdoc("comments"); // Y.Doc — readable by all capability levels
-doc.capability; // { namespaces: Set<string>, canPushSnapshots: bool, isAdmin: bool }
-doc.inviteUrl(capability); // generate lower-privilege URLs
+// Open an existing document — capability inferred
+// from fragment
+const doc = await app.open(url);
+doc.channel("content");  // Y.Doc — readable by all
+                         // capability levels
+doc.channel("comments"); // Y.Doc — readable by all
+                         // capability levels
+doc.capability; // { channels: Set<string>,
+                //   canPushSnapshots: bool,
+                //   isAdmin: bool }
+doc.invite(capability); // generate lower-privilege URLs
 // can only grant subsets of own capability
 
-// Snapshot management — the app owns when this gets called
-await doc.pushSnapshot(); // push current state to IPFS, advance IPNS pointer
+// Snapshot management — the app owns when this gets
+// called
+await doc.publish(); // push current state to IPFS,
+// advance IPNS pointer
 // no-op if capability.canPushSnapshots is false
 // resolves when the snapshot is pinned locally;
 // IPNS propagation continues in the background
 
-// The library emits this when the doc has diverged meaningfully from the last
-// pushed snapshot — by elapsed time, by operation count, or both (configurable).
-// The app decides what to do: start a timer, show a save indicator, whatever.
-doc.on("snapshot-recommended", () => {
-  // e.g. show a "save" button, or kick off a debounced pushSnapshot()
+// The library emits this when the doc has diverged
+// meaningfully from the last pushed snapshot — by
+// elapsed time, by operation count, or both
+// (configurable). The app decides what to do: start a
+// timer, show a save indicator, whatever.
+doc.on("publish-needed", () => {
+  // e.g. show a "save" button, or kick off a
+  // debounced publish()
 });
 
-// Full editor integration — the entire app-side surface:
+// Full editor integration — the entire app-side
+// surface:
 const editor = new Editor({
   extensions: [
-    Collaboration.configure({ document: doc.subdoc("content") }),
-    CollaborationCursor.configure({ provider: doc.provider }),
+    Collaboration.configure({
+      document: doc.channel("content"),
+    }),
+    CollaborationCursor.configure({
+      provider: doc.provider,
+    }),
   ],
 });
 ```
 
-Read-only peers should not be connected to the content WebRTC room — they receive content updates via GossipSub-announced and IPNS-polled snapshot fetches. The application should reflect this in the editor configuration:
+Read-only peers should not be connected to the content
+WebRTC room — they receive content updates via
+GossipSub-announced and IPNS-polled snapshot fetches.
+The application should reflect this in the editor
+configuration:
 
 ```ts
-const isReadOnly = !doc.capability.namespaces.has("content");
+const isReadOnly =
+  !doc.capability.channels.has("content");
 const editor = new Editor({
   editable: !isReadOnly,
   extensions: [
-    Collaboration.configure({ document: doc.subdoc("content") }),
-    CollaborationCursor.configure({ provider: doc.provider }),
+    Collaboration.configure({
+      document: doc.channel("content"),
+    }),
+    CollaborationCursor.configure({
+      provider: doc.provider,
+    }),
   ],
 });
 ```
 
 ### Snapshot timing is the app's responsibility
 
-The library deliberately does not call `pushSnapshot()` automatically on any trigger, including disconnect. The app should:
+The library deliberately does not call `publish()`
+automatically on any trigger, including disconnect. The
+app should:
 
-- Call `pushSnapshot()` on a periodic timer while the document is open
-- Attempt `pushSnapshot()` in a `beforeunload` / `visibilitychange` handler (best-effort — see caveats below)
-- Optionally show a save indicator tied to `doc.saveState`
-- Listen for `snapshot-recommended` as a hint that a push would be timely
+- Call `publish()` on a periodic timer while the
+  document is open
+- Attempt `publish()` in a `beforeunload` /
+  `visibilitychange` handler (best-effort — see
+  caveats below)
+- Optionally show a save indicator tied to
+  `doc.saveState`
+- Listen for `"publish-needed"` as a hint that a
+  publish would be timely
 
 ### Snapshot frequency affects read-only peer latency
 
-Peers who can only read a namespace (not write to it) receive updates for that namespace via GossipSub-announced and IPNS-polled snapshot fetches — not via WebRTC. This means **snapshot frequency directly determines how stale read-only content appears to limited-capability peers.**
+Peers who can only read a channel (not write to it)
+receive updates for that channel via GossipSub-announced
+and IPNS-polled snapshot fetches — not via WebRTC. This
+means **snapshot frequency directly determines how stale
+read-only content appears to limited-capability peers.**
 
-For apps with comment-only or suggestion-only collaborators who need to see current content while annotating, a snapshot interval of **30–60 seconds during active editing** is a reasonable target. This balances read-only freshness against pinner load and IPFS overhead. The snapshot is event-driven from the read-only peer's perspective: the peer's Helia node is subscribed to the IPNS name's pubsub topic, so it receives the new IPNS record immediately when a trusted peer pushes, then fetches the block from a pinner. There is no polling. Total additional latency beyond the snapshot interval is typically a few seconds (pubsub propagation + pinner fetch).
+For apps with comment-only or suggestion-only
+collaborators who need to see current content while
+annotating, a snapshot interval of **30–60 seconds
+during active editing** is a reasonable target. This
+balances read-only freshness against pinner load and
+IPFS overhead. The snapshot is event-driven from the
+read-only peer's perspective: the peer's Helia node is
+subscribed to the IPNS name's pubsub topic, so it
+receives the new IPNS record immediately when a trusted
+peer pushes, then fetches the block from a pinner.
+There is no polling. Total additional latency beyond
+the snapshot interval is typically a few seconds
+(pubsub propagation + pinner fetch).
 
-For apps where all collaborators have write access to all namespaces, snapshot frequency only affects durability (how much work is lost if all peers disconnect) and version history granularity. Lower frequency is fine.
+For apps where all collaborators have write access to
+all channels, snapshot frequency only affects durability
+(how much work is lost if all peers disconnect) and
+version history granularity. Lower frequency is fine.
 
-**Recommended defaults for the `snapshot-recommended` event:**
+**Recommended defaults for the `"publish-needed"` event:**
 
 | Scenario                                | Interval | Rationale                           |
 | --------------------------------------- | -------- | ----------------------------------- |
@@ -143,28 +238,41 @@ For apps where all collaborators have write access to all namespaces, snapshot f
 | Active editing, all peers are writers   | 2–5 min  | Durability and version history only |
 | Idle (no edits since last snapshot)     | No push  | Avoid unnecessary pinner load       |
 
-**`beforeunload` caveats:** Browsers do not honor async work in `beforeunload` handlers. `e.preventDefault()` triggers the "unsaved changes" dialog but does not block teardown until a promise resolves. On mobile, `beforeunload` may not fire at all. The realistic durability mechanism is periodic saves; `beforeunload` is a best-effort supplement, not a guarantee.
+**`beforeunload` caveats:** Browsers do not honor async
+work in `beforeunload` handlers. `e.preventDefault()`
+triggers the "unsaved changes" dialog but does not block
+teardown until a promise resolves. On mobile,
+`beforeunload` may not fire at all. The realistic
+durability mechanism is periodic saves; `beforeunload`
+is a best-effort supplement, not a guarantee.
 
 ```ts
-// Best-effort: warn the user; the actual save should have happened on a timer already.
+// Best-effort: warn the user; the actual save should
+// have happened on a timer already.
 window.addEventListener("beforeunload", (e) => {
   if (doc.saveState === "dirty") {
-    e.preventDefault(); // triggers browser "unsaved changes" dialog
+    e.preventDefault(); // triggers browser
+    // "unsaved changes" dialog
   }
 });
 
-// visibilitychange is more reliable on mobile for detecting tab/app backgrounding
+// visibilitychange is more reliable on mobile for
+// detecting tab/app backgrounding
 document.addEventListener("visibilitychange", () => {
   if (
     document.visibilityState === "hidden" &&
     doc.saveState === "dirty"
   ) {
-    doc.pushSnapshot(); // fire-and-forget; may or may not complete
+    doc.publish(); // fire-and-forget; may or may not
+                   // complete
   }
 });
 ```
 
-The library tracks the last-pushed CID and seq internally (needed for `prev` links and seq incrementing regardless), so `saveState` transitions and `snapshot-recommended` are cheap to emit.
+The library tracks the last-pushed CID and seq internally
+(needed for `prev` links and seq incrementing regardless),
+so `saveState` transitions and `"publish-needed"` are
+cheap to emit.
 
 ---
 
@@ -176,23 +284,39 @@ myapp.com/doc/<ipns-name>#<version-byte><key-material>
 
 | Part              | Visibility         | Purpose                                                                                                                                                                                        |
 | ----------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<ipns-name>`     | Public (in path)   | Stable document ID — same across all capability levels. Used as prefix for y-webrtc room names (`${ipnsName}:${namespace}`), IndexedDB DB names, pubsub topic, DHT key.                        |
+| `<ipns-name>`     | Public (in path)   | Stable document ID — same across all capability levels. Used as prefix for y-webrtc room names (`${ipnsName}:${namespace}`), IndexedDB DB names, pubsub topic, DHT key. |
 | `#<version-byte>` | Private (fragment) | Format version — enables future key derivation scheme changes without breaking old URLs.                                                                                                       |
-| `<key-material>`  | Private (fragment) | Always contains `readKey` and `awarenessRoomPassword`. Optionally contains `ipnsKey`, `rotationKey`, and any subset of namespace access keys. The set of included keys defines the capability. |
+| `<key-material>`  | Private (fragment) | Always contains `readKey` and `awarenessRoomPassword`. Optionally contains `ipnsKey`, `rotationKey`, and any subset of channel access keys. The set of included keys defines the capability. |
 
-Capability is implicit in which keys are present — the library detects this on `open()` by inspecting which namespace access keys are included in the fragment. If a namespace key is present, the peer can write to that namespace (and joins its y-webrtc room). If only `readKey` is present, the peer is read-only across all namespaces.
+Capability is implicit in which keys are present — the
+library detects this on `open()` by inspecting which
+channel access keys are included in the fragment. If a
+channel key is present, the peer can write to that
+channel (and joins its y-webrtc room). If only `readKey`
+is present, the peer is read-only across all channels.
 
 ---
 
 ## Key Derivation
 
-All keys derived from `adminSecret` via HKDF. The `info` parameter encodes both the `appId` and the derivation purpose, following standard HKDF convention (RFC 5869): `info` is the context/purpose differentiator, `salt` is omitted (empty). `appId` is a public namespace string — it identifies which application's key space this document belongs to. It is baked into key derivation to prevent cross-app key collisions, and it defines the pubsub topic (`/app/${appId}/announce`) that pinners subscribe to for automatic document discovery (see Permission-less Pinning Servers). It is not a secret and not used for authentication.
+All keys derived from `adminSecret` via HKDF. The `info`
+parameter encodes both the `appId` and the derivation
+purpose, following standard HKDF convention (RFC 5869):
+`info` is the context/purpose differentiator, `salt` is
+omitted (empty). `appId` is a public string — it
+identifies which application's key space this document
+belongs to. It is baked into key derivation to prevent
+cross-app key collisions, and it defines the pubsub
+topic (`/app/${appId}/announce`) that pinners subscribe
+to for automatic document discovery (see Permission-less
+Pinning Servers). It is not a secret and not used for
+authentication.
 
 ```ts
 async function deriveDocKeys(
   adminSecret: string,
   appId: string = "",
-  namespaces: string[],
+  channels: string[],
 ) {
   const raw = new TextEncoder().encode(adminSecret);
   const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, [
@@ -236,12 +360,15 @@ async function deriveDocKeys(
   // Awareness room password — included at all capability levels so every URL holder can join
   const awarenessRoomPassword = await deriveBits("awareness-room");
 
-  // One namespace access key per namespace, derived from the namespace name.
-  // These bytes serve as the y-webrtc room password for that namespace
-  // (hex-encoded) — a peer with the access key can join the room.
-  const namespaceKeys = Object.fromEntries(
+  // One channel access key per channel, derived from
+  // the channel name. These bytes serve as the y-webrtc
+  // room password for that channel (hex-encoded) — a
+  // peer with the access key can join the room.
+  const channelKeys = Object.fromEntries(
     await Promise.all(
-      namespaces.map(async (ns) => [ns, await deriveBits(`ns:${ns}`)]),
+      channels.map(async (ch) => [
+        ch, await deriveBits(`ns:${ch}`),
+      ]),
     ),
   );
 
@@ -249,7 +376,7 @@ async function deriveDocKeys(
     readKey,
     ipnsKeyBytes,
     rotationKey,
-    namespaceKeys,
+    channelKeys,
     awarenessRoomPassword,
   };
 }
@@ -257,19 +384,45 @@ async function deriveDocKeys(
 
 ### Fragment Key Material
 
-The fragment always contains `readKey` and `awarenessRoomPassword` (both required at every capability level). Beyond that, it contains whichever of `ipnsKey`, `rotationKey`, and namespace access keys that capability grants — serialized as a labeled, length-prefixed list so the library can identify which keys are present on `open()`.
+The fragment always contains `readKey` and
+`awarenessRoomPassword` (both required at every
+capability level). Beyond that, it contains whichever
+of `ipnsKey`, `rotationKey`, and channel access keys
+that capability grants — serialized as a labeled,
+length-prefixed list so the library can identify which
+keys are present on `open()`.
 
 ---
 
-## Namespace Enforcement via Subdocuments and Room Isolation
+## Channel Enforcement via Subdocuments and Room Isolation
 
-Each namespace is a separate Yjs subdocument (`Y.Doc`) with its own y-webrtc room. Write enforcement is structural: a peer only joins the y-webrtc room for namespaces it has access keys for. Read access to all namespaces is delivered via IPNS-resolved and GossipSub-announced snapshot fetches.
+Each channel is a separate Yjs subdocument (`Y.Doc`)
+with its own y-webrtc room. Write enforcement is
+structural: a peer only joins the y-webrtc room for
+channels it has access keys for. Read access to all
+channels is delivered via IPNS-resolved and
+GossipSub-announced snapshot fetches.
 
 ### Sync architecture
 
-For each namespace in the peer's capability set (`doc.capability.namespaces`), the library creates a `WebrtcProvider` connecting to a room named `${ipnsName}:${namespace}`. This gives the peer real-time bidirectional CRDT sync for that namespace — standard y-webrtc, no custom protocol.
+For each channel in the peer's capability set
+(`doc.capability.channels`), the library creates a
+`WebrtcProvider` connecting to a room named
+`${ipnsName}:${namespace}`. This gives the peer
+real-time bidirectional CRDT sync for that channel —
+standard y-webrtc, no custom protocol.
 
-`SyncManager` listens for y-webrtc `"status"` events on each provider and exposes `onStatusChange(cb)` so that `@pokapali/core` can re-compute `doc.status` whenever the underlying WebRTC connection state changes (e.g., after PBKDF2 key derivation completes and rooms are created). `aggregateStatus` uses **any-connected** semantics: if at least one provider is connected, status is `"connected"`. This is correct because partial writers (with access to a subset of namespaces) may have some rooms with peers and others empty — the empty rooms don't indicate a broken connection.
+`SyncManager` listens for y-webrtc `"status"` events
+on each provider and exposes `onStatusChange(cb)` so
+that `@pokapali/core` can re-compute `doc.status`
+whenever the underlying WebRTC connection state changes
+(e.g., after PBKDF2 key derivation completes and rooms
+are created). `aggregateStatus` uses **any-connected**
+semantics: if at least one provider is connected, status
+is `"connected"`. This is correct because partial
+writers (with access to a subset of channels) may have
+some rooms with peers and others empty — the empty rooms
+don't indicate a broken connection.
 
 ### Document status model
 
@@ -278,27 +431,30 @@ three transport layers:
 
 ```ts
 type DocStatus =
-  | "connecting"  // bootstrapping, no transport ready
-  | "synced"      // WebRTC connected to ≥1 namespace room
-  | "receiving"   // no WebRTC peers, but GossipSub active
-  | "offline";    // no transports active
+  | "connecting" // bootstrapping, no transport ready
+  | "synced"     // WebRTC connected to ≥1 channel room
+  | "receiving"  // no WebRTC peers, GossipSub active
+  | "offline";   // no transports active
 ```
 
-The derivation considers WebRTC namespace providers,
+The derivation considers WebRTC channel providers,
 awareness room connectivity, and GossipSub liveness
 (a 60-second recency window on received messages, with
 a 30-second decay timer):
 
-1. If any namespace WebRTC provider is connected → `"synced"`
-2. If namespace providers are connecting → `"connecting"`
+1. If any channel WebRTC provider is connected →
+   `"synced"`
+2. If channel providers are connecting →
+   `"connecting"`
 3. If the awareness room is connected or a GossipSub
-   message was received within 60 seconds → `"receiving"`
+   message was received within 60 seconds →
+   `"receiving"`
 4. If subscribed to GossipSub but no recent messages →
    `"connecting"`
 5. Otherwise → `"offline"`
 
 The `"receiving"` state is the typical reader state:
-readers have no namespace providers (empty capability
+readers have no channel providers (empty capability
 set), but they actively receive snapshot updates via
 GossipSub and cursor presence via the awareness room.
 
@@ -316,50 +472,159 @@ Exposed as `doc.saveState`. This separation lets the UI
 show a connection indicator and a save indicator
 independently.
 
-All clients — writers **and** readers — resolve IPNS on `open()` to load the latest snapshot from the network (non-blocking; Yjs CRDT merge is safe). Writers need this for recovery after all tabs close. Both also watch for live updates via two channels:
+All clients — writers **and** readers — resolve IPNS on
+`open()` to load the latest snapshot from the network
+(non-blocking; Yjs CRDT merge is safe). Writers need
+this for recovery after all tabs close. Both also watch
+for live updates via two transport paths:
 
-1. **GossipSub announcements** (primary, instant): writers publish `{ "ipnsName", "cid" }` on `/pokapali/app/{appId}/announce` after each `pushSnapshot()`. All clients subscribe and apply snapshots directly from the announced CID.
-2. **IPNS polling** (fallback, 30s interval): catches updates when no GossipSub peers are connected.
+1. **GossipSub announcements** (primary, instant):
+   writers publish `{ "ipnsName", "cid" }` on
+   `/pokapali/app/{appId}/announce` after each
+   `publish()`. All clients subscribe and apply
+   snapshots directly from the announced CID.
+2. **IPNS polling** (fallback, 30s interval): catches
+   updates when no GossipSub peers are connected.
 
-For namespaces the peer can only read (not in its capability set), the library does **not** connect to the WebRTC room. The peer receives all subdoc content from snapshot updates (announced or polled). Block fetches use exponential backoff retry (6 retries, 2s base, 15s timeout per attempt) to handle IPFS propagation latency. Transient fetch failures are retried at the outer level (30s intervals, max 10 attempts) before the snapshot watcher enters a terminal `"failed"` state. On permanent failure, the library calls `markReady()` so the editor mounts with whatever state is available rather than showing a loading screen forever.
+For channels the peer can only read (not in its
+capability set), the library does **not** connect to
+the WebRTC room. The peer receives all subdoc content
+from snapshot updates (announced or polled). Block
+fetches use exponential backoff retry (6 retries, 2s
+base, 15s timeout per attempt) to handle IPFS
+propagation latency. Transient fetch failures are
+retried at the outer level (30s intervals, max 10
+attempts) before the snapshot watcher enters a terminal
+`"failed"` state. On permanent failure, the library
+calls `markReady()` so the editor mounts with whatever
+state is available rather than showing a loading screen
+forever.
 
-After successfully applying a remote snapshot, **all clients** (not just writers) store the fetched block in their Helia blockstore (`blockstore.put`) and re-announce the CID on the GossipSub announce topic. This makes every connected peer — including read-only peers — a block provider via bitswap and a propagation amplifier via GossipSub. The block is content-addressed (can't be forged) and encrypted (no plaintext leak), so this is safe regardless of capability level. Block availability is session-scoped (Helia uses `MemoryBlockstore` by default; blocks do not persist across tab close).
+After successfully applying a remote snapshot, **all
+clients** (not just writers) store the fetched block in
+their Helia blockstore (`blockstore.put`) and
+re-announce the CID on the GossipSub announce topic.
+This makes every connected peer — including read-only
+peers — a block provider via bitswap and a propagation
+amplifier via GossipSub. The block is content-addressed
+(can't be forged) and encrypted (no plaintext leak), so
+this is safe regardless of capability level. Block
+availability is session-scoped (Helia uses
+`MemoryBlockstore` by default; blocks do not persist
+across tab close).
 
-Read-only latency equals the snapshot push interval — during active editing with 30–60 second snapshots, this is the staleness window for read-only namespaces.
+Read-only latency equals the snapshot push interval —
+during active editing with 30–60 second snapshots, this
+is the staleness window for read-only channels.
 
-Awareness (cursor presence, selection state) is shared via a lightweight y-webrtc room on a dummy Y.Doc that carries no content. All peers join this room regardless of capability level. The room is password-protected using `awarenessRoomPassword` (included in every capability URL) — every legitimate peer can join, but an observer who only knows the IPNS name cannot eavesdrop on presence information.
+Awareness (cursor presence, selection state) is shared
+via a lightweight y-webrtc room on a dummy Y.Doc that
+carries no content. All peers join this room regardless
+of capability level. The room is password-protected
+using `awarenessRoomPassword` (included in every
+capability URL) — every legitimate peer can join, but an
+observer who only knows the IPNS name cannot eavesdrop
+on presence information.
 
 ### Why this is structural
 
-A peer without the access key for a namespace never joins that namespace's WebRTC room. There is no code path — honest or malicious — through which they can inject mutations into the real-time sync for that namespace. y-webrtc is unmodified; enforcement comes from room membership, not from intercepting messages.
+A peer without the access key for a channel never joins
+that channel's WebRTC room. There is no code path —
+honest or malicious — through which they can inject
+mutations into the real-time sync for that channel.
+y-webrtc is unmodified; enforcement comes from room
+membership, not from intercepting messages.
 
-A malicious client could attempt to connect to a room it shouldn't have access to. y-webrtc rooms are identified by name, so a peer could construct the room name and join the GossipSub signaling topic. However, the room uses y-webrtc's `password` option, set to the hex-encoded namespace access key bytes (see Key Derivation). The password is used to derive a `CryptoKey` that encrypts all signaling messages (SDP offers, answers, ICE candidates). A peer without the correct access key cannot produce the correct password, cannot decrypt incoming signaling messages from legitimate peers, and its own incorrectly-encrypted signaling messages are rejected by legitimate peers (decryption fails silently). Since the WebRTC SDP exchange cannot complete, no peer connection is established, and no data channel exists to sync over. This is the structural enforcement mechanism — the access key gates the room password, the password gates signaling, and without signaling, the WebRTC connection is physically impossible.
+A malicious client could attempt to connect to a room
+it shouldn't have access to. y-webrtc rooms are
+identified by name, so a peer could construct the room
+name and join the GossipSub signaling topic. However,
+the room uses y-webrtc's `password` option, set to the
+hex-encoded channel access key bytes (see Key
+Derivation). The password is used to derive a
+`CryptoKey` that encrypts all signaling messages (SDP
+offers, answers, ICE candidates). A peer without the
+correct access key cannot produce the correct password,
+cannot decrypt incoming signaling messages from
+legitimate peers, and its own incorrectly-encrypted
+signaling messages are rejected by legitimate peers
+(decryption fails silently). Since the WebRTC SDP
+exchange cannot complete, no peer connection is
+established, and no data channel exists to sync over.
+This is the structural enforcement mechanism — the
+access key gates the room password, the password gates
+signaling, and without signaling, the WebRTC connection
+is physically impossible.
 
 > **Note:** WebRTC data channel messages are not application-layer encrypted by y-webrtc (they rely on WebRTC's built-in DTLS transport encryption). This is fine — the access control boundary is at connection establishment, not at the message level. If a peer somehow obtained a valid data channel connection (which requires the password), they're authorized.
 
-An alternative design would use a single shared `Y.Doc` with namespace enforcement as a library-level convention: the library wraps updates in signed envelopes, but the raw `Y.Doc` is exposed to the application and to y-webrtc, so a malicious client could bypass signing entirely and propagate unsigned mutations. That approach is cooperative — it works as long as every peer runs honest code, but a single malicious client (or a malicious fork of the library) could break enforcement for every deployment. The subdocument + room isolation design avoids this entirely.
+An alternative design would use a single shared `Y.Doc`
+with channel enforcement as a library-level convention:
+the library wraps updates in signed envelopes, but the
+raw `Y.Doc` is exposed to the application and to
+y-webrtc, so a malicious client could bypass signing
+entirely and propagate unsigned mutations. That approach
+is cooperative — it works as long as every peer runs
+honest code, but a single malicious client (or a
+malicious fork of the library) could break enforcement
+for every deployment. The subdocument + room isolation
+design avoids this entirely.
 
 ### Read-only peers
 
-A peer with only `readKey` (no namespace access keys) joins no content rooms — only the awareness room. It receives all subdoc content from IPFS snapshots, updated via GossipSub announcements (instant) and IPNS polling (30s fallback) whenever a trusted peer pushes. The application should set the editor to read-only mode (`editable: false` in TipTap, `readOnly` in CodeMirror, etc.).
+A peer with only `readKey` (no channel access keys)
+joins no content rooms — only the awareness room. It
+receives all subdoc content from IPFS snapshots, updated
+via GossipSub announcements (instant) and IPNS polling
+(30s fallback) whenever a trusted peer pushes. The
+application should set the editor to read-only mode
+(`editable: false` in TipTap, `readOnly` in CodeMirror,
+etc.).
 
-Read-only peers participate in gossip propagation: after applying a snapshot, they store the block in their Helia blockstore (making it available to other peers via bitswap) and re-announce the CID on the GossipSub announce topic. This amplifies snapshot availability without requiring write keys — the announcement is just metadata (`{ipnsName, cid}`), and any receiving peer validates the block independently. Writers additionally re-announce on a periodic 30s timer; readers re-announce only once per received snapshot.
+Read-only peers participate in gossip propagation: after
+applying a snapshot, they store the block in their Helia
+blockstore (making it available to other peers via
+bitswap) and re-announce the CID on the GossipSub
+announce topic. This amplifies snapshot availability
+without requiring write keys — the announcement is just
+metadata (`{ipnsName, cid}`), and any receiving peer
+validates the block independently. Writers additionally
+re-announce on a periodic 30s timer; readers re-announce
+only once per received snapshot.
 
 Read-only content is not real-time — it updates at snapshot frequency. For a commenter viewing content while annotating, this is typically fine: comments anchor via `Y.RelativePosition` against the local content state, and the positions resolve correctly regardless of minor staleness.
 
-### Cross-namespace references
+### Cross-channel references
 
-Annotation namespaces (comments, suggestions, tracked changes) reference positions in the content namespace using Yjs `Y.RelativePosition`. Creating a RelativePosition reads from the content subdoc (available to all peers) and stores it in the annotation subdoc (writable by the annotator). This requires no content write access — it's a read from one subdoc and a write to another.
+Annotation channels (comments, suggestions, tracked
+changes) reference positions in the content channel
+using Yjs `Y.RelativePosition`. Creating a
+RelativePosition reads from the content subdoc
+(available to all peers) and stores it in the annotation
+subdoc (writable by the annotator). This requires no
+content write access — it's a read from one subdoc and a
+write to another.
 
 ### `_meta` as a subdocument
 
-`_meta` is itself a subdocument with its own y-webrtc room. The room password is derived from the primary namespace's access key (e.g., hex of `HKDF(primaryAccessKey, info: '_meta_room')`), so only peers who can write to the primary namespace can join the `_meta` room. It holds access allowlists and configuration. The library manages `_meta` internally; the application never receives a writable reference to it.
+`_meta` is itself a subdocument with its own y-webrtc
+room. The room password is derived from the primary
+channel's access key (e.g., hex of
+`HKDF(primaryAccessKey, info: '_meta_room')`), so only
+peers who can write to the primary channel can join the
+`_meta` room. It holds access allowlists and
+configuration. The library manages `_meta` internally;
+the application never receives a writable reference to
+it.
 
 ---
 
 ## `_meta` Structure and CRDT Merge Semantics
 
-`_meta` is a dedicated subdocument that holds access allowlists and configuration. It has its own y-webrtc room, accessible only to peers with the primary namespace's access key.
+`_meta` is a dedicated subdocument that holds access
+allowlists and configuration. It has its own y-webrtc
+room, accessible only to peers with the primary
+channel's access key.
 
 ### Structure
 
@@ -367,11 +632,13 @@ Annotation namespaces (comments, suggestions, tracked changes) reference positio
 // _meta is its own Y.Doc, managed internally by the library
 const meta = doc.metaDoc; // not exposed to the application
 
-// Access allowlists: one Y.Array per namespace, containing public key bytes.
-// In the room-isolation architecture, these are NOT the enforcement mechanism
-// (room passwords handle that). They serve as an admin bookkeeping tool —
-// tracking which keys have been granted access to which namespace,
-// which is needed for revocation (knowing which keys to rotate away from).
+// Access allowlists: one Y.Array per channel, containing
+// public key bytes. In the room-isolation architecture,
+// these are NOT the enforcement mechanism (room passwords
+// handle that). They serve as an admin bookkeeping tool —
+// tracking which keys have been granted access to which
+// channel, which is needed for revocation (knowing which
+// keys to rotate away from).
 meta.getMap("authorized").get("content"); // Y.Array<Uint8Array>
 meta.getMap("authorized").get("comments"); // Y.Array<Uint8Array>
 
@@ -388,14 +655,17 @@ meta.getArray("canPushSnapshots"); // Y.Array<Uint8Array> — ipnsKey public key
 
 ## IPFS Persistence: Linked-List Snapshot DAG
 
-Each snapshot contains the full state of every subdocument, encoded independently.
+Each snapshot contains the full state of every
+subdocument, encoded independently.
 
 ```ts
 interface SnapshotNode {
   subdocs: {
-    // one entry per namespace + _meta
-    [namespace: string]: // e.g. 'content', 'comments', '_meta'
-    Uint8Array; // Y.encodeStateAsUpdate — complete encrypted state for this subdoc
+    // one entry per channel + _meta
+    [channel: string]: // e.g. "content", "comments",
+                       // "_meta"
+    Uint8Array; // Y.encodeStateAsUpdate — complete
+                // encrypted state for this subdoc
   };
   prev: CID | null; // link to previous snapshot
   seq: number; // Y.Doc clockSum (sum of all state vector clocks) — deterministic IPNS ordering
@@ -419,7 +689,12 @@ prev chain = version history only, not load-bearing for recoverability
 
 ### Publishing
 
-Writers publish IPNS records via **delegated HTTP routing** (`delegatedRouting.putIPNS`). Browser-side DHT publishing is not used — it hangs in browser environments. The publish is fire-and-forget from `pushSnapshot()`'s perspective: the UI updates immediately while IPNS propagation continues in the background.
+Writers publish IPNS records via **delegated HTTP
+routing** (`delegatedRouting.putIPNS`). Browser-side DHT
+publishing is not used — it hangs in browser
+environments. The publish is fire-and-forget from
+`publish()`'s perspective: the UI updates immediately
+while IPNS propagation continues in the background.
 
 The IPNS sequence number is the **Y.Doc clockSum** — the sum of all state vector clocks across all subdocuments. This is deterministic: the same document state always produces the same seq, so multiple browsers publishing the same snapshot produce identical IPNS records (no race). A browser with more edits naturally gets a higher seq. On publish, the library guards against stale seq after page reload: `effectiveSeq = max(existingSeq + 1, clockSum)`, fetching the existing record from delegated routing to compare.
 
@@ -441,7 +716,7 @@ Resolution tries **delegated HTTP first** (fast, reliable), falling back to **fu
 
 Writers publish a GossipSub announcement on topic
 `/pokapali/app/{appId}/announce` immediately after each
-`pushSnapshot()`. The announcement is a JSON message:
+`publish()`. The announcement is a JSON message:
 
 ```ts
 interface Announcement {
@@ -487,10 +762,10 @@ Pinners are structurally zero-knowledge. They never possess `readKey` and cannot
 ### Discovery
 
 When a peer pushes a snapshot, the library publishes the
-block to the Helia blockstore, publishes an IPNS record via
-delegated HTTP routing, then announces on the GossipSub
-topic with inline block data (see "Snapshot notification
-channels" above). Pinners subscribed to that topic discover
+block to the Helia blockstore, publishes an IPNS record
+via delegated HTTP routing, then announces on the
+GossipSub topic with inline block data (see "Snapshot
+notification channels" above). Pinners subscribed to that topic discover
 documents automatically — this is the primary discovery
 path. Relay nodes subscribe to announcement topics for
 their configured `pinAppIds` and forward messages between
@@ -892,12 +1167,11 @@ to the caps topic, upserts known nodes on each message,
 prunes stale entries (no message in 90 seconds), and
 cross-references with `libp2p.getConnections()` for live
 connection status. The registry also merges in data from
-existing signals: `relayPeerIds` (DHT discovery) and
-`ackedBy` (GossipSub acks). A node that acked a snapshot
-gets the `"pinner"` role even before its caps message
-arrives.
+existing signals: `relays` (DHT discovery) and `ackedBy`
+(GossipSub acks). A node that acked a snapshot gets the
+`"pinner"` role even before its caps message arrives.
 
-`DiagnosticsInfo` exposes this as `nodes: NodeInfo[]`
+`Diagnostics` exposes this as `nodes: NodeInfo[]`
 (replacing the previous `relays: RelayDiagnostic[]`):
 
 ```ts
@@ -923,7 +1197,13 @@ Bandwidth at steady state is low. Suitable for a VPS or homelab behind standard 
 
 ## Local Persistence and Encryption-at-Rest
 
-`y-indexeddb` stores raw Yjs updates in the browser's IndexedDB — one store per subdocument. **This data is unencrypted at rest.** The encrypted IPFS snapshots protect data in transit and at rest on pinners, but a compromised device (physical access, malicious extension, XSS) gives full access to document content via IndexedDB without needing the URL fragment.
+`y-indexeddb` stores raw Yjs updates in the browser's
+IndexedDB — one store per subdocument. **This data is
+unencrypted at rest.** The encrypted IPFS snapshots
+protect data in transit and at rest on pinners, but a
+compromised device (physical access, malicious
+extension, XSS) gives full access to document content
+via IndexedDB without needing the URL fragment.
 
 ### If device compromise is in your threat model
 
@@ -982,9 +1262,16 @@ The library should implement the well-known IPFS path as a default discovery mec
 
 ## Threat Model
 
-### Threat 1: Peer forges an update to a namespace they don't have access to
+### Threat 1: Peer forges an update to a channel they don't have access to
 
-Each namespace is a separate y-webrtc room, password-protected using the namespace access key bytes. A peer without the access key cannot derive the room password, cannot complete the signaling handshake, and therefore cannot establish a WebRTC connection to inject updates. **Structurally protected** — enforcement is at connection establishment via room isolation, not by filtering messages.
+Each channel is a separate y-webrtc room,
+password-protected using the channel access key bytes. A
+peer without the access key cannot derive the room
+password, cannot complete the signaling handshake, and
+therefore cannot establish a WebRTC connection to inject
+updates. **Structurally protected** — enforcement is at
+connection establishment via room isolation, not by
+filtering messages.
 
 ### Threat 2: Peer replays a captured update from another peer
 
@@ -992,7 +1279,11 @@ y-webrtc syncs in a mesh — every peer in a room receives every sync message ov
 
 ### Threat 3: Peer escalates by modifying `_meta`
 
-`_meta` is a subdocument in its own password-protected y-webrtc room, accessible only to peers with the primary namespace's access key. A limited-namespace peer cannot join the `_meta` room. **Structurally protected.**
+`_meta` is a subdocument in its own password-protected
+y-webrtc room, accessible only to peers with the
+primary channel's access key. A limited-channel peer
+cannot join the `_meta` room. **Structurally
+protected.**
 
 ### Threat 4: Malicious `ipnsKey` holder
 
@@ -1104,8 +1395,8 @@ The library should document expected bundle sizes for each configuration tier.
 
 | Package                                       | Purpose                                                                            |
 | --------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `yjs`                                         | CRDT engine; subdocument support for namespace isolation                           |
-| `y-webrtc`                                    | P2P real-time sync — one room per writable namespace, plus a shared awareness room |
+| `yjs`                                         | CRDT engine; subdocument support for channel isolation                             |
+| `y-webrtc`                                    | P2P real-time sync — one room per writable channel, plus a shared awareness room   |
 | `y-indexeddb`                                 | Local persistence in browser (per-subdoc)                                          |
 | `helia`                                       | IPFS in browser and relay/pinner; delivers snapshot updates via delegated routing   |
 | `@ipld/dag-cbor`                              | IPFS block encoding for snapshots (IPLD-native CID handling)                       |
@@ -1124,22 +1415,47 @@ The library should document expected bundle sizes for each configuration tier.
 
 ## Future Extensions
 
-### Per-user identity within namespaces
+### Per-user identity within channels
 
-The current design treats all peers with the same namespace access key as equal — anyone in the `comments` room can edit or delete anyone else's comments. This is acceptable for a v1 among trusted collaborators, but a natural next step is per-user identity.
+The current design treats all peers with the same
+channel access key as equal — anyone in the `comments`
+room can edit or delete anyone else's comments. This is
+acceptable for a v1 among trusted collaborators, but a
+natural next step is per-user identity.
 
-The migration path is purely additive and does not require changes to room isolation, URL structure, key derivation, or the snapshot format:
+The migration path is purely additive and does not
+require changes to room isolation, URL structure, key
+derivation, or the snapshot format:
 
-1. Each user generates a keypair client-side (e.g., Ed25519)
-2. The user's public key is registered in `_meta` under the namespace (the `authorized` map already stores public key bytes per namespace — this is where user identities would go)
-3. When the user creates or edits an entry within a subdoc, the entry includes their public key and a signature
-4. The application layer enforces "you can only edit entries you authored" by checking signatures against registered public keys
+1. Each user generates a keypair client-side (e.g.,
+   Ed25519)
+2. The user's public key is registered in `_meta` under
+   the channel (the `authorized` map already stores
+   public key bytes per channel — this is where user
+   identities would go)
+3. When the user creates or edits an entry within a
+   subdoc, the entry includes their public key and a
+   signature
+4. The application layer enforces "you can only edit
+   entries you authored" by checking signatures against
+   registered public keys
 
-This is cooperative enforcement at the intra-namespace level (peers trust each other's clients to check signatures), but the trust surface is much smaller than the original single-Y.Doc design — you're trusting peers not to mess with each other's comments, not trusting them with the entire document. The room password still provides the structural access boundary.
+This is cooperative enforcement at the intra-channel
+level (peers trust each other's clients to check
+signatures), but the trust surface is much smaller than
+the original single-Y.Doc design — you're trusting
+peers not to mess with each other's comments, not
+trusting them with the entire document. The room
+password still provides the structural access boundary.
 
 This could also evolve toward DIDs, UCANs, or other external identity layers without changing the room-isolation architecture.
 
-**Application guidance to preserve this path:** within annotation namespaces (comments, suggestions, etc.), store entries as `Y.Map` instances with room for metadata fields (author public key, signature, timestamps) rather than bare strings in a `Y.Array`. This keeps the door open for per-user identity without a data migration.
+**Application guidance to preserve this path:** within
+annotation channels (comments, suggestions, etc.), store
+entries as `Y.Map` instances with room for metadata
+fields (author public key, signature, timestamps) rather
+than bare strings in a `Y.Array`. This keeps the door
+open for per-user identity without a data migration.
 
 ### CLI and MCP agent interface (designed)
 
@@ -1172,4 +1488,19 @@ a document, add comments, update content).
 
 P2P systems are inherently difficult to integration-test — there's no central server to assert against, and behavior depends on the combination of peers, capability levels, network timing, and CRDT merge order. Plan for this early; retrofitting a test harness onto a P2P library is painful.
 
-The library should include a test harness that spins up multiple in-process Yjs/Helia nodes with different capability URLs — e.g., one admin, one content+comments writer, one comments-only writer, one read-only peer — and exercises the core invariants: namespace isolation (a comments-only peer's local content mutations don't propagate), snapshot round-tripping (push a snapshot, cold-bootstrap a new peer from it, verify state), CRDT merge convergence (two writers edit concurrently, verify all peers converge), read-only delivery (push a snapshot, verify read-only peer receives it via GossipSub announcement), and revocation (rotate keys, verify old-capability peers are locked out of new rooms). The snapshot fetch coalescing logic (concurrent fetches, first-success-wins, CID list pruning) deserves its own unit tests with simulated fetch latencies.
+The library should include a test harness that spins up
+multiple in-process Yjs/Helia nodes with different
+capability URLs — e.g., one admin, one content+comments
+writer, one comments-only writer, one read-only peer —
+and exercises the core invariants: channel isolation (a
+comments-only peer's local content mutations don't
+propagate), snapshot round-tripping (push a snapshot,
+cold-bootstrap a new peer from it, verify state), CRDT
+merge convergence (two writers edit concurrently, verify
+all peers converge), read-only delivery (push a
+snapshot, verify read-only peer receives it via GossipSub
+announcement), and revocation (rotate keys, verify
+old-capability peers are locked out of new rooms). The
+snapshot fetch coalescing logic (concurrent fetches,
+first-success-wins, CID list pruning) deserves its own
+unit tests with simulated fetch latencies.

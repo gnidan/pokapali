@@ -11,53 +11,53 @@ persistent snapshots so you can focus on your app.
 npm install @pokapali/core
 ```
 
-### 1. Create a CollabLib instance
+### 1. Create a PokapaliApp instance
 
 ```ts
-import { createCollabLib } from "@pokapali/core";
+import { pokapali } from "@pokapali/core";
 
-const collab = createCollabLib({
+const app = pokapali({
   appId: "my-app",
-  namespaces: ["content"],
-  base: window.location.origin,
+  channels: ["content"],
+  origin: window.location.origin,
 });
 ```
 
 **Options:**
 - `appId` — identifier for your app (used for relay
   discovery and room names)
-- `namespaces` — named data channels for your doc
+- `channels` — named data channels for your doc
   (e.g. `["content"]`, `["text", "canvas"]`)
-- `base` — origin + path prefix for generating
+- `origin` — origin + path prefix for generating
   shareable URLs
 
 ### 2. Create or open a document
 
 ```ts
 // Create a new document (you become admin)
-const doc = await collab.create();
+const doc = await app.create();
 
 // Open from a capability URL
-const doc = await collab.open(url);
+const doc = await app.open(url);
 ```
 
-Both return a `CollabDoc`. The URL encodes the document
+Both return a `Doc`. The URL encodes the document
 identity and the recipient's access level — there's no
 separate auth step.
 
-### 3. Use the Yjs subdoc
+### 3. Use the Yjs channel
 
-Each namespace gives you a standard `Y.Doc`:
+Each channel gives you a standard `Y.Doc`:
 
 ```ts
-const ydoc = doc.subdoc("content");
+const ydoc = doc.channel("content");
 
 // Use any Yjs data type
 const ytext = ydoc.getText("main");
 ytext.insert(0, "Hello, world!");
 
-// Or with a Yjs-compatible editor (Tiptap, ProseMirror,
-// Monaco, CodeMirror, etc.)
+// Or with a Yjs-compatible editor (Tiptap,
+// ProseMirror, Monaco, CodeMirror, etc.)
 const fragment = ydoc.getXmlFragment("default");
 ```
 
@@ -92,9 +92,9 @@ Every document has up to three URLs with different access
 levels:
 
 ```ts
-doc.adminUrl;  // full control (null if not admin)
-doc.writeUrl;  // edit + publish (null if read-only)
-doc.readUrl;   // view only (always available)
+doc.urls.admin;  // full control (null if not admin)
+doc.urls.write;  // edit + publish (null if read-only)
+doc.urls.read;   // view only (always available)
 ```
 
 URLs are self-contained capability tokens — the hash
@@ -106,20 +106,20 @@ access the document at that level without a server.
 ```ts
 doc.capability.isAdmin;        // boolean
 doc.capability.canPushSnapshots; // boolean
-doc.capability.namespaces;     // Set<string>
+doc.capability.channels;       // Set<string>
 ```
 
 **Generate invite links:**
 
 ```ts
-// Write access to the "content" namespace
-const writeInvite = await doc.inviteUrl({
-  namespaces: ["content"],
+// Write access to the "content" channel
+const writeInvite = await doc.invite({
+  channels: ["content"],
 });
 
-// Read-only (no namespaces)
-const readInvite = await doc.inviteUrl({
-  namespaces: [],
+// Read-only (no channels)
+const readInvite = await doc.invite({
+  channels: [],
 });
 ```
 
@@ -131,16 +131,16 @@ be loaded even when the original author is offline.
 
 ```ts
 // Publish current state
-await doc.pushSnapshot();
+await doc.publish();
 
-// Listen for when a snapshot is recommended
+// Listen for when publishing is recommended
 // (fires after significant local changes)
-doc.on("snapshot-recommended", () => {
-  doc.pushSnapshot();
+doc.on("publish-needed", () => {
+  doc.publish();
 });
 
 // Listen for remote snapshots being applied
-doc.on("snapshot-applied", () => {
+doc.on("snapshot", () => {
   console.log("Received update from IPNS");
 });
 ```
@@ -171,7 +171,7 @@ local changes have been published to IPFS:
 doc.saveState;
 // "saved" | "dirty" | "saving" | "unpublished"
 
-doc.on("save-state", (state) => {
+doc.on("save", (state) => {
   // "saved"       — snapshot published and acked
   // "dirty"       — local changes not yet published
   // "saving"      — snapshot push in progress
@@ -189,8 +189,8 @@ const info = doc.diagnostics();
 
 // info.nodes: NodeInfo[]
 // Each node has:
-//   peerId, short, connected, roles, ackedCurrentCid,
-//   lastSeenAt
+//   peerId, short, connected, roles,
+//   ackedCurrentCid, lastSeenAt
 
 // Check for connected pinners
 const hasPinner = info.nodes.some(
@@ -212,7 +212,7 @@ is connected, warn them.
 
 The `createAutoSaver` utility handles snapshot publishing
 automatically on visibility change, beforeunload, and
-debounced `snapshot-recommended` events:
+debounced `publish-needed` events:
 
 ```ts
 import { createAutoSaver } from "@pokapali/core";
@@ -237,14 +237,17 @@ doc.destroy();
 
 ```tsx
 import { useEffect } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import {
+  useEditor, EditorContent
+} from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Collaboration from "@tiptap/extension-collaboration";
+import Collaboration
+  from "@tiptap/extension-collaboration";
 import CollaborationCursor
   from "@tiptap/extension-collaboration-cursor";
 
 function Editor({ doc }) {
-  const ydoc = doc.subdoc("content");
+  const ydoc = doc.channel("content");
 
   // Set up awareness (see section 4 above)
   useEffect(() => {
@@ -260,7 +263,10 @@ function Editor({ doc }) {
       Collaboration.configure({ document: ydoc }),
       CollaborationCursor.configure({
         provider: doc.provider,
-        user: { name: "Alice", color: "#f44336" },
+        user: {
+          name: "Alice",
+          color: "#f44336",
+        },
       }),
     ],
   });
@@ -275,16 +281,16 @@ Collaboration — Yjs handles undo/redo.
 ## Example: Plain Yjs (no framework)
 
 ```ts
-import { createCollabLib } from "@pokapali/core";
+import { pokapali } from "@pokapali/core";
 
-const collab = createCollabLib({
+const app = pokapali({
   appId: "notes",
-  namespaces: ["content"],
-  base: window.location.origin,
+  channels: ["content"],
+  origin: window.location.origin,
 });
 
-const doc = await collab.create();
-const ydoc = doc.subdoc("content");
+const doc = await app.create();
+const ydoc = doc.channel("content");
 const ytext = ydoc.getText("body");
 
 // Write
@@ -296,12 +302,12 @@ ytext.observe((event) => {
 });
 
 // Persist
-doc.on("snapshot-recommended", () => {
-  doc.pushSnapshot();
+doc.on("publish-needed", () => {
+  doc.publish();
 });
 
 // Share the admin URL
-console.log("Share this link:", doc.adminUrl);
+console.log("Share this link:", doc.urls.admin);
 ```
 
 ## URL Routing
@@ -313,11 +319,11 @@ https://example.com/doc/<ipns-name>#<encoded-keys>
 ```
 
 The hash fragment contains encrypted capability keys.
-The exact URL pattern depends on your app's `base` path.
-Here's one approach to detecting doc URLs:
+The exact URL pattern depends on your app's `origin`
+path. Here's one approach to detecting doc URLs:
 
 ```ts
-// Adapt this to your app's base path and routing
+// Adapt this to your app's origin path and routing
 const BASE = "/my-app";
 
 function isDocUrl(url) {
@@ -328,7 +334,9 @@ function isDocUrl(url) {
 
 // Auto-open on page load
 if (isDocUrl(window.location.href)) {
-  const doc = await collab.open(window.location.href);
+  const doc = await app.open(
+    window.location.href
+  );
 }
 ```
 
@@ -339,18 +347,20 @@ const versions = await doc.history();
 // [{ cid, seq, ts }, ...]
 
 // Load a specific version
-const subdocs = await doc.loadVersion(versions[0].cid);
-// Record<string, Y.Doc> — one Y.Doc per namespace
+const channels = await doc.loadVersion(
+  versions[0].cid
+);
+// Record<string, Y.Doc> — one Y.Doc per channel
 ```
 
 ## Tips
 
-- **Multiple namespaces** let you separate concerns
+- **Multiple channels** let you separate concerns
   (e.g. `["text", "metadata"]`) with independent
-  write permissions per namespace.
-- **`snapshot-recommended`** fires when local changes
+  write permissions per channel.
+- **`publish-needed`** fires when local changes
   are significant enough to warrant persisting. Hook
-  it up to `pushSnapshot()` with a debounce.
+  it up to `publish()` with a debounce.
 - **Capability URLs are secrets** — treat them like
   passwords. The hash fragment is never sent to
   servers, but anyone with the full URL has access.
@@ -359,5 +369,6 @@ const subdocs = await doc.loadVersion(versions[0].cid);
   discovery and provide GossipSub signaling for peers
   behind NAT. Pinners persist snapshots so documents
   load even when the author is offline.
-- **Monitor node health** with `doc.diagnostics().nodes`
-  to warn users when no pinners are connected.
+- **Monitor node health** with
+  `doc.diagnostics().nodes` to warn users when no
+  pinners are connected.
