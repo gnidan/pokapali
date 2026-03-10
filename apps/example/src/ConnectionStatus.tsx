@@ -2,9 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import type {
   Doc,
   Diagnostics,
-  NodeInfo,
   LoadingState,
 } from "@pokapali/core";
+import { TopologyMap } from "./TopologyMap";
 
 // --- Time formatting ---
 
@@ -400,63 +400,6 @@ function NetworkDetail({
   );
 }
 
-function RoleBadge({ role }: { role: string }) {
-  return (
-    <span className={`cs-role-badge cs-role-${role}`}>
-      {role}
-    </span>
-  );
-}
-
-function NodeRow({ node }: { node: NodeInfo }) {
-  const isPinner = node.roles.includes("pinner");
-  return (
-    <div className="cs-detail-row">
-      <Dot
-        state={
-          node.connected
-            ? "connected"
-            : "disconnected"
-        }
-      />
-      <span className="cs-detail-mono">
-        ...{node.short}
-      </span>
-      {node.roles.map((r) => (
-        <RoleBadge key={r} role={r} />
-      ))}
-      {isPinner && node.ackedCurrentCid && (
-        <span
-          className="cs-ack-check"
-          title="Acked current snapshot"
-        >
-          &#x2713;
-        </span>
-      )}
-    </div>
-  );
-}
-
-function NodesDetail({
-  info,
-}: {
-  info: Diagnostics;
-}) {
-  return (
-    <div className="cs-detail-section">
-      <div className="cs-detail-heading">Nodes</div>
-      {info.nodes.length === 0 ? (
-        <div className="cs-detail-row cs-detail-dim">
-          No nodes discovered
-        </div>
-      ) : (
-        info.nodes.map((n) => (
-          <NodeRow key={n.peerId} node={n} />
-        ))
-      )}
-    </div>
-  );
-}
 
 function SnapshotsDetail({
   info,
@@ -570,6 +513,7 @@ export function ConnectionStatus({
   );
   const [expanded, setExpanded] = useState(false);
   const historyRef = useRef<History>(emptyHistory());
+  const [pulseKey, setPulseKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -583,12 +527,16 @@ export function ConnectionStatus({
         // doc destroyed during teardown
       }
     };
+    const onPulse = () => {
+      refresh();
+      setPulseKey((k) => k + 1);
+    };
     refresh();
 
     doc.on("status", refresh);
     doc.on("publish-needed", refresh);
-    doc.on("snapshot", refresh);
-    doc.on("ack", refresh);
+    doc.on("snapshot", onPulse);
+    doc.on("ack", onPulse);
     doc.on("loading", refresh);
     const awareness = doc.awareness;
     awareness.on("change", refresh);
@@ -604,8 +552,8 @@ export function ConnectionStatus({
       active = false;
       doc.off("status", refresh);
       doc.off("publish-needed", refresh);
-      doc.off("snapshot", refresh);
-      doc.off("ack", refresh);
+      doc.off("snapshot", onPulse);
+      doc.off("ack", onPulse);
       doc.off("loading", refresh);
       awareness.off("change", refresh);
       clearInterval(poll);
@@ -726,11 +674,15 @@ export function ConnectionStatus({
 
       {expanded && (
         <div className="cs-detail">
+          <TopologyMap
+            nodes={info.nodes}
+            editors={info.editors}
+            pulseKey={pulseKey}
+          />
           <NetworkDetail
             info={info}
             history={h}
           />
-          <NodesDetail info={info} />
           <SnapshotsDetail
             info={info}
             history={h}

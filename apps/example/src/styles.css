@@ -756,6 +756,80 @@ body {
   gap: 0.75rem 1.5rem;
 }
 
+/* --- Topology map --- */
+
+.topo-wrap {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  padding: 0.25rem 0;
+}
+
+.topo-svg {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+}
+
+.topo-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: #fff;
+  pointer-events: none;
+}
+
+.topo-label-self {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #fff;
+  pointer-events: none;
+}
+
+.topo-role {
+  font-size: 7px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.topo-peer-id {
+  font-size: 7px;
+  font-family: monospace;
+  fill: #94a3b8;
+  pointer-events: none;
+}
+
+.topo-ack {
+  font-size: 11px;
+  fill: #22c55e;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.topo-badge-text {
+  font-size: 8px;
+  font-weight: 700;
+  fill: #fff;
+  pointer-events: none;
+}
+
+.topo-edge-pulse {
+  animation: edge-glow 1.5s ease-out;
+}
+
+.topo-pulse-ring {
+  animation: ring-expand 1.5s ease-out;
+}
+
+@keyframes edge-glow {
+  0% { stroke-opacity: 1; stroke-width: 3; }
+  100% { stroke-opacity: 0.8; stroke-width: 2; }
+}
+
+@keyframes ring-expand {
+  0% { r: 18; opacity: 0.8; }
+  100% { r: 24; opacity: 0; }
+}
+
 .cs-detail-section {
   min-width: 0;
 }
