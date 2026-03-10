@@ -26,6 +26,10 @@ export interface KnownNode {
 export interface NodeRegistry {
   /** All known non-stale nodes. */
   readonly nodes: ReadonlyMap<string, KnownNode>;
+  /** Register a callback for meaningful changes. */
+  onNodeChange(cb: () => void): void;
+  /** Unregister a change callback. */
+  offNodeChange(cb: () => void): void;
   destroy(): void;
 }
 
@@ -92,11 +96,29 @@ function parseCapsMessage(
   }
 }
 
+function rolesEqual(
+  a: string[],
+  b: string[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export function createNodeRegistry(
   pubsub: PubSubLike,
   getHelia: () => Helia,
 ): NodeRegistry {
   const nodes = new Map<string, KnownNode>();
+  const changeListeners = new Set<() => void>();
+
+  function notifyChange() {
+    for (const cb of changeListeners) {
+      try { cb(); } catch {}
+    }
+  }
 
   pubsub.subscribe(NODE_CAPS_TOPIC);
   log.debug("subscribed to", NODE_CAPS_TOPIC);
@@ -127,7 +149,10 @@ export function createNodeRegistry(
 
     const connected =
       getConnectedPeerIds().has(caps.peerId);
-    const isNew = !nodes.has(caps.peerId);
+    const prev = nodes.get(caps.peerId);
+    const changed = !prev
+      || prev.connected !== connected
+      || !rolesEqual(prev.roles, caps.roles);
     nodes.set(caps.peerId, {
       peerId: caps.peerId,
       roles: caps.roles,
@@ -136,7 +161,7 @@ export function createNodeRegistry(
       neighbors: caps.neighbors ?? [],
       browserCount: caps.browserCount,
     });
-    if (isNew) {
+    if (!prev) {
       log.info(
         "node discovered:",
         caps.peerId.slice(-8),
@@ -150,6 +175,9 @@ export function createNodeRegistry(
         caps.roles.join(","),
       );
     }
+    if (changed) {
+      notifyChange();
+    }
   };
 
   pubsub.addEventListener("message", messageHandler);
@@ -158,14 +186,23 @@ export function createNodeRegistry(
   const pruneTimer = setInterval(() => {
     const now = Date.now();
     const connectedPids = getConnectedPeerIds();
+    let changed = false;
     for (const [pid, node] of nodes) {
       if (now - node.lastSeenAt > STALE_MS) {
         nodes.delete(pid);
-        log.debug("pruned stale node:", pid.slice(-8));
+        log.debug(
+          "pruned stale node:", pid.slice(-8),
+        );
+        changed = true;
       } else {
+        const wasConnected = node.connected;
         node.connected = connectedPids.has(pid);
+        if (wasConnected !== node.connected) {
+          changed = true;
+        }
       }
     }
+    if (changed) notifyChange();
   }, PRUNE_INTERVAL_MS);
 
   return {
@@ -173,8 +210,17 @@ export function createNodeRegistry(
       return nodes;
     },
 
+    onNodeChange(cb: () => void) {
+      changeListeners.add(cb);
+    },
+
+    offNodeChange(cb: () => void) {
+      changeListeners.delete(cb);
+    },
+
     destroy() {
       clearInterval(pruneTimer);
+      changeListeners.clear();
       pubsub.removeEventListener(
         "message",
         messageHandler,

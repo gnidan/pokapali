@@ -278,6 +278,7 @@ export interface Doc {
     event: "save",
     cb: (state: SaveState) => void,
   ): void;
+  on(event: "node-change", cb: () => void): void;
   off(
     event: "status",
     cb: (status: DocStatus) => void,
@@ -299,6 +300,7 @@ export interface Doc {
     event: "save",
     cb: (state: SaveState) => void,
   ): void;
+  off(event: "node-change", cb: () => void): void;
   diagnostics(): Diagnostics;
   /** Merged topology graph from own connections,
    *  peer-reported relays (awareness), and
@@ -522,6 +524,8 @@ function createDoc(
   }
 
   // Publish relay topology via awareness for graph.
+  // Also forward node-registry changes as doc events.
+  const nodeChangeHandler = () => emit("node-change");
   try {
     const registry = getNodeRegistry();
     if (registry) {
@@ -531,6 +535,7 @@ function createDoc(
         registry,
         libp2p: (helia as any).libp2p,
       });
+      registry.onNodeChange(nodeChangeHandler);
     }
   } catch {
     // Helia not ready yet — skip topology sharing
@@ -641,6 +646,10 @@ function createDoc(
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
+    try {
+      getNodeRegistry()
+        ?.offNodeChange(nodeChangeHandler);
+    } catch {}
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();
     syncManager.destroy();
