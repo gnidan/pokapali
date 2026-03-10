@@ -526,12 +526,14 @@ describe("@pokapali/core", () => {
         hasAppliedSnapshot: false,
         ackedBy: [],
         guaranteeUntil: null,
+        retainUntil: null,
       };
       expect(info.ipfsPeers).toBe(0);
       expect(info.nodes).toEqual([]);
       expect(info.gossipsub.meshPeers).toBe(0);
       expect(info.ackedBy).toEqual([]);
       expect(info.guaranteeUntil).toBeNull();
+      expect(info.retainUntil).toBeNull();
     });
   });
 

@@ -160,6 +160,9 @@ export interface DiagnosticsInfo {
   /** Latest guarantee-until timestamp across all
    *  pinners for the current CID, or null if none. */
   guaranteeUntil: number | null;
+  /** Latest retain-until timestamp across all
+   *  pinners for the current CID, or null if none. */
+  retainUntil: number | null;
 }
 
 export interface CollabDoc {
@@ -197,6 +200,9 @@ export interface CollabDoc {
   /** Latest guarantee-until timestamp across all
    *  pinners for the current CID, or null if none. */
   readonly guaranteeUntil: number | null;
+  /** Latest retain-until timestamp across all
+   *  pinners for the current CID, or null if none. */
+  readonly retainUntil: number | null;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -693,6 +699,11 @@ function createCollabDoc(
         ?? null;
     },
 
+    get retainUntil(): number | null {
+      return snapshotWatcher?.retainUntil
+        ?? null;
+    },
+
     whenReady(): Promise<void> {
       return readyPromise;
     },
@@ -1086,6 +1097,8 @@ function createCollabDoc(
         ackedBy: [...ackedSet],
         guaranteeUntil:
           snapshotWatcher?.guaranteeUntil ?? null,
+        retainUntil:
+          snapshotWatcher?.retainUntil ?? null,
       };
     },
 

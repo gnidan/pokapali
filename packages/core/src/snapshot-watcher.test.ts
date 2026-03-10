@@ -179,10 +179,14 @@ describe("createSnapshotWatcher", () => {
       cid: string,
       peerId: string,
       guaranteeUntil?: number,
+      retainUntil?: number,
     ) {
       const ack: any = { peerId };
       if (guaranteeUntil !== undefined) {
         ack.guaranteeUntil = guaranteeUntil;
+      }
+      if (retainUntil !== undefined) {
+        ack.retainUntil = retainUntil;
       }
       vi.mocked(parseAnnouncement)
         .mockReturnValueOnce({
@@ -356,6 +360,124 @@ describe("createSnapshotWatcher", () => {
       ));
 
       expect(watcher.guaranteeUntil).toBeNull();
+      watcher.destroy();
+    });
+
+    it("stores retainUntil from ack", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic =
+        "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(
+        topic, "abc", "cid-1",
+        "pinner-A", undefined, 1700000000000,
+      ));
+
+      expect(
+        watcher.retainUntil,
+      ).toBe(1700000000000);
+      expect(watcher.guaranteeUntil).toBeNull();
+      watcher.destroy();
+    });
+
+    it("takes max retainUntil across pinners", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic =
+        "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(
+        topic, "abc", "cid-1",
+        "pinner-A", undefined, 1700000000000,
+      ));
+      handler(fakeAckEvent(
+        topic, "abc", "cid-1",
+        "pinner-B", undefined, 1800000000000,
+      ));
+
+      expect(
+        watcher.retainUntil,
+      ).toBe(1800000000000);
+      watcher.destroy();
+    });
+
+    it("tracks both guarantee and retain", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic =
+        "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(
+        topic, "abc", "cid-1",
+        "pinner-A", 1700000000000, 1600000000000,
+      ));
+
+      expect(
+        watcher.guaranteeUntil,
+      ).toBe(1700000000000);
+      expect(
+        watcher.retainUntil,
+      ).toBe(1600000000000);
+      watcher.destroy();
+    });
+
+    it("clears retainUntil on new CID", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic =
+        "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(
+        topic, "abc", "cid-1",
+        "pinner-A", undefined, 1700000000000,
+      ));
+      expect(
+        watcher.retainUntil,
+      ).toBe(1700000000000);
+
+      watcher.trackCidForAcks("cid-2");
+      expect(watcher.retainUntil).toBeNull();
       watcher.destroy();
     });
   });

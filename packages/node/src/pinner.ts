@@ -848,7 +848,7 @@ export async function createPinner(
               ipnsName,
               cidStr,
               config.peerId,
-              guarantee,
+              { guaranteeUntil: guarantee },
             ).catch((err) => {
               log.warn("re-ack failed:", err);
             }),
@@ -885,7 +885,7 @@ export async function createPinner(
                   ipnsName,
                   cidStr,
                   config.peerId,
-                  guarantee,
+                  { guaranteeUntil: guarantee },
                 );
                 lastAckedCid.set(
                   ipnsName, cidStr,
