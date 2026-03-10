@@ -496,8 +496,11 @@ export async function startRelay(
             );
             // Promote to direct peer for guaranteed
             // message delivery between relays.
+            const selfId =
+              helia.libp2p.peerId.toString();
             if (
               gs.direct instanceof Set
+              && pid !== selfId
               && !gs.direct.has(pid)
             ) {
               gs.direct.add(pid);
