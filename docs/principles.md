@@ -145,6 +145,27 @@ Similarly, the library exposes `pushSnapshot()` and emits
 policy. The built-in `createAutoSaver` is a convenience,
 not a requirement.
 
+## No hardcoded peer addresses
+
+No relay, pinner, or peer address is hardcoded in library
+or infrastructure code. All relay discovery happens via DHT
+(`findProviders` on a network-wide CID), peer exchange
+(awareness-based relay sharing), or localStorage caching of
+previously discovered relays. Relay-to-relay peering uses
+dynamic `directPeers` populated from DHT discovery, not
+static configuration.
+
+The only hardcoded addresses are IPFS bootstrap nodes
+(Protocol Labs public infrastructure) — these are needed
+for initial DHT entry but are not pokapali-specific. Once
+connected to the DHT, all further discovery is organic.
+
+This principle ensures the network scales without
+coordination. Adding a new relay requires only starting the
+process and providing on the DHT — no client updates, no
+config changes, no deploys. Removing a relay is equally
+seamless: clients discover alternatives automatically.
+
 ## Trust is explicit and minimal
 
 The trust model has clear boundaries:
