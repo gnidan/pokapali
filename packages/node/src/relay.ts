@@ -501,6 +501,11 @@ export async function startRelay(
       }
     }
 
+    log.info(
+      `caps: ${neighbors.length} neighbors,`
+      + ` ${browserCount} browsers,`
+      + ` ${knownPeerRoles.size} known peers`,
+    );
     const msg = encodeNodeCaps({
       version: 2,
       peerId: selfPeerId,
