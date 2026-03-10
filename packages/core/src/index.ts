@@ -80,7 +80,10 @@ import {
   acquireNodeRegistry,
   getNodeRegistry,
 } from "./node-registry.js";
-import type { NodeRegistry } from "./node-registry.js";
+import type {
+  NodeRegistry,
+  Neighbor,
+} from "./node-registry.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
@@ -136,6 +139,10 @@ export interface NodeInfo {
   rolesConfirmed: boolean;
   ackedCurrentCid: boolean;
   lastSeenAt: number;
+  /** Neighbors reported by this node (v2 caps). */
+  neighbors: Neighbor[];
+  /** Browser count reported by this node (v2 caps). */
+  browserCount: number | undefined;
 }
 
 export interface GossipSubDiagnostic {
@@ -163,6 +170,15 @@ export interface Diagnostics {
   /** Latest retain-until timestamp across all
    *  pinners for the current CID, or null if none. */
   retainUntil: number | null;
+  /** Topology edges derived from node-reported
+   *  neighbors. Each edge is [sourceId, targetId]. */
+  topology: TopologyEdge[];
+}
+
+export interface TopologyEdge {
+  source: string;
+  target: string;
+  targetRole?: string;
 }
 
 export interface DocUrls {
@@ -1014,6 +1030,8 @@ function createDoc(
               rolesConfirmed: true,
               ackedCurrentCid: acked,
               lastSeenAt: node.lastSeenAt,
+              neighbors: node.neighbors,
+              browserCount: node.browserCount,
             });
           }
         }
@@ -1040,6 +1058,8 @@ function createDoc(
               rolesConfirmed: false,
               ackedCurrentCid: acked,
               lastSeenAt: 0,
+              neighbors: [],
+              browserCount: undefined,
             });
           }
         }
@@ -1086,6 +1106,19 @@ function createDoc(
         }
       } catch {}
 
+      // Build topology edges from node neighbors
+      const topology: TopologyEdge[] = [];
+      for (const node of nodeList) {
+        for (const nb of node.neighbors) {
+          topology.push({
+            source: node.peerId,
+            target: nb.peerId,
+            ...(nb.role ? { targetRole: nb.role }
+              : {}),
+          });
+        }
+      }
+
       return {
         ipfsPeers,
         nodes: nodeList,
@@ -1106,6 +1139,7 @@ function createDoc(
           snapshotWatcher?.guaranteeUntil ?? null,
         retainUntil:
           snapshotWatcher?.retainUntil ?? null,
+        topology,
       };
     },
 
@@ -1460,5 +1494,6 @@ export {
 } from "./node-registry.js";
 export type {
   KnownNode,
+  Neighbor,
   NodeRegistry,
 } from "./node-registry.js";

@@ -531,6 +531,7 @@ describe("@pokapali/core", () => {
         ackedBy: [],
         guaranteeUntil: null,
         retainUntil: null,
+        topology: [],
       };
       expect(info.ipfsPeers).toBe(0);
       expect(info.nodes).toEqual([]);
