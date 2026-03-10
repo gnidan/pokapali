@@ -6,6 +6,8 @@ export interface PinnerState {
   tips: Record<string, string>;
   /** Maps ipnsName → appId for re-announcing. */
   nameToAppId?: Record<string, string>;
+  /** Last activity timestamp per doc (ms epoch). */
+  lastSeenAt?: Record<string, number>;
 }
 
 export async function loadState(path: string): Promise<PinnerState> {

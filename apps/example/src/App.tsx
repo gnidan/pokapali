@@ -6,6 +6,7 @@ import {
 import { createCollabLib } from "@pokapali/core";
 import type { CollabDoc } from "@pokapali/core";
 import { EditorView } from "./Editor";
+import { capitalize, formatAge } from "./utils";
 import {
   loadRecent,
   saveRecent,
@@ -25,20 +26,8 @@ const collab = createCollabLib({
     import.meta.env.BASE_URL.replace(/\/$/, ""),
 });
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 function recordDoc(doc: CollabDoc) {
   saveRecent(doc.bestUrl, capitalize(doc.role));
-}
-
-function formatAge(ts: number): string {
-  const sec = Math.round((Date.now() - ts) / 1000);
-  if (sec < 60) return "just now";
-  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
-  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
-  return `${Math.round(sec / 86400)}d ago`;
 }
 
 function RecentDocsList({
@@ -51,6 +40,16 @@ function RecentDocsList({
   const [docs, setDocs] = useState<RecentDoc[]>(
     loadRecent,
   );
+  const [, tick] = useState(0);
+
+  // Re-render periodically so relative ages stay fresh
+  useEffect(() => {
+    const id = setInterval(
+      () => tick((n) => n + 1),
+      30_000,
+    );
+    return () => clearInterval(id);
+  }, []);
 
   if (docs.length === 0) return null;
 

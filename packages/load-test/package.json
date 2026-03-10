@@ -5,9 +5,13 @@
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "bin": {
+    "pokapali-load-test": "dist/bin/run.js"
+  },
   "scripts": {
     "build": "tsc --build",
-    "start": "node dist/src/index.js"
+    "start": "node dist/src/index.js",
+    "test": "vitest run"
   },
   "license": "MIT",
   "dependencies": {
@@ -27,6 +31,7 @@
     "yjs": "^13.6.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }

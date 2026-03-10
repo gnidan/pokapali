@@ -10,3 +10,9 @@ export {
   type WriterConfig,
   type WriterEvent,
 } from "./writer.js";
+
+export type {
+  LoadTestEvent,
+  MetricsCollector,
+} from "./metrics.js";
+export { createMetrics } from "./metrics.js";

@@ -4,7 +4,7 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src"],
+  "include": ["src", "bin"],
   "references": [
     { "path": "../log" },
     { "path": "../crypto" },
