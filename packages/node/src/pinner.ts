@@ -283,9 +283,15 @@ export async function createPinner(
     const names = [...knownNames];
     if (names.length === 0) return;
     log.debug(`re-resolving ${names.length} names`);
-    await Promise.allSettled(
-      names.map((n) => resolveAndFetch(n)),
-    );
+    // Batch to avoid OOM from unbounded concurrency
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < names.length; i += BATCH_SIZE) {
+      if (stopped) break;
+      const batch = names.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map((n) => resolveAndFetch(n)),
+      );
+    }
   }
 
   /**
