@@ -18,6 +18,8 @@
     "@tiptap/pm": "^2.11.0",
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.11.0",
+    "@types/d3-force": "^3.0.10",
+    "d3-force": "^3.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
