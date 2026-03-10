@@ -89,6 +89,8 @@ export function createMetrics(
               pendingSnapshots.get(event.cid);
             if (pushTs != null) {
               ackLatencies.push(event.ts - pushTs);
+              // Only measure first ack per CID
+              pendingSnapshots.delete(event.cid);
             }
           }
           break;
