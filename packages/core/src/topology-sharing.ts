@@ -1,23 +1,27 @@
 /**
  * Publish this browser's relay connections and
- * peer awareness IDs via awareness so other peers
- * can build a full network graph.
+ * known infrastructure nodes via awareness so
+ * other peers can build a full network graph.
  *
  * Each browser publishes:
  *   awareness.topology = {
  *     connectedRelays: [peerId, ...],
  *     relayRoles: { peerId: ["relay", ...] },
- *     connectedPeers: [clientId, ...]
+ *     knownNodes: [{ peerId, roles, ... }, ...]
  *   }
  */
 
 import type { Awareness } from "y-protocols/awareness";
-import type { NodeRegistry } from "./node-registry.js";
+import type {
+  NodeRegistry,
+  Neighbor,
+} from "./node-registry.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("topology-sharing");
 
 const DEBOUNCE_MS = 2_000;
+const NODE_DEBOUNCE_MS = 5_000;
 const PERIODIC_MS = 30_000;
 
 export interface TopologySharingOptions {
@@ -42,12 +46,21 @@ export interface TopologySharing {
   destroy(): void;
 }
 
+/** Per-node entry published via awareness. */
+export interface AwarenessKnownNode {
+  peerId: string;
+  roles: string[];
+  neighbors: Neighbor[];
+  browserCount?: number;
+}
+
 export interface AwarenessTopology {
   connectedRelays: string[];
   relayRoles: Record<string, string[]>;
-  /** Awareness client IDs of directly connected
-   *  browser peers (from awareness state). */
-  connectedPeers?: number[];
+  /** Infrastructure nodes from this browser's
+   *  node-registry (caps messages received
+   *  directly via GossipSub). */
+  knownNodes?: AwarenessKnownNode[];
 }
 
 export function createTopologySharing(
@@ -55,6 +68,9 @@ export function createTopologySharing(
 ): TopologySharing {
   const { awareness, registry, libp2p } = options;
   let debounceTimer: ReturnType<
+    typeof setTimeout
+  > | null = null;
+  let nodeDebounceTimer: ReturnType<
     typeof setTimeout
   > | null = null;
 
@@ -72,23 +88,30 @@ export function createTopologySharing(
       relays.push(node.peerId);
       roles[node.peerId] = node.roles;
     }
-    // Collect awareness peers (other browsers
-    // reachable via WebRTC mesh).
-    const myId = awareness.clientID;
-    const peers: number[] = [];
-    for (const id of awareness.getStates().keys()) {
-      if (id !== myId) peers.push(id);
+    // Snapshot all registry nodes for peers that
+    // may not be directly connected to them.
+    const knownNodes: AwarenessKnownNode[] = [];
+    for (const node of registry.nodes.values()) {
+      const entry: AwarenessKnownNode = {
+        peerId: node.peerId,
+        roles: node.roles,
+        neighbors: node.neighbors,
+      };
+      if (node.browserCount != null) {
+        entry.browserCount = node.browserCount;
+      }
+      knownNodes.push(entry);
     }
     const topo: AwarenessTopology = {
       connectedRelays: relays,
       relayRoles: roles,
-      connectedPeers: peers,
+      knownNodes,
     };
     awareness.setLocalStateField("topology", topo);
     log.debug(
       "published topology:",
       relays.length, "relays,",
-      peers.length, "peers",
+      knownNodes.length, "known nodes",
     );
   }
 
@@ -100,18 +123,20 @@ export function createTopologySharing(
     }, DEBOUNCE_MS);
   }
 
+  function scheduleNodePublish() {
+    if (nodeDebounceTimer) {
+      clearTimeout(nodeDebounceTimer);
+    }
+    nodeDebounceTimer = setTimeout(() => {
+      nodeDebounceTimer = null;
+      publish();
+    }, NODE_DEBOUNCE_MS);
+  }
+
   const connectHandler = () => schedulePublish();
   const disconnectHandler = () => schedulePublish();
-  const awarenessHandler = (
-    { added, removed }: {
-      added: number[];
-      removed: number[];
-    },
-  ) => {
-    if (added.length > 0 || removed.length > 0) {
-      schedulePublish();
-    }
-  };
+  const nodeChangeHandler = () =>
+    scheduleNodePublish();
 
   libp2p.addEventListener(
     "peer:connect", connectHandler,
@@ -119,7 +144,7 @@ export function createTopologySharing(
   libp2p.addEventListener(
     "peer:disconnect", disconnectHandler,
   );
-  awareness.on("change", awarenessHandler);
+  registry.onNodeChange(nodeChangeHandler);
 
   const periodicTimer = setInterval(
     publish, PERIODIC_MS,
@@ -127,13 +152,19 @@ export function createTopologySharing(
 
   // Initial publish after a short delay to let
   // connections stabilize.
-  const initialTimer = setTimeout(publish, DEBOUNCE_MS);
+  const initialTimer = setTimeout(
+    publish, DEBOUNCE_MS,
+  );
 
   return {
     publishNow() {
       if (debounceTimer) {
         clearTimeout(debounceTimer);
         debounceTimer = null;
+      }
+      if (nodeDebounceTimer) {
+        clearTimeout(nodeDebounceTimer);
+        nodeDebounceTimer = null;
       }
       publish();
     },
@@ -143,6 +174,10 @@ export function createTopologySharing(
         clearTimeout(debounceTimer);
         debounceTimer = null;
       }
+      if (nodeDebounceTimer) {
+        clearTimeout(nodeDebounceTimer);
+        nodeDebounceTimer = null;
+      }
       clearInterval(periodicTimer);
       clearTimeout(initialTimer);
       libp2p.removeEventListener(
@@ -151,7 +186,7 @@ export function createTopologySharing(
       libp2p.removeEventListener(
         "peer:disconnect", disconnectHandler,
       );
-      awareness.off("change", awarenessHandler);
+      registry.offNodeChange(nodeChangeHandler);
     },
   };
 }
