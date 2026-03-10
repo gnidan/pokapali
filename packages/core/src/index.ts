@@ -1264,14 +1264,44 @@ function createDoc(
         });
       }
 
-      // 4. Peer browser nodes, their relay edges,
-      //    and browser-to-browser edges from
-      //    awareness topology state.
+      // 4. Merge knownNodes from all peers'
+      //    awareness topology (last-write-wins
+      //    by peerId). This surfaces infra nodes
+      //    the local browser hasn't seen via caps.
       const states =
         awarenessRoom.awareness.getStates();
       const myClientId =
         awarenessRoom.awareness.clientID;
 
+      for (const [clientId, state] of states) {
+        if (clientId === myClientId) continue;
+        const topo =
+          (state as any)?.topology as
+            AwarenessTopology | undefined;
+        if (!topo?.knownNodes) continue;
+        for (const kn of topo.knownNodes) {
+          if (
+            typeof kn.peerId !== "string" ||
+            !Array.isArray(kn.roles)
+          ) {
+            continue;
+          }
+          if (seenNodeIds.has(kn.peerId)) continue;
+          seenNodeIds.add(kn.peerId);
+          graphNodes.push({
+            id: kn.peerId,
+            kind: nodeKind(kn.roles),
+            label:
+              `...${kn.peerId.slice(-8)}`,
+            connected: false,
+            roles: kn.roles,
+            browserCount: kn.browserCount,
+          });
+        }
+      }
+
+      // 5. Peer browser nodes + relay edges
+      //    from awareness topology state.
       for (const [clientId, state] of states) {
         if (clientId === myClientId) continue;
         const topo =
@@ -1320,23 +1350,6 @@ function createDoc(
             edges.push({
               source: peerId,
               target: relayPid,
-              connected: true,
-            });
-          }
-        }
-
-        // Browser-to-browser edges from
-        // reported connectedPeers
-        if (topo?.connectedPeers) {
-          for (const peerCid of
-            topo.connectedPeers
-          ) {
-            if (peerCid === myClientId) continue;
-            const targetId =
-              `awareness:${peerCid}`;
-            edges.push({
-              source: peerId,
-              target: targetId,
               connected: true,
             });
           }
@@ -1702,4 +1715,5 @@ export type {
 } from "./node-registry.js";
 export type {
   AwarenessTopology,
+  AwarenessKnownNode,
 } from "./topology-sharing.js";
