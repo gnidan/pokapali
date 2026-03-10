@@ -439,9 +439,41 @@ Resolution tries **delegated HTTP first** (fast, reliable), falling back to **fu
 | IPNS polling (30s)       | Delayed   | N/A                      | Fallback when no GossipSub peers are connected              |
 | DHT (IPNS resolve)       | ~seconds  | Persistent, expires ~24h | Cold bootstrap, pinner re-resolution                        |
 
-Writers publish a GossipSub announcement (`{ "ipnsName": "<hex>", "cid": "..." }` JSON on topic `/pokapali/app/{appId}/announce`) immediately after each `pushSnapshot()`. Writers also re-announce every 30 seconds (and re-put the block to the blockstore so late-joining pinners can fetch it). All clients — both readers and writers — subscribe to announcements, apply snapshots directly from the announced CID, and then re-announce the CID and store the block in their local blockstore. This makes every connected peer a gossip amplifier and block provider, improving availability in sparse networks.
+Writers publish a GossipSub announcement on topic
+`/pokapali/app/{appId}/announce` immediately after each
+`pushSnapshot()`. The announcement is a JSON message:
 
-As a fallback, all clients poll IPNS via `watchIPNS` (30s interval) to catch updates when no GossipSub peers are connected.
+```ts
+interface Announcement {
+  ipnsName: string;  // hex-encoded IPNS name
+  cid: string;       // CID of the snapshot block
+  blockData?: string; // base64-encoded block (inline)
+}
+```
+
+**Inline block distribution.** Bitswap does not work for
+browser→relay block fetching (NAT/WebRTC prevents inbound
+connections). Instead, snapshot blocks are embedded directly
+in GossipSub announcements as base64-encoded `blockData`.
+A 256KB size guard prevents oversized messages. This
+eliminates the need for a separate block fetch path for
+typical documents. Pinners validate inline blocks directly
+from the announcement without a blockstore round-trip.
+
+Writers re-announce every 15 seconds (and re-put the block
+to the blockstore so late-joining pinners can fetch it).
+All clients — both readers and writers — subscribe to
+announcements, apply snapshots directly from the
+announced CID, and then re-announce the CID (with inline
+block) and store the block in their local blockstore. This
+makes every connected peer a gossip amplifier and block
+provider, improving availability in sparse networks.
+Readers track `lastAnnouncedCid` per session to avoid
+re-announce amplification loops.
+
+As a fallback, all clients poll IPNS via `watchIPNS`
+(30s interval) to catch updates when no GossipSub peers
+are connected.
 
 Pinners re-publish DHT IPNS records every ~4 hours (via `republishRecord`, which re-puts the existing signed record without needing the private key) to prevent expiry. This keeps records alive when writers are offline. Republishing is sequential with 5s delays between names to avoid overwhelming the relay's DHT connections.
 
@@ -453,18 +485,131 @@ Pinners are structurally zero-knowledge. They never possess `readKey` and cannot
 
 ### Discovery
 
-When a peer pushes a snapshot, the library publishes the block to the Helia blockstore, publishes an IPNS record via delegated HTTP routing, then announces on the GossipSub topic `/pokapali/app/{appId}/announce` with a JSON message `{ "ipnsName": "<hex>", "cid": "..." }`. Pinners subscribed to that topic discover documents automatically — this is the primary discovery path. Relay nodes subscribe to announcement topics for their configured `pinAppIds` and forward messages between browsers and pinners via the GossipSub mesh.
+When a peer pushes a snapshot, the library publishes the
+block to the Helia blockstore, publishes an IPNS record via
+delegated HTTP routing, then announces on the GossipSub
+topic with inline block data (see "Snapshot notification
+channels" above). Pinners subscribed to that topic discover
+documents automatically — this is the primary discovery
+path. Relay nodes subscribe to announcement topics for
+their configured `pinAppIds` and forward messages between
+browsers and pinners via the GossipSub mesh.
 
-On receiving an announcement, pinners **fetch the announced CID directly** via `blockstore.get` — they do not re-resolve IPNS, which may lag behind the announcement. They validate structure and store the block. As a fallback, pinners periodically re-resolve all known IPNS names (every 5 minutes) to catch updates if announcements are missed.
+On receiving an announcement, pinners validate inline block
+data directly from the message — no blockstore round-trip
+needed. They store validated blocks to the persistent
+`FsBlockstore`. If no inline block is present, they fall
+back to `blockstore.get`. As a secondary fallback, pinners
+periodically re-resolve all known IPNS names (every 5
+minutes) to catch updates if announcements are missed.
 
 ### Jobs
 
 Once a pinner discovers an IPNS name, its ongoing jobs are:
 
-1. Fetch announced CIDs directly (or resolve IPNS as fallback) → verify snapshot signature is structurally valid (well-formed Ed25519) → pin the block
-2. **Keep all snapshots from the last 24 hours** — time-windowed, not count-based
-3. Prune snapshots older than 24 hours (always keep the tip regardless of age)
-4. **Re-publish DHT IPNS records every ~4 hours** — uses `republishRecord` (no private key needed), sequential with 5s per-name delays to limit DHT load on the relay; checks `stopped` flag between names to allow cancellation during shutdown
+1. Validate inline block data from announcements (or
+   resolve IPNS as fallback) → verify snapshot signature
+   is structurally valid (well-formed Ed25519) → pin the
+   block to `FsBlockstore`
+2. **Keep all snapshots from the last 24 hours** —
+   time-windowed, not count-based
+3. Prune snapshots older than 24 hours (always keep the
+   tip regardless of age). `history.prune()` returns CIDs
+   of pruned snapshots for blockstore cleanup.
+4. **Re-publish DHT IPNS records every ~4 hours** — uses
+   `republishRecord` (no private key needed), sequential
+   with 5s per-name delays to limit DHT load on the
+   relay; checks `stopped` flag between names to allow
+   cancellation during shutdown
+5. **Re-announce known CIDs** with inline blocks so that
+   late-joining peers and other pinners can fetch blocks
+   without Bitswap. Currently runs on a flat 30s cycle
+   over all known documents. At scale, this is replaced
+   by the continuous scheduling model (see below).
+
+### Pinner acknowledgment
+
+When a pinner successfully ingests a snapshot, it publishes
+an ack on the same announce topic:
+
+```ts
+interface AnnouncementAck {
+  ipnsName: string;
+  cid: string;
+  ack: true;
+  peerId: string;
+  guaranteeMs?: number; // duration pinner commits to
+                        // re-announcing this CID
+}
+```
+
+Writers track `ackCount` and `ackedBy` (deduped by peerId)
+to display "Saved to N relay(s)" in the UI. Pinners track
+`lastAckedCid` per IPNS name to avoid redundant re-fetches
+on duplicate announcements — they still re-ack without
+re-fetching so the writer sees confirmation.
+
+### Guarantee protocol (designed)
+
+The `guaranteeMs` field in ack messages communicates how
+long the pinner commits to re-announcing this CID. This is
+a **duration** (not a timestamp) to avoid clock skew
+between peers. The writer computes the absolute deadline
+locally: `guaranteedUntil = Date.now() + guaranteeMs`.
+
+**Self-tuning capacity.** The pinner measures re-announce
+cost via an exponential moving average (EMA) of per-doc
+milliseconds. Capacity is derived from a target cycle time:
+`capacity = TARGET_MS / perDocEma` (e.g., 25,000ms / 5ms
+= 5,000 docs). The guarantee duration is proportional to
+the ratio of capacity to active documents. This adapts
+automatically to hardware — a faster VPS gives longer
+guarantees without configuration.
+
+**Monotonic guarantees.** For the same CID, guarantee
+durations are monotonically non-decreasing (the pinner
+tracks `guaranteedUntil` per IPNS name and uses
+`Math.max`). When the writer publishes a new CID, the
+guarantee resets — the pinner must prove it has the new
+block before committing.
+
+### Continuous scheduling (designed)
+
+At scale, the flat re-announce loop (O(N) every 30s)
+becomes the bottleneck. The replacement is a continuous
+priority model:
+
+- Each document has a **priority** based on exponential
+  decay from last activity: `priority = 2^(-age/HALF_LIFE)`
+- A **min-heap priority queue** ordered by next-deadline
+  (`lastAnnounced + interval`) replaces the flat loop
+- Re-announce interval scales with priority:
+  `interval = BASE * 2^(age/HALF_LIFE) * loadFactor`
+- Three parameters with physical meaning:
+  - `BASE` (~2s): re-announce interval for a just-edited
+    document
+  - `HALF_LIFE` (~1 hour): time for priority to halve
+  - `TARGET_MS` (~25s): target wall-clock per cycle
+
+The model is self-rate-limiting: the priority queue
+processes one document at a time, rate-limited by
+msgs/sec rather than per-cycle. GossipSub's `seenCache`
+(2-minute TTL) provides a natural floor on re-announce
+frequency.
+
+**Reader activity as demand signal.** When any peer
+(reader or writer) re-announces a CID, the pinner updates
+`lastSeenAt` for that document *before* the dedup early
+return in `onAnnouncement`. This refreshes the document's
+priority in the continuous model without triggering a
+re-fetch.
+
+**State pruning.** Documents with no activity for an
+extended period (e.g., 7 days) can be pruned from pinner
+state entirely: remove from `knownNames`, `tips`,
+`nameToAppId`, and `lastSeenAt`. The document is
+rediscovered automatically if a writer or reader
+re-announces it.
 
 ### What pinners can and cannot verify
 
@@ -517,7 +662,45 @@ documents without waiting for new announcements.
 
 Pinner shutdown is graceful: `stop()` sets a `stopped` flag (checked by the IPNS republish loop between names), cancels the initial republish timer, clears periodic intervals, flushes in-flight fetch operations via `flush()` (`Promise.allSettled` on all tracked promises), and persists state to disk.
 
-The relay runs Helia with full libp2p defaults, client-mode DHT, GossipSub (`floodPublish: true`, tuned D/Dlo/Dhi for small networks), autoTLS for WSS, and persistent key + datastore. It subscribes to peer discovery, signaling, and announcement topics, and provides a network-wide CID on the DHT for browser discovery. The relay blockstore is `FsBlockstore` (persistent across restarts) at `storagePath/blockstore`. Note: `FsBlockstore` v3 `get()` returns an `AsyncGenerator`, not a `Uint8Array` — the relay wraps this with a safe type-check adapter.
+The relay runs Helia with full libp2p defaults, client-mode
+DHT, GossipSub (tuned D/Dlo/Dhi for small networks),
+autoTLS for WSS, and persistent key + datastore. It
+subscribes to peer discovery, signaling, and announcement
+topics, and provides a network-wide CID on the DHT for
+browser discovery. The relay blockstore is `FsBlockstore`
+(persistent across restarts) at `storagePath/blockstore`.
+Note: `FsBlockstore` v3 `get()` returns an
+`AsyncGenerator`, not a `Uint8Array` — the relay wraps
+this with a safe type-check adapter.
+
+**Relay-to-relay GossipSub topology.** Currently relays
+use `floodPublish: true`, which broadcasts every message
+to all connected peers. This works at small scale but
+causes a broadcast storm at 100+ nodes. The designed
+replacement is **dynamic direct peering via DHT
+discovery**:
+
+1. Relays discover each other via DHT
+   `findProviders(networkCID)` (already implemented)
+2. After successful dial, add the peer to
+   `pubsub.direct` (a `Set<string>` on the GossipSub
+   instance, checked at runtime in `selectPeersToPublish`,
+   `selectPeersToForward`, `acceptFrom`,
+   `directConnect` heartbeat, and mesh exclusion)
+3. Direct peers always receive published messages
+   regardless of mesh state — guaranteed delivery
+   without broadcast
+4. Disable `floodPublish` on relays (browsers keep it —
+   they have only 2-4 relay peers, negligible bandwidth)
+
+This is ~7 lines of code in `relay.ts`
+(`findAndDialProviders`). No hardcoded addresses — relay
+discovery is entirely via DHT. The `directConnect()`
+heartbeat reconnects dropped direct peers using
+`this.direct` (the Set), not `this.opts.directPeers`
+(the config array), so dynamically added peers get
+heartbeat reconnection too. Expected 5× bandwidth
+reduction at 25+ peers.
 
 The HTTP server exposes:
 - `GET /healthz` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
@@ -722,9 +905,11 @@ certificate provisioning, and run client-mode DHT to
 provide records without serving DHT queries.
 
 Browsers discover relays via DHT (looking up a
-network-wide CID derived from `sha256("pokapali-network")`)
-and cached relay addresses in `localStorage` (24h TTL,
-48h max age). Relay caching logic is in `relay-cache.ts`
+network-wide CID derived from `sha256("pokapali-network")`,
+not per-app or per-document) and cached relay addresses in
+`localStorage` (24h TTL, 48h max age). **No relay addresses
+are hardcoded** — all relay discovery is via DHT or peer
+exchange. Relay caching logic is in `relay-cache.ts`
 (extracted from `peer-discovery.ts` for testability). On
 startup, browsers try cached relays first (fast direct
 dial) then run DHT discovery in parallel.
@@ -794,6 +979,33 @@ This is cooperative enforcement at the intra-namespace level (peers trust each o
 This could also evolve toward DIDs, UCANs, or other external identity layers without changing the room-isolation architecture.
 
 **Application guidance to preserve this path:** within annotation namespaces (comments, suggestions, etc.), store entries as `Y.Map` instances with room for metadata fields (author public key, signature, timestamps) rather than bare strings in a `Y.Array`. This keeps the door open for per-user identity without a data migration.
+
+### CLI and MCP agent interface (designed)
+
+A programmatic interface for LLM agents to read and write
+pokapali documents without a browser. Two delivery formats:
+
+1. **CLI commands** (`pokapali read <url>`,
+   `pokapali write <url>`) — stateless, one Helia boot per
+   invocation (~5-15s startup). Good for scripting and
+   simple agent workflows.
+2. **MCP server** — long-running process with persistent
+   Helia node. Amortizes boot cost across many operations.
+   Exposes `read_document`, `write_document`,
+   `list_documents` as MCP tools.
+
+Both use `@pokapali/core` individual module imports (not
+the main export, which crashes in Node.js due to y-webrtc
+/ simple-peer). Content model: Tiptap stores rich text as
+`XmlFragment` in subdoc `"content"` — the CLI converts
+between plain text and `XmlElement` paragraphs for
+round-tripping.
+
+The interface is read/write only (no real-time sync). A
+write operation creates a snapshot and publishes to IPNS;
+a read operation resolves IPNS and decrypts the latest
+snapshot. This is sufficient for agent use cases (review
+a document, add comments, update content).
 
 ---
 
