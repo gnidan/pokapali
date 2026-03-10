@@ -250,15 +250,24 @@ export async function startRelay(
           pubsub: gossipsub({
             // Mesh routing: let GossipSub manage
             // message forwarding via mesh peers.
-            // floodPublish was needed with 2 relays
-            // but causes broadcast storms at scale.
+            // floodPublish was needed with only 2
+            // relays (mesh couldn't form). With 4+
+            // relays connected via DHT discovery and
+            // tagged to prevent pruning, mesh routing
+            // works reliably.
             floodPublish: false,
             allowPublishToZeroTopicPeers: true,
-            D: 6,
-            Dlo: 4,
-            Dhi: 12,
-            Dout: 2,
-            Dscore: 2,
+            // D=3 is achievable with 4 relays (3
+            // peers). Dlo=2 avoids constant GRAFT
+            // churn when some relays are temporarily
+            // disconnected. Scales naturally as more
+            // relays join — GossipSub adds up to Dhi
+            // mesh peers.
+            D: 3,
+            Dlo: 2,
+            Dhi: 8,
+            Dout: 1,
+            Dscore: 1,
             // Disable IP colocation penalty. Browser
             // peers connect via p2p-circuit through
             // bootstrap relays, making them all appear
@@ -451,26 +460,31 @@ export async function startRelay(
   // can discover any relay regardless of app.
   const netCID = await networkCID();
 
+  // Tag value for relay peers discovered via DHT.
+  // Protects from connection manager pruning (pruner
+  // drops lowest-value peers first). We do NOT use
+  // GossipSub's `direct` set — adding peers to
+  // `direct` excludes them from mesh, but mesh
+  // membership is what we need for relay-to-relay
+  // message delivery. Instead, we tag the connection
+  // and let normal GossipSub mesh formation (D=3)
+  // naturally GRAFT connected relays.
+  const RELAY_PEER_TAG = "pokapali-relay-peer";
+  const RELAY_PEER_TAG_VALUE = 200;
+
   /**
    * Find other relays providing the network CID and
    * dial them. This discovers relays via delegated
    * routing even when DHT provide fails, ensuring
    * relays connect to each other for GossipSub.
+   *
+   * After dialing, we tag the peer to protect the
+   * connection from pruning. GossipSub's heartbeat
+   * will naturally GRAFT connected topic subscribers
+   * into the mesh.
    */
-  // GossipSub direct peer set for guaranteed
-  // relay-to-relay message delivery. Verified at
-  // startup — all usage is runtime-checked
-  // (has/forEach), so dynamic additions take
-  // effect immediately.
-  const gs = (helia.libp2p.services as any).pubsub;
-  if (!(gs.direct instanceof Set)) {
-    log.error(
-      "GossipSub direct peer API changed!"
-      + " Relay-to-relay delivery may be degraded.",
-    );
-  }
-
   async function findAndDialProviders() {
+    const selfId = helia.libp2p.peerId.toString();
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(
@@ -485,6 +499,7 @@ export async function startRelay(
       ) {
         found++;
         const pid = provider.id.toString();
+        if (pid === selfId) continue;
         for (const ma of provider.multiaddrs) {
           try {
             await helia.libp2p.dial(ma, {
@@ -494,21 +509,23 @@ export async function startRelay(
               "dialed relay provider:"
               + ` ${ma.toString().slice(-20)}`,
             );
-            // Promote to direct peer for guaranteed
-            // message delivery between relays.
-            const selfId =
-              helia.libp2p.peerId.toString();
-            if (
-              gs.direct instanceof Set
-              && pid !== selfId
-              && !gs.direct.has(pid)
-            ) {
-              gs.direct.add(pid);
-              log.info(
-                `direct-peered relay`
-                + ` ...${pid.slice(-8)}`,
-              );
-            }
+            // Tag the peer so the connection manager
+            // keeps it alive. GossipSub mesh formation
+            // handles message routing from here.
+            helia.libp2p.peerStore.merge(
+              provider.id,
+              {
+                tags: {
+                  [RELAY_PEER_TAG]: {
+                    value: RELAY_PEER_TAG_VALUE,
+                  },
+                },
+              },
+            ).catch(() => {});
+            log.info(
+              `tagged relay`
+              + ` ...${pid.slice(-8)}`,
+            );
           } catch {
             // Dial failure is fine — peer may be
             // unreachable or already connected.
