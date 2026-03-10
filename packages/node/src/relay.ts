@@ -274,6 +274,13 @@ export async function startRelay(
             // to share the relay's IP. Default threshold
             // of 10 is easily exceeded, causing -5.0
             // scores → pruning → mesh collapse.
+            // Cap per-peer outbound buffer. Default is
+            // Infinity — under high message volume (1000+
+            // docs with inline blocks), unbounded buffers
+            // delay heartbeats, causing mesh collapse.
+            // 10MB allows ~30 inline-block messages queued
+            // per peer before dropping.
+            maxOutboundBufferSize: 10 * 1024 * 1024,
             scoreParams: {
               IPColocationFactorWeight: 0,
             },

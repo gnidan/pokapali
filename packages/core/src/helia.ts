@@ -70,6 +70,10 @@ export async function acquireHelia(
         // Disable IP colocation penalty. Browsers
         // connect via p2p-circuit, sharing the relay's
         // IP, triggering false positives.
+        // Cap per-peer outbound buffer. Browsers have
+        // limited upload bandwidth; 2MB prevents buffer
+        // bloat from inline-block announcements.
+        maxOutboundBufferSize: 2 * 1024 * 1024,
         scoreParams: {
           IPColocationFactorWeight: 0,
         },
