@@ -20,9 +20,11 @@ export interface AnnouncePubSub {
 
 export interface AnnouncementAck {
   peerId: string;
-  /** Re-announce guarantee end (ms epoch). */
+  /** Absolute timestamp (ms epoch) until which the
+   *  pinner actively re-announces this doc. */
   guaranteeUntil?: number;
-  /** Block retention end (ms epoch). */
+  /** Absolute timestamp (ms epoch) until which the
+   *  pinner retains blocks in storage. */
   retainUntil?: number;
 }
 

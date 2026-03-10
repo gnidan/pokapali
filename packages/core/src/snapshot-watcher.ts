@@ -74,6 +74,9 @@ export interface SnapshotWatcher {
   readonly hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
   readonly ackedBy: ReadonlySet<string>;
+  /** Latest guarantee-until timestamp across all
+   *  pinners for the current CID, or null if none. */
+  readonly guaranteeUntil: number | null;
   /** GossipSub liveness: inactive → subscribed →
    *  receiving. Decays after 60s without messages. */
   readonly gossipActivity: GossipActivity;
@@ -108,6 +111,7 @@ export function createSnapshotWatcher(
    *  loop between readers). */
   let lastAnnouncedCid: string | null = null;
   const ackedBy = new Set<string>();
+  const pinnerGuarantees = new Map<string, number>();
   let retryTimer: ReturnType<
     typeof setTimeout
   > | null = null;
@@ -235,6 +239,16 @@ export function createSnapshotWatcher(
       if (ann.cid === ackedCid) {
         const isNew = !ackedBy.has(ann.ack.peerId);
         ackedBy.add(ann.ack.peerId);
+        if (ann.ack.guaranteeUntil !== undefined) {
+          const prev =
+            pinnerGuarantees.get(
+              ann.ack.peerId,
+            ) ?? 0;
+          pinnerGuarantees.set(
+            ann.ack.peerId,
+            Math.max(prev, ann.ack.guaranteeUntil),
+          );
+        }
         if (isNew) {
           log.debug(
             "ack from", ann.ack.peerId.slice(-8),
@@ -505,6 +519,7 @@ export function createSnapshotWatcher(
       if (cid !== ackedCid) {
         ackedCid = cid;
         ackedBy.clear();
+        pinnerGuarantees.clear();
       }
     },
 
@@ -522,6 +537,11 @@ export function createSnapshotWatcher(
 
     get ackedBy(): ReadonlySet<string> {
       return ackedBy;
+    },
+
+    get guaranteeUntil(): number | null {
+      if (pinnerGuarantees.size === 0) return null;
+      return Math.max(...pinnerGuarantees.values());
     },
 
     get gossipActivity(): GossipActivity {

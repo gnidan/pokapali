@@ -86,13 +86,17 @@ dependencies only, not part of the library.
 ## @chainsafe/libp2p-gossipsub ^14.1.2
 
 GossipSub pubsub for WebRTC signaling, peer discovery,
-and snapshot announcements. Used in @pokapali/core
-(browser) and @pokapali/node (relay). Configured with
-`floodPublish: true` for low-traffic topics — ensures
-all messages reach every peer without mesh optimization
-delays. Tuned D/Dlo/Dhi for small networks (2-3 relays
-+ transient browsers). IP colocation scoring disabled
-because browser peers connect via p2p-circuit through
+snapshot announcements, pinner acks, and node capability
+broadcasting. Used in @pokapali/core (browser) and
+@pokapali/node (relay). Currently configured with
+`floodPublish: true`; planned migration to dynamic
+`directPeers` for relay-to-relay delivery (populated
+from DHT discovery, no hardcoded addresses). Browsers
+keep `floodPublish: true` (2-4 relay peers, negligible
+bandwidth). Tuned D/Dlo/Dhi for small networks:
+relay D=3/Dlo=2/Dhi=6, browser D=2/Dlo=2/Dhi=4. IP
+colocation scoring disabled (`IPColocationFactorWeight:
+0`) because browser peers connect via p2p-circuit through
 relay IPs, triggering false positives. Pinned to
 versions compatible with helia ^5.5.1 / libp2p 2.
 
@@ -124,6 +128,14 @@ Automatic TLS certificate provisioning for relay WSS
 endpoints. On startup, the relay obtains a certificate
 from the libp2p certificate authority, enabling browsers
 on HTTPS pages to connect directly via secure WebSocket.
+
+## blockstore-fs
+
+Persistent file-based blockstore for relay/pinner. Stores
+snapshot blocks at `storagePath/blockstore/` so they
+survive restarts. Note: v3 `get()` returns an
+`AsyncGenerator`, not a `Uint8Array` — wrapped with a
+safe type-check adapter in relay code.
 
 ## datastore-level
 
