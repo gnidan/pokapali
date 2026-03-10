@@ -534,6 +534,26 @@ function SnapshotsDetail({
           </span>
         </div>
       )}
+      {info.retainUntil != null && (
+        <div className="cs-detail-row">
+          <span className="cs-detail-key">
+            Stored until
+          </span>
+          <span
+            className={
+              info.retainUntil < Date.now()
+                ? "cs-detail-warn"
+                : "cs-detail-mono"
+            }
+          >
+            {info.retainUntil < Date.now()
+              ? "Retention expired"
+              : formatRelativeTime(
+                  info.retainUntil,
+                )}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
