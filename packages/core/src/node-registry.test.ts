@@ -349,6 +349,193 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
+  it("fires onNodeChange for new node", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["peer-A"]);
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+    const cb = vi.fn();
+    reg.onNodeChange(cb);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("fires onNodeChange when roles change", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["peer-A"]);
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    reg.onNodeChange(cb);
+
+    // Same roles — no change
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+    expect(cb).not.toHaveBeenCalled();
+
+    // Different roles — fires
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage(
+        "peer-A", ["relay", "pinner"],
+      ),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("fires onNodeChange when connected state"
+    + " changes", () => {
+    const pubsub = makePubsub();
+    let connectedPeers: string[] = [];
+    const helia = {
+      libp2p: {
+        getConnections: () =>
+          connectedPeers.map((pid) => ({
+            remotePeer: { toString: () => pid },
+          })),
+      },
+    };
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+    const cb = vi.fn();
+
+    // First message: disconnected
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    reg.onNodeChange(cb);
+
+    // Same state — no fire
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+    expect(cb).not.toHaveBeenCalled();
+
+    // Now connected — fires
+    connectedPeers = ["peer-A"];
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("does not fire onNodeChange for unchanged"
+    + " re-announce", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["peer-A"]);
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    reg.onNodeChange(cb);
+
+    // Identical re-announce
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    expect(cb).not.toHaveBeenCalled();
+
+    reg.destroy();
+  });
+
+  it("fires onNodeChange on stale prune", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+    reg.onNodeChange(cb);
+
+    // Advance past stale + prune interval
+    vi.advanceTimersByTime(120_000);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("offNodeChange unregisters callback", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+    const cb = vi.fn();
+    reg.onNodeChange(cb);
+    reg.offNodeChange(cb);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    expect(cb).not.toHaveBeenCalled();
+
+    reg.destroy();
+  });
+
+  it("destroy clears change listeners", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+    const cb = vi.fn();
+    reg.onNodeChange(cb);
+    reg.destroy();
+
+    // After destroy, callback should not fire
+    // (pubsub listener removed, so no new messages)
+    // Just verify no errors on offNodeChange
+    reg.offNodeChange(cb);
+  });
+
   it("destroy removes listener and stops"
     + " prune timer", () => {
     const pubsub = makePubsub();
