@@ -21,6 +21,8 @@ export interface KnownNode {
   connected: boolean;
   neighbors: Neighbor[];
   browserCount: number | undefined;
+  /** Public WSS addresses from caps broadcast. */
+  addrs: string[];
 }
 
 export interface NodeRegistry {
@@ -39,6 +41,7 @@ interface NodeCapsMessage {
   roles: string[];
   neighbors?: Neighbor[];
   browserCount?: number;
+  addrs?: string[];
 }
 
 function parseNeighbors(
@@ -88,6 +91,11 @@ function parseCapsMessage(
         parseNeighbors(obj.neighbors);
       if (typeof obj.browserCount === "number") {
         msg.browserCount = obj.browserCount;
+      }
+      if (Array.isArray(obj.addrs)) {
+        msg.addrs = obj.addrs.filter(
+          (a: unknown) => typeof a === "string",
+        );
       }
     }
     return msg;
@@ -160,6 +168,7 @@ export function createNodeRegistry(
       connected,
       neighbors: caps.neighbors ?? [],
       browserCount: caps.browserCount,
+      addrs: caps.addrs ?? [],
     });
     if (!prev) {
       log.info(

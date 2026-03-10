@@ -10,7 +10,7 @@ import {
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
-const FIND_TIMEOUT_MS = 15_000;
+const FIND_TIMEOUT_MS = 30_000;
 const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
@@ -364,8 +364,17 @@ export function startRoomDiscovery(
   function logStatus() {
     const peers = helia.libp2p.getPeers();
     const addrs = helia.libp2p.getMultiaddrs();
+    const connectedCount = [...relayPeerIds].filter(
+      (pid) => helia.libp2p.getConnections().some(
+        (c) => c.remotePeer.toString() === pid,
+      ),
+    ).length;
+    log.info(
+      `${relayPeerIds.size} relays tracked,`,
+      `${connectedCount} connected,`,
+      `${peers.length} total peers`,
+    );
     log.debug(
-      `${peers.length} peers,`,
       `${addrs.length} listening addrs`,
     );
   }
@@ -471,6 +480,12 @@ export function startRoomDiscovery(
   dialCachedRelays();
   discoverRelays();
 
+  // Second startup discovery after 15s — DHT may
+  // return different providers on a fresh query.
+  const secondDiscoveryTimer = setTimeout(() => {
+    if (!stopped) discoverRelays();
+  }, 15_000);
+
   // Periodic re-discovery
   const discoverInterval = setInterval(() => {
     if (!stopped) discoverRelays();
@@ -486,16 +501,16 @@ export function startRoomDiscovery(
   ) {
     for (const entry of entries) {
       if (stopped) break;
-      if (relayPeerIds.has(entry.peerId)) continue;
 
       const pid = entry.peerId;
       const short = pid.slice(-8);
-      const already = helia.libp2p
+      const connected = helia.libp2p
         .getConnections()
         .some(
           (c) => c.remotePeer.toString() === pid,
         );
-      if (already) {
+
+      if (connected) {
         trackRelay(pid, entry.addrs);
         log.debug(
           `peer-shared relay ...${short}`,
@@ -504,6 +519,10 @@ export function startRoomDiscovery(
         upsertCachedRelay(pid, entry.addrs);
         continue;
       }
+
+      // Skip if actively reconnecting (has a
+      // pending reconnect timer).
+      if (reconnectTimers.has(pid)) continue;
 
       const extAddrs = wssAddrs(
         pid, entry.addrs,
@@ -537,6 +556,7 @@ export function startRoomDiscovery(
     stop() {
       stopped = true;
       cycleController?.abort();
+      clearTimeout(secondDiscoveryTimer);
       clearInterval(discoverInterval);
       clearInterval(logInterval);
       for (const timer of reconnectTimers.values()) {

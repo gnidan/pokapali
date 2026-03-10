@@ -25,6 +25,7 @@ function makeNode(
     connected,
     neighbors,
     browserCount,
+    addrs: [],
   };
 }
 
