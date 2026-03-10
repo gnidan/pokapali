@@ -9,11 +9,18 @@ export const NODE_CAPS_TOPIC =
 const STALE_MS = 90_000;
 const PRUNE_INTERVAL_MS = 30_000;
 
+export interface Neighbor {
+  peerId: string;
+  role?: string;
+}
+
 export interface KnownNode {
   peerId: string;
   roles: string[];
   lastSeenAt: number;
   connected: boolean;
+  neighbors: Neighbor[];
+  browserCount: number | undefined;
 }
 
 export interface NodeRegistry {
@@ -23,9 +30,34 @@ export interface NodeRegistry {
 }
 
 interface NodeCapsMessage {
-  version: 1;
+  version: 1 | 2;
   peerId: string;
   roles: string[];
+  neighbors?: Neighbor[];
+  browserCount?: number;
+}
+
+function parseNeighbors(
+  arr: unknown,
+): Neighbor[] {
+  if (!Array.isArray(arr)) return [];
+  const result: Neighbor[] = [];
+  for (const item of arr) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as any).peerId === "string"
+    ) {
+      const n: Neighbor = {
+        peerId: (item as any).peerId,
+      };
+      if (typeof (item as any).role === "string") {
+        n.role = (item as any).role;
+      }
+      result.push(n);
+    }
+  }
+  return result;
 }
 
 function parseCapsMessage(
@@ -36,13 +68,25 @@ function parseCapsMessage(
       new TextDecoder().decode(data),
     );
     if (
-      obj?.version !== 1 ||
+      (obj?.version !== 1 && obj?.version !== 2) ||
       typeof obj.peerId !== "string" ||
       !Array.isArray(obj.roles)
     ) {
       return null;
     }
-    return obj as NodeCapsMessage;
+    const msg: NodeCapsMessage = {
+      version: obj.version,
+      peerId: obj.peerId,
+      roles: obj.roles,
+    };
+    if (obj.version === 2) {
+      msg.neighbors =
+        parseNeighbors(obj.neighbors);
+      if (typeof obj.browserCount === "number") {
+        msg.browserCount = obj.browserCount;
+      }
+    }
+    return msg;
   } catch {
     return null;
   }
@@ -88,6 +132,8 @@ export function createNodeRegistry(
       roles: caps.roles,
       lastSeenAt: Date.now(),
       connected,
+      neighbors: caps.neighbors ?? [],
+      browserCount: caps.browserCount,
     });
     log.debug(
       "node seen:",

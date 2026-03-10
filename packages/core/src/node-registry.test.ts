@@ -62,6 +62,23 @@ function capsMessage(
   );
 }
 
+function capsMessageV2(
+  peerId: string,
+  roles: string[],
+  neighbors: { peerId: string; role?: string }[],
+  browserCount?: number,
+): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      version: 2,
+      peerId,
+      roles,
+      neighbors,
+      browserCount,
+    }),
+  );
+}
+
 function makeHelia(
   connectedPeerIds: string[] = [],
 ) {
@@ -180,7 +197,7 @@ describe("createNodeRegistry", () => {
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
       data: new TextEncoder().encode(
-        JSON.stringify({ version: 2 }),
+        JSON.stringify({ version: 99 }),
       ),
     });
 
@@ -245,6 +262,89 @@ describe("createNodeRegistry", () => {
     expect(node.lastSeenAt).toBeGreaterThan(
       firstSeen,
     );
+
+    reg.destroy();
+  });
+
+  it("parses v2 message with neighbors and"
+    + " browserCount", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-A",
+        ["relay"],
+        [
+          { peerId: "browser-1", role: "browser" },
+          { peerId: "browser-2" },
+        ],
+        3,
+      ),
+    });
+
+    const node = reg.nodes.get("relay-A")!;
+    expect(node.neighbors).toEqual([
+      { peerId: "browser-1", role: "browser" },
+      { peerId: "browser-2" },
+    ]);
+    expect(node.browserCount).toBe(3);
+
+    reg.destroy();
+  });
+
+  it("v1 messages have empty neighbors", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-V1", ["relay"]),
+    });
+
+    const node = reg.nodes.get("peer-V1")!;
+    expect(node.neighbors).toEqual([]);
+    expect(node.browserCount).toBeUndefined();
+
+    reg.destroy();
+  });
+
+  it("prunes stale node and its topology"
+    + " edges", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-X",
+        ["relay"],
+        [{ peerId: "browser-99" }],
+        1,
+      ),
+    });
+    expect(reg.nodes.size).toBe(1);
+    expect(
+      reg.nodes.get("relay-X")!.neighbors,
+    ).toHaveLength(1);
+
+    // Advance past stale threshold + prune interval
+    vi.advanceTimersByTime(120_000);
+
+    expect(reg.nodes.size).toBe(0);
 
     reg.destroy();
   });
