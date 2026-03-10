@@ -77,10 +77,17 @@ async function loadOrCreateKey(
   }
 }
 
+export interface NodeNeighbor {
+  peerId: string;
+  role?: string;
+}
+
 export interface NodeCapabilities {
-  version: 1;
+  version: 2;
   peerId: string;
   roles: string[];
+  neighbors?: NodeNeighbor[];
+  browserCount?: number;
 }
 
 export function encodeNodeCaps(
@@ -99,7 +106,7 @@ export function decodeNodeCaps(
       new TextDecoder().decode(data),
     );
     if (
-      obj?.version !== 1 ||
+      (obj?.version !== 1 && obj?.version !== 2) ||
       typeof obj.peerId !== "string" ||
       !Array.isArray(obj.roles)
     ) {
@@ -439,14 +446,62 @@ export async function startRelay(
     }
     return inferred;
   })();
-  const capsMsg = encodeNodeCaps({
-    version: 1,
-    peerId: helia.libp2p.peerId.toString(),
-    roles,
-  });
+  const selfPeerId = helia.libp2p.peerId.toString();
+
+  // Track peer roles from incoming caps messages
+  // so we can distinguish relays/pinners from
+  // browsers when building the neighbor list.
+  const knownPeerRoles = new Map<
+    string, string[]
+  >();
+  pubsub.addEventListener(
+    "message",
+    (evt: any) => {
+      const { detail } = evt;
+      if (detail?.topic !== NODE_CAPS_TOPIC) return;
+      const caps = decodeNodeCaps(detail.data);
+      if (!caps || caps.peerId === selfPeerId) return;
+      knownPeerRoles.set(caps.peerId, caps.roles);
+    },
+  );
 
   function publishCaps() {
-    pubsub.publish(NODE_CAPS_TOPIC, capsMsg)
+    // Build neighbor list from connected peers
+    // with known roles (relays/pinners).
+    const conns = helia.libp2p.getConnections();
+    const connectedPids = new Set<string>();
+    for (const conn of conns) {
+      connectedPids.add(
+        (conn as any).remotePeer.toString(),
+      );
+    }
+
+    const neighbors: NodeNeighbor[] = [];
+    let browserCount = 0;
+    for (const pid of connectedPids) {
+      const peerRoles = knownPeerRoles.get(pid);
+      if (peerRoles && peerRoles.length > 0) {
+        // Known relay/pinner — include as neighbor
+        neighbors.push({
+          peerId: pid,
+          role: peerRoles[0],
+        });
+      } else {
+        // Unknown role — assumed browser
+        browserCount++;
+      }
+    }
+
+    const msg = encodeNodeCaps({
+      version: 2,
+      peerId: selfPeerId,
+      roles,
+      neighbors: neighbors.length > 0
+        ? neighbors
+        : undefined,
+      browserCount,
+    });
+    pubsub.publish(NODE_CAPS_TOPIC, msg)
       .catch((err: unknown) => {
         log.warn("caps publish failed:", err);
       });

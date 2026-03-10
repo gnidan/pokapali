@@ -9,11 +9,18 @@ export const NODE_CAPS_TOPIC =
 const STALE_MS = 90_000;
 const PRUNE_INTERVAL_MS = 30_000;
 
+export interface NodeNeighbor {
+  peerId: string;
+  role?: string;
+}
+
 export interface KnownNode {
   peerId: string;
   roles: string[];
   lastSeenAt: number;
   connected: boolean;
+  neighbors?: NodeNeighbor[];
+  browserCount?: number;
 }
 
 export interface NodeRegistry {
@@ -23,9 +30,11 @@ export interface NodeRegistry {
 }
 
 interface NodeCapsMessage {
-  version: 1;
+  version: 1 | 2;
   peerId: string;
   roles: string[];
+  neighbors?: NodeNeighbor[];
+  browserCount?: number;
 }
 
 function parseCapsMessage(
@@ -36,7 +45,7 @@ function parseCapsMessage(
       new TextDecoder().decode(data),
     );
     if (
-      obj?.version !== 1 ||
+      (obj?.version !== 1 && obj?.version !== 2) ||
       typeof obj.peerId !== "string" ||
       !Array.isArray(obj.roles)
     ) {
@@ -83,12 +92,19 @@ export function createNodeRegistry(
 
     const connected =
       getConnectedPeerIds().has(caps.peerId);
-    nodes.set(caps.peerId, {
+    const node: KnownNode = {
       peerId: caps.peerId,
       roles: caps.roles,
       lastSeenAt: Date.now(),
       connected,
-    });
+    };
+    if (caps.neighbors) {
+      node.neighbors = caps.neighbors;
+    }
+    if (caps.browserCount !== undefined) {
+      node.browserCount = caps.browserCount;
+    }
+    nodes.set(caps.peerId, node);
     log.debug(
       "node seen:",
       caps.peerId.slice(-8),

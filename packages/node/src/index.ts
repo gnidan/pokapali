@@ -10,6 +10,7 @@ export type {
   RelayConfig,
   Relay,
   NodeCapabilities,
+  NodeNeighbor,
 } from "./relay.js";
 export {
   startRelay,
