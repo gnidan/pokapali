@@ -67,6 +67,7 @@ function capsMessageV2(
   roles: string[],
   neighbors: { peerId: string; role?: string }[],
   browserCount?: number,
+  addrs?: string[],
 ): Uint8Array {
   return new TextEncoder().encode(
     JSON.stringify({
@@ -75,6 +76,7 @@ function capsMessageV2(
       roles,
       neighbors,
       browserCount,
+      addrs,
     }),
   );
 }
@@ -294,6 +296,54 @@ describe("createNodeRegistry", () => {
       { peerId: "browser-2" },
     ]);
     expect(node.browserCount).toBe(3);
+
+    reg.destroy();
+  });
+
+  it("parses v2 message with addrs", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-A",
+        ["relay"],
+        [],
+        0,
+        [
+          "/ip4/1.2.3.4/tcp/4003/tls/ws/p2p/relay-A",
+        ],
+      ),
+    });
+
+    const node = reg.nodes.get("relay-A")!;
+    expect(node.addrs).toEqual([
+      "/ip4/1.2.3.4/tcp/4003/tls/ws/p2p/relay-A",
+    ]);
+
+    reg.destroy();
+  });
+
+  it("v1 messages have empty addrs", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(
+      pubsub as any,
+      () => helia as any,
+    );
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-V1", ["relay"]),
+    });
+
+    const node = reg.nodes.get("peer-V1")!;
+    expect(node.addrs).toEqual([]);
 
     reg.destroy();
   });

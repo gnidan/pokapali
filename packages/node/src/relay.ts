@@ -88,6 +88,8 @@ export interface NodeCapabilities {
   roles: string[];
   neighbors?: NodeNeighbor[];
   browserCount?: number;
+  /** Public WSS addresses for direct dialing. */
+  addrs?: string[];
 }
 
 export function encodeNodeCaps(
@@ -501,10 +503,20 @@ export async function startRelay(
       }
     }
 
+    // Include public WSS addresses so browsers
+    // that hear caps via GossipSub can dial us.
+    const addrs = helia.libp2p
+      .getMultiaddrs()
+      .filter((ma) =>
+        ma.toString().includes("/tls/"),
+      )
+      .map((ma) => ma.toString());
+
     log.info(
       `caps: ${neighbors.length} neighbors,`
       + ` ${browserCount} browsers,`
-      + ` ${knownPeerRoles.size} known peers`,
+      + ` ${knownPeerRoles.size} known peers,`
+      + ` ${addrs.length} addrs`,
     );
     const msg = encodeNodeCaps({
       version: 2,
@@ -514,6 +526,9 @@ export async function startRelay(
         ? neighbors
         : undefined,
       browserCount,
+      addrs: addrs.length > 0
+        ? addrs
+        : undefined,
     });
     pubsub.publish(NODE_CAPS_TOPIC, msg)
       .catch((err: unknown) => {

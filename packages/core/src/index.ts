@@ -525,7 +525,27 @@ function createDoc(
 
   // Publish relay topology via awareness for graph.
   // Also forward node-registry changes as doc events.
-  const nodeChangeHandler = () => emit("node-change");
+  // When caps messages include addresses, feed them
+  // to roomDiscovery so we can dial new relays.
+  const nodeChangeHandler = () => {
+    emit("node-change");
+    if (!params.roomDiscovery) return;
+    const reg = getNodeRegistry();
+    if (!reg) return;
+    const entries: { peerId: string; addrs: string[] }[]
+      = [];
+    for (const node of reg.nodes.values()) {
+      if (node.addrs.length > 0) {
+        entries.push({
+          peerId: node.peerId,
+          addrs: node.addrs,
+        });
+      }
+    }
+    if (entries.length > 0) {
+      params.roomDiscovery.addExternalRelays(entries);
+    }
+  };
   try {
     const registry = getNodeRegistry();
     if (registry) {
