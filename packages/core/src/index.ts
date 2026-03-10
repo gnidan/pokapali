@@ -1340,13 +1340,6 @@ function createDoc(
           clientId,
         });
 
-        // Edge from self to this browser peer
-        edges.push({
-          source: "_self",
-          target: peerId,
-          connected: true,
-        });
-
         // Relay edges from this browser peer
         if (topo?.connectedRelays) {
           for (const relayPid of
