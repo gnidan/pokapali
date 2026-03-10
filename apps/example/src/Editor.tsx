@@ -21,6 +21,7 @@ import { StatusIndicator } from "./StatusIndicator";
 import { SharePanel } from "./SharePanel";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
+import { capitalize, formatAge } from "./utils";
 
 const CURSOR_COLORS = [
   "#f44336", "#2196f3", "#4caf50", "#ff9800",
@@ -69,10 +70,6 @@ function renderCursor(user: { name: string; color: string }) {
   el.appendChild(label);
 
   return el;
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function LockIcon({ size = 16 }: { size?: number }) {
@@ -210,16 +207,6 @@ function SaveIndicator({
   );
 }
 
-function formatAgo(timestamp: number): string {
-  const ago = Math.max(
-    0,
-    Math.round((Date.now() - timestamp) / 1000),
-  );
-  if (ago < 5) return "just now";
-  if (ago < 60) return `${ago}s ago`;
-  return `${Math.round(ago / 60)}m ago`;
-}
-
 function LastUpdated({
   timestamp,
   flash,
@@ -244,7 +231,7 @@ function LastUpdated({
       }
       aria-live="polite"
     >
-      Last updated: {formatAgo(timestamp)}
+      Last updated: {formatAge(timestamp)}
     </span>
   );
 }
