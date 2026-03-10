@@ -51,6 +51,16 @@ function RecentDocsList({
   const [docs, setDocs] = useState<RecentDoc[]>(
     loadRecent,
   );
+  const [, tick] = useState(0);
+
+  // Re-render periodically so relative ages stay fresh
+  useEffect(() => {
+    const id = setInterval(
+      () => tick((n) => n + 1),
+      30_000,
+    );
+    return () => clearInterval(id);
+  }, []);
 
   if (docs.length === 0) return null;
 
