@@ -18,223 +18,21 @@ import {
   docIdFromUrl,
 } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
+import { SaveIndicator, LastUpdated } from "./SaveIndicator";
+import {
+  LockIcon,
+  EncryptionInfo,
+} from "./EncryptionInfo";
 import { SharePanel } from "./SharePanel";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
-import { capitalize, formatAge } from "./utils";
-
-const CURSOR_COLORS = [
-  "#f44336", "#2196f3", "#4caf50", "#ff9800",
-  "#9c27b0", "#00bcd4", "#e91e63", "#8bc34a",
-];
-
-const STORAGE_KEY = "pokapali:user";
-
-interface StoredUser {
-  name: string;
-  color: string;
-}
-
-function loadUser(): StoredUser {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.name && parsed.color) return parsed;
-    }
-  } catch {}
-  const color = CURSOR_COLORS[
-    Math.floor(Math.random() * CURSOR_COLORS.length)
-  ];
-  return { name: "", color };
-}
-
-function saveUser(user: StoredUser) {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(user),
-    );
-  } catch {}
-}
-
-function renderCursor(user: { name: string; color: string }) {
-  const el = document.createElement("span");
-  el.classList.add("collab-cursor");
-  el.style.borderColor = user.color;
-
-  const label = document.createElement("span");
-  label.classList.add("collab-cursor-label");
-  label.style.background = user.color;
-  label.textContent = user.name;
-  el.appendChild(label);
-
-  return el;
-}
-
-function LockIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-  );
-}
-
-function EncryptionInfo({
-  onClose,
-}: {
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (
-        ref.current &&
-        !ref.current.contains(e.target as Node)
-      ) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () =>
-      document.removeEventListener(
-        "mousedown",
-        handler,
-      );
-  }, [onClose]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () =>
-      document.removeEventListener(
-        "keydown",
-        handler,
-      );
-  }, [onClose]);
-
-  return (
-    <div ref={ref} className="encryption-popover">
-      <div className="encryption-header">
-        <LockIcon size={16} />
-        End-to-end encrypted
-      </div>
-      <p>
-        Relay and pinner nodes cannot read your
-        content — they only store encrypted blocks.
-      </p>
-      <p>
-        Only people with the document link can
-        read it. Your link determines your access
-        level: admin, writer, or reader.
-      </p>
-      <button
-        className="encryption-close"
-        onClick={onClose}
-        aria-label="Close"
-      >
-        &#x2715;
-      </button>
-    </div>
-  );
-}
-
-function saveLabel(
-  saveState: SaveState,
-  ackCount: number,
-): string {
-  if (saveState === "saved" && ackCount > 0) {
-    return `Saved to ${ackCount} ${ackCount === 1 ? "pinner" : "pinners"}`;
-  }
-  switch (saveState) {
-    case "saved": return "Published";
-    case "dirty": return "Publish changes";
-    case "saving": return "Saving\u2026";
-    case "unpublished": return "Publish now";
-  }
-}
-
-function SaveIndicator({
-  saveState,
-  ackCount,
-  onPublish,
-}: {
-  saveState: SaveState;
-  ackCount: number;
-  onPublish: () => void;
-}) {
-  const canPublish =
-    saveState === "dirty" ||
-    saveState === "unpublished";
-
-  const label = saveLabel(saveState, ackCount);
-
-  if (canPublish) {
-    return (
-      <button
-        className={`save-state save-action ${saveState}`}
-        onClick={onPublish}
-        role="status"
-        aria-label={label}
-      >
-        {label}
-      </button>
-    );
-  }
-
-  return (
-    <span
-      className={`save-state ${saveState}`}
-      role="status"
-      aria-live="polite"
-    >
-      {label}
-    </span>
-  );
-}
-
-function LastUpdated({
-  timestamp,
-  flash,
-}: {
-  timestamp: number;
-  flash: boolean;
-}) {
-  const [, forceUpdate] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(
-      () => forceUpdate((n) => n + 1),
-      5_000,
-    );
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <span
-      className={
-        "last-updated" + (flash ? " flashing" : "")
-      }
-      aria-live="polite"
-    >
-      Last updated: {formatAge(timestamp)}
-    </span>
-  );
-}
+import {
+  loadUser,
+  saveUser,
+  renderCursor,
+  type StoredUser,
+} from "./UserIdentity";
+import { capitalize } from "./utils";
 
 export function EditorView({
   doc,
@@ -627,4 +425,3 @@ export function EditorView({
     </div>
   );
 }
-
