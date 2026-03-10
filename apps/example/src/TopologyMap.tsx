@@ -30,34 +30,32 @@ const W = 400;
 const H = 300;
 const CX = W / 2;
 const CY = H / 2;
+const NODE_R = 15;
+const SELF_R = 20;
+const ICON_SIZE = 8;
 
 const C = {
   self: "#10b981",
   selfGlow: "rgba(16,185,129,0.25)",
-  relay: "#3b82f6",
-  pinner: "#f59e0b",
-  "relay+pinner": "#8b5cf6",
-  browser: "#94a3b8",
-  browserFill: "rgba(148,163,184,0.15)",
+  node: "#475569",
+  nodeFill: "#f8fafc",
+  nodeStroke: "#94a3b8",
+  browser: "#64748b",
+  browserFill: "#f1f5f9",
   edge: "#cbd5e1",
   edgeDash: "#e2e8f0",
   disconnected: "#e2e8f0",
   disconnectedStroke: "#d1d5db",
+  relay: "#3b82f6",
+  pinner: "#f59e0b",
+  pinnerAcked: "#22c55e",
+  pinnerExpired: "#ef4444",
   guaranteeActive: "#22c55e",
   guaranteeExpired: "#ef4444",
   particle: "#fbbf24",
-  ack: "#22c55e",
 } as const;
 
-function nodeR(kind: TopologyNode["kind"]): number {
-  switch (kind) {
-    case "self": return 22;
-    case "browser": return 9;
-    default: return 16;
-  }
-}
-
-// ── Fingerprint for detecting structural changes ─
+// ── Fingerprint for structural changes ───────────
 
 function graphFp(graph: TopologyGraph): string {
   return (
@@ -152,7 +150,7 @@ function useForceLayout(
               const o =
                 s.kind === "self" ? t : s;
               return o.kind === "browser"
-                ? 50 : 100;
+                ? 55 : 95;
             }
             return 70;
           })
@@ -163,15 +161,18 @@ function useForceLayout(
         forceManyBody<SimNode>().strength((d) => {
           switch (d.kind) {
             case "self": return -350;
-            case "browser": return -50;
-            default: return -220;
+            case "browser": return -60;
+            default: return -200;
           }
         }),
       )
       .force(
         "collide",
         forceCollide<SimNode>()
-          .radius((d) => nodeR(d.kind) + 12)
+          .radius((d) =>
+            (d.kind === "self"
+              ? SELF_R : NODE_R) + 12,
+          )
           .strength(0.8),
       )
       .force("x", forceX(CX).strength(0.04))
@@ -203,26 +204,31 @@ function useForceLayout(
   return posMap;
 }
 
-// ── Particle animation (imperative SVG) ──────────
+// ── Particle animation (imperative, topology-safe)
 
 function useParticles(
   groupRef: React.RefObject<SVGGElement | null>,
   pulseKey: number,
   edges: TopologyGraphEdge[],
-  posMap: Map<string, { x: number; y: number }>,
+  posMapRef: React.RefObject<
+    Map<string, { x: number; y: number }>
+  >,
 ) {
   const rafRef = useRef(0);
 
   useEffect(() => {
     const g = groupRef.current;
-    if (!g || pulseKey === 0 || posMap.size === 0) {
+    const posMap = posMapRef.current;
+    if (
+      !g || pulseKey === 0 || posMap.size === 0
+    ) {
       return;
     }
 
     interface P {
       el: SVGCircleElement;
-      x1: number; y1: number;
-      x2: number; y2: number;
+      srcId: string;
+      tgtId: string;
       born: number;
       dur: number;
     }
@@ -231,30 +237,39 @@ function useParticles(
 
     for (const e of edges) {
       if (!e.connected) continue;
-      const s = posMap.get(e.source);
-      const t = posMap.get(e.target);
-      if (!s || !t) continue;
-      const count =
-        2 + Math.floor(Math.random() * 2);
-      for (let i = 0; i < count; i++) {
-        const el = document.createElementNS(
-          ns, "circle",
-        );
-        el.setAttribute("r", "2.5");
-        el.setAttribute("fill", C.particle);
-        el.setAttribute("opacity", "0");
-        g.appendChild(el);
-        particles.push({
-          el,
-          x1: s.x, y1: s.y,
-          x2: t.x, y2: t.y,
-          born: performance.now() + i * 120,
-          dur: 700 + Math.random() * 500,
-        });
+      if (!posMap.has(e.source)) continue;
+      if (!posMap.has(e.target)) continue;
+      // Bidirectional: spawn particles both ways
+      const dirs = [
+        [e.source, e.target],
+        [e.target, e.source],
+      ] as const;
+      for (const [src, tgt] of dirs) {
+        const count =
+          1 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < count; i++) {
+          const el = document.createElementNS(
+            ns, "circle",
+          );
+          el.setAttribute("r", "2.5");
+          el.setAttribute("fill", C.particle);
+          el.setAttribute("opacity", "0");
+          g.appendChild(el);
+          particles.push({
+            el,
+            srcId: src,
+            tgtId: tgt,
+            born: performance.now() +
+              i * 150 +
+              Math.random() * 100,
+            dur: 700 + Math.random() * 500,
+          });
+        }
       }
     }
 
     const tick = (now: number) => {
+      const pm = posMapRef.current;
       let alive = 0;
       for (const p of particles) {
         if (now < p.born) { alive++; continue; }
@@ -263,17 +278,23 @@ function useParticles(
           p.el.remove();
           continue;
         }
+        // Look up current positions (safe if
+        // topology changed mid-animation)
+        const s = pm.get(p.srcId);
+        const d = pm.get(p.tgtId);
+        if (!s || !d) {
+          p.el.remove();
+          continue;
+        }
         alive++;
         const ease = 1 - (1 - t) ** 2;
         p.el.setAttribute(
-          "cx", String(
-            p.x1 + (p.x2 - p.x1) * ease,
-          ),
+          "cx",
+          String(s.x + (d.x - s.x) * ease),
         );
         p.el.setAttribute(
-          "cy", String(
-            p.y1 + (p.y2 - p.y1) * ease,
-          ),
+          "cy",
+          String(s.y + (d.y - s.y) * ease),
         );
         p.el.setAttribute(
           "opacity",
@@ -294,21 +315,92 @@ function useParticles(
       cancelAnimationFrame(rafRef.current);
       for (const p of particles) p.el.remove();
     };
-  }, [pulseKey, groupRef]);
+  }, [pulseKey, groupRef, posMapRef]);
 }
 
-// ── SVG shapes ───────────────────────────────────
+// ── Role icons (small SVG) ───────────────────────
 
-function hexPoints(r: number): string {
-  const pts = [];
-  for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 3) * i - Math.PI / 2;
-    pts.push(
-      `${r * Math.cos(a)},${r * Math.sin(a)}`,
-    );
-  }
-  return pts.join(" ");
+// Database icon for pinners (small cylinder)
+function PinnerIcon({
+  x, y, color,
+}: {
+  x: number; y: number; color: string;
+}) {
+  const w = ICON_SIZE;
+  const h = ICON_SIZE + 2;
+  const rx = w / 2;
+  const ry = 2;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {/* Body */}
+      <rect
+        x={-rx} y={-h / 2 + ry}
+        width={w} height={h - ry * 2}
+        fill={color}
+      />
+      {/* Top ellipse */}
+      <ellipse
+        cx={0} cy={-h / 2 + ry}
+        rx={rx} ry={ry}
+        fill={color}
+        stroke="#fff"
+        strokeWidth={0.5}
+      />
+      {/* Bottom ellipse (half) */}
+      <ellipse
+        cx={0} cy={h / 2 - ry}
+        rx={rx} ry={ry}
+        fill={color}
+      />
+      {/* Middle line */}
+      <line
+        x1={-rx} y1={0}
+        x2={rx} y2={0}
+        stroke="#fff"
+        strokeWidth={0.5}
+        strokeOpacity={0.6}
+      />
+    </g>
+  );
 }
+
+// Relay icon (bidirectional arrow)
+function RelayIcon({
+  x, y, color,
+}: {
+  x: number; y: number; color: string;
+}) {
+  const s = ICON_SIZE / 2;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {/* Left arrow */}
+      <path
+        d={
+          `M${-s + 1},0 L${-s + 3.5},-2.5 ` +
+          `L${-s + 3.5},2.5 Z`
+        }
+        fill={color}
+      />
+      {/* Right arrow */}
+      <path
+        d={
+          `M${s - 1},0 L${s - 3.5},-2.5 ` +
+          `L${s - 3.5},2.5 Z`
+        }
+        fill={color}
+      />
+      {/* Center line */}
+      <line
+        x1={-s + 3} y1={0}
+        x2={s - 3} y2={0}
+        stroke={color}
+        strokeWidth={1.2}
+      />
+    </g>
+  );
+}
+
+// ── Node rendering ───────────────────────────────
 
 function NodeShape({
   node,
@@ -326,10 +418,9 @@ function NodeShape({
     e?: React.MouseEvent,
   ) => void;
 }) {
-  const r = nodeR(node.kind);
-  const off = !node.connected &&
-    node.kind !== "self";
-  const op = off ? 0.4 : 1;
+  const isSelf = node.kind === "self";
+  const r = isSelf ? SELF_R : NODE_R;
+  const off = !node.connected && !isSelf;
 
   const handleEnter = useCallback(
     (e: React.MouseEvent) => onHover(node, e),
@@ -340,149 +431,69 @@ function NodeShape({
     [onHover],
   );
 
-  // Guarantee state for acked pinners
-  const now = Date.now();
-  const hasPinnerRole =
+  // Determine roles
+  const isRelay =
+    node.kind === "relay" ||
+    node.kind === "relay+pinner";
+  const isPinner =
     node.kind === "pinner" ||
     node.kind === "relay+pinner";
+  const isBrowser = node.kind === "browser";
+
+  // Guarantee state
+  const now = Date.now();
   const showGuarantee =
-    hasPinnerRole &&
+    isPinner &&
     node.ackedCurrentCid &&
     guaranteeUntil != null;
   const guaranteeActive = showGuarantee
     ? guaranteeUntil > now
     : false;
-  const guaranteeLabel = showGuarantee
-    ? (guaranteeActive
-        ? formatRelativeTime(guaranteeUntil)
-        : "expired")
-    : undefined;
+
+  // Pinner icon color based on doc status
+  let pinnerColor: string = C.pinner;
+  if (node.ackedCurrentCid) {
+    pinnerColor = guaranteeActive
+      ? C.pinnerAcked   // green: actively pinned
+      : C.pinnerExpired; // red: expired
+  }
+
+  // Circle fill/stroke
+  let fill: string;
+  let stroke: string;
+  let strokeW: number;
+  if (isSelf) {
+    fill = C.self;
+    stroke = "#fff";
+    strokeW = 2.5;
+  } else if (off) {
+    fill = C.disconnected;
+    stroke = C.disconnectedStroke;
+    strokeW = 1;
+  } else if (isBrowser) {
+    fill = C.browserFill;
+    stroke = C.browser;
+    strokeW = 1.5;
+  } else {
+    fill = C.nodeFill;
+    stroke = C.nodeStroke;
+    strokeW = 2;
+  }
 
   // Build tooltip
   const tip = [node.label];
-  if (
-    node.kind !== "self" &&
-    node.kind !== "browser"
-  ) {
+  if (!isSelf && !isBrowser) {
     tip.push(`(${node.kind})`);
   }
   if (node.ackedCurrentCid) tip.push("— acked");
-  if (guaranteeLabel) {
+  if (showGuarantee) {
     tip.push(
       guaranteeActive
-        ? `— pinned ${guaranteeLabel}`
+        ? `— pinned ${formatRelativeTime(guaranteeUntil)}`
         : "— guarantee expired",
     );
   }
   if (off) tip.push("— disconnected");
-
-  let shape: React.ReactNode;
-
-  if (node.kind === "self") {
-    shape = (
-      <>
-        <circle
-          cx={0} cy={0} r={r + 8}
-          fill={C.selfGlow}
-        />
-        <circle
-          cx={0} cy={0} r={r}
-          fill={C.self}
-          stroke="#fff"
-          strokeWidth={2.5}
-        />
-      </>
-    );
-  } else if (node.kind === "relay") {
-    const hw = r * 1.2;
-    const hh = r * 0.85;
-    shape = (
-      <rect
-        x={-hw} y={-hh}
-        width={hw * 2} height={hh * 2}
-        rx={4}
-        fill={off ? C.disconnected : C.relay}
-        stroke={
-          off ? C.disconnectedStroke : "#2563eb"
-        }
-        strokeWidth={off ? 1 : 2}
-        opacity={op}
-      />
-    );
-  } else if (node.kind === "pinner") {
-    shape = (
-      <polygon
-        points={hexPoints(r + 2)}
-        fill={off ? C.disconnected : C.pinner}
-        stroke={
-          off ? C.disconnectedStroke : "#d97706"
-        }
-        strokeWidth={off ? 1 : 2}
-        strokeLinejoin="round"
-        opacity={op}
-      />
-    );
-  } else if (node.kind === "relay+pinner") {
-    const hw = r * 1.3;
-    const hh = r * 0.95;
-    shape = (
-      <>
-        <rect
-          x={-hw} y={-hh}
-          width={hw * 2} height={hh * 2}
-          rx={4}
-          fill="none"
-          stroke={
-            off ? C.disconnectedStroke : C.relay
-          }
-          strokeWidth={1.5}
-          opacity={op}
-        />
-        <polygon
-          points={hexPoints(r)}
-          fill={
-            off
-              ? C.disconnected
-              : C["relay+pinner"]
-          }
-          stroke={
-            off
-              ? C.disconnectedStroke
-              : "#7c3aed"
-          }
-          strokeWidth={1.5}
-          strokeLinejoin="round"
-          opacity={op}
-        />
-      </>
-    );
-  } else {
-    // Browser peer
-    shape = (
-      <circle
-        cx={0} cy={0} r={r}
-        fill={C.browserFill}
-        stroke={C.browser}
-        strokeWidth={1}
-        strokeDasharray={off ? "2 2" : "none"}
-        opacity={off ? 0.3 : 0.7}
-      />
-    );
-  }
-
-  // Inner label
-  let label = "";
-  if (node.kind === "self") {
-    label = "You";
-  } else if (node.kind === "browser") {
-    // No label for browser peers (name shown below)
-  } else if (node.kind === "relay") {
-    label = "R";
-  } else if (node.kind === "pinner") {
-    label = "P";
-  } else {
-    label = "RP";
-  }
 
   return (
     <g
@@ -493,7 +504,7 @@ function NodeShape({
     >
       <title>{tip.join(" ")}</title>
 
-      {/* Guarantee ring */}
+      {/* Pulsing guarantee halo */}
       {showGuarantee && (
         <circle
           cx={0} cy={0}
@@ -518,56 +529,70 @@ function NodeShape({
         />
       )}
 
-      {shape}
+      {/* Self glow */}
+      {isSelf && (
+        <circle
+          cx={0} cy={0} r={r + 8}
+          fill={C.selfGlow}
+        />
+      )}
+
+      {/* Main circle (same size for everyone) */}
+      <circle
+        cx={0} cy={0} r={r}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={strokeW}
+        strokeDasharray={
+          off ? "3 2" : "none"
+        }
+        opacity={off ? 0.5 : 1}
+      />
 
       {/* Label */}
-      {label && (
+      {isSelf ? (
         <text
           x={0} y={1}
           textAnchor="middle"
           dominantBaseline="central"
-          className={
-            node.kind === "self"
-              ? "topo-label-self"
-              : "topo-label-infra"
-          }
+          className="topo-label-self"
         >
-          {label}
+          You
+        </text>
+      ) : (
+        <text
+          x={0}
+          y={r + 11}
+          textAnchor="middle"
+          className="topo-peer-id"
+        >
+          {node.label}
         </text>
       )}
 
-      {/* Ack badge */}
-      {node.ackedCurrentCid && (
-        <g
-          transform={
-            `translate(${r - 2},${-r + 2})`
-          }
-        >
-          <circle
-            r={5}
-            fill={C.ack}
-            stroke="#fff"
-            strokeWidth={1}
-          />
-          <text
-            x={0} y={0.5}
-            textAnchor="middle"
-            dominantBaseline="central"
-            className="topo-ack-text"
-          >
-            ✓
-          </text>
-        </g>
+      {/* Role icons */}
+      {isPinner && !isSelf && (
+        <PinnerIcon
+          x={r - 3}
+          y={r - 3}
+          color={off ? C.disconnectedStroke : pinnerColor}
+        />
+      )}
+      {isRelay && !isSelf && (
+        <RelayIcon
+          x={isPinner ? -(r - 3) : (r - 3)}
+          y={-(r - 3)}
+          color={off ? C.disconnectedStroke : C.relay}
+        />
       )}
 
-      {/* Browser count badge on infra nodes */}
-      {node.kind !== "self" &&
-        node.kind !== "browser" &&
+      {/* Browser count badge */}
+      {!isSelf && !isBrowser &&
         node.browserCount != null &&
         node.browserCount > 0 && (
         <g
           transform={
-            `translate(${r + 1},${r - 2})`
+            `translate(${-(r - 1)},${r - 1})`
           }
         >
           <circle
@@ -587,26 +612,11 @@ function NodeShape({
         </g>
       )}
 
-      {/* Peer ID / name below */}
-      {node.kind !== "self" && (
+      {/* Guarantee label below */}
+      {showGuarantee && (
         <text
           x={0}
-          y={
-            r +
-            (node.kind === "browser" ? 5 : 12)
-          }
-          textAnchor="middle"
-          className="topo-peer-id"
-        >
-          {node.label}
-        </text>
-      )}
-
-      {/* Guarantee time below peer ID */}
-      {guaranteeLabel && (
-        <text
-          x={0}
-          y={r + 21}
+          y={r + 20}
           textAnchor="middle"
           className={
             guaranteeActive
@@ -615,7 +625,7 @@ function NodeShape({
           }
         >
           {guaranteeActive
-            ? `pinned ${guaranteeLabel}`
+            ? `pinned ${formatRelativeTime(guaranteeUntil)}`
             : "expired"}
         </text>
       )}
@@ -663,17 +673,17 @@ function Tooltip({
   const left = mouseX - svgRect.left + 12;
   const top = mouseY - svgRect.top - 10;
 
-  const hasPinner =
+  const isPinner =
     node.kind === "pinner" ||
     node.kind === "relay+pinner";
   const now = Date.now();
   const gActive =
-    hasPinner &&
+    isPinner &&
     node.ackedCurrentCid &&
     guaranteeUntil != null &&
     guaranteeUntil > now;
   const gExpired =
-    hasPinner &&
+    isPinner &&
     node.ackedCurrentCid &&
     guaranteeUntil != null &&
     guaranteeUntil <= now;
@@ -717,13 +727,21 @@ function Tooltip({
         </div>
       )}
       {gActive && (
-        <div className="topo-tooltip-guarantee active">
+        <div
+          className={
+            "topo-tooltip-guarantee active"
+          }
+        >
           Pinned for{" "}
           {formatRelativeTime(guaranteeUntil!)}
         </div>
       )}
       {gExpired && (
-        <div className="topo-tooltip-guarantee expired">
+        <div
+          className={
+            "topo-tooltip-guarantee expired"
+          }
+        >
           Guarantee expired
         </div>
       )}
@@ -743,7 +761,6 @@ export function TopologyMap({
   };
   pulseKey: number;
 }) {
-  // Build graph from core's merged topology API
   const [graph, setGraph] = useState<TopologyGraph>(
     () => doc.topologyGraph(),
   );
@@ -787,6 +804,11 @@ export function TopologyMap({
 
   const posMap = useForceLayout(graph);
 
+  // Keep a ref to posMap for particle lookups
+  // (avoids stale closure when topology changes)
+  const posMapRef = useRef(posMap);
+  posMapRef.current = posMap;
+
   // Particle animation
   const particleRef = useRef<SVGGElement | null>(
     null,
@@ -795,7 +817,7 @@ export function TopologyMap({
     particleRef,
     pulseKey,
     graph.edges,
-    posMap,
+    posMapRef,
   );
 
   // Tooltip state

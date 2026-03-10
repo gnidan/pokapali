@@ -539,6 +539,7 @@ export function ConnectionStatus({
     doc.on("snapshot", onPulse);
     doc.on("ack", onPulse);
     doc.on("loading", refresh);
+    doc.on("node-change", refresh);
     const awareness = doc.awareness;
     awareness.on("change", refresh);
 
@@ -553,6 +554,7 @@ export function ConnectionStatus({
       doc.off("snapshot", onPulse);
       doc.off("ack", onPulse);
       doc.off("loading", refresh);
+      doc.off("node-change", refresh);
       awareness.off("change", refresh);
       clearInterval(poll);
     };
