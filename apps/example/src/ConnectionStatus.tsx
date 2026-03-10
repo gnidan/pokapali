@@ -6,6 +6,35 @@ import type {
   SnapshotFetchState,
 } from "@pokapali/core";
 
+// --- Time formatting ---
+
+/**
+ * Format a future timestamp as a human-readable duration.
+ * Returns "expired" if the timestamp is in the past.
+ *
+ * Examples: "2h 15m", "3 days", "45m", "expired"
+ */
+export function formatRelativeTime(
+  timestamp: number,
+): string {
+  const sec = Math.round(
+    (timestamp - Date.now()) / 1000,
+  );
+  if (sec <= 0) return "expired";
+  if (sec < 60) return `${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hrs = Math.floor(min / 60);
+  const remMin = min - hrs * 60;
+  if (hrs < 24) {
+    return remMin > 0
+      ? `${hrs}h ${remMin}m`
+      : `${hrs}h`;
+  }
+  const days = Math.round(hrs / 24);
+  return days === 1 ? "1 day" : `${days} days`;
+}
+
 // --- Ring buffer for sparkline history ---
 
 const MAX_SAMPLES = 60;
