@@ -538,8 +538,9 @@ interface AnnouncementAck {
   cid: string;
   ack: true;
   peerId: string;
-  guaranteeMs?: number; // duration pinner commits to
-                        // re-announcing this CID
+  guaranteeUntil?: number; // absolute timestamp (ms since
+                           // epoch) pinner commits to
+                           // re-announcing this CID until
 }
 ```
 
@@ -551,11 +552,11 @@ re-fetching so the writer sees confirmation.
 
 ### Guarantee protocol (designed)
 
-The `guaranteeMs` field in ack messages communicates how
-long the pinner commits to re-announcing this CID. This is
-a **duration** (not a timestamp) to avoid clock skew
-between peers. The writer computes the absolute deadline
-locally: `guaranteedUntil = Date.now() + guaranteeMs`.
+The `guaranteeUntil` field in ack messages is an absolute
+timestamp (ms since epoch) indicating how long the pinner
+commits to re-announcing this CID. Using an absolute
+timestamp is idempotent on re-announce and avoids
+"relative to when?" ambiguity of a duration field.
 
 **Self-tuning capacity.** The pinner measures re-announce
 cost via an exponential moving average (EMA) of per-doc
