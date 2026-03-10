@@ -448,6 +448,7 @@ interface Announcement {
   ipnsName: string;  // hex-encoded IPNS name
   cid: string;       // CID of the snapshot block
   blockData?: string; // base64-encoded block (inline)
+  fromPinner?: true;  // set by pinner re-announces
 }
 ```
 
@@ -538,9 +539,8 @@ interface AnnouncementAck {
   cid: string;
   ack: true;
   peerId: string;
-  guaranteeUntil?: number; // absolute timestamp (ms since
-                           // epoch) pinner commits to
-                           // re-announcing this CID until
+  guaranteeUntil?: number; // re-announce end (ms epoch)
+  retainUntil?: number;    // block storage end (ms epoch)
 }
 ```
 
@@ -550,29 +550,51 @@ to display "Saved to N relay(s)" in the UI. Pinners track
 on duplicate announcements — they still re-ack without
 re-fetching so the writer sees confirmation.
 
-### Guarantee protocol (designed)
+### Two-phase guarantee protocol (designed)
 
-The `guaranteeUntil` field in ack messages is an absolute
-timestamp (ms since epoch) indicating how long the pinner
-commits to re-announcing this CID. Using an absolute
-timestamp is idempotent on re-announce and avoids
-"relative to when?" ambiguity of a duration field.
+Pinners provide a two-phase commitment for each document:
 
-**Self-tuning capacity.** The pinner measures re-announce
-cost via an exponential moving average (EMA) of per-doc
-milliseconds. Capacity is derived from a target cycle time:
-`capacity = TARGET_MS / perDocEma` (e.g., 25,000ms / 5ms
-= 5,000 docs). The guarantee duration is proportional to
-the ratio of capacity to active documents. This adapts
-automatically to hardware — a faster VPS gives longer
-guarantees without configuration.
+1. **Active re-announcing (7 days).** The pinner continues
+   re-announcing the doc's CID on GossipSub with inline
+   blocks, making it discoverable to new peers and other
+   pinners. Re-announce frequency follows the decay
+   formula (see below), capped at once per 24 hours.
+   `guaranteeUntil = lastSeenAt + 7 days`.
+
+2. **Block retention (14 days total).** After re-announcing
+   stops, blocks stay in the `FsBlockstore` and IPNS
+   records continue being republished (every 4 hours).
+   Content is fetchable via IPNS resolve + block get, but
+   not actively advertised on GossipSub.
+   `retainUntil = lastSeenAt + 14 days`.
+
+Both timestamps are absolute (ms since epoch), idempotent
+on re-announce. Any activity (writer or reader
+announcement) refreshes `lastSeenAt` and extends both
+windows. A user who closes their laptop for 10 days comes
+back to a recoverable doc — still within the 14-day
+retention window even though GossipSub re-announces
+stopped at day 7.
+
+After 14 days of total inactivity, blocks are pruned from
+the blockstore and the doc is removed from pinner state.
+The doc is rediscovered automatically if a writer or
+reader re-announces it.
 
 **Monotonic guarantees.** For the same CID, guarantee
-durations are monotonically non-decreasing (the pinner
+timestamps are monotonically non-decreasing (the pinner
 tracks `guaranteedUntil` per IPNS name and uses
 `Math.max`). When the writer publishes a new CID, the
 guarantee resets — the pinner must prove it has the new
 block before committing.
+
+**Self-tuning capacity.** The pinner measures re-announce
+cost via an exponential moving average (EMA) of per-doc
+milliseconds. Capacity is derived from a target cycle
+time: `capacity = 25,000ms / perDocEma`. Under heavy
+load, the pinner can reduce the guarantee proportionally,
+but the floor is 24 hours (at least one re-announce per
+day while in the active window).
 
 ### Continuous scheduling (designed)
 
@@ -580,37 +602,84 @@ At scale, the flat re-announce loop (O(N) every 30s)
 becomes the bottleneck. The replacement is a continuous
 priority model:
 
-- Each document has a **priority** based on exponential
-  decay from last activity: `priority = 2^(-age/HALF_LIFE)`
+- Re-announce interval scales with inactivity:
+  `interval = BASE * 2^(age/HALF_LIFE) * loadFactor`
 - A **min-heap priority queue** ordered by next-deadline
   (`lastAnnounced + interval`) replaces the flat loop
-- Re-announce interval scales with priority:
-  `interval = BASE * 2^(age/HALF_LIFE) * loadFactor`
-- Three parameters with physical meaning:
-  - `BASE` (~2s): re-announce interval for a just-edited
-    document
-  - `HALF_LIFE` (~1 hour): time for priority to halve
-  - `TARGET_MS` (~25s): target wall-clock per cycle
+- Five constants with physical meaning:
+  - `BASE` (30s): interval for a just-edited document
+  - `HALF_LIFE` (12h): time for interval to double
+  - `MAX_INTERVAL` (24h): re-announce frequency ceiling
+  - `GUARANTEE_DURATION` (7d): active re-announce window
+  - `RETENTION_DURATION` (14d): block storage window
 
-The model is self-rate-limiting: the priority queue
-processes one document at a time, rate-limited by
-msgs/sec rather than per-cycle. GossipSub's `seenCache`
-(2-minute TTL) provides a natural floor on re-announce
-frequency.
+Interval progression at idle (no load factor):
+```
+t=0:      30s       t=3d:     32min
+t=12h:    60s       t=4d:     ~2h
+t=1d:     2min      t=5d:     ~8.5h
+t=2d:     8min      t=5.5d+:  24h (capped)
+```
 
-**Reader activity as demand signal.** When any peer
-(reader or writer) re-announces a CID, the pinner updates
-`lastSeenAt` for that document *before* the dedup early
-return in `onAnnouncement`. This refreshes the document's
-priority in the continuous model without triggering a
-re-fetch.
+The model is self-rate-limiting: at high load, intervals
+stretch, fewer docs due per cycle. GossipSub's
+`seenCache` (2-minute TTL) provides a natural floor on
+re-announce frequency.
 
-**State pruning.** Documents with no activity for an
-extended period (e.g., 7 days) can be pruned from pinner
-state entirely: remove from `knownNames`, `tips`,
-`nameToAppId`, and `lastSeenAt`. The document is
-rediscovered automatically if a writer or reader
-re-announces it.
+**Reader activity as demand signal.** When a non-pinner
+peer (reader or writer) re-announces a CID, the pinner
+updates `lastSeenAt` for that document *before* the dedup
+early return in `onAnnouncement`. This refreshes the
+document's priority and extends both guarantee windows
+without triggering a re-fetch.
+
+Pinner re-announces are *supply signals*, not demand
+signals — they indicate the pinner is doing its job, not
+that anyone is reading the doc. The `fromPinner` field on
+announcements lets pinners distinguish: when
+`fromPinner: true`, the receiving pinner skips the
+`lastSeenAt` refresh. Without this, multiple pinners would
+keep each other alive indefinitely (pinner A re-announces
+→ refreshes B's window → B re-announces → refreshes A's
+window → infinite loop, docs never expire).
+
+**State pruning.** Primary rule: prune when
+`lastSeenAt + 14 days < now`. Capacity backstop: if
+tracking exceeds `maxActiveDocs * 10`, prune
+oldest-by-`lastSeenAt` first even if under 14 days.
+Pruning removes `knownNames`, `tips`, `nameToAppId`,
+`lastSeenAt`, and blocks from blockstore.
+
+### Multi-pinner redundancy
+
+Adding more pinners (with or without sharding) improves
+guarantees in three ways:
+
+1. **Redundancy.** Each pinner independently stores blocks
+   and re-announces. The client sees "Saved to N pinners."
+   If one pinner crashes, others still serve the doc.
+   P(doc lost) = product of independent failure
+   probabilities — with 3 pinners at 99% uptime each,
+   effective availability is 99.9999%.
+
+2. **Load distribution.** With pinner sharding
+   (`--shard N/M`), each pinner handles fewer docs,
+   keeping utilization low and loadFactor at 1.0. This
+   ensures full 7-day guarantees are maintained even at
+   high doc counts where a single pinner would be
+   overloaded and forced to reduce guarantees.
+
+3. **Independent clocks.** Each pinner's guarantee is
+   based on its own `lastSeenAt`. If pinner A misses an
+   announcement due to a network partition but pinner B
+   receives it, B's guarantee window is refreshed
+   independently. The client tracks per-pinner guarantees
+   and shows the best one.
+
+Individual guarantee duration is unchanged — each
+pinner's 7d/14d windows are based on its own constants
+and utilization, not the relay count. More pinners give
+more redundancy, not longer individual guarantees.
 
 ### What pinners can and cannot verify
 
