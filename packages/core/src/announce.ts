@@ -20,12 +20,11 @@ export interface AnnouncePubSub {
 
 export interface AnnouncementAck {
   peerId: string;
-  /** Absolute timestamp (ms since epoch) until which
-   *  the pinner guarantees service for this doc. */
+  /** Absolute timestamp (ms epoch) until which the
+   *  pinner actively re-announces this doc. */
   guaranteeUntil?: number;
-  /** Unix timestamp (ms) until which the pinner
-   *  will retain the block (requested by writer,
-   *  before full guarantee is confirmed). */
+  /** Absolute timestamp (ms epoch) until which the
+   *  pinner retains blocks in storage. */
   retainUntil?: number;
 }
 
@@ -36,8 +35,7 @@ export interface Announcement {
   ack?: AnnouncementAck;
   /** Base64-encoded snapshot block data. */
   block?: string;
-  /** True when this announcement originates from
-   *  a pinner (re-announce), not a writer. */
+  /** True when sent by a pinner re-announce. */
   fromPinner?: boolean;
 }
 
@@ -83,6 +81,7 @@ export async function announceSnapshot(
   cid: string,
   seq?: number,
   block?: Uint8Array,
+  fromPinner?: boolean,
 ): Promise<void> {
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
@@ -90,6 +89,7 @@ export async function announceSnapshot(
   if (block && block.length <= MAX_INLINE_BLOCK_BYTES) {
     msg.block = uint8ToBase64(block);
   }
+  if (fromPinner) msg.fromPinner = true;
   const data = new TextEncoder().encode(
     JSON.stringify(msg),
   );
@@ -101,26 +101,22 @@ export async function announceSnapshot(
  * Sent after a pinner successfully fetches and
  * validates a snapshot block.
  */
-export interface AnnounceAckOptions {
-  guaranteeUntil?: number;
-  retainUntil?: number;
-}
-
 export async function announceAck(
   pubsub: AnnouncePubSub,
   appId: string,
   ipnsName: string,
   cid: string,
   peerId: string,
-  options?: AnnounceAckOptions,
+  guaranteeUntil?: number,
+  retainUntil?: number,
 ): Promise<void> {
   const topic = announceTopic(appId);
   const ack: AnnouncementAck = { peerId };
-  if (options?.guaranteeUntil !== undefined) {
-    ack.guaranteeUntil = options.guaranteeUntil;
+  if (guaranteeUntil !== undefined) {
+    ack.guaranteeUntil = guaranteeUntil;
   }
-  if (options?.retainUntil !== undefined) {
-    ack.retainUntil = options.retainUntil;
+  if (retainUntil !== undefined) {
+    ack.retainUntil = retainUntil;
   }
   const msg: Announcement = {
     ipnsName,

@@ -6,7 +6,7 @@ export interface PinnerState {
   tips: Record<string, string>;
   /** Maps ipnsName → appId for re-announcing. */
   nameToAppId?: Record<string, string>;
-  /** Maps ipnsName → last announcement timestamp. */
+  /** Last activity timestamp per doc (ms epoch). */
   lastSeenAt?: Record<string, number>;
 }
 
