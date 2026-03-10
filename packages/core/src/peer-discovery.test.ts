@@ -809,8 +809,8 @@ describe("startRoomDiscovery", () => {
       expect(abortSignal).toBeDefined();
       expect(abortSignal!.aborted).toBe(false);
 
-      // Advance past FIND_TIMEOUT_MS (15s)
-      await vi.advanceTimersByTimeAsync(16_000);
+      // Advance past FIND_TIMEOUT_MS (30s)
+      await vi.advanceTimersByTimeAsync(31_000);
 
       expect(abortSignal!.aborted).toBe(true);
 
@@ -855,9 +855,10 @@ describe("startRoomDiscovery", () => {
       firstCallResolve();
       await vi.advanceTimersByTimeAsync(0);
 
-      // Now the next interval (at 30s) can run
+      // Now both the second startup discovery (15s)
+      // and first interval (30s) can run
       await vi.advanceTimersByTimeAsync(20_000);
-      expect(callCount).toBe(2);
+      expect(callCount).toBe(3);
 
       rd.stop();
     });
