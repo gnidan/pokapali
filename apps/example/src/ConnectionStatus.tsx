@@ -511,12 +511,10 @@ export function ConnectionStatus({
   const [info, setInfo] = useState<Diagnostics>(
     () => doc.diagnostics(),
   );
-  const [expanded, setExpanded] = useState(false);
+  const [showDetail, setShowDetail] =
+    useState(false);
   const historyRef = useRef<History>(emptyHistory());
   const [pulseKey, setPulseKey] = useState(0);
-  const [awarenessPeers, setAwarenessPeers] = useState<
-    { name: string; color: string }[]
-  >([]);
 
   useEffect(() => {
     let active = true;
@@ -526,20 +524,6 @@ export function ConnectionStatus({
         const d = doc.diagnostics();
         pushSample(historyRef.current, d);
         setInfo(d);
-        // Extract other browsers from awareness
-        const localId = doc.awareness.clientID;
-        const peers: { name: string; color: string }[] = [];
-        doc.awareness.getStates().forEach(
-          (state, id) => {
-            if (id !== localId && state.user) {
-              peers.push(state.user as {
-                name: string;
-                color: string;
-              });
-            }
-          },
-        );
-        setAwarenessPeers(peers);
       } catch {
         // doc destroyed during teardown
       }
@@ -560,10 +544,7 @@ export function ConnectionStatus({
 
     // Fallback poll for libp2p peer counts
     // (no event for peer connect/disconnect)
-    const poll = setInterval(
-      refresh,
-      expanded ? 2000 : 10_000,
-    );
+    const poll = setInterval(refresh, 10_000);
 
     return () => {
       active = false;
@@ -575,7 +556,7 @@ export function ConnectionStatus({
       awareness.off("change", refresh);
       clearInterval(poll);
     };
-  }, [doc, expanded]);
+  }, [doc]);
 
   const connectedNodes = info.nodes.filter(
     (n) => n.connected,
@@ -584,19 +565,29 @@ export function ConnectionStatus({
 
   return (
     <div className="connection-status-wrap">
+      {/* Topology map — always visible */}
+      <TopologyMap
+        doc={doc}
+        pulseKey={pulseKey}
+      />
+
+      {/* Summary bar */}
       <button
         className="connection-status"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() =>
+          setShowDetail((s) => !s)
+        }
         title="Click for diagnostics"
-        aria-expanded={expanded}
+        aria-expanded={showDetail}
         aria-label={
           `${info.editors} user(s), ` +
-          `${connectedNodes} ${connectedNodes === 1 ? "node" : "nodes"}, ` +
+          `${connectedNodes} ` +
+          `${connectedNodes === 1 ? "node" : "nodes"}, ` +
           `${info.ipfsPeers} network peers`
         }
       >
         <span className="cs-expand">
-          {expanded ? "\u25B4" : "\u25BE"}
+          {showDetail ? "\u25B4" : "\u25BE"}
         </span>
 
         <span
@@ -607,7 +598,8 @@ export function ConnectionStatus({
             {info.editors}
           </span>
           <span className="cs-label">
-            {info.editors === 1 ? "user" : "users"}
+            {info.editors === 1
+              ? "user" : "users"}
           </span>
         </span>
 
@@ -663,7 +655,8 @@ export function ConnectionStatus({
             ) ? (
               <span
                 className={
-                  "cs-section cs-checking-pinners"
+                  "cs-section " +
+                  "cs-checking-pinners"
                 }
                 title={
                   "Waiting for node capability" +
@@ -678,8 +671,9 @@ export function ConnectionStatus({
                   "cs-section cs-no-pinner"
                 }
                 title={
-                  "No pinners connected \u2014 " +
-                  "changes may not persist"
+                  "No pinners connected " +
+                  "\u2014 changes may not " +
+                  "persist"
                 }
               >
                 No pinners
@@ -689,13 +683,9 @@ export function ConnectionStatus({
         )}
       </button>
 
-      {expanded && (
+      {/* Expandable detail panels */}
+      {showDetail && (
         <div className="cs-detail">
-          <TopologyMap
-            info={info}
-            awarenessPeers={awarenessPeers}
-            pulseKey={pulseKey}
-          />
           <NetworkDetail
             info={info}
             history={h}

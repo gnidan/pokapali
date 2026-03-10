@@ -16,45 +16,13 @@ import type {
   Simulation,
   SimulationNodeDatum,
 } from "d3-force";
-import type { Diagnostics } from "@pokapali/core";
+import type {
+  TopologyNode,
+  TopologyGraphEdge,
+  TopologyGraph,
+  Diagnostics,
+} from "@pokapali/core";
 import { formatRelativeTime } from "./ConnectionStatus";
-
-// ── Types ────────────────────────────────────────
-
-type NodeKind =
-  | "self"
-  | "relay"
-  | "pinner"
-  | "relay+pinner"
-  | "browser";
-
-interface GNode {
-  id: string;
-  label: string;
-  kind: NodeKind;
-  connected: boolean;
-  ackedCurrentCid: boolean;
-  guaranteeLabel?: string;
-  guaranteeActive?: boolean;
-  browserCount?: number;
-}
-
-interface GEdge {
-  source: string;
-  target: string;
-  connected: boolean;
-}
-
-interface AwarenessPeer {
-  name: string;
-  color: string;
-}
-
-// d3 simulation node
-interface SimNode extends SimulationNodeDatum {
-  id: string;
-  kind: NodeKind;
-}
 
 // ── Constants ────────────────────────────────────
 
@@ -81,7 +49,7 @@ const C = {
   ack: "#22c55e",
 } as const;
 
-function nodeR(kind: NodeKind): number {
+function nodeR(kind: TopologyNode["kind"]): number {
   switch (kind) {
     case "self": return 22;
     case "browser": return 9;
@@ -89,120 +57,24 @@ function nodeR(kind: NodeKind): number {
   }
 }
 
-// ── Build graph from Diagnostics ─────────────────
+// ── Fingerprint for detecting structural changes ─
 
-function nodeKind(roles: string[]): NodeKind {
-  const p = roles.includes("pinner");
-  const r = roles.includes("relay");
-  if (p && r) return "relay+pinner";
-  if (p) return "pinner";
-  if (r) return "relay";
-  return "browser";
-}
-
-function buildGraph(
-  info: Diagnostics,
-  peers: AwarenessPeer[],
-): { nodes: GNode[]; edges: GEdge[] } {
-  const now = Date.now();
-  const nodes: GNode[] = [{
-    id: "_self",
-    label: "You",
-    kind: "self",
-    connected: true,
-    ackedCurrentCid: false,
-  }];
-  const edges: GEdge[] = [];
-
-  for (const n of info.nodes) {
-    const kind = nodeKind(n.roles);
-    let guaranteeLabel: string | undefined;
-    let guaranteeActive: boolean | undefined;
-    if (
-      n.ackedCurrentCid &&
-      kind !== "relay" &&
-      info.guaranteeUntil != null
-    ) {
-      guaranteeActive = info.guaranteeUntil > now;
-      guaranteeLabel = guaranteeActive
-        ? formatRelativeTime(info.guaranteeUntil)
-        : "expired";
-    }
-    nodes.push({
-      id: n.peerId,
-      label: `…${n.short}`,
-      kind,
-      connected: n.connected,
-      ackedCurrentCid: n.ackedCurrentCid,
-      guaranteeLabel,
-      guaranteeActive,
-      browserCount: n.browserCount,
-    });
-    edges.push({
-      source: "_self",
-      target: n.peerId,
-      connected: n.connected,
-    });
-  }
-
-  for (const te of info.topology) {
-    const dup = edges.some(
-      (e) =>
-        (e.source === te.source &&
-          e.target === te.target) ||
-        (e.source === te.target &&
-          e.target === te.source),
-    );
-    if (!dup) {
-      edges.push({
-        source: te.source,
-        target: te.target,
-        connected: true,
-      });
-    }
-  }
-
-  if (peers.length > 0) {
-    nodes.push({
-      id: "_peers",
-      label:
-        peers.length === 1
-          ? peers[0].name || "Anonymous"
-          : `${peers.length} peers`,
-      kind: "browser",
-      connected: true,
-      ackedCurrentCid: false,
-      browserCount: peers.length,
-    });
-    edges.push({
-      source: "_self",
-      target: "_peers",
-      connected: true,
-    });
-  }
-
-  return { nodes, edges };
-}
-
-// Fingerprint for detecting structural changes
-function graphFp(
-  nodes: GNode[],
-  edges: GEdge[],
-): string {
+function graphFp(graph: TopologyGraph): string {
   return (
-    nodes
+    graph.nodes
       .map(
         (n) =>
           `${n.id}:${n.kind}:${n.connected}` +
-          `:${n.ackedCurrentCid}`,
+          `:${n.ackedCurrentCid ?? ""}`,
       )
       .sort()
       .join("|") +
     "||" +
-    edges
+    graph.edges
       .map(
         (e) =>
-          `${e.source}-${e.target}:${e.connected}`,
+          `${e.source}-${e.target}` +
+          `:${e.connected}`,
       )
       .sort()
       .join("|")
@@ -211,9 +83,13 @@ function graphFp(
 
 // ── Force layout hook ────────────────────────────
 
+interface SimNode extends SimulationNodeDatum {
+  id: string;
+  kind: TopologyNode["kind"];
+}
+
 function useForceLayout(
-  nodes: GNode[],
-  edges: GEdge[],
+  graph: TopologyGraph,
 ): Map<string, { x: number; y: number }> {
   type Sim = Simulation<SimNode, undefined>;
   const simRef = useRef<Sim | null>(null);
@@ -227,28 +103,32 @@ function useForceLayout(
       prevRef.current.map((n) => [n.id, n]),
     );
 
-    const simNodes: SimNode[] = nodes.map((n) => {
-      const p = prev.get(n.id);
-      return {
-        id: n.id,
-        kind: n.kind,
-        x: p?.x ?? CX + (Math.random() - 0.5) * 80,
-        y: p?.y ?? CY + (Math.random() - 0.5) * 60,
-        vx: p?.vx ?? 0,
-        vy: p?.vy ?? 0,
-        fx: n.kind === "self" ? CX : undefined,
-        fy: n.kind === "self" ? CY : undefined,
-      };
-    });
+    const simNodes: SimNode[] =
+      graph.nodes.map((n) => {
+        const p = prev.get(n.id);
+        return {
+          id: n.id,
+          kind: n.kind,
+          x: p?.x ??
+            CX + (Math.random() - 0.5) * 80,
+          y: p?.y ??
+            CY + (Math.random() - 0.5) * 60,
+          vx: p?.vx ?? 0,
+          vy: p?.vy ?? 0,
+          fx: n.kind === "self" ? CX : undefined,
+          fy: n.kind === "self" ? CY : undefined,
+        };
+      });
     prevRef.current = simNodes;
 
     const byId = new Map(
       simNodes.map((n) => [n.id, n]),
     );
-    const links = edges
+    const links = graph.edges
       .filter(
         (e) =>
-          byId.has(e.source) && byId.has(e.target),
+          byId.has(e.source) &&
+          byId.has(e.target),
       )
       .map((e) => ({
         source: e.source,
@@ -271,7 +151,8 @@ function useForceLayout(
             ) {
               const o =
                 s.kind === "self" ? t : s;
-              return o.kind === "browser" ? 50 : 100;
+              return o.kind === "browser"
+                ? 50 : 100;
             }
             return 70;
           })
@@ -317,7 +198,7 @@ function useForceLayout(
 
     simRef.current = sim;
     return () => { sim.stop(); };
-  }, [nodes, edges]);
+  }, [graph]);
 
   return posMap;
 }
@@ -327,7 +208,7 @@ function useForceLayout(
 function useParticles(
   groupRef: React.RefObject<SVGGElement | null>,
   pulseKey: number,
-  edges: GEdge[],
+  edges: TopologyGraphEdge[],
   posMap: Map<string, { x: number; y: number }>,
 ) {
   const rafRef = useRef(0);
@@ -346,8 +227,7 @@ function useParticles(
       dur: number;
     }
     const particles: P[] = [];
-    const ns =
-      "http://www.w3.org/2000/svg";
+    const ns = "http://www.w3.org/2000/svg";
 
     for (const e of edges) {
       if (!e.connected) continue;
@@ -397,7 +277,9 @@ function useParticles(
         );
         p.el.setAttribute(
           "opacity",
-          String(t < 0.7 ? 0.85 : (1 - t) / 0.3),
+          String(
+            t < 0.7 ? 0.85 : (1 - t) / 0.3,
+          ),
         );
       }
       if (alive > 0) {
@@ -432,13 +314,15 @@ function NodeShape({
   node,
   x,
   y,
+  guaranteeUntil,
   onHover,
 }: {
-  node: GNode;
+  node: TopologyNode;
   x: number;
   y: number;
+  guaranteeUntil: number | null;
   onHover: (
-    n: GNode | null,
+    n: TopologyNode | null,
     e?: React.MouseEvent,
   ) => void;
 }) {
@@ -456,6 +340,24 @@ function NodeShape({
     [onHover],
   );
 
+  // Guarantee state for acked pinners
+  const now = Date.now();
+  const hasPinnerRole =
+    node.kind === "pinner" ||
+    node.kind === "relay+pinner";
+  const showGuarantee =
+    hasPinnerRole &&
+    node.ackedCurrentCid &&
+    guaranteeUntil != null;
+  const guaranteeActive = showGuarantee
+    ? guaranteeUntil > now
+    : false;
+  const guaranteeLabel = showGuarantee
+    ? (guaranteeActive
+        ? formatRelativeTime(guaranteeUntil)
+        : "expired")
+    : undefined;
+
   // Build tooltip
   const tip = [node.label];
   if (
@@ -465,10 +367,10 @@ function NodeShape({
     tip.push(`(${node.kind})`);
   }
   if (node.ackedCurrentCid) tip.push("— acked");
-  if (node.guaranteeLabel) {
+  if (guaranteeLabel) {
     tip.push(
-      node.guaranteeActive
-        ? `— pinned ${node.guaranteeLabel}`
+      guaranteeActive
+        ? `— pinned ${guaranteeLabel}`
         : "— guarantee expired",
     );
   }
@@ -479,7 +381,6 @@ function NodeShape({
   if (node.kind === "self") {
     shape = (
       <>
-        {/* Glow */}
         <circle
           cx={0} cy={0} r={r + 8}
           fill={C.selfGlow}
@@ -522,7 +423,6 @@ function NodeShape({
       />
     );
   } else if (node.kind === "relay+pinner") {
-    // Composite: hex inside rounded rect
     const hw = r * 1.3;
     const hh = r * 0.95;
     shape = (
@@ -532,7 +432,9 @@ function NodeShape({
           width={hw * 2} height={hh * 2}
           rx={4}
           fill="none"
-          stroke={off ? C.disconnectedStroke : C.relay}
+          stroke={
+            off ? C.disconnectedStroke : C.relay
+          }
           strokeWidth={1.5}
           opacity={op}
         />
@@ -544,7 +446,9 @@ function NodeShape({
               : C["relay+pinner"]
           }
           stroke={
-            off ? C.disconnectedStroke : "#7c3aed"
+            off
+              ? C.disconnectedStroke
+              : "#7c3aed"
           }
           strokeWidth={1.5}
           strokeLinejoin="round"
@@ -553,7 +457,7 @@ function NodeShape({
       </>
     );
   } else {
-    // Browser peer — small and ephemeral
+    // Browser peer
     shape = (
       <circle
         cx={0} cy={0} r={r}
@@ -571,10 +475,7 @@ function NodeShape({
   if (node.kind === "self") {
     label = "You";
   } else if (node.kind === "browser") {
-    label =
-      node.browserCount && node.browserCount > 1
-        ? String(node.browserCount)
-        : "";
+    // No label for browser peers (name shown below)
   } else if (node.kind === "relay") {
     label = "R";
   } else if (node.kind === "pinner") {
@@ -593,22 +494,24 @@ function NodeShape({
       <title>{tip.join(" ")}</title>
 
       {/* Guarantee ring */}
-      {node.guaranteeLabel && (
+      {showGuarantee && (
         <circle
           cx={0} cy={0}
           r={r + 6}
           fill="none"
           stroke={
-            node.guaranteeActive
+            guaranteeActive
               ? C.guaranteeActive
               : C.guaranteeExpired
           }
-          strokeWidth={node.guaranteeActive ? 2.5 : 1.5}
+          strokeWidth={
+            guaranteeActive ? 2.5 : 1.5
+          }
           strokeDasharray={
-            node.guaranteeActive ? "none" : "3 2"
+            guaranteeActive ? "none" : "3 2"
           }
           className={
-            node.guaranteeActive
+            guaranteeActive
               ? "topo-guarantee-pulse"
               : "topo-guarantee-fade"
           }
@@ -626,9 +529,7 @@ function NodeShape({
           className={
             node.kind === "self"
               ? "topo-label-self"
-              : node.kind === "browser"
-                ? "topo-label-peer"
-                : "topo-label-infra"
+              : "topo-label-infra"
           }
         >
           {label}
@@ -637,7 +538,11 @@ function NodeShape({
 
       {/* Ack badge */}
       {node.ackedCurrentCid && (
-        <g transform={`translate(${r - 2},${-r + 2})`}>
+        <g
+          transform={
+            `translate(${r - 2},${-r + 2})`
+          }
+        >
           <circle
             r={5}
             fill={C.ack}
@@ -660,7 +565,11 @@ function NodeShape({
         node.kind !== "browser" &&
         node.browserCount != null &&
         node.browserCount > 0 && (
-        <g transform={`translate(${r + 1},${r - 2})`}>
+        <g
+          transform={
+            `translate(${r + 1},${r - 2})`
+          }
+        >
           <circle
             r={6}
             fill="#059669"
@@ -678,11 +587,14 @@ function NodeShape({
         </g>
       )}
 
-      {/* Peer ID below */}
+      {/* Peer ID / name below */}
       {node.kind !== "self" && (
         <text
           x={0}
-          y={r + (node.kind === "browser" ? 5 : 12)}
+          y={
+            r +
+            (node.kind === "browser" ? 5 : 12)
+          }
           textAnchor="middle"
           className="topo-peer-id"
         >
@@ -691,19 +603,19 @@ function NodeShape({
       )}
 
       {/* Guarantee time below peer ID */}
-      {node.guaranteeLabel && (
+      {guaranteeLabel && (
         <text
           x={0}
           y={r + 21}
           textAnchor="middle"
           className={
-            node.guaranteeActive
+            guaranteeActive
               ? "topo-guarantee-label"
               : "topo-guarantee-label expired"
           }
         >
-          {node.guaranteeActive
-            ? `pinned ${node.guaranteeLabel}`
+          {guaranteeActive
+            ? `pinned ${guaranteeLabel}`
             : "expired"}
         </text>
       )}
@@ -725,7 +637,9 @@ function EdgeLine({
       x1={x1} y1={y1} x2={x2} y2={y2}
       stroke={connected ? C.edge : C.edgeDash}
       strokeWidth={connected ? 1.2 : 0.8}
-      strokeDasharray={connected ? "none" : "4 3"}
+      strokeDasharray={
+        connected ? "none" : "4 3"
+      }
       strokeOpacity={connected ? 0.5 : 0.25}
     />
   );
@@ -738,14 +652,31 @@ function Tooltip({
   svgRect,
   mouseX,
   mouseY,
+  guaranteeUntil,
 }: {
-  node: GNode;
+  node: TopologyNode;
   svgRect: DOMRect;
   mouseX: number;
   mouseY: number;
+  guaranteeUntil: number | null;
 }) {
   const left = mouseX - svgRect.left + 12;
   const top = mouseY - svgRect.top - 10;
+
+  const hasPinner =
+    node.kind === "pinner" ||
+    node.kind === "relay+pinner";
+  const now = Date.now();
+  const gActive =
+    hasPinner &&
+    node.ackedCurrentCid &&
+    guaranteeUntil != null &&
+    guaranteeUntil > now;
+  const gExpired =
+    hasPinner &&
+    node.ackedCurrentCid &&
+    guaranteeUntil != null &&
+    guaranteeUntil <= now;
 
   return (
     <div
@@ -785,17 +716,15 @@ function Tooltip({
           Acked current snapshot
         </div>
       )}
-      {node.guaranteeLabel && (
-        <div
-          className={
-            "topo-tooltip-guarantee" +
-            (node.guaranteeActive
-              ? " active" : " expired")
-          }
-        >
-          {node.guaranteeActive
-            ? `Pinned for ${node.guaranteeLabel}`
-            : "Guarantee expired"}
+      {gActive && (
+        <div className="topo-tooltip-guarantee active">
+          Pinned for{" "}
+          {formatRelativeTime(guaranteeUntil!)}
+        </div>
+      )}
+      {gExpired && (
+        <div className="topo-tooltip-guarantee expired">
+          Guarantee expired
         </div>
       )}
     </div>
@@ -805,42 +734,47 @@ function Tooltip({
 // ── Main component ───────────────────────────────
 
 export function TopologyMap({
-  info,
-  awarenessPeers,
+  doc,
   pulseKey,
 }: {
-  info: Diagnostics;
-  awarenessPeers: AwarenessPeer[];
+  doc: {
+    topologyGraph(): TopologyGraph;
+    diagnostics(): Diagnostics;
+  };
   pulseKey: number;
 }) {
-  // Debounce graph updates; immediate on structure
-  // change, 8s delay otherwise
-  const [graph, setGraph] = useState(() =>
-    buildGraph(info, awarenessPeers),
+  // Build graph from core's merged topology API
+  const [graph, setGraph] = useState<TopologyGraph>(
+    () => doc.topologyGraph(),
   );
+  const [guaranteeUntil, setGuaranteeUntil] =
+    useState<number | null>(
+      () => doc.diagnostics().guaranteeUntil,
+    );
   const prevFpRef = useRef("");
   const debounceRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
 
   useEffect(() => {
-    const g = buildGraph(info, awarenessPeers);
-    const fp = graphFp(g.nodes, g.edges);
+    const g = doc.topologyGraph();
+    const fp = graphFp(g);
+    const gu = doc.diagnostics().guaranteeUntil;
 
     if (fp !== prevFpRef.current) {
-      // Structural change — update immediately
       prevFpRef.current = fp;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       setGraph(g);
+      setGuaranteeUntil(gu);
     } else {
-      // Data-only change — debounce
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
         setGraph(g);
+        setGuaranteeUntil(gu);
       }, 8_000);
     }
 
@@ -849,12 +783,9 @@ export function TopologyMap({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [info, awarenessPeers]);
+  }, [doc, pulseKey]);
 
-  const posMap = useForceLayout(
-    graph.nodes,
-    graph.edges,
-  );
+  const posMap = useForceLayout(graph);
 
   // Particle animation
   const particleRef = useRef<SVGGElement | null>(
@@ -870,13 +801,16 @@ export function TopologyMap({
   // Tooltip state
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hovered, setHovered] = useState<{
-    node: GNode;
+    node: TopologyNode;
     mx: number;
     my: number;
   } | null>(null);
 
   const onHover = useCallback(
-    (n: GNode | null, e?: React.MouseEvent) => {
+    (
+      n: TopologyNode | null,
+      e?: React.MouseEvent,
+    ) => {
       if (n && e) {
         setHovered({
           node: n,
@@ -890,21 +824,23 @@ export function TopologyMap({
     [],
   );
 
-  // Render order: edges, particles, nodes
-  // Nodes sorted: browsers first, then infra, self
-  // last (on top)
-  const sorted = graph.nodes.slice().sort((a, b) => {
-    const order = (k: NodeKind) => {
-      switch (k) {
-        case "browser": return 0;
-        case "relay":
-        case "pinner":
-        case "relay+pinner": return 1;
-        case "self": return 2;
-      }
-    };
-    return order(a.kind) - order(b.kind);
-  });
+  // Render order: browsers, infra, self on top
+  const sorted = graph.nodes.slice().sort(
+    (a, b) => {
+      const order = (
+        k: TopologyNode["kind"],
+      ) => {
+        switch (k) {
+          case "browser": return 0;
+          case "relay":
+          case "pinner":
+          case "relay+pinner": return 1;
+          case "self": return 2;
+        }
+      };
+      return order(a.kind) - order(b.kind);
+    },
+  );
 
   return (
     <div className="topo-wrap">
@@ -942,6 +878,7 @@ export function TopologyMap({
               node={n}
               x={p.x}
               y={p.y}
+              guaranteeUntil={guaranteeUntil}
               onHover={onHover}
             />
           );
@@ -957,6 +894,7 @@ export function TopologyMap({
           }
           mouseX={hovered.mx}
           mouseY={hovered.my}
+          guaranteeUntil={guaranteeUntil}
         />
       )}
     </div>
