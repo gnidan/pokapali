@@ -127,6 +127,7 @@ export function createNodeRegistry(
 
     const connected =
       getConnectedPeerIds().has(caps.peerId);
+    const isNew = !nodes.has(caps.peerId);
     nodes.set(caps.peerId, {
       peerId: caps.peerId,
       roles: caps.roles,
@@ -135,11 +136,20 @@ export function createNodeRegistry(
       neighbors: caps.neighbors ?? [],
       browserCount: caps.browserCount,
     });
-    log.debug(
-      "node seen:",
-      caps.peerId.slice(-8),
-      caps.roles.join(","),
-    );
+    if (isNew) {
+      log.info(
+        "node discovered:",
+        caps.peerId.slice(-8),
+        caps.roles.join(","),
+        connected ? "(connected)" : "(not connected)",
+      );
+    } else {
+      log.debug(
+        "node seen:",
+        caps.peerId.slice(-8),
+        caps.roles.join(","),
+      );
+    }
   };
 
   pubsub.addEventListener("message", messageHandler);
