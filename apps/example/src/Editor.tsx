@@ -9,7 +9,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import type {
-  CollabDoc,
+  Doc,
   DocStatus,
   SaveState,
 } from "@pokapali/core";
@@ -38,7 +38,7 @@ export function EditorView({
   doc,
   onBack,
 }: {
-  doc: CollabDoc;
+  doc: Doc;
   onBack: () => void;
 }) {
   const [status, setStatus] = useState<DocStatus>(
@@ -65,7 +65,7 @@ export function EditorView({
   const nameRef = useRef<HTMLInputElement>(null);
   const nameBtnRef = useRef<HTMLButtonElement>(null);
   const sharePanelRef = useRef<HTMLDivElement>(null);
-  const metaDoc = doc.subdoc("_meta");
+  const metaDoc = doc.channel("_meta");
   const docMap = metaDoc.getMap("doc");
   const [docTitle, setDocTitle] = useState(
     () =>
@@ -84,7 +84,7 @@ export function EditorView({
 
   const doSave = useCallback(() => {
     if (!canSave) return;
-    doc.pushSnapshot().catch(() => {});
+    doc.publish().catch(() => {});
   }, [doc, canSave]);
 
   // Auto-save: beforeunload, visibilitychange,
@@ -118,8 +118,8 @@ export function EditorView({
       refreshStatus();
     };
     doc.on("status", onStatus);
-    doc.on("save-state", onSaveState);
-    doc.on("snapshot-applied", onSnapshotApplied);
+    doc.on("save", onSaveState);
+    doc.on("snapshot", onSnapshotApplied);
     doc.on("ack", onAck);
     const awareness = doc.awareness;
     awareness.on("change", refreshStatus);
@@ -131,8 +131,8 @@ export function EditorView({
 
     return () => {
       doc.off("status", onStatus);
-      doc.off("save-state", onSaveState);
-      doc.off("snapshot-applied", onSnapshotApplied);
+      doc.off("save", onSaveState);
+      doc.off("snapshot", onSnapshotApplied);
       doc.off("ack", onAck);
       awareness.off("change", refreshStatus);
       if (flashTimer.current) {
@@ -151,7 +151,7 @@ export function EditorView({
     const timer = setTimeout(() => {
       if (!cancelled) setReady(true);
     }, 60_000);
-    doc.whenReady().then(() => {
+    doc.ready().then(() => {
       if (!cancelled) setReady(true);
     });
     return () => {
@@ -160,7 +160,7 @@ export function EditorView({
     };
   }, [doc]);
 
-  const contentDoc = doc.subdoc("content");
+  const contentDoc = doc.channel("content");
   const shouldMount = ready || !isReadOnly;
   // Writers always show the editor — they don't need
   // to wait for a snapshot load. Readers wait for
@@ -218,7 +218,7 @@ export function EditorView({
   );
 
   // Sync title from _meta subdoc
-  const docId = docIdFromUrl(doc.bestUrl);
+  const docId = docIdFromUrl(doc.urls.best);
   useEffect(() => {
     const observer = () => {
       const t =

@@ -67,7 +67,7 @@ import {
 } from "./snapshot-watcher.js";
 import type {
   SnapshotWatcher,
-  SnapshotFetchState,
+  LoadingState,
   GossipActivity,
 } from "./snapshot-watcher.js";
 import {
@@ -91,14 +91,14 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun1.l.google.com:19302" },
 ];
 
-export interface CollabLibOptions {
+export interface PokapaliConfig {
   appId?: string;
-  namespaces: string[];
-  primaryNamespace?: string;
-  base: string;
+  channels: string[];
+  primaryChannel?: string;
+  origin: string;
   signalingUrls?: string[];
   bootstrapPeers?: string[];
-  peerOpts?: SyncOptions["peerOpts"];
+  rtc?: SyncOptions["peerOpts"];
 }
 
 export type DocStatus =
@@ -117,11 +117,11 @@ export type {
   GossipActivity,
 } from "./snapshot-watcher.js";
 
-export type { SnapshotFetchState } from
+export type { LoadingState } from
   "./snapshot-watcher.js";
 
 export interface RotateResult {
-  newDoc: CollabDoc;
+  newDoc: Doc;
   forwardingRecord: Uint8Array;
 }
 
@@ -144,7 +144,7 @@ export interface GossipSubDiagnostic {
   meshPeers: number;
 }
 
-export interface DiagnosticsInfo {
+export interface Diagnostics {
   ipfsPeers: number;
   nodes: NodeInfo[];
   editors: number;
@@ -153,7 +153,7 @@ export interface DiagnosticsInfo {
   maxPeerClockSum: number;
   latestAnnouncedSeq: number;
   ipnsSeq: number | null;
-  fetchState: SnapshotFetchState;
+  loadingState: LoadingState;
   hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
   ackedBy: string[];
@@ -165,34 +165,38 @@ export interface DiagnosticsInfo {
   retainUntil: number | null;
 }
 
-export interface CollabDoc {
-  subdoc(ns: string): Y.Doc;
+export interface DocUrls {
+  readonly admin: string | null;
+  readonly write: string | null;
+  readonly read: string;
+  /** Best available URL (admin > write > read). */
+  readonly best: string;
+}
+
+export interface Doc {
+  channel(name: string): Y.Doc;
   readonly provider: {
     readonly awareness: Awareness;
   };
   readonly awareness: Awareness;
   readonly capability: Capability;
-  readonly adminUrl: string | null;
-  readonly writeUrl: string | null;
-  readonly readUrl: string;
-  /** Best available URL (admin > write > read). */
-  readonly bestUrl: string;
+  readonly urls: DocUrls;
   /** Role derived from capability. */
   readonly role: DocRole;
-  inviteUrl(grant: CapabilityGrant): Promise<string>;
+  invite(grant: CapabilityGrant): Promise<string>;
   readonly status: DocStatus;
   /** Persistence state (dirty → saving → saved). */
   readonly saveState: SaveState;
   /** Peer IDs of relays discovered for this app. */
-  readonly relayPeerIds: ReadonlySet<string>;
+  readonly relays: ReadonlySet<string>;
   /** Sum of all Y.Doc state vector clocks. */
   readonly clockSum: number;
   /** Last IPNS sequence number used for publish. */
   readonly ipnsSeq: number | null;
   /** Highest seq seen in GossipSub announcements. */
   readonly latestAnnouncedSeq: number;
-  /** Current snapshot fetch lifecycle state. */
-  readonly snapshotFetchState: SnapshotFetchState;
+  /** Current loading lifecycle state. */
+  readonly loadingState: LoadingState;
   /** True after first remote snapshot applied. */
   readonly hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
@@ -209,22 +213,22 @@ export interface CollabDoc {
    * resolution found nothing to load, or the document
    * was locally created (resolves immediately).
    */
-  whenReady(): Promise<void>;
-  pushSnapshot(): Promise<void>;
+  ready(): Promise<void>;
+  publish(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(
     event: "status",
     cb: (status: DocStatus) => void,
   ): void;
-  on(event: "snapshot-recommended", cb: () => void): void;
-  on(event: "snapshot-applied", cb: () => void): void;
+  on(event: "publish-needed", cb: () => void): void;
+  on(event: "snapshot", cb: () => void): void;
   on(
-    event: "fetch-state",
-    cb: (state: SnapshotFetchState) => void,
+    event: "loading",
+    cb: (state: LoadingState) => void,
   ): void;
   on(event: "ack", cb: (peerId: string) => void): void;
   on(
-    event: "save-state",
+    event: "save",
     cb: (state: SaveState) => void,
   ): void;
   off(
@@ -232,23 +236,23 @@ export interface CollabDoc {
     cb: (status: DocStatus) => void,
   ): void;
   off(
-    event: "snapshot-recommended",
+    event: "publish-needed",
     cb: () => void,
   ): void;
   off(
-    event: "snapshot-applied",
+    event: "snapshot",
     cb: () => void,
   ): void;
   off(
-    event: "fetch-state",
-    cb: (state: SnapshotFetchState) => void,
+    event: "loading",
+    cb: (state: LoadingState) => void,
   ): void;
   off(event: "ack", cb: (peerId: string) => void): void;
   off(
-    event: "save-state",
+    event: "save",
     cb: (state: SaveState) => void,
   ): void;
-  diagnostics(): DiagnosticsInfo;
+  diagnostics(): Diagnostics;
   history(): Promise<
     Array<{
       cid: CID;
@@ -260,9 +264,9 @@ export interface CollabDoc {
   destroy(): void;
 }
 
-export interface CollabLib {
-  create(): Promise<CollabDoc>;
-  open(url: string): Promise<CollabDoc>;
+export interface PokapaliApp {
+  create(): Promise<Doc>;
+  open(url: string): Promise<Doc>;
   /** Check if a URL matches this app's doc format. */
   isDocUrl(url: string): boolean;
   docIdFromUrl(url: string): string;
@@ -299,22 +303,22 @@ function computeSaveState(
   return "saved";
 }
 
-interface CollabDocParams {
+interface DocParams {
   subdocManager: SubdocManager;
   syncManager: SyncManager;
   awarenessRoom: AwarenessRoom;
   cap: Capability;
   keys: CapabilityKeys;
   ipnsName: string;
-  base: string;
-  namespaces: string[];
+  origin: string;
+  channels: string[];
   adminUrl: string | null;
   writeUrl: string | null;
   readUrl: string;
   signingKey: Ed25519KeyPair | null;
   readKey: CryptoKey | undefined;
   appId: string;
-  primaryNamespace: string;
+  primaryChannel: string;
   signalingUrls: string[];
   syncOpts?: SyncOptions;
   pubsub?: PubSubLike;
@@ -322,9 +326,9 @@ interface CollabDocParams {
   performInitialResolve?: boolean;
 }
 
-function createCollabDoc(
-  params: CollabDocParams,
-): CollabDoc {
+function createDoc(
+  params: DocParams,
+): Doc {
   const {
     subdocManager,
     syncManager,
@@ -332,8 +336,8 @@ function createCollabDoc(
     cap,
     keys,
     ipnsName,
-    base,
-    namespaces,
+    origin,
+    channels,
     signingKey,
     readKey,
   } = params;
@@ -401,13 +405,13 @@ function createCollabDoc(
     );
     if (next !== lastSaveState) {
       lastSaveState = next;
-      emit("save-state", next);
+      emit("save", next);
     }
   }
 
   function computeClockSum(): number {
     let sum = 0;
-    for (const ns of namespaces) {
+    for (const ns of channels) {
       const sv = Y.encodeStateVector(
         subdocManager.subdoc(ns),
       );
@@ -421,7 +425,7 @@ function createCollabDoc(
 
   subdocManager.on("dirty", () => {
     checkSaveState();
-    emit("snapshot-recommended");
+    emit("publish-needed");
     awarenessRoom.awareness.setLocalStateField(
       "clockSum",
       computeClockSum(),
@@ -439,7 +443,7 @@ function createCollabDoc(
     // event listeners first.
     queueMicrotask(() => {
       checkSaveState();
-      emit("snapshot-recommended");
+      emit("publish-needed");
     });
   }
 
@@ -481,7 +485,7 @@ function createCollabDoc(
         checkStatus();
       },
       onFetchStateChange: (state) => {
-        emit("fetch-state", state);
+        emit("loading", state);
         // If we return to idle or hit permanent failure
         // without ever applying a snapshot, the document
         // is as ready as it gets — mount the editor so
@@ -510,7 +514,7 @@ function createCollabDoc(
           snapshotLC.setLastIpnsSeq(
             computeClockSum(),
           );
-          emit("snapshot-applied");
+          emit("snapshot");
           markReady();
         }
       },
@@ -568,7 +572,7 @@ function createCollabDoc(
 
   function assertNotDestroyed() {
     if (destroyed) {
-      throw new Error("CollabDoc destroyed");
+      throw new Error("Doc destroyed");
     }
   }
 
@@ -579,15 +583,15 @@ function createCollabDoc(
   };
 
   return {
-    subdoc(ns: string): Y.Doc {
+    channel(name: string): Y.Doc {
       assertNotDestroyed();
       try {
-        return subdocManager.subdoc(ns);
+        return subdocManager.subdoc(name);
       } catch {
         throw new Error(
-          `Unknown namespace "${ns}". ` +
+          `Unknown channel "${name}". ` +
             "Configured: " +
-            namespaces.join(", "),
+            channels.join(", "),
         );
       }
     },
@@ -604,14 +608,17 @@ function createCollabDoc(
       return cap;
     },
 
-    adminUrl: params.adminUrl,
-    writeUrl: params.writeUrl,
-    readUrl: params.readUrl,
-
-    get bestUrl(): string {
-      return params.adminUrl
-        ?? params.writeUrl
-        ?? params.readUrl;
+    get urls(): DocUrls {
+      return {
+        admin: params.adminUrl,
+        write: params.writeUrl,
+        read: params.readUrl,
+        get best(): string {
+          return params.adminUrl
+            ?? params.writeUrl
+            ?? params.readUrl;
+        },
+      };
     },
 
     get role(): DocRole {
@@ -620,7 +627,7 @@ function createCollabDoc(
       return "reader";
     },
 
-    async inviteUrl(
+    async invite(
       grant: CapabilityGrant,
     ): Promise<string> {
       assertNotDestroyed();
@@ -644,7 +651,7 @@ function createCollabDoc(
         );
       }
       const narrowed = narrowCapability(keys, grant);
-      return buildUrl(base, ipnsName, narrowed);
+      return buildUrl(origin, ipnsName, narrowed);
     },
 
     get status(): DocStatus {
@@ -662,7 +669,7 @@ function createCollabDoc(
       );
     },
 
-    get relayPeerIds(): ReadonlySet<string> {
+    get relays(): ReadonlySet<string> {
       return params.roomDiscovery?.relayPeerIds
         ?? new Set();
     },
@@ -679,7 +686,7 @@ function createCollabDoc(
       return snapshotWatcher?.latestAnnouncedSeq ?? 0;
     },
 
-    get snapshotFetchState(): SnapshotFetchState {
+    get loadingState(): LoadingState {
       return snapshotWatcher?.fetchState
         ?? { status: "idle" };
     },
@@ -704,11 +711,11 @@ function createCollabDoc(
         ?? null;
     },
 
-    whenReady(): Promise<void> {
+    ready(): Promise<void> {
       return readyPromise;
     },
 
-    async pushSnapshot(): Promise<void> {
+    async publish(): Promise<void> {
       assertNotDestroyed();
       if (
         !cap.canPushSnapshots ||
@@ -731,7 +738,7 @@ function createCollabDoc(
 
       isSaving = false;
       checkSaveState();
-      emit("snapshot-applied");
+      emit("snapshot");
 
       // Reset ack tracking synchronously so the UI
       // clears immediately and early acks aren't
@@ -745,7 +752,7 @@ function createCollabDoc(
       // DHT operations.
       const cidShort = cid.toString().slice(0, 16);
       log.info(
-        "pushSnapshot: cid=" +
+        "publish: cid=" +
           cidShort + "... clockSum=" + clockSum,
       );
       (async () => {
@@ -797,7 +804,7 @@ function createCollabDoc(
       const newDocKeys = await deriveDocKeys(
         newAdminSecret,
         params.appId,
-        namespaces,
+        channels,
       );
 
       const newSigningKey =
@@ -811,9 +818,9 @@ function createCollabDoc(
       // Copy current state to new subdoc manager
       const newSubdocManager = createSubdocManager(
         newIpnsName,
-        namespaces,
+        channels,
         {
-          primaryNamespace: params.primaryNamespace,
+          primaryNamespace: params.primaryChannel,
         },
       );
       const snapshot = subdocManager.encodeAll();
@@ -851,20 +858,20 @@ function createCollabDoc(
       };
 
       const newAdminUrl = await buildUrl(
-        base,
+        origin,
         newIpnsName,
         newKeys,
       );
       const newWriteUrl = await buildUrl(
-        base,
+        origin,
         newIpnsName,
         narrowCapability(newKeys, {
-          namespaces: [...namespaces],
+          namespaces: [...channels],
           canPushSnapshots: true,
         }),
       );
       const newReadUrl = await buildUrl(
-        base,
+        origin,
         newIpnsName,
         narrowCapability(newKeys, {
           namespaces: [],
@@ -873,7 +880,7 @@ function createCollabDoc(
 
       const newCap = inferCapability(
         newKeys,
-        namespaces,
+        channels,
       );
 
       // Populate _meta on new doc
@@ -903,22 +910,22 @@ function createCollabDoc(
         // Helia may not be available
       }
 
-      const newDoc = createCollabDoc({
+      const newDoc = createDoc({
         subdocManager: newSubdocManager,
         syncManager: newSyncManager,
         awarenessRoom: newAwarenessRoom,
         cap: newCap,
         keys: newKeys,
         ipnsName: newIpnsName,
-        base,
-        namespaces,
+        origin,
+        channels,
         adminUrl: newAdminUrl,
         writeUrl: newWriteUrl,
         readUrl: newReadUrl,
         signingKey: newSigningKey,
         readKey: newDocKeys.readKey,
         appId: params.appId,
-        primaryNamespace: params.primaryNamespace,
+        primaryChannel: params.primaryChannel,
         signalingUrls: params.signalingUrls,
         syncOpts: params.syncOpts,
         pubsub: params.pubsub,
@@ -965,7 +972,7 @@ function createCollabDoc(
       listeners.get(event)?.delete(cb);
     },
 
-    diagnostics(): DiagnosticsInfo {
+    diagnostics(): Diagnostics {
       assertNotDestroyed();
       let ipfsPeers = 0;
       const nodeList: NodeInfo[] = [];
@@ -1089,7 +1096,7 @@ function createCollabDoc(
         latestAnnouncedSeq:
           snapshotWatcher?.latestAnnouncedSeq ?? 0,
         ipnsSeq: snapshotLC.lastIpnsSeq,
-        fetchState: snapshotWatcher?.fetchState
+        loadingState: snapshotWatcher?.fetchState
           ?? { status: "idle" },
         hasAppliedSnapshot:
           snapshotWatcher?.hasAppliedSnapshot
@@ -1119,21 +1126,21 @@ function createCollabDoc(
       if (destroyed) return;
       teardown();
     },
-  } as CollabDoc;
+  } as Doc;
 }
 
-export function createCollabLib(
-  options: CollabLibOptions,
-): CollabLib {
-  const { namespaces, base } = options;
+export function pokapali(
+  options: PokapaliConfig,
+): PokapaliApp {
+  const { channels, origin } = options;
   const appId = options.appId ?? "";
-  const primaryNamespace =
-    options.primaryNamespace ?? namespaces[0];
+  const primaryChannel =
+    options.primaryChannel ?? channels[0];
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
 
   return {
-    async create(): Promise<CollabDoc> {
+    async create(): Promise<Doc> {
       await acquireHelia({ bootstrapPeers });
       try {
       const pubsub =
@@ -1141,7 +1148,7 @@ export function createCollabLib(
       acquireNodeRegistry(pubsub, () => getHelia());
 
       const userIce =
-        options.peerOpts?.config?.iceServers;
+        options.rtc?.config?.iceServers;
       const syncOpts: SyncOptions = {
         peerOpts: {
           config: {
@@ -1155,7 +1162,7 @@ export function createCollabLib(
       const docKeys = await deriveDocKeys(
         adminSecret,
         appId,
-        namespaces,
+        channels,
       );
 
       const signingKey =
@@ -1168,9 +1175,9 @@ export function createCollabLib(
 
       const subdocManager = createSubdocManager(
         ipnsName,
-        namespaces,
+        channels,
         {
-          primaryNamespace,
+          primaryNamespace: primaryChannel,
         },
       );
 
@@ -1204,20 +1211,20 @@ export function createCollabLib(
       };
 
       const adminUrl = await buildUrl(
-        base,
+        origin,
         ipnsName,
         fullKeys,
       );
       const writeUrl = await buildUrl(
-        base,
+        origin,
         ipnsName,
         narrowCapability(fullKeys, {
-          namespaces: [...namespaces],
+          namespaces: [...channels],
           canPushSnapshots: true,
         }),
       );
       const readUrl = await buildUrl(
-        base,
+        origin,
         ipnsName,
         narrowCapability(fullKeys, {
           namespaces: [],
@@ -1226,7 +1233,7 @@ export function createCollabLib(
 
       const cap = inferCapability(
         fullKeys,
-        namespaces,
+        channels,
       );
 
       // Populate _meta doc
@@ -1246,22 +1253,22 @@ export function createCollabLib(
         arr.push([key]);
       }
 
-      return createCollabDoc({
+      return createDoc({
         subdocManager,
         syncManager,
         awarenessRoom,
         cap,
         keys: fullKeys,
         ipnsName,
-        base,
-        namespaces,
+        origin,
+        channels,
         adminUrl,
         writeUrl,
         readUrl,
         signingKey,
         readKey: docKeys.readKey,
         appId,
-        primaryNamespace,
+        primaryChannel,
         signalingUrls,
         syncOpts,
         pubsub,
@@ -1273,7 +1280,7 @@ export function createCollabLib(
       }
     },
 
-    async open(url: string): Promise<CollabDoc> {
+    async open(url: string): Promise<Doc> {
       const parsed = await parseUrl(url);
       const { ipnsName, keys } = parsed;
 
@@ -1306,7 +1313,7 @@ export function createCollabLib(
       acquireNodeRegistry(pubsub, () => getHelia());
 
       const userIce =
-        options.peerOpts?.config?.iceServers;
+        options.rtc?.config?.iceServers;
       const syncOpts: SyncOptions = {
         peerOpts: {
           config: {
@@ -1318,14 +1325,14 @@ export function createCollabLib(
 
       const cap = inferCapability(
         keys,
-        namespaces,
+        channels,
       );
 
       const subdocManager = createSubdocManager(
         ipnsName,
-        namespaces,
+        channels,
         {
-          primaryNamespace,
+          primaryNamespace: primaryChannel,
         },
       );
 
@@ -1351,11 +1358,11 @@ export function createCollabLib(
       );
 
       const adminUrl = keys.rotationKey
-        ? await buildUrl(base, ipnsName, keys)
+        ? await buildUrl(origin, ipnsName, keys)
         : null;
       const writeUrl = keys.ipnsKeyBytes
         ? await buildUrl(
-            base,
+            origin,
             ipnsName,
             narrowCapability(keys, {
               namespaces: [...cap.namespaces],
@@ -1364,7 +1371,7 @@ export function createCollabLib(
           )
         : null;
       const readUrl = await buildUrl(
-        base,
+        origin,
         ipnsName,
         narrowCapability(keys, {
           namespaces: [],
@@ -1379,22 +1386,22 @@ export function createCollabLib(
           );
       }
 
-      const doc = createCollabDoc({
+      const doc = createDoc({
         subdocManager,
         syncManager,
         awarenessRoom,
         cap,
         keys,
         ipnsName,
-        base,
-        namespaces,
+        origin,
+        channels,
         adminUrl,
         writeUrl,
         readUrl,
         signingKey,
         readKey: keys.readKey,
         appId,
-        primaryNamespace,
+        primaryChannel,
         signalingUrls,
         syncOpts,
         pubsub,
@@ -1412,11 +1419,11 @@ export function createCollabLib(
     isDocUrl(url: string): boolean {
       try {
         const parsed = new URL(url);
-        const prefix = base.replace(/\/$/, "")
+        const prefix = origin.replace(/\/$/, "")
           + "/doc/";
-        const origin = new URL(prefix).origin;
+        const orig = new URL(prefix).origin;
         const path = new URL(prefix).pathname;
-        return parsed.origin === origin
+        return parsed.origin === orig
           && parsed.pathname.startsWith(path)
           && parsed.hash.length > 1;
       } catch {
