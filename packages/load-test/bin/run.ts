@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 
 import { createMetrics } from "../src/metrics.js";
+import {
+  createHeliaNode,
+  type HeliaNode,
+} from "../src/helia-node.js";
+import {
+  startWriter,
+  type Writer,
+  type WriterEvent,
+} from "../src/writer.js";
 import { createLogger, setLogLevel } from "@pokapali/log";
 
 const log = createLogger("load-test");
@@ -13,6 +22,7 @@ interface Config {
   bootstrap: string[];
   output: string | undefined;
   ramp: boolean;
+  appId: string;
 }
 
 function parseArgs(argv: string[]): Config {
@@ -24,6 +34,7 @@ function parseArgs(argv: string[]): Config {
     bootstrap: [],
     output: undefined,
     ramp: false,
+    appId: "pokapali-example",
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -52,7 +63,13 @@ function parseArgs(argv: string[]): Config {
       config.output = argv[++i];
     } else if (arg === "--ramp") {
       config.ramp = true;
-    } else if (arg === "--log-level" && argv[i + 1]) {
+    } else if (
+      arg === "--app-id" && argv[i + 1]
+    ) {
+      config.appId = argv[++i];
+    } else if (
+      arg === "--log-level" && argv[i + 1]
+    ) {
       setLogLevel(argv[++i] as any);
     } else {
       console.error(`unknown arg: ${arg}`);
@@ -68,6 +85,41 @@ function parseArgs(argv: string[]): Config {
   return config;
 }
 
+function mapWriterEvent(
+  event: WriterEvent,
+  docId: string,
+): Parameters<ReturnType<typeof createMetrics>["record"]>[0] | null {
+  switch (event.type) {
+    case "snapshot-pushed":
+      return {
+        ts: event.timestampMs,
+        type: "snapshot-pushed",
+        docId,
+        latencyMs: event.durationMs,
+      };
+    case "ack-received":
+      return {
+        ts: event.timestampMs,
+        type: "ack-received",
+        docId,
+        detail: event.ackerPeerId,
+      };
+    case "error":
+      return {
+        ts: event.timestampMs,
+        type: "error",
+        docId,
+        detail: event.error,
+      };
+    default:
+      return null;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function main() {
   const config = parseArgs(process.argv);
   const metrics = createMetrics(config.output);
@@ -75,7 +127,8 @@ async function main() {
   log.info(
     `starting: ${config.docs} docs,`
     + ` ${config.intervalMs}ms interval,`
-    + ` ${config.durationS}s duration`,
+    + ` ${config.durationS}s duration,`
+    + ` appId=${config.appId}`,
   );
   if (config.bootstrap.length > 0) {
     log.info(
@@ -86,38 +139,58 @@ async function main() {
     log.info("  ramp: staggering doc creation");
   }
 
-  // TODO: Wire up helia-node.ts + writer.ts once
-  // core builds them. For now, the CLI validates
-  // args and sets up metrics collection.
-  //
-  // Planned flow:
-  // 1. Create Helia via createNodeHelia(bootstrap)
-  // 2. For each doc (0..docs-1):
-  //    a. Create capability (keypair)
-  //    b. Create CollabDoc via createCollabDoc
-  //    c. Start edit loop at intervalMs
-  //    d. Listen for ack events → metrics.record
-  //    If ramp: delay (i * intervalMs / docs)
-  // 3. After durationS: stop all docs, metrics.finish
+  // Create Helia node
+  log.info("creating Helia node...");
+  const helia: HeliaNode = await createHeliaNode({
+    bootstrapPeers: config.bootstrap,
+  });
+  log.info("Helia ready");
 
   const durationMs = config.durationS * 1000;
+  const writers: Writer[] = [];
 
-  // Placeholder: create doc events for validation
+  // Spawn writers
+  const rampDelay = config.ramp && config.docs > 1
+    ? durationMs / config.docs
+    : 0;
+
   for (let i = 0; i < config.docs; i++) {
     const docId = `doc-${i}`;
+
+    if (config.ramp && i > 0) {
+      log.info(
+        `ramp: waiting ${rampDelay}ms`
+        + ` before doc ${i}...`,
+      );
+      await sleep(rampDelay);
+    }
+
+    const writer = await startWriter(helia, {
+      appId: config.appId,
+      editIntervalMs: config.intervalMs,
+      onEvent(event: WriterEvent) {
+        const mapped = mapWriterEvent(event, docId);
+        if (mapped) metrics.record(mapped);
+      },
+    });
+
+    writers.push(writer);
     metrics.record({
       ts: Date.now(),
       type: "doc-created",
       docId,
     });
+    log.info(
+      `writer ${writer.writerId} → ${docId}`,
+    );
   }
 
   log.info(
-    `created ${config.docs} docs (stub),`
+    `${writers.length} writers running,`
     + ` waiting ${config.durationS}s...`,
   );
 
-  // Wait for duration then finish
+  // Wait for duration then shutdown
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, durationMs);
 
@@ -128,6 +201,16 @@ async function main() {
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
   });
+
+  // Stop all writers
+  log.info("stopping writers...");
+  for (const w of writers) {
+    w.stop();
+  }
+
+  // Stop Helia
+  log.info("stopping Helia...");
+  await helia.stop();
 
   metrics.finish();
   log.info("done");
