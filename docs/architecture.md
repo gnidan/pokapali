@@ -721,8 +721,9 @@ Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Lab
 
 The `@pokapali/node` package provides `startRelay()`, `createPinner()`, and an HTTP server for health monitoring. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
 
-Pinner state (`knownNames`, `tips`, `nameToAppId`) is
-persisted to `state.json` in the storage directory. Writes
+Pinner state (`knownNames`, `tips`, `nameToAppId`,
+`firstSeenAt`, `lastSeenAt`) is persisted to `state.json`
+in the storage directory. Writes
 use a dirty-flag + 5-second debounced flush + 60-second
 safety-net interval to avoid excessive disk I/O during
 bursts of announcements. On startup, `tips` and
@@ -774,7 +775,105 @@ reduction at 25+ peers.
 
 The HTTP server exposes:
 - `GET /healthz` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
-- `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, and pinner state
+- `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, pinner state, and lifetime metrics (see below)
+
+### Document lifetime metrics (designed)
+
+Pinners track cumulative document lifetime data to
+validate that guarantees match reality. All metrics are
+cheap: counters incremented on prune, gauges derived
+from existing state.
+
+**New per-doc state:** `firstSeenAt` (timestamp when the
+pinner first learned about a document, persisted in
+`state.json` alongside `lastSeenAt`). Lifetime is
+`pruneTime - firstSeenAt`.
+
+**Counters** (monotonically increasing, reset on restart):
+
+| Counter | Updated when |
+| --- | --- |
+| `docsTracked` | new IPNS name discovered |
+| `docsPruned` | doc removed from state |
+| `guaranteesIssued` | ack sent with `guaranteeUntil` |
+| `guaranteesHonored` | doc pruned after its `guaranteeUntil` |
+| `guaranteesBroken` | doc pruned before its `guaranteeUntil` |
+| `retentionsHonored` | doc pruned after its `retainUntil` |
+| `retentionsBroken` | doc pruned before its `retainUntil` |
+
+`guaranteesBroken` should be 0 in normal operation. If
+it's nonzero, the pinner is over-promising — it should
+log a warning. This happens when the capacity backstop
+forces early pruning (tracking > maxActiveDocs × 10).
+
+**Gauges** (current snapshot):
+
+| Gauge | Meaning |
+| --- | --- |
+| `activeDocs` | docs in re-announce phase |
+| `retainedDocs` | docs past guarantee, before prune |
+| `oldestActiveAge` | age of oldest active doc (ms) |
+| `oldestRetainedAge` | age of oldest retained doc (ms) |
+| `utilization` | activeDocs / capacity |
+
+**Lifetime histogram** (updated on each prune):
+
+Buckets: `<1h`, `1h–1d`, `1–3d`, `3–7d`, `7–14d`,
+`14–30d`, `30–90d`, `90d+`. Each bucket is a simple
+counter. The histogram shows the distribution of actual
+doc lifetimes vs the 14-day retention target.
+
+If docs routinely land in the `30–90d` bucket, the
+system has significant headroom — operators could
+consider increasing `RETENTION_DURATION` or adding more
+pinned apps. If docs cluster at `14–30d`, retention is
+tight against the guarantee.
+
+**Exposed on `/status`:**
+
+```json
+{
+  "pinner": {
+    "activeDocs": 487,
+    "retainedDocs": 312,
+    "capacity": {
+      "maxActiveDocs": 625,
+      "utilization": "0.78",
+      "perDocMs": "40.0"
+    },
+    "guarantees": {
+      "reannounceWindowMs": 604800000,
+      "retentionWindowMs": 1209600000
+    },
+    "lifetime": {
+      "docsTracked": 8491,
+      "docsPruned": 5692,
+      "guaranteesIssued": 42810,
+      "guaranteesHonored": 5692,
+      "guaranteesBroken": 0,
+      "retentionsHonored": 5690,
+      "retentionsBroken": 2,
+      "histogram": {
+        "<1h": 12, "1h-1d": 89, "1-3d": 204,
+        "3-7d": 1830, "7-14d": 2104,
+        "14-30d": 1200, "30-90d": 248, "90d+": 5
+      },
+      "oldestActiveAge": 518400000,
+      "oldestRetainedAge": 1123200000
+    }
+  }
+}
+```
+
+**Adaptive feedback: no.** The 7d/14d constants are
+product decisions (user expectations), not capacity
+decisions. The `loadFactor` already handles capacity
+pressure by reducing guarantees under load. Operators
+can inspect lifetime metrics and manually tune constants
+if the histogram shows significant headroom or tightness.
+Auto-adapting the constants would create feedback loops
+(longer guarantees → docs stay longer → even longer
+guarantees).
 
 ### Node capability broadcasting
 
