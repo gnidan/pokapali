@@ -248,20 +248,17 @@ export async function startRelay(
             selectors: { ipns: ipnsSelector },
           }),
           pubsub: gossipsub({
-            // Low-traffic signaling: publish to all
-            // peers, not just mesh. Prevents mesh
-            // degradation from collapsing delivery.
-            floodPublish: true,
+            // Mesh routing: let GossipSub manage
+            // message forwarding via mesh peers.
+            // floodPublish was needed with 2 relays
+            // but causes broadcast storms at scale.
+            floodPublish: false,
             allowPublishToZeroTopicPeers: true,
-            // Our network has very few topic peers
-            // (2 relays + transient browsers). Default
-            // D=6/Dlo=4 can never be satisfied, causing
-            // the heartbeat to churn without grafting.
-            D: 3,
-            Dlo: 2,
-            Dhi: 6,
-            Dout: 1,
-            Dscore: 1,
+            D: 6,
+            Dlo: 4,
+            Dhi: 12,
+            Dout: 2,
+            Dscore: 2,
             // Disable IP colocation penalty. Browser
             // peers connect via p2p-circuit through
             // bootstrap relays, making them all appear

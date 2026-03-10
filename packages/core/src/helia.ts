@@ -55,17 +55,16 @@ export async function acquireHelia(
     services: {
       ...defaults.services,
       pubsub: gossipsub({
-        // Low-traffic signaling: publish to all peers,
-        // not just mesh. Prevents mesh degradation from
-        // collapsing message delivery.
-        floodPublish: true,
+        // Mesh routing: let GossipSub forward via
+        // mesh peers. floodPublish causes broadcast
+        // storms at scale (1000+ docs).
+        floodPublish: false,
         allowPublishToZeroTopicPeers: true,
-        // Small network: typically 1-2 relays + few
-        // browsers per topic. Default D=6/Dlo=4 can
-        // never be satisfied.
-        D: 2,
+        // Browsers connect to 2-4 relays, so keep
+        // mesh params modest.
+        D: 3,
         Dlo: 2,
-        Dhi: 4,
+        Dhi: 6,
         Dout: 1,
         Dscore: 1,
         // Disable IP colocation penalty. Browsers

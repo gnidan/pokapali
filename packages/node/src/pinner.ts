@@ -32,7 +32,7 @@ const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
 const REPUBLISH_PER_NAME_DELAY_MS = 5_000;
 const REPUBLISH_TIMEOUT_MS = 15_000;
-const REANNOUNCE_INTERVAL_MS = 30_000;
+const REANNOUNCE_INTERVAL_MS = 5 * 60_000;
 const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
 
@@ -349,32 +349,32 @@ export async function createPinner(
   }
 
   /**
-   * Re-announce all known CIDs with inline blocks
-   * so new/refreshed peers on the GossipSub mesh
-   * receive the latest snapshots.
+   * Re-announce all known CIDs without inline blocks,
+   * staggered with jitter so GossipSub buffers don't
+   * saturate. Peers fetch blocks from blockstore if
+   * they don't already have them.
    */
   async function reannounceAll(): Promise<void> {
     if (!helia || !config.pubsub) return;
     const start = Date.now();
-    for (const ipnsName of knownNames) {
+    const names = [...knownNames];
+    // Stagger: spread over 80% of the interval
+    const staggerMs = names.length > 1
+      ? (REANNOUNCE_INTERVAL_MS * 0.8) / names.length
+      : 0;
+    for (const ipnsName of names) {
       if (stopped) break;
       const appId = nameToAppId.get(ipnsName);
       if (!appId) continue;
       const cidStr = history.getTip(ipnsName);
       if (!cidStr) continue;
       try {
-        const cid = CID.parse(cidStr);
-        const block = await helia.blockstore.get(
-          cid,
-          { signal: AbortSignal.timeout(5_000) },
-        );
+        // No inline block — peers fetch if needed
         await announceSnapshot(
           config.pubsub,
           appId,
           ipnsName,
           cidStr,
-          undefined,
-          block,
         );
         log.debug(
           `re-announced`
@@ -386,6 +386,13 @@ export async function createPinner(
           `re-announce failed`
           + ` ${ipnsName.slice(0, 12)}...:`,
           err,
+        );
+      }
+      // Stagger with jitter to avoid burst
+      if (staggerMs > 0) {
+        const jitter = Math.random() * staggerMs * 0.5;
+        await new Promise<void>((r) =>
+          setTimeout(r, staggerMs + jitter),
         );
       }
     }
