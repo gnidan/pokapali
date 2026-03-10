@@ -32,7 +32,6 @@ const CX = W / 2;
 const CY = H / 2;
 const NODE_R = 15;
 const SELF_R = 20;
-const ICON_SIZE = 8;
 
 const C = {
   self: "#10b981",
@@ -52,6 +51,7 @@ const C = {
   pinnerExpired: "#ef4444",
   guaranteeActive: "#22c55e",
   guaranteeExpired: "#ef4444",
+  dual: "#8b5cf6",
   particle: "#fbbf24",
 } as const;
 
@@ -329,86 +329,28 @@ function useParticles(
   }, [pulseKey, groupRef, posMapRef]);
 }
 
-// ── Role icons (small SVG) ───────────────────────
+// ── Person silhouette for anonymous browsers ─────
 
-// Database icon for pinners (small cylinder)
-function PinnerIcon({
-  x, y, color,
-}: {
-  x: number; y: number; color: string;
-}) {
-  const w = ICON_SIZE;
-  const h = ICON_SIZE + 2;
-  const rx = w / 2;
-  const ry = 2;
+function PersonIcon() {
+  // Simple head + shoulders silhouette
   return (
-    <g transform={`translate(${x},${y})`}>
-      {/* Body */}
-      <rect
-        x={-rx} y={-h / 2 + ry}
-        width={w} height={h - ry * 2}
-        fill={color}
-      />
-      {/* Top ellipse */}
-      <ellipse
-        cx={0} cy={-h / 2 + ry}
-        rx={rx} ry={ry}
-        fill={color}
-        stroke="#fff"
-        strokeWidth={0.5}
-      />
-      {/* Bottom ellipse (half) */}
-      <ellipse
-        cx={0} cy={h / 2 - ry}
-        rx={rx} ry={ry}
-        fill={color}
-      />
-      {/* Middle line */}
-      <line
-        x1={-rx} y1={0}
-        x2={rx} y2={0}
-        stroke="#fff"
-        strokeWidth={0.5}
-        strokeOpacity={0.6}
+    <g opacity={0.5}>
+      <circle cx={0} cy={-2} r={4} fill="#64748b" />
+      <path
+        d="M-6,7 Q-6,2 0,2 Q6,2 6,7"
+        fill="#64748b"
       />
     </g>
   );
 }
 
-// Relay icon (bidirectional arrow)
-function RelayIcon({
-  x, y, color,
-}: {
-  x: number; y: number; color: string;
-}) {
-  const s = ICON_SIZE / 2;
-  return (
-    <g transform={`translate(${x},${y})`}>
-      {/* Left arrow */}
-      <path
-        d={
-          `M${-s + 1},0 L${-s + 3.5},-2.5 ` +
-          `L${-s + 3.5},2.5 Z`
-        }
-        fill={color}
-      />
-      {/* Right arrow */}
-      <path
-        d={
-          `M${s - 1},0 L${s - 3.5},-2.5 ` +
-          `L${s - 3.5},2.5 Z`
-        }
-        fill={color}
-      />
-      {/* Center line */}
-      <line
-        x1={-s + 3} y1={0}
-        x2={s - 3} y2={0}
-        stroke={color}
-        strokeWidth={1.2}
-      />
-    </g>
-  );
+// ── Browser label helpers ────────────────────────
+
+function browserAbbrev(label: string): string {
+  const name = label.replace(/^…/, "").trim();
+  if (!name || name === "Anonymous") return "";
+  // Use first two characters, capitalized
+  return name.slice(0, 2).toUpperCase();
 }
 
 // ── Node rendering ───────────────────────────────
@@ -461,34 +403,56 @@ function NodeShape({
     ? guaranteeUntil > now
     : false;
 
-  // Pinner icon color based on doc status
-  let pinnerColor: string = C.pinner;
-  if (node.ackedCurrentCid) {
-    pinnerColor = guaranteeActive
-      ? C.pinnerAcked   // green: actively pinned
-      : C.pinnerExpired; // red: expired
+  // Role ring color (primary visual identifier)
+  let roleStroke: string;
+  let roleStrokeW: number;
+  if (isSelf) {
+    roleStroke = "#fff";
+    roleStrokeW = 2.5;
+  } else if (off) {
+    roleStroke = C.disconnectedStroke;
+    roleStrokeW = 1.5;
+  } else if (node.kind === "relay") {
+    roleStroke = C.relay;
+    roleStrokeW = 2.5;
+  } else if (node.kind === "pinner") {
+    roleStroke = C.pinner;
+    roleStrokeW = 2.5;
+  } else if (node.kind === "relay+pinner") {
+    roleStroke = C.dual;
+    roleStrokeW = 3;
+  } else if (isBrowser) {
+    roleStroke = C.browser;
+    roleStrokeW = 1.5;
+  } else {
+    roleStroke = C.nodeStroke;
+    roleStrokeW = 2;
   }
 
-  // Circle fill/stroke
+  // Circle fill
   let fill: string;
-  let stroke: string;
-  let strokeW: number;
   if (isSelf) {
     fill = C.self;
-    stroke = "#fff";
-    strokeW = 2.5;
   } else if (off) {
     fill = C.disconnected;
-    stroke = C.disconnectedStroke;
-    strokeW = 1;
   } else if (isBrowser) {
     fill = C.browserFill;
-    stroke = C.browser;
-    strokeW = 1.5;
   } else {
     fill = C.nodeFill;
-    stroke = C.nodeStroke;
-    strokeW = 2;
+  }
+
+  // Inner label
+  let label = "";
+  if (isSelf) {
+    label = "You";
+  } else if (isBrowser) {
+    label = browserAbbrev(node.label);
+  } else if (node.kind === "relay") {
+    label = "R";
+  } else if (node.kind === "pinner") {
+    label = "P";
+  } else if (node.kind === "relay+pinner") {
+    label = "RP";
   }
 
   // Build tooltip
@@ -548,29 +512,40 @@ function NodeShape({
         />
       )}
 
-      {/* Main circle (same size for everyone) */}
+      {/* Main circle — colored ring = role */}
       <circle
         cx={0} cy={0} r={r}
         fill={fill}
-        stroke={stroke}
-        strokeWidth={strokeW}
+        stroke={roleStroke}
+        strokeWidth={roleStrokeW}
         strokeDasharray={
           off ? "3 2" : "none"
         }
         opacity={off ? 0.5 : 1}
       />
 
-      {/* Label */}
-      {isSelf ? (
+      {/* Inner label or person icon */}
+      {isBrowser && !label ? (
+        <PersonIcon />
+      ) : (
         <text
           x={0} y={1}
           textAnchor="middle"
           dominantBaseline="central"
-          className="topo-label-self"
+          className={
+            isSelf
+              ? "topo-label-self"
+              : isBrowser
+                ? "topo-label-browser"
+                : "topo-label-infra"
+          }
         >
-          You
+          {label}
         </text>
-      ) : (
+      )}
+
+      {/* Peer ID / name below circle */}
+      {!isSelf && (
         <text
           x={0}
           y={r + 11}
@@ -579,22 +554,6 @@ function NodeShape({
         >
           {node.label}
         </text>
-      )}
-
-      {/* Role icons */}
-      {isPinner && !isSelf && (
-        <PinnerIcon
-          x={r - 3}
-          y={r - 3}
-          color={off ? C.disconnectedStroke : pinnerColor}
-        />
-      )}
-      {isRelay && !isSelf && (
-        <RelayIcon
-          x={isPinner ? -(r - 3) : (r - 3)}
-          y={-(r - 3)}
-          color={off ? C.disconnectedStroke : C.relay}
-        />
       )}
 
       {/* Browser count badge */}

@@ -787,6 +787,13 @@ body {
   pointer-events: none;
 }
 
+.topo-label-browser {
+  font-size: 9px;
+  font-weight: 600;
+  fill: #64748b;
+  pointer-events: none;
+}
+
 .topo-label-peer {
   font-size: 8px;
   font-weight: 600;
