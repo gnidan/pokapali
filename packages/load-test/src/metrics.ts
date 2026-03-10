@@ -13,6 +13,7 @@ export interface LoadTestEvent {
   docId: string;
   latencyMs?: number;
   detail?: string;
+  cid?: string;
 }
 
 export interface MetricsCollector {
@@ -43,6 +44,8 @@ export function createMetrics(
   let snapshotsPushed = 0;
   let acksReceived = 0;
   const ackLatencies: number[] = [];
+  // CID → timestamp of snapshot-pushed, for ack latency
+  const pendingSnapshots = new Map<string, number>();
 
   let stream: WriteStream | null = null;
   if (outputPath) {
@@ -75,11 +78,18 @@ export function createMetrics(
           break;
         case "snapshot-pushed":
           snapshotsPushed++;
+          if (event.cid) {
+            pendingSnapshots.set(event.cid, event.ts);
+          }
           break;
         case "ack-received":
           acksReceived++;
-          if (event.latencyMs != null) {
-            ackLatencies.push(event.latencyMs);
+          if (event.cid) {
+            const pushTs =
+              pendingSnapshots.get(event.cid);
+            if (pushTs != null) {
+              ackLatencies.push(event.ts - pushTs);
+            }
           }
           break;
       }

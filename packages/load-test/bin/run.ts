@@ -96,6 +96,7 @@ function mapWriterEvent(
         type: "snapshot-pushed",
         docId,
         latencyMs: event.durationMs,
+        cid: event.cid,
       };
     case "ack-received":
       return {
@@ -103,6 +104,7 @@ function mapWriterEvent(
         type: "ack-received",
         docId,
         detail: event.ackerPeerId,
+        cid: event.cid,
       };
     case "error":
       return {
