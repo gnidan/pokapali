@@ -4,6 +4,8 @@ import {
   announceSnapshot,
   announceAck,
   parseAnnouncement,
+  publishGuaranteeQuery,
+  parseGuaranteeResponse,
 } from "./announce.js";
 import type { AnnouncePubSub } from "./announce.js";
 
@@ -140,5 +142,108 @@ describe("parseAnnouncement", () => {
       ack: { peerId: "peer123" },
     });
     expect(result?.ack?.peerId).toBe("peer123");
+  });
+});
+
+describe("publishGuaranteeQuery", () => {
+  it("publishes query on the announce topic",
+    async () => {
+      const mockPublish = vi.fn()
+        .mockResolvedValue(undefined);
+      const pubsub: AnnouncePubSub = {
+        publish: mockPublish,
+      };
+
+      await publishGuaranteeQuery(
+        pubsub, "test-app", "abc123",
+      );
+
+      expect(mockPublish).toHaveBeenCalledTimes(1);
+      const [topic, data] =
+        mockPublish.mock.calls[0];
+      expect(topic).toBe(
+        "/pokapali/app/test-app/announce",
+      );
+      const parsed = JSON.parse(
+        new TextDecoder().decode(data),
+      );
+      expect(parsed).toEqual({
+        type: "guarantee-query",
+        ipnsName: "abc123",
+      });
+    },
+  );
+});
+
+describe("parseGuaranteeResponse", () => {
+  it("parses valid guarantee response", () => {
+    const data = new TextEncoder().encode(
+      JSON.stringify({
+        type: "guarantee-response",
+        ipnsName: "abc",
+        peerId: "pinner-1",
+        cid: "bafyfoo",
+        guaranteeUntil: 1700000000000,
+        retainUntil: 1600000000000,
+      }),
+    );
+    const result = parseGuaranteeResponse(data);
+    expect(result).toEqual({
+      type: "guarantee-response",
+      ipnsName: "abc",
+      peerId: "pinner-1",
+      cid: "bafyfoo",
+      guaranteeUntil: 1700000000000,
+      retainUntil: 1600000000000,
+    });
+  });
+
+  it("returns null for non-response type", () => {
+    const data = new TextEncoder().encode(
+      JSON.stringify({
+        type: "guarantee-query",
+        ipnsName: "abc",
+      }),
+    );
+    expect(
+      parseGuaranteeResponse(data),
+    ).toBeNull();
+  });
+
+  it("returns null for missing fields", () => {
+    const data = new TextEncoder().encode(
+      JSON.stringify({
+        type: "guarantee-response",
+        ipnsName: "abc",
+        // missing peerId and cid
+      }),
+    );
+    expect(
+      parseGuaranteeResponse(data),
+    ).toBeNull();
+  });
+
+  it("returns null for invalid JSON", () => {
+    const data = new TextEncoder().encode(
+      "not json",
+    );
+    expect(
+      parseGuaranteeResponse(data),
+    ).toBeNull();
+  });
+
+  it("parses without optional fields", () => {
+    const data = new TextEncoder().encode(
+      JSON.stringify({
+        type: "guarantee-response",
+        ipnsName: "abc",
+        peerId: "pinner-1",
+        cid: "bafyfoo",
+      }),
+    );
+    const result = parseGuaranteeResponse(data);
+    expect(result).not.toBeNull();
+    expect(result!.guaranteeUntil).toBeUndefined();
+    expect(result!.retainUntil).toBeUndefined();
   });
 });

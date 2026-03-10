@@ -18,6 +18,10 @@ vi.mock("./announce.js", () => ({
       `/pokapali/app/${appId}/announce`,
   ),
   parseAnnouncement: vi.fn().mockReturnValue(null),
+  parseGuaranteeResponse:
+    vi.fn().mockReturnValue(null),
+  publishGuaranteeQuery:
+    vi.fn().mockResolvedValue(undefined),
   announceSnapshot:
     vi.fn().mockResolvedValue(undefined),
 }));
@@ -32,6 +36,8 @@ import {
 import {
   announceTopic,
   parseAnnouncement,
+  parseGuaranteeResponse,
+  publishGuaranteeQuery,
   announceSnapshot,
 } from "./announce.js";
 import { CID } from "multiformats/cid";
@@ -719,5 +725,268 @@ describe("createSnapshotWatcher", () => {
         watcher.destroy();
       },
     );
+  });
+
+  describe("guarantee query", () => {
+    function makePubsub() {
+      return {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish:
+          vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    function getMessageHandler(
+      pubsub: ReturnType<typeof makePubsub>,
+    ) {
+      const call =
+        pubsub.addEventListener.mock.calls.find(
+          (c: any) => c[0] === "message",
+        );
+      return call?.[1] as (evt: any) => void;
+    }
+
+    it("fires guarantee query on reader"
+      + " startup", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      expect(
+        publishGuaranteeQuery,
+      ).toHaveBeenCalledWith(
+        pubsub, "test", "abc123",
+      );
+
+      watcher.destroy();
+    });
+
+    it("does not fire query on writer startup"
+      + " (fires on startReannounce)", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: true,
+        onSnapshot: vi.fn(),
+      });
+
+      expect(
+        publishGuaranteeQuery,
+      ).not.toHaveBeenCalled();
+
+      watcher.destroy();
+    });
+
+    it("fires query on startReannounce for"
+      + " writers", () => {
+      const pubsub = makePubsub();
+      const helia = {
+        blockstore: { get: vi.fn() },
+      };
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => helia as any,
+        isWriter: true,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.startReannounce(
+        () => null, () => undefined,
+      );
+
+      expect(
+        publishGuaranteeQuery,
+      ).toHaveBeenCalledWith(
+        pubsub, "test", "abc123",
+      );
+
+      watcher.destroy();
+    });
+
+    it("re-queries every 5 minutes", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      // Initial query on startup
+      expect(
+        publishGuaranteeQuery,
+      ).toHaveBeenCalledTimes(1);
+
+      // Advance 5 minutes
+      vi.advanceTimersByTime(5 * 60_000);
+      expect(
+        publishGuaranteeQuery,
+      ).toHaveBeenCalledTimes(2);
+
+      // Another 5 minutes
+      vi.advanceTimersByTime(5 * 60_000);
+      expect(
+        publishGuaranteeQuery,
+      ).toHaveBeenCalledTimes(3);
+
+      watcher.destroy();
+    });
+
+    it("handles guarantee response and updates"
+      + " pinnerGuarantees", () => {
+      const pubsub = makePubsub();
+      const onAck = vi.fn();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+        onAck,
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic =
+        "/pokapali/app/test/announce";
+
+      vi.mocked(parseGuaranteeResponse)
+        .mockReturnValueOnce({
+          type: "guarantee-response",
+          ipnsName: "abc",
+          peerId: "pinner-A",
+          cid: "cid-1",
+          guaranteeUntil: 1700000000000,
+          retainUntil: 1600000000000,
+        });
+
+      handler({
+        detail: {
+          topic,
+          data: new Uint8Array(),
+        },
+      });
+
+      expect(
+        watcher.guaranteeUntil,
+      ).toBe(1700000000000);
+      expect(
+        watcher.retainUntil,
+      ).toBe(1600000000000);
+      expect(onAck).toHaveBeenCalledWith(
+        "pinner-A",
+      );
+
+      watcher.destroy();
+    });
+
+    it("ignores guarantee response for wrong"
+      + " ipnsName", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic =
+        "/pokapali/app/test/announce";
+
+      vi.mocked(parseGuaranteeResponse)
+        .mockReturnValueOnce({
+          type: "guarantee-response",
+          ipnsName: "different-name",
+          peerId: "pinner-A",
+          cid: "cid-1",
+          guaranteeUntil: 1700000000000,
+        });
+
+      handler({
+        detail: {
+          topic,
+          data: new Uint8Array(),
+        },
+      });
+
+      expect(watcher.guaranteeUntil).toBeNull();
+
+      watcher.destroy();
+    });
+
+    it("monotonic guarantee from responses"
+      + " (never decreases)", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({} as any),
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic =
+        "/pokapali/app/test/announce";
+
+      vi.mocked(parseGuaranteeResponse)
+        .mockReturnValueOnce({
+          type: "guarantee-response",
+          ipnsName: "abc",
+          peerId: "pinner-A",
+          cid: "cid-1",
+          guaranteeUntil: 1800000000000,
+        });
+      handler({
+        detail: {
+          topic,
+          data: new Uint8Array(),
+        },
+      });
+
+      // Lower value should not override
+      vi.mocked(parseGuaranteeResponse)
+        .mockReturnValueOnce({
+          type: "guarantee-response",
+          ipnsName: "abc",
+          peerId: "pinner-A",
+          cid: "cid-1",
+          guaranteeUntil: 1700000000000,
+        });
+      handler({
+        detail: {
+          topic,
+          data: new Uint8Array(),
+        },
+      });
+
+      expect(
+        watcher.guaranteeUntil,
+      ).toBe(1800000000000);
+
+      watcher.destroy();
+    });
   });
 });

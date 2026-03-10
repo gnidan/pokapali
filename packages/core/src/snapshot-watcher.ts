@@ -4,6 +4,8 @@ import type { PubSubLike } from "@pokapali/sync";
 import {
   announceTopic,
   parseAnnouncement,
+  parseGuaranteeResponse,
+  publishGuaranteeQuery,
   announceSnapshot,
   base64ToUint8,
 } from "./announce.js";
@@ -18,6 +20,7 @@ import type { Helia } from "helia";
 const REANNOUNCE_MS = 15_000;
 const RETRY_INTERVAL_MS = 30_000;
 const MAX_OUTER_RETRIES = 10;
+const GUARANTEE_REQUERY_MS = 5 * 60_000;
 
 export type LoadingState =
   | { status: "idle" }
@@ -183,6 +186,27 @@ export function createSnapshotWatcher(
     markGossipSubscribed();
   }
 
+  // Fire initial guarantee query after subscribing
+  // so pinners respond with their current state.
+  function fireGuaranteeQuery() {
+    publishGuaranteeQuery(
+      pubsub, appId, ipnsName,
+    ).catch((err) => {
+      log.warn("guarantee query failed:", err);
+    });
+  }
+
+  // Readers query immediately; writers query after
+  // startReannounce subscribes to the topic.
+  if (!isWriter) {
+    fireGuaranteeQuery();
+  }
+
+  // Re-query periodically for long sessions
+  const guaranteeQueryTimer = setInterval(() => {
+    if (!destroyed) fireGuaranteeQuery();
+  }, GUARANTEE_REQUERY_MS);
+
   function scheduleRetry() {
     if (retryTimer || !pendingCid) return;
     retryAttempt++;
@@ -234,6 +258,44 @@ export function createSnapshotWatcher(
   const announceHandler = (evt: CustomEvent) => {
     const { detail } = evt;
     if (detail?.topic !== topic) return;
+
+    // Check for guarantee response first
+    const gResp =
+      parseGuaranteeResponse(detail.data);
+    if (gResp && gResp.ipnsName === ipnsName) {
+      if (destroyed) return;
+      touchGossip();
+      // Update guarantees for the responding pinner
+      // (same monotonic logic as ack handling).
+      const prev =
+        pinnerGuarantees.get(gResp.peerId) ??
+        { guarantee: 0, retain: 0 };
+      pinnerGuarantees.set(gResp.peerId, {
+        guarantee: Math.max(
+          prev.guarantee,
+          gResp.guaranteeUntil ?? 0,
+        ),
+        retain: Math.max(
+          prev.retain,
+          gResp.retainUntil ?? 0,
+        ),
+      });
+      // Also track as acked if CID matches
+      if (gResp.cid === ackedCid) {
+        const isNew =
+          !ackedBy.has(gResp.peerId);
+        ackedBy.add(gResp.peerId);
+        if (isNew) {
+          log.debug(
+            "guarantee-response from",
+            gResp.peerId.slice(-8),
+          );
+          options.onAck?.(gResp.peerId);
+        }
+      }
+      return;
+    }
+
     const ann = parseAnnouncement(detail.data);
     if (!ann || ann.ipnsName !== ipnsName) return;
     if (destroyed) return;
@@ -521,6 +583,7 @@ export function createSnapshotWatcher(
       // mesh for the announce topic.
       pubsub.subscribe(topic);
       markGossipSubscribed();
+      fireGuaranteeQuery();
 
       reannounceGetCid = getCid;
       reannounceGetBlock = getBlock;
@@ -587,6 +650,7 @@ export function createSnapshotWatcher(
         clearInterval(announceTimer);
         announceTimer = null;
       }
+      clearInterval(guaranteeQueryTimer);
       if (gossipDecayTimer) {
         clearInterval(gossipDecayTimer);
         gossipDecayTimer = null;

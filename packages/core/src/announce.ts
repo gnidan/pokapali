@@ -153,3 +153,59 @@ export function parseAnnouncement(
     return null;
   }
 }
+
+// --- Guarantee query / response ---
+
+export interface GuaranteeResponse {
+  type: "guarantee-response";
+  ipnsName: string;
+  peerId: string;
+  cid: string;
+  guaranteeUntil?: number;
+  retainUntil?: number;
+}
+
+/**
+ * Publish a guarantee query on the announce topic.
+ * Browsers fire this on doc open so pinners respond
+ * with their current guarantee state.
+ */
+export async function publishGuaranteeQuery(
+  pubsub: AnnouncePubSub,
+  appId: string,
+  ipnsName: string,
+): Promise<void> {
+  const topic = announceTopic(appId);
+  const data = new TextEncoder().encode(
+    JSON.stringify({
+      type: "guarantee-query",
+      ipnsName,
+    }),
+  );
+  await pubsub.publish(topic, data);
+}
+
+/**
+ * Parse a guarantee response from raw message data.
+ *
+ * @returns parsed GuaranteeResponse or null
+ */
+export function parseGuaranteeResponse(
+  data: Uint8Array,
+): GuaranteeResponse | null {
+  try {
+    const text = new TextDecoder().decode(data);
+    const obj = JSON.parse(text);
+    if (
+      obj?.type !== "guarantee-response" ||
+      typeof obj.ipnsName !== "string" ||
+      typeof obj.peerId !== "string" ||
+      typeof obj.cid !== "string"
+    ) {
+      return null;
+    }
+    return obj as GuaranteeResponse;
+  } catch {
+    return null;
+  }
+}
