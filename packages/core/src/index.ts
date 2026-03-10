@@ -1148,8 +1148,11 @@ function createDoc(
             meshPeers,
           };
         } catch {}
-      } catch {
-        // Helia not ready
+      } catch (err) {
+        log.warn(
+          "diagnostics error:",
+          (err as Error)?.message ?? err,
+        );
       }
 
       let maxPeerClockSum = 0;
