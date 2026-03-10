@@ -514,6 +514,26 @@ function SnapshotsDetail({
           </span>
         </div>
       )}
+      {info.guaranteeUntil != null && (
+        <div className="cs-detail-row">
+          <span className="cs-detail-key">
+            Pinned until
+          </span>
+          <span
+            className={
+              info.guaranteeUntil < Date.now()
+                ? "cs-detail-warn"
+                : "cs-detail-mono"
+            }
+          >
+            {info.guaranteeUntil < Date.now()
+              ? "Guarantee expired"
+              : formatRelativeTime(
+                  info.guaranteeUntil,
+                )}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
