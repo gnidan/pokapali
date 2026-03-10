@@ -448,6 +448,7 @@ interface Announcement {
   ipnsName: string;  // hex-encoded IPNS name
   cid: string;       // CID of the snapshot block
   blockData?: string; // base64-encoded block (inline)
+  fromPinner?: true;  // set by pinner re-announces
 }
 ```
 
@@ -625,12 +626,22 @@ stretch, fewer docs due per cycle. GossipSub's
 `seenCache` (2-minute TTL) provides a natural floor on
 re-announce frequency.
 
-**Reader activity as demand signal.** When any peer
-(reader or writer) re-announces a CID, the pinner updates
-`lastSeenAt` for that document *before* the dedup early
-return in `onAnnouncement`. This refreshes the document's
-priority and extends both guarantee windows without
-triggering a re-fetch.
+**Reader activity as demand signal.** When a non-pinner
+peer (reader or writer) re-announces a CID, the pinner
+updates `lastSeenAt` for that document *before* the dedup
+early return in `onAnnouncement`. This refreshes the
+document's priority and extends both guarantee windows
+without triggering a re-fetch.
+
+Pinner re-announces are *supply signals*, not demand
+signals — they indicate the pinner is doing its job, not
+that anyone is reading the doc. The `fromPinner` field on
+announcements lets pinners distinguish: when
+`fromPinner: true`, the receiving pinner skips the
+`lastSeenAt` refresh. Without this, multiple pinners would
+keep each other alive indefinitely (pinner A re-announces
+→ refreshes B's window → B re-announces → refreshes A's
+window → infinite loop, docs never expire).
 
 **State pruning.** Primary rule: prune when
 `lastSeenAt + 14 days < now`. Capacity backstop: if
@@ -638,6 +649,37 @@ tracking exceeds `maxActiveDocs * 10`, prune
 oldest-by-`lastSeenAt` first even if under 14 days.
 Pruning removes `knownNames`, `tips`, `nameToAppId`,
 `lastSeenAt`, and blocks from blockstore.
+
+### Multi-pinner redundancy
+
+Adding more pinners (with or without sharding) improves
+guarantees in three ways:
+
+1. **Redundancy.** Each pinner independently stores blocks
+   and re-announces. The client sees "Saved to N pinners."
+   If one pinner crashes, others still serve the doc.
+   P(doc lost) = product of independent failure
+   probabilities — with 3 pinners at 99% uptime each,
+   effective availability is 99.9999%.
+
+2. **Load distribution.** With pinner sharding
+   (`--shard N/M`), each pinner handles fewer docs,
+   keeping utilization low and loadFactor at 1.0. This
+   ensures full 7-day guarantees are maintained even at
+   high doc counts where a single pinner would be
+   overloaded and forced to reduce guarantees.
+
+3. **Independent clocks.** Each pinner's guarantee is
+   based on its own `lastSeenAt`. If pinner A misses an
+   announcement due to a network partition but pinner B
+   receives it, B's guarantee window is refreshed
+   independently. The client tracks per-pinner guarantees
+   and shows the best one.
+
+Individual guarantee duration is unchanged — each
+pinner's 7d/14d windows are based on its own constants
+and utilization, not the relay count. More pinners give
+more redundancy, not longer individual guarantees.
 
 ### What pinners can and cannot verify
 
