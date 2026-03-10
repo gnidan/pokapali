@@ -84,6 +84,13 @@ import type {
   NodeRegistry,
   Neighbor,
 } from "./node-registry.js";
+import {
+  createTopologySharing,
+} from "./topology-sharing.js";
+import type {
+  TopologySharing,
+  AwarenessTopology,
+} from "./topology-sharing.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
@@ -181,6 +188,30 @@ export interface TopologyEdge {
   targetRole?: string;
 }
 
+export interface TopologyNode {
+  id: string;
+  kind: "self" | "relay" | "pinner"
+    | "relay+pinner" | "browser";
+  label: string;
+  connected: boolean;
+  roles: string[];
+  /** Awareness client ID (for browser nodes). */
+  clientId?: number;
+  ackedCurrentCid?: boolean;
+  browserCount?: number;
+}
+
+export interface TopologyGraphEdge {
+  source: string;
+  target: string;
+  connected: boolean;
+}
+
+export interface TopologyGraph {
+  nodes: TopologyNode[];
+  edges: TopologyGraphEdge[];
+}
+
 export interface DocUrls {
   readonly admin: string | null;
   readonly write: string | null;
@@ -269,6 +300,10 @@ export interface Doc {
     cb: (state: SaveState) => void,
   ): void;
   diagnostics(): Diagnostics;
+  /** Merged topology graph from own connections,
+   *  peer-reported relays (awareness), and
+   *  relay-to-relay edges (node-registry). */
+  topologyGraph(): TopologyGraph;
   history(): Promise<
     Array<{
       cid: CID;
@@ -340,6 +375,17 @@ interface DocParams {
   pubsub?: PubSubLike;
   roomDiscovery?: RoomDiscovery;
   performInitialResolve?: boolean;
+}
+
+type NodeKind = TopologyNode["kind"];
+
+function nodeKind(roles: string[]): NodeKind {
+  const isPinner = roles.includes("pinner");
+  const isRelay = roles.includes("relay");
+  if (isPinner && isRelay) return "relay+pinner";
+  if (isPinner) return "pinner";
+  if (isRelay) return "relay";
+  return "browser";
 }
 
 function createDoc(
@@ -465,6 +511,7 @@ function createDoc(
 
   // Share relay info with WebRTC peers via awareness.
   let relaySharing: RelaySharing | null = null;
+  let topSharing: TopologySharing | null = null;
   let cleanupRelayConnect: (() => void) | null =
     null;
   if (params.roomDiscovery) {
@@ -472,6 +519,21 @@ function createDoc(
       awareness: awarenessRoom.awareness,
       roomDiscovery: params.roomDiscovery,
     });
+  }
+
+  // Publish relay topology via awareness for graph.
+  try {
+    const registry = getNodeRegistry();
+    if (registry) {
+      const helia = getHelia();
+      topSharing = createTopologySharing({
+        awareness: awarenessRoom.awareness,
+        registry,
+        libp2p: (helia as any).libp2p,
+      });
+    }
+  } catch {
+    // Helia not ready yet — skip topology sharing
   }
 
   // Snapshot watching: announce subscription, IPNS
@@ -578,6 +640,7 @@ function createDoc(
     destroyed = true;
     cleanupRelayConnect?.();
     relaySharing?.destroy();
+    topSharing?.destroy();
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();
     syncManager.destroy();
@@ -1143,6 +1206,103 @@ function createDoc(
       };
     },
 
+    topologyGraph(): TopologyGraph {
+      assertNotDestroyed();
+      const info = this.diagnostics();
+      const graphNodes: TopologyNode[] = [];
+      const edges: TopologyGraphEdge[] = [];
+      const seenNodeIds = new Set<string>();
+
+      // 1. Self node
+      graphNodes.push({
+        id: "_self",
+        kind: "self",
+        label: "You",
+        connected: true,
+        roles: [],
+      });
+
+      // 2. Infrastructure nodes from diagnostics
+      for (const n of info.nodes) {
+        seenNodeIds.add(n.peerId);
+        graphNodes.push({
+          id: n.peerId,
+          kind: nodeKind(n.roles),
+          label: `...${n.short}`,
+          connected: n.connected,
+          roles: n.roles,
+          ackedCurrentCid: n.ackedCurrentCid,
+          browserCount: n.browserCount,
+        });
+        edges.push({
+          source: "_self",
+          target: n.peerId,
+          connected: n.connected,
+        });
+      }
+
+      // 3. Relay-relay edges from node-registry
+      for (const te of info.topology) {
+        edges.push({
+          source: te.source,
+          target: te.target,
+          connected: true,
+        });
+      }
+
+      // 4. Peer browser nodes + their relay edges
+      //    from awareness topology state.
+      const states =
+        awarenessRoom.awareness.getStates();
+      const myClientId =
+        awarenessRoom.awareness.clientID;
+
+      for (const [clientId, state] of states) {
+        if (clientId === myClientId) continue;
+        const topo =
+          (state as any)?.topology as
+            AwarenessTopology | undefined;
+        if (!topo?.connectedRelays?.length) continue;
+
+        const peerId = `awareness:${clientId}`;
+        graphNodes.push({
+          id: peerId,
+          kind: "browser",
+          label:
+            (state as any)?.user?.name
+              ?? `Peer ${clientId}`,
+          connected: true,
+          roles: [],
+          clientId,
+        });
+
+        for (const relayPid of
+          topo.connectedRelays
+        ) {
+          // Ensure the relay node exists
+          if (!seenNodeIds.has(relayPid)) {
+            seenNodeIds.add(relayPid);
+            const relayRoles =
+              topo.relayRoles?.[relayPid] ?? [];
+            graphNodes.push({
+              id: relayPid,
+              kind: nodeKind(relayRoles),
+              label: `...${relayPid.slice(-8)}`,
+              connected: false,
+              roles: relayRoles,
+            });
+          }
+          edges.push({
+            source: peerId,
+            target: relayPid,
+            connected: true,
+          });
+        }
+      }
+
+      return { nodes: graphNodes, edges };
+    },
+
     async history() {
       assertNotDestroyed();
       return snapshotLC.history();
@@ -1497,3 +1657,6 @@ export type {
   Neighbor,
   NodeRegistry,
 } from "./node-registry.js";
+export type {
+  AwarenessTopology,
+} from "./topology-sharing.js";
