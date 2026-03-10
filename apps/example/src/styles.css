@@ -732,7 +732,8 @@ body {
 
 .cs-checking-pinners {
   font-size: 0.65rem;
-  color: #6b7280;
+  color: #2563eb;
+  opacity: 0.7;
 }
 
 .cs-expand {

@@ -636,7 +636,7 @@ export function ConnectionStatus({
                   " broadcasts\u2026"
                 }
               >
-                Checking for pinners\u2026
+                Checking for pinners…
               </span>
             ) : (
               <span
