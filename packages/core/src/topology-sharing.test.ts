@@ -37,15 +37,55 @@ function makeRegistry(
   };
 }
 
-function makeAwareness() {
+function makeAwareness(
+  clientID = 1,
+  peerIds: number[] = [],
+) {
   const fields: Record<string, unknown> = {};
+  const listeners = new Map<
+    string,
+    Set<(...args: any[]) => void>
+  >();
+  const states = new Map<number, any>();
+  states.set(clientID, {});
+  for (const id of peerIds) {
+    states.set(id, {});
+  }
   return {
+    clientID,
     setLocalStateField: vi.fn(
       (key: string, val: unknown) => {
         fields[key] = val;
       },
     ),
+    getStates: () => states,
+    on(
+      event: string,
+      fn: (...args: any[]) => void,
+    ) {
+      if (!listeners.has(event)) {
+        listeners.set(event, new Set());
+      }
+      listeners.get(event)!.add(fn);
+    },
+    off(
+      event: string,
+      fn: (...args: any[]) => void,
+    ) {
+      listeners.get(event)?.delete(fn);
+    },
     _fields: fields,
+    _states: states,
+    _listeners: listeners,
+    _dispatch(
+      event: string, ...args: any[]
+    ) {
+      for (const fn of
+        listeners.get(event) ?? []
+      ) {
+        fn(...args);
+      }
+    },
   };
 }
 
@@ -128,6 +168,7 @@ describe("createTopologySharing", () => {
           "relay-A": ["relay"],
           "pinner-C": ["relay", "pinner"],
         },
+        connectedPeers: [],
       },
     );
 
@@ -263,6 +304,94 @@ describe("createTopologySharing", () => {
         libp2p._handlers.get("peer:disconnect")
           ?.size ?? 0,
       ).toBe(0);
+      expect(
+        awareness._listeners.get("change")
+          ?.size ?? 0,
+      ).toBe(0);
+    },
+  );
+
+  it("publishes connected peer IDs from"
+    + " awareness", () => {
+    const registry = makeRegistry([
+      makeNode("relay-A", ["relay"], true),
+    ]);
+    const awareness = makeAwareness(
+      1, [2, 3],
+    );
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    ts.publishNow();
+    const topo = awareness._fields.topology as any;
+    expect(topo.connectedPeers).toEqual(
+      expect.arrayContaining([2, 3]),
+    );
+    expect(topo.connectedPeers).toHaveLength(2);
+
+    ts.destroy();
+  });
+
+  it("excludes self from connectedPeers", () => {
+    const registry = makeRegistry();
+    const awareness = makeAwareness(5, [5, 6]);
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    ts.publishNow();
+    const topo = awareness._fields.topology as any;
+    // clientID 5 is self, should not appear
+    expect(topo.connectedPeers).toEqual([6]);
+
+    ts.destroy();
+  });
+
+  it("schedules republish on awareness change",
+    () => {
+      const registry = makeRegistry([
+        makeNode("relay-A", ["relay"], true),
+      ]);
+      const awareness = makeAwareness(1, []);
+      const libp2p = makeLibp2p();
+
+      const ts = createTopologySharing({
+        awareness: awareness as any,
+        registry: registry as any,
+        libp2p,
+      });
+
+      // Initial publish
+      vi.advanceTimersByTime(2_000);
+      awareness.setLocalStateField.mockClear();
+
+      // Simulate a peer joining
+      awareness._dispatch(
+        "change",
+        { added: [2], updated: [], removed: [] },
+      );
+
+      // Not yet — debouncing
+      expect(
+        awareness.setLocalStateField,
+      ).not.toHaveBeenCalled();
+
+      // After debounce
+      vi.advanceTimersByTime(2_000);
+      expect(
+        awareness.setLocalStateField,
+      ).toHaveBeenCalledTimes(1);
+
+      ts.destroy();
     },
   );
 });

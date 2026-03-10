@@ -1,12 +1,13 @@
 /**
- * Publish this browser's relay connections via
- * awareness so other peers can build a full
- * network graph.
+ * Publish this browser's relay connections and
+ * peer awareness IDs via awareness so other peers
+ * can build a full network graph.
  *
  * Each browser publishes:
  *   awareness.topology = {
  *     connectedRelays: [peerId, ...],
- *     relayRoles: { peerId: ["relay", ...] }
+ *     relayRoles: { peerId: ["relay", ...] },
+ *     connectedPeers: [clientId, ...]
  *   }
  */
 
@@ -44,6 +45,9 @@ export interface TopologySharing {
 export interface AwarenessTopology {
   connectedRelays: string[];
   relayRoles: Record<string, string[]>;
+  /** Awareness client IDs of directly connected
+   *  browser peers (from awareness state). */
+  connectedPeers?: number[];
 }
 
 export function createTopologySharing(
@@ -68,14 +72,23 @@ export function createTopologySharing(
       relays.push(node.peerId);
       roles[node.peerId] = node.roles;
     }
+    // Collect awareness peers (other browsers
+    // reachable via WebRTC mesh).
+    const myId = awareness.clientID;
+    const peers: number[] = [];
+    for (const id of awareness.getStates().keys()) {
+      if (id !== myId) peers.push(id);
+    }
     const topo: AwarenessTopology = {
       connectedRelays: relays,
       relayRoles: roles,
+      connectedPeers: peers,
     };
     awareness.setLocalStateField("topology", topo);
     log.debug(
       "published topology:",
-      relays.length, "relays",
+      relays.length, "relays,",
+      peers.length, "peers",
     );
   }
 
@@ -89,6 +102,16 @@ export function createTopologySharing(
 
   const connectHandler = () => schedulePublish();
   const disconnectHandler = () => schedulePublish();
+  const awarenessHandler = (
+    { added, removed }: {
+      added: number[];
+      removed: number[];
+    },
+  ) => {
+    if (added.length > 0 || removed.length > 0) {
+      schedulePublish();
+    }
+  };
 
   libp2p.addEventListener(
     "peer:connect", connectHandler,
@@ -96,6 +119,7 @@ export function createTopologySharing(
   libp2p.addEventListener(
     "peer:disconnect", disconnectHandler,
   );
+  awareness.on("change", awarenessHandler);
 
   const periodicTimer = setInterval(
     publish, PERIODIC_MS,
@@ -127,6 +151,7 @@ export function createTopologySharing(
       libp2p.removeEventListener(
         "peer:disconnect", disconnectHandler,
       );
+      awareness.off("change", awarenessHandler);
     },
   };
 }

@@ -1262,8 +1262,9 @@ function createDoc(
         });
       }
 
-      // 4. Peer browser nodes + their relay edges
-      //    from awareness topology state.
+      // 4. Peer browser nodes, their relay edges,
+      //    and browser-to-browser edges from
+      //    awareness topology state.
       const states =
         awarenessRoom.awareness.getStates();
       const myClientId =
@@ -1274,7 +1275,6 @@ function createDoc(
         const topo =
           (state as any)?.topology as
             AwarenessTopology | undefined;
-        if (!topo?.connectedRelays?.length) continue;
 
         const peerId = `awareness:${clientId}`;
         graphNodes.push({
@@ -1288,27 +1288,56 @@ function createDoc(
           clientId,
         });
 
-        for (const relayPid of
-          topo.connectedRelays
-        ) {
-          // Ensure the relay node exists
-          if (!seenNodeIds.has(relayPid)) {
-            seenNodeIds.add(relayPid);
-            const relayRoles =
-              topo.relayRoles?.[relayPid] ?? [];
-            graphNodes.push({
-              id: relayPid,
-              kind: nodeKind(relayRoles),
-              label: `...${relayPid.slice(-8)}`,
-              connected: false,
-              roles: relayRoles,
+        // Edge from self to this browser peer
+        edges.push({
+          source: "_self",
+          target: peerId,
+          connected: true,
+        });
+
+        // Relay edges from this browser peer
+        if (topo?.connectedRelays) {
+          for (const relayPid of
+            topo.connectedRelays
+          ) {
+            // Ensure the relay node exists
+            if (!seenNodeIds.has(relayPid)) {
+              seenNodeIds.add(relayPid);
+              const relayRoles =
+                topo.relayRoles?.[relayPid]
+                  ?? [];
+              graphNodes.push({
+                id: relayPid,
+                kind: nodeKind(relayRoles),
+                label:
+                  `...${relayPid.slice(-8)}`,
+                connected: false,
+                roles: relayRoles,
+              });
+            }
+            edges.push({
+              source: peerId,
+              target: relayPid,
+              connected: true,
             });
           }
-          edges.push({
-            source: peerId,
-            target: relayPid,
-            connected: true,
-          });
+        }
+
+        // Browser-to-browser edges from
+        // reported connectedPeers
+        if (topo?.connectedPeers) {
+          for (const peerCid of
+            topo.connectedPeers
+          ) {
+            if (peerCid === myClientId) continue;
+            const targetId =
+              `awareness:${peerCid}`;
+            edges.push({
+              source: peerId,
+              target: targetId,
+              connected: true,
+            });
+          }
         }
       }
 
