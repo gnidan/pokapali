@@ -1,12 +1,25 @@
-import { useState, useEffect, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
+import {
+  forceSimulation,
+  forceLink,
+  forceManyBody,
+  forceCollide,
+  forceX,
+  forceY,
+} from "d3-force";
 import type {
-  NodeInfo,
-  Diagnostics,
-  TopologyEdge,
-} from "@pokapali/core";
+  Simulation,
+  SimulationNodeDatum,
+} from "d3-force";
+import type { Diagnostics } from "@pokapali/core";
 import { formatRelativeTime } from "./ConnectionStatus";
 
-// --- Graph types ---
+// ── Types ────────────────────────────────────────
 
 type NodeKind =
   | "self"
@@ -15,7 +28,7 @@ type NodeKind =
   | "relay+pinner"
   | "browser";
 
-export interface GraphNode {
+interface GNode {
   id: string;
   label: string;
   kind: NodeKind;
@@ -26,74 +39,98 @@ export interface GraphNode {
   browserCount?: number;
 }
 
-export interface GraphEdge {
-  from: string;
-  to: string;
+interface GEdge {
+  source: string;
+  target: string;
   connected: boolean;
 }
-
-export interface TopologyGraph {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
-// --- Determine node kind ---
-
-function nodeKind(roles: string[]): NodeKind {
-  const isPinner = roles.includes("pinner");
-  const isRelay = roles.includes("relay");
-  if (isPinner && isRelay) return "relay+pinner";
-  if (isPinner) return "pinner";
-  if (isRelay) return "relay";
-  return "browser";
-}
-
-// --- Build graph from diagnostics ---
 
 interface AwarenessPeer {
   name: string;
   color: string;
 }
 
-export function buildGraph(
-  info: Diagnostics,
-  awarenessPeers: AwarenessPeer[],
-): TopologyGraph {
-  const now = Date.now();
-  const graphNodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
+// d3 simulation node
+interface SimNode extends SimulationNodeDatum {
+  id: string;
+  kind: NodeKind;
+}
 
-  // Self node
-  graphNodes.push({
+// ── Constants ────────────────────────────────────
+
+const W = 400;
+const H = 300;
+const CX = W / 2;
+const CY = H / 2;
+
+const C = {
+  self: "#10b981",
+  selfGlow: "rgba(16,185,129,0.25)",
+  relay: "#3b82f6",
+  pinner: "#f59e0b",
+  "relay+pinner": "#8b5cf6",
+  browser: "#94a3b8",
+  browserFill: "rgba(148,163,184,0.15)",
+  edge: "#cbd5e1",
+  edgeDash: "#e2e8f0",
+  disconnected: "#e2e8f0",
+  disconnectedStroke: "#d1d5db",
+  guaranteeActive: "#22c55e",
+  guaranteeExpired: "#ef4444",
+  particle: "#fbbf24",
+  ack: "#22c55e",
+} as const;
+
+function nodeR(kind: NodeKind): number {
+  switch (kind) {
+    case "self": return 22;
+    case "browser": return 9;
+    default: return 16;
+  }
+}
+
+// ── Build graph from Diagnostics ─────────────────
+
+function nodeKind(roles: string[]): NodeKind {
+  const p = roles.includes("pinner");
+  const r = roles.includes("relay");
+  if (p && r) return "relay+pinner";
+  if (p) return "pinner";
+  if (r) return "relay";
+  return "browser";
+}
+
+function buildGraph(
+  info: Diagnostics,
+  peers: AwarenessPeer[],
+): { nodes: GNode[]; edges: GEdge[] } {
+  const now = Date.now();
+  const nodes: GNode[] = [{
     id: "_self",
     label: "You",
     kind: "self",
     connected: true,
     ackedCurrentCid: false,
-  });
+  }];
+  const edges: GEdge[] = [];
 
-  // Infrastructure nodes from diagnostics
   for (const n of info.nodes) {
     const kind = nodeKind(n.roles);
     let guaranteeLabel: string | undefined;
     let guaranteeActive: boolean | undefined;
-
-    // Show guarantee info on acked pinners
     if (
       n.ackedCurrentCid &&
       kind !== "relay" &&
       info.guaranteeUntil != null
     ) {
-      guaranteeActive =
-        info.guaranteeUntil > now;
+      guaranteeActive = info.guaranteeUntil > now;
       guaranteeLabel = guaranteeActive
         ? formatRelativeTime(info.guaranteeUntil)
         : "expired";
     }
-
-    graphNodes.push({
+    nodes.push({
       id: n.peerId,
-      label: `...${n.short}`,
+      label: `…${n.short}`,
       kind,
       connected: n.connected,
       ackedCurrentCid: n.ackedCurrentCid,
@@ -102,155 +139,285 @@ export function buildGraph(
       browserCount: n.browserCount,
     });
     edges.push({
-      from: "_self",
-      to: n.peerId,
+      source: "_self",
+      target: n.peerId,
       connected: n.connected,
     });
   }
 
-  // Topology edges from core (relay-to-relay etc)
   for (const te of info.topology) {
-    // Avoid duplicating self→node edges
-    const already = edges.some(
+    const dup = edges.some(
       (e) =>
-        (e.from === te.source &&
-          e.to === te.target) ||
-        (e.from === te.target &&
-          e.to === te.source),
+        (e.source === te.source &&
+          e.target === te.target) ||
+        (e.source === te.target &&
+          e.target === te.source),
     );
-    if (!already) {
+    if (!dup) {
       edges.push({
-        from: te.source,
-        to: te.target,
+        source: te.source,
+        target: te.target,
         connected: true,
       });
     }
   }
 
-  // WebRTC peers (other browsers)
-  if (awarenessPeers.length > 0) {
-    // Group as a single "peers" node with count
-    graphNodes.push({
+  if (peers.length > 0) {
+    nodes.push({
       id: "_peers",
-      label: awarenessPeers.length === 1
-        ? awarenessPeers[0].name || "Anonymous"
-        : `${awarenessPeers.length} peers`,
+      label:
+        peers.length === 1
+          ? peers[0].name || "Anonymous"
+          : `${peers.length} peers`,
       kind: "browser",
       connected: true,
       ackedCurrentCid: false,
-      browserCount: awarenessPeers.length,
+      browserCount: peers.length,
     });
     edges.push({
-      from: "_self",
-      to: "_peers",
+      source: "_self",
+      target: "_peers",
       connected: true,
     });
   }
 
-  return { nodes: graphNodes, edges };
+  return { nodes, edges };
 }
 
-// --- Layout ---
-
-interface Positioned {
-  node: GraphNode;
-  x: number;
-  y: number;
-}
-
-const SIZE = 300;
-const CX = SIZE / 2;
-const CY = SIZE / 2;
-const INFRA_R = 105;
-const PEER_R = 60;
-const NODE_R = 16;
-const SELF_R = 20;
-
-function layout(graph: TopologyGraph): Positioned[] {
-  const result: Positioned[] = [];
-  const infra = graph.nodes.filter(
-    (n) =>
-      n.kind !== "self" && n.kind !== "browser",
-  );
-  const browsers = graph.nodes.filter(
-    (n) => n.kind === "browser",
-  );
-
-  // Self in center
-  for (const n of graph.nodes) {
-    if (n.kind === "self") {
-      result.push({ node: n, x: CX, y: CY });
-    }
-  }
-
-  // Infrastructure in outer ring
-  infra.forEach((n, i) => {
-    const angle =
-      -Math.PI / 2 +
-      (2 * Math.PI * i) /
-        Math.max(infra.length, 1);
-    result.push({
-      node: n,
-      x: CX + INFRA_R * Math.cos(angle),
-      y: CY + INFRA_R * Math.sin(angle),
-    });
-  });
-
-  // Browser peers in inner ring
-  browsers.forEach((n, i) => {
-    const offset = infra.length > 0
-      ? Math.PI / infra.length
-      : 0;
-    const angle =
-      -Math.PI / 2 +
-      offset +
-      (2 * Math.PI * i) /
-        Math.max(browsers.length, 1);
-    result.push({
-      node: n,
-      x: CX + PEER_R * Math.cos(angle),
-      y: CY + PEER_R * Math.sin(angle),
-    });
-  });
-
-  return result;
-}
-
-// --- Colors ---
-
-const COLORS = {
-  relay: "#2563eb",
-  pinner: "#a855f7",
-  "relay+pinner": "#7c3aed",
-  browser: "#059669",
-  self: "#059669",
-  disconnected: "#d1d5db",
-  guaranteeActive: "#22c55e",
-  guaranteeExpired: "#ef4444",
-};
-
-function fillColor(n: GraphNode): string {
-  if (!n.connected && n.kind !== "self") {
-    return "#f3f4f6";
-  }
-  return COLORS[n.kind] || "#6b7280";
-}
-
-function strokeColor(
-  n: GraphNode,
-  pulse: boolean,
+// Fingerprint for detecting structural changes
+function graphFp(
+  nodes: GNode[],
+  edges: GEdge[],
 ): string {
-  if (pulse && n.connected) return "#fbbf24";
-  if (!n.connected && n.kind !== "self") {
-    return COLORS.disconnected;
-  }
-  return COLORS[n.kind] || "#6b7280";
+  return (
+    nodes
+      .map(
+        (n) =>
+          `${n.id}:${n.kind}:${n.connected}` +
+          `:${n.ackedCurrentCid}`,
+      )
+      .sort()
+      .join("|") +
+    "||" +
+    edges
+      .map(
+        (e) =>
+          `${e.source}-${e.target}:${e.connected}`,
+      )
+      .sort()
+      .join("|")
+  );
 }
 
-// --- Shape paths ---
+// ── Force layout hook ────────────────────────────
 
-// Hexagon path centered at (0,0) with radius r
-function hexPath(r: number): string {
+function useForceLayout(
+  nodes: GNode[],
+  edges: GEdge[],
+): Map<string, { x: number; y: number }> {
+  type Sim = Simulation<SimNode, undefined>;
+  const simRef = useRef<Sim | null>(null);
+  const prevRef = useRef<SimNode[]>([]);
+  const [posMap, setPosMap] = useState<
+    Map<string, { x: number; y: number }>
+  >(() => new Map());
+
+  useEffect(() => {
+    const prev = new Map(
+      prevRef.current.map((n) => [n.id, n]),
+    );
+
+    const simNodes: SimNode[] = nodes.map((n) => {
+      const p = prev.get(n.id);
+      return {
+        id: n.id,
+        kind: n.kind,
+        x: p?.x ?? CX + (Math.random() - 0.5) * 80,
+        y: p?.y ?? CY + (Math.random() - 0.5) * 60,
+        vx: p?.vx ?? 0,
+        vy: p?.vy ?? 0,
+        fx: n.kind === "self" ? CX : undefined,
+        fy: n.kind === "self" ? CY : undefined,
+      };
+    });
+    prevRef.current = simNodes;
+
+    const byId = new Map(
+      simNodes.map((n) => [n.id, n]),
+    );
+    const links = edges
+      .filter(
+        (e) =>
+          byId.has(e.source) && byId.has(e.target),
+      )
+      .map((e) => ({
+        source: e.source,
+        target: e.target,
+      }));
+
+    simRef.current?.stop();
+
+    const sim = forceSimulation<SimNode>(simNodes)
+      .force(
+        "link",
+        forceLink(links)
+          .id((d: any) => d.id)
+          .distance((l: any) => {
+            const s = l.source as SimNode;
+            const t = l.target as SimNode;
+            if (
+              s.kind === "self" ||
+              t.kind === "self"
+            ) {
+              const o =
+                s.kind === "self" ? t : s;
+              return o.kind === "browser" ? 50 : 100;
+            }
+            return 70;
+          })
+          .strength(0.7),
+      )
+      .force(
+        "charge",
+        forceManyBody<SimNode>().strength((d) => {
+          switch (d.kind) {
+            case "self": return -350;
+            case "browser": return -50;
+            default: return -220;
+          }
+        }),
+      )
+      .force(
+        "collide",
+        forceCollide<SimNode>()
+          .radius((d) => nodeR(d.kind) + 12)
+          .strength(0.8),
+      )
+      .force("x", forceX(CX).strength(0.04))
+      .force("y", forceY(CY).strength(0.04))
+      .alpha(0.6)
+      .alphaDecay(0.025)
+      .on("tick", () => {
+        const m = new Map<
+          string,
+          { x: number; y: number }
+        >();
+        for (const n of simNodes) {
+          m.set(n.id, {
+            x: Math.max(
+              30, Math.min(W - 30, n.x!),
+            ),
+            y: Math.max(
+              30, Math.min(H - 30, n.y!),
+            ),
+          });
+        }
+        setPosMap(m);
+      });
+
+    simRef.current = sim;
+    return () => { sim.stop(); };
+  }, [nodes, edges]);
+
+  return posMap;
+}
+
+// ── Particle animation (imperative SVG) ──────────
+
+function useParticles(
+  groupRef: React.RefObject<SVGGElement | null>,
+  pulseKey: number,
+  edges: GEdge[],
+  posMap: Map<string, { x: number; y: number }>,
+) {
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    const g = groupRef.current;
+    if (!g || pulseKey === 0 || posMap.size === 0) {
+      return;
+    }
+
+    interface P {
+      el: SVGCircleElement;
+      x1: number; y1: number;
+      x2: number; y2: number;
+      born: number;
+      dur: number;
+    }
+    const particles: P[] = [];
+    const ns =
+      "http://www.w3.org/2000/svg";
+
+    for (const e of edges) {
+      if (!e.connected) continue;
+      const s = posMap.get(e.source);
+      const t = posMap.get(e.target);
+      if (!s || !t) continue;
+      const count =
+        2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < count; i++) {
+        const el = document.createElementNS(
+          ns, "circle",
+        );
+        el.setAttribute("r", "2.5");
+        el.setAttribute("fill", C.particle);
+        el.setAttribute("opacity", "0");
+        g.appendChild(el);
+        particles.push({
+          el,
+          x1: s.x, y1: s.y,
+          x2: t.x, y2: t.y,
+          born: performance.now() + i * 120,
+          dur: 700 + Math.random() * 500,
+        });
+      }
+    }
+
+    const tick = (now: number) => {
+      let alive = 0;
+      for (const p of particles) {
+        if (now < p.born) { alive++; continue; }
+        const t = (now - p.born) / p.dur;
+        if (t >= 1) {
+          p.el.remove();
+          continue;
+        }
+        alive++;
+        const ease = 1 - (1 - t) ** 2;
+        p.el.setAttribute(
+          "cx", String(
+            p.x1 + (p.x2 - p.x1) * ease,
+          ),
+        );
+        p.el.setAttribute(
+          "cy", String(
+            p.y1 + (p.y2 - p.y1) * ease,
+          ),
+        );
+        p.el.setAttribute(
+          "opacity",
+          String(t < 0.7 ? 0.85 : (1 - t) / 0.3),
+        );
+      }
+      if (alive > 0) {
+        rafRef.current =
+          requestAnimationFrame(tick);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      for (const p of particles) p.el.remove();
+    };
+  }, [pulseKey, groupRef]);
+}
+
+// ── SVG shapes ───────────────────────────────────
+
+function hexPoints(r: number): string {
   const pts = [];
   for (let i = 0; i < 6; i++) {
     const a = (Math.PI / 3) * i - Math.PI / 2;
@@ -261,384 +428,381 @@ function hexPath(r: number): string {
   return pts.join(" ");
 }
 
-// --- SVG shapes ---
-
-function RelayShape({
-  x, y, fill, stroke, opacity, sw,
+function NodeShape({
+  node,
+  x,
+  y,
+  onHover,
 }: {
-  x: number; y: number;
-  fill: string; stroke: string;
-  opacity: number; sw: number;
+  node: GNode;
+  x: number;
+  y: number;
+  onHover: (
+    n: GNode | null,
+    e?: React.MouseEvent,
+  ) => void;
 }) {
-  const w = NODE_R * 2;
-  const h = NODE_R * 1.4;
-  return (
-    <rect
-      x={x - w / 2} y={y - h / 2}
-      width={w} height={h}
-      rx={4} ry={4}
-      fill={fill} stroke={stroke}
-      strokeWidth={sw} opacity={opacity}
-    />
+  const r = nodeR(node.kind);
+  const off = !node.connected &&
+    node.kind !== "self";
+  const op = off ? 0.4 : 1;
+
+  const handleEnter = useCallback(
+    (e: React.MouseEvent) => onHover(node, e),
+    [node, onHover],
   );
-}
-
-function PinnerShape({
-  x, y, fill, stroke, opacity, sw,
-}: {
-  x: number; y: number;
-  fill: string; stroke: string;
-  opacity: number; sw: number;
-}) {
-  return (
-    <polygon
-      points={hexPath(NODE_R + 2)}
-      transform={`translate(${x},${y})`}
-      fill={fill} stroke={stroke}
-      strokeWidth={sw} opacity={opacity}
-      strokeLinejoin="round"
-    />
+  const handleLeave = useCallback(
+    () => onHover(null),
+    [onHover],
   );
-}
 
-function BrowserShape({
-  x, y, fill, stroke, opacity, sw,
-}: {
-  x: number; y: number;
-  fill: string; stroke: string;
-  opacity: number; sw: number;
-}) {
-  return (
-    <circle
-      cx={x} cy={y} r={12}
-      fill={fill} stroke={stroke}
-      strokeWidth={sw} opacity={opacity}
-    />
-  );
-}
-
-// --- Node rendering ---
-
-function NodeShape({ pos, pulse }: {
-  pos: Positioned;
-  pulse: boolean;
-}) {
-  const n = pos.node;
-  const fill = fillColor(n);
-  const stroke = strokeColor(n, pulse);
-  const op = n.connected || n.kind === "self"
-    ? 1 : 0.5;
-
-  // Build title text
-  const titleParts = [n.label];
-  if (n.kind !== "self" && n.kind !== "browser") {
-    titleParts.push(`(${n.kind})`);
+  // Build tooltip
+  const tip = [node.label];
+  if (
+    node.kind !== "self" &&
+    node.kind !== "browser"
+  ) {
+    tip.push(`(${node.kind})`);
   }
-  if (n.ackedCurrentCid) titleParts.push("— acked");
-  if (n.guaranteeLabel) {
-    titleParts.push(`— pinned ${n.guaranteeLabel}`);
+  if (node.ackedCurrentCid) tip.push("— acked");
+  if (node.guaranteeLabel) {
+    tip.push(
+      node.guaranteeActive
+        ? `— pinned ${node.guaranteeLabel}`
+        : "— guarantee expired",
+    );
   }
-  if (!n.connected && n.kind !== "self") {
-    titleParts.push("— disconnected");
-  }
+  if (off) tip.push("— disconnected");
 
-  // Choose shape
   let shape: React.ReactNode;
-  if (n.kind === "self") {
-    shape = (
-      <circle
-        cx={pos.x} cy={pos.y} r={SELF_R}
-        fill={fill} stroke={stroke}
-        strokeWidth={3} opacity={op}
-      />
-    );
-  } else if (n.kind === "relay") {
-    shape = (
-      <RelayShape
-        x={pos.x} y={pos.y}
-        fill={fill} stroke={stroke}
-        opacity={op} sw={2}
-      />
-    );
-  } else if (n.kind === "pinner") {
-    shape = (
-      <PinnerShape
-        x={pos.x} y={pos.y}
-        fill={fill} stroke={stroke}
-        opacity={op} sw={2}
-      />
-    );
-  } else if (n.kind === "relay+pinner") {
-    // Composite: relay rounded-rect outline + pinner
-    // hexagon fill — visually conveys both roles
+
+  if (node.kind === "self") {
     shape = (
       <>
-        <RelayShape
-          x={pos.x} y={pos.y}
-          fill="none" stroke={COLORS.relay}
-          opacity={op} sw={2}
+        {/* Glow */}
+        <circle
+          cx={0} cy={0} r={r + 8}
+          fill={C.selfGlow}
         />
-        <PinnerShape
-          x={pos.x} y={pos.y}
-          fill={fill} stroke={stroke}
-          opacity={op} sw={1.5}
+        <circle
+          cx={0} cy={0} r={r}
+          fill={C.self}
+          stroke="#fff"
+          strokeWidth={2.5}
+        />
+      </>
+    );
+  } else if (node.kind === "relay") {
+    const hw = r * 1.2;
+    const hh = r * 0.85;
+    shape = (
+      <rect
+        x={-hw} y={-hh}
+        width={hw * 2} height={hh * 2}
+        rx={4}
+        fill={off ? C.disconnected : C.relay}
+        stroke={
+          off ? C.disconnectedStroke : "#2563eb"
+        }
+        strokeWidth={off ? 1 : 2}
+        opacity={op}
+      />
+    );
+  } else if (node.kind === "pinner") {
+    shape = (
+      <polygon
+        points={hexPoints(r + 2)}
+        fill={off ? C.disconnected : C.pinner}
+        stroke={
+          off ? C.disconnectedStroke : "#d97706"
+        }
+        strokeWidth={off ? 1 : 2}
+        strokeLinejoin="round"
+        opacity={op}
+      />
+    );
+  } else if (node.kind === "relay+pinner") {
+    // Composite: hex inside rounded rect
+    const hw = r * 1.3;
+    const hh = r * 0.95;
+    shape = (
+      <>
+        <rect
+          x={-hw} y={-hh}
+          width={hw * 2} height={hh * 2}
+          rx={4}
+          fill="none"
+          stroke={off ? C.disconnectedStroke : C.relay}
+          strokeWidth={1.5}
+          opacity={op}
+        />
+        <polygon
+          points={hexPoints(r)}
+          fill={
+            off
+              ? C.disconnected
+              : C["relay+pinner"]
+          }
+          stroke={
+            off ? C.disconnectedStroke : "#7c3aed"
+          }
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+          opacity={op}
         />
       </>
     );
   } else {
-    // Browser peer
+    // Browser peer — small and ephemeral
     shape = (
-      <BrowserShape
-        x={pos.x} y={pos.y}
-        fill={fill} stroke={stroke}
-        opacity={op} sw={1.5}
+      <circle
+        cx={0} cy={0} r={r}
+        fill={C.browserFill}
+        stroke={C.browser}
+        strokeWidth={1}
+        strokeDasharray={off ? "2 2" : "none"}
+        opacity={off ? 0.3 : 0.7}
       />
     );
   }
 
-  // Label: icon letter for infra, name for others
-  let labelText = "";
-  if (n.kind === "self") {
-    labelText = "You";
-  } else if (n.kind === "browser") {
-    labelText = n.browserCount && n.browserCount > 1
-      ? String(n.browserCount)
-      : (n.label.charAt(0) || "?").toUpperCase();
-  } else if (n.kind === "relay") {
-    labelText = "R";
-  } else if (n.kind === "pinner") {
-    labelText = "P";
+  // Inner label
+  let label = "";
+  if (node.kind === "self") {
+    label = "You";
+  } else if (node.kind === "browser") {
+    label =
+      node.browserCount && node.browserCount > 1
+        ? String(node.browserCount)
+        : "";
+  } else if (node.kind === "relay") {
+    label = "R";
+  } else if (node.kind === "pinner") {
+    label = "P";
   } else {
-    labelText = "RP";
+    label = "RP";
   }
 
   return (
-    <g className="topo-node">
-      <title>{titleParts.join(" ")}</title>
+    <g
+      transform={`translate(${x},${y})`}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      style={{ cursor: "default" }}
+    >
+      <title>{tip.join(" ")}</title>
 
-      {/* Guarantee ring on pinners */}
-      {n.guaranteeLabel && (
+      {/* Guarantee ring */}
+      {node.guaranteeLabel && (
         <circle
-          cx={pos.x} cy={pos.y}
-          r={NODE_R + 5}
+          cx={0} cy={0}
+          r={r + 6}
           fill="none"
           stroke={
-            n.guaranteeActive
-              ? COLORS.guaranteeActive
-              : COLORS.guaranteeExpired
+            node.guaranteeActive
+              ? C.guaranteeActive
+              : C.guaranteeExpired
           }
-          strokeWidth="2"
+          strokeWidth={node.guaranteeActive ? 2.5 : 1.5}
           strokeDasharray={
-            n.guaranteeActive ? "none" : "3 2"
+            node.guaranteeActive ? "none" : "3 2"
           }
-          opacity={0.7}
-        />
-      )}
-
-      {/* Pulse ring */}
-      {pulse && n.connected &&
-        n.kind !== "self" && (
-        <circle
-          cx={pos.x} cy={pos.y}
-          r={(n.kind === "browser" ? 12 : NODE_R) + 4}
-          fill="none"
-          stroke="#fbbf24"
-          strokeWidth="2"
-          opacity="0.5"
-          className="topo-pulse-ring"
+          className={
+            node.guaranteeActive
+              ? "topo-guarantee-pulse"
+              : "topo-guarantee-fade"
+          }
         />
       )}
 
       {shape}
 
-      {/* Label text */}
-      <text
-        x={pos.x} y={pos.y + 1}
-        textAnchor="middle"
-        dominantBaseline="central"
-        className={
-          n.kind === "self"
-            ? "topo-label-self"
-            : n.kind === "browser"
-              ? "topo-label-peer"
-              : "topo-label"
-        }
-      >
-        {labelText}
-      </text>
-
-      {/* Ack checkmark on pinners */}
-      {n.ackedCurrentCid && (
+      {/* Label */}
+      {label && (
         <text
-          x={pos.x + NODE_R - 1}
-          y={pos.y - NODE_R + 4}
-          className="topo-ack"
-        >
-          ✓
-        </text>
-      )}
-
-      {/* Role label below shape */}
-      {n.kind !== "self" &&
-        n.kind !== "browser" && (
-        <text
-          x={pos.x}
-          y={pos.y + NODE_R + 12}
+          x={0} y={1}
           textAnchor="middle"
-          className="topo-role"
-          fill={COLORS[n.kind] || "#6b7280"}
-        >
-          {n.kind === "relay+pinner"
-            ? "relay+pinner"
-            : n.kind}
-        </text>
-      )}
-
-      {/* Guarantee time below role */}
-      {n.guaranteeLabel && (
-        <text
-          x={pos.x}
-          y={pos.y + NODE_R + 21}
-          textAnchor="middle"
-          className="topo-guarantee"
-          fill={
-            n.guaranteeActive
-              ? COLORS.guaranteeActive
-              : COLORS.guaranteeExpired
+          dominantBaseline="central"
+          className={
+            node.kind === "self"
+              ? "topo-label-self"
+              : node.kind === "browser"
+                ? "topo-label-peer"
+                : "topo-label-infra"
           }
         >
-          {n.guaranteeActive
-            ? `pinned ${n.guaranteeLabel}`
-            : "expired"}
+          {label}
         </text>
       )}
 
-      {/* Peer ID below */}
-      {n.kind !== "self" && (
-        <text
-          x={pos.x}
-          y={
-            pos.y +
-            (n.kind === "browser" ? 12 : NODE_R) +
-            (n.guaranteeLabel ? 30 : 22)
-          }
-          textAnchor="middle"
-          className="topo-peer-id"
-        >
-          {n.kind === "browser"
-            ? n.label
-            : n.label}
-        </text>
-      )}
-
-      {/* Browser count badge on relay nodes */}
-      {n.kind !== "self" &&
-        n.kind !== "browser" &&
-        n.browserCount != null &&
-        n.browserCount > 0 && (
-        <g>
+      {/* Ack badge */}
+      {node.ackedCurrentCid && (
+        <g transform={`translate(${r - 2},${-r + 2})`}>
           <circle
-            cx={pos.x + NODE_R}
-            cy={pos.y - NODE_R}
-            r={7}
-            fill="#059669"
+            r={5}
+            fill={C.ack}
             stroke="#fff"
-            strokeWidth="1.5"
+            strokeWidth={1}
           />
           <text
-            x={pos.x + NODE_R}
-            y={pos.y - NODE_R + 1}
+            x={0} y={0.5}
+            textAnchor="middle"
+            dominantBaseline="central"
+            className="topo-ack-text"
+          >
+            ✓
+          </text>
+        </g>
+      )}
+
+      {/* Browser count badge on infra nodes */}
+      {node.kind !== "self" &&
+        node.kind !== "browser" &&
+        node.browserCount != null &&
+        node.browserCount > 0 && (
+        <g transform={`translate(${r + 1},${r - 2})`}>
+          <circle
+            r={6}
+            fill="#059669"
+            stroke="#fff"
+            strokeWidth={1}
+          />
+          <text
+            x={0} y={0.5}
             textAnchor="middle"
             dominantBaseline="central"
             className="topo-badge-text"
           >
-            {n.browserCount}
+            {node.browserCount}
           </text>
         </g>
+      )}
+
+      {/* Peer ID below */}
+      {node.kind !== "self" && (
+        <text
+          x={0}
+          y={r + (node.kind === "browser" ? 5 : 12)}
+          textAnchor="middle"
+          className="topo-peer-id"
+        >
+          {node.label}
+        </text>
+      )}
+
+      {/* Guarantee time below peer ID */}
+      {node.guaranteeLabel && (
+        <text
+          x={0}
+          y={r + 21}
+          textAnchor="middle"
+          className={
+            node.guaranteeActive
+              ? "topo-guarantee-label"
+              : "topo-guarantee-label expired"
+          }
+        >
+          {node.guaranteeActive
+            ? `pinned ${node.guaranteeLabel}`
+            : "expired"}
+        </text>
       )}
     </g>
   );
 }
 
+// ── Edge rendering ───────────────────────────────
+
 function EdgeLine({
-  x1, y1, x2, y2, connected, pulse,
+  x1, y1, x2, y2, connected,
 }: {
   x1: number; y1: number;
   x2: number; y2: number;
   connected: boolean;
-  pulse: boolean;
 }) {
   return (
     <line
       x1={x1} y1={y1} x2={x2} y2={y2}
-      stroke={
-        pulse && connected
-          ? "#fbbf24"
-          : connected
-            ? "#94a3b8"
-            : "#e5e7eb"
-      }
-      strokeWidth={connected ? 1.5 : 1}
+      stroke={connected ? C.edge : C.edgeDash}
+      strokeWidth={connected ? 1.2 : 0.8}
       strokeDasharray={connected ? "none" : "4 3"}
-      strokeOpacity={connected ? 0.5 : 0.3}
-      className={
-        pulse && connected
-          ? "topo-edge-pulse"
-          : ""
-      }
+      strokeOpacity={connected ? 0.5 : 0.25}
     />
   );
 }
 
-// --- Legend ---
+// ── Tooltip ──────────────────────────────────────
 
-function Legend() {
+function Tooltip({
+  node,
+  svgRect,
+  mouseX,
+  mouseY,
+}: {
+  node: GNode;
+  svgRect: DOMRect;
+  mouseX: number;
+  mouseY: number;
+}) {
+  const left = mouseX - svgRect.left + 12;
+  const top = mouseY - svgRect.top - 10;
+
   return (
-    <g className="topo-legend" transform="translate(4,4)">
-      {/* Relay */}
-      <rect
-        x={0} y={0} width={10} height={7}
-        rx={2} fill={COLORS.relay}
-      />
-      <text x={14} y={7} className="topo-legend-text">
-        Relay
-      </text>
-      {/* Pinner */}
-      <polygon
-        points="38,0 43,3.5 38,7 33,3.5"
-        fill={COLORS.pinner}
-      />
-      <text x={47} y={7} className="topo-legend-text">
-        Pinner
-      </text>
-      {/* Dual relay+pinner */}
-      <g transform="translate(80,0)">
-        <rect
-          x={-1} y={-1} width={12} height={9}
-          rx={2} fill="none"
-          stroke={COLORS.relay} strokeWidth={1}
-        />
-        <polygon
-          points="5,0 10,3.5 5,7 0,3.5"
-          fill={COLORS["relay+pinner"]}
-        />
-      </g>
-      <text x={95} y={7} className="topo-legend-text">
-        Both
-      </text>
-      {/* Browser */}
-      <circle
-        cx={116} cy={3.5} r={3.5}
-        fill={COLORS.browser}
-      />
-      <text x={122} y={7} className="topo-legend-text">
-        Peer
-      </text>
-    </g>
+    <div
+      className="topo-tooltip"
+      style={{ left, top }}
+    >
+      <div className="topo-tooltip-kind">
+        {node.kind === "self"
+          ? "You (this browser)"
+          : node.kind === "browser"
+            ? "Browser peer"
+            : node.kind}
+      </div>
+      {node.kind !== "self" && (
+        <div className="topo-tooltip-id">
+          {node.label}
+        </div>
+      )}
+      {node.kind !== "self" &&
+        node.kind !== "browser" && (
+        <div className="topo-tooltip-status">
+          {node.connected
+            ? "Connected"
+            : "Disconnected"}
+        </div>
+      )}
+      {node.browserCount != null &&
+        node.browserCount > 0 && (
+        <div className="topo-tooltip-detail">
+          {node.browserCount} browser
+          {node.browserCount > 1 ? "s" : ""}{" "}
+          connected
+        </div>
+      )}
+      {node.ackedCurrentCid && (
+        <div className="topo-tooltip-ack">
+          Acked current snapshot
+        </div>
+      )}
+      {node.guaranteeLabel && (
+        <div
+          className={
+            "topo-tooltip-guarantee" +
+            (node.guaranteeActive
+              ? " active" : " expired")
+          }
+        >
+          {node.guaranteeActive
+            ? `Pinned for ${node.guaranteeLabel}`
+            : "Guarantee expired"}
+        </div>
+      )}
+    </div>
   );
 }
 
-// --- Main component ---
+// ── Main component ───────────────────────────────
 
 export function TopologyMap({
   info,
@@ -649,33 +813,35 @@ export function TopologyMap({
   awarenessPeers: AwarenessPeer[];
   pulseKey: number;
 }) {
-  // Debounce graph updates to avoid flicker
+  // Debounce graph updates; immediate on structure
+  // change, 8s delay otherwise
   const [graph, setGraph] = useState(() =>
     buildGraph(info, awarenessPeers),
   );
+  const prevFpRef = useRef("");
   const debounceRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
-  const prevCountRef = useRef(info.nodes.length);
 
   useEffect(() => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
+    const g = buildGraph(info, awarenessPeers);
+    const fp = graphFp(g.nodes, g.edges);
 
-    // Immediate update if node count changes
-    const countChanged =
-      info.nodes.length !== prevCountRef.current;
-    prevCountRef.current = info.nodes.length;
-
-    if (countChanged) {
-      setGraph(buildGraph(info, awarenessPeers));
+    if (fp !== prevFpRef.current) {
+      // Structural change — update immediately
+      prevFpRef.current = fp;
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+      setGraph(g);
     } else {
+      // Data-only change — debounce
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
       debounceRef.current = setTimeout(() => {
-        setGraph(
-          buildGraph(info, awarenessPeers),
-        );
-      }, 10_000);
+        setGraph(g);
+      }, 8_000);
     }
 
     return () => {
@@ -685,90 +851,114 @@ export function TopologyMap({
     };
   }, [info, awarenessPeers]);
 
-  // Pulse animation on snapshot/ack
-  const [pulse, setPulse] = useState(false);
-  const pulseTimer = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const posMap = useForceLayout(
+    graph.nodes,
+    graph.edges,
+  );
 
-  useEffect(() => {
-    if (pulseKey === 0) return;
-    setPulse(true);
-    if (pulseTimer.current) {
-      clearTimeout(pulseTimer.current);
-    }
-    pulseTimer.current = setTimeout(
-      () => setPulse(false),
-      1_500,
-    );
-    return () => {
-      if (pulseTimer.current) {
-        clearTimeout(pulseTimer.current);
+  // Particle animation
+  const particleRef = useRef<SVGGElement | null>(
+    null,
+  );
+  useParticles(
+    particleRef,
+    pulseKey,
+    graph.edges,
+    posMap,
+  );
+
+  // Tooltip state
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hovered, setHovered] = useState<{
+    node: GNode;
+    mx: number;
+    my: number;
+  } | null>(null);
+
+  const onHover = useCallback(
+    (n: GNode | null, e?: React.MouseEvent) => {
+      if (n && e) {
+        setHovered({
+          node: n,
+          mx: e.clientX,
+          my: e.clientY,
+        });
+      } else {
+        setHovered(null);
+      }
+    },
+    [],
+  );
+
+  // Render order: edges, particles, nodes
+  // Nodes sorted: browsers first, then infra, self
+  // last (on top)
+  const sorted = graph.nodes.slice().sort((a, b) => {
+    const order = (k: NodeKind) => {
+      switch (k) {
+        case "browser": return 0;
+        case "relay":
+        case "pinner":
+        case "relay+pinner": return 1;
+        case "self": return 2;
       }
     };
-  }, [pulseKey]);
-
-  const positions = layout(graph);
-  const selfPos = positions.find(
-    (p) => p.node.kind === "self",
-  )!;
+    return order(a.kind) - order(b.kind);
+  });
 
   return (
     <div className="topo-wrap">
       <svg
-        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
         className="topo-svg"
         aria-label="Network topology"
       >
-        <Legend />
-
-        {/* Edges first (behind nodes) */}
+        {/* Edges */}
         {graph.edges.map((e) => {
-          const from = positions.find(
-            (p) => p.node.id === e.from,
-          );
-          const to = positions.find(
-            (p) => p.node.id === e.to,
-          );
-          if (!from || !to) return null;
+          const s = posMap.get(e.source);
+          const t = posMap.get(e.target);
+          if (!s || !t) return null;
           return (
             <EdgeLine
-              key={`${e.from}-${e.to}`}
-              x1={from.x} y1={from.y}
-              x2={to.x} y2={to.y}
+              key={`${e.source}-${e.target}`}
+              x1={s.x} y1={s.y}
+              x2={t.x} y2={t.y}
               connected={e.connected}
-              pulse={pulse}
             />
           );
         })}
 
-        {/* Nodes: browsers, then infra, then self */}
-        {positions
-          .filter(
-            (p) => p.node.kind === "browser",
-          )
-          .map((p) => (
+        {/* Particle layer */}
+        <g ref={particleRef} />
+
+        {/* Nodes */}
+        {sorted.map((n) => {
+          const p = posMap.get(n.id);
+          if (!p) return null;
+          return (
             <NodeShape
-              key={p.node.id}
-              pos={p}
-              pulse={pulse}
+              key={n.id}
+              node={n}
+              x={p.x}
+              y={p.y}
+              onHover={onHover}
             />
-          ))}
-        {positions
-          .filter(
-            (p) =>
-              p.node.kind !== "self" &&
-              p.node.kind !== "browser",
-          )
-          .map((p) => (
-            <NodeShape
-              key={p.node.id}
-              pos={p}
-              pulse={pulse}
-            />
-          ))}
-        <NodeShape pos={selfPos} pulse={false} />
+          );
+        })}
       </svg>
+
+      {/* HTML tooltip overlay */}
+      {hovered && svgRef.current && (
+        <Tooltip
+          node={hovered.node}
+          svgRect={
+            svgRef.current.getBoundingClientRect()
+          }
+          mouseX={hovered.mx}
+          mouseY={hovered.my}
+        />
+      )}
     </div>
   );
 }
