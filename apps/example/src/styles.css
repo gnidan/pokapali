@@ -730,6 +730,11 @@ body {
   border-radius: 3px;
 }
 
+.cs-checking-pinners {
+  font-size: 0.65rem;
+  color: #6b7280;
+}
+
 .cs-expand {
   font-size: 0.7rem;
   color: #94a3b8;

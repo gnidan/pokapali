@@ -622,15 +622,35 @@ export function ConnectionStatus({
           ) && (
           <>
             <span className="cs-divider" />
-            <span
-              className="cs-section cs-no-pinner"
-              title={
-                "No pinners connected — " +
-                "changes may not persist"
-              }
-            >
-              No pinners
-            </span>
+            {info.nodes.some(
+              (n) =>
+                n.connected &&
+                !n.rolesConfirmed,
+            ) ? (
+              <span
+                className={
+                  "cs-section cs-checking-pinners"
+                }
+                title={
+                  "Waiting for node capability" +
+                  " broadcasts\u2026"
+                }
+              >
+                Checking for pinners\u2026
+              </span>
+            ) : (
+              <span
+                className={
+                  "cs-section cs-no-pinner"
+                }
+                title={
+                  "No pinners connected \u2014 " +
+                  "changes may not persist"
+                }
+              >
+                No pinners
+              </span>
+            )}
           </>
         )}
       </button>
