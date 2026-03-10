@@ -40,8 +40,8 @@ function computeSaveState(isDirty, isSaving) {
         return "dirty";
     return "saved";
 }
-function createCollabDoc(params) {
-    const { subdocManager, syncManager, awarenessRoom, cap, keys, ipnsName, base, namespaces, signingKey, readKey, } = params;
+function createDoc(params) {
+    const { subdocManager, syncManager, awarenessRoom, cap, keys, ipnsName, origin, channels, signingKey, readKey, } = params;
     let destroyed = false;
     let readyResolved = false;
     let resolveReady = null;
@@ -84,12 +84,12 @@ function createCollabDoc(params) {
         const next = computeSaveState(subdocManager.isDirty, isSaving);
         if (next !== lastSaveState) {
             lastSaveState = next;
-            emit("save-state", next);
+            emit("save", next);
         }
     }
     function computeClockSum() {
         let sum = 0;
-        for (const ns of namespaces) {
+        for (const ns of channels) {
             const sv = Y.encodeStateVector(subdocManager.subdoc(ns));
             const decoded = Y.decodeStateVector(sv);
             for (const clock of decoded.values()) {
@@ -100,7 +100,7 @@ function createCollabDoc(params) {
     }
     subdocManager.on("dirty", () => {
         checkSaveState();
-        emit("snapshot-recommended");
+        emit("publish-needed");
         awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
     });
     syncManager.onStatusChange(() => checkStatus());
@@ -113,7 +113,7 @@ function createCollabDoc(params) {
         // event listeners first.
         queueMicrotask(() => {
             checkSaveState();
-            emit("snapshot-recommended");
+            emit("publish-needed");
         });
     }
     // Share relay info with WebRTC peers via awareness.
@@ -149,7 +149,7 @@ function createCollabDoc(params) {
                 checkStatus();
             },
             onFetchStateChange: (state) => {
-                emit("fetch-state", state);
+                emit("loading", state);
                 // If we return to idle or hit permanent failure
                 // without ever applying a snapshot, the document
                 // is as ready as it gets — mount the editor so
@@ -166,7 +166,7 @@ function createCollabDoc(params) {
                 const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) => subdocManager.applySnapshot(plaintext));
                 if (applied) {
                     snapshotLC.setLastIpnsSeq(computeClockSum());
-                    emit("snapshot-applied");
+                    emit("snapshot");
                     markReady();
                 }
             },
@@ -207,7 +207,7 @@ function createCollabDoc(params) {
     }
     function assertNotDestroyed() {
         if (destroyed) {
-            throw new Error("CollabDoc destroyed");
+            throw new Error("Doc destroyed");
         }
     }
     const providerObj = {
@@ -216,15 +216,15 @@ function createCollabDoc(params) {
         },
     };
     return {
-        subdoc(ns) {
+        channel(name) {
             assertNotDestroyed();
             try {
-                return subdocManager.subdoc(ns);
+                return subdocManager.subdoc(name);
             }
             catch {
-                throw new Error(`Unknown namespace "${ns}". ` +
+                throw new Error(`Unknown channel "${name}". ` +
                     "Configured: " +
-                    namespaces.join(", "));
+                    channels.join(", "));
             }
         },
         get provider() {
@@ -236,13 +236,17 @@ function createCollabDoc(params) {
         get capability() {
             return cap;
         },
-        adminUrl: params.adminUrl,
-        writeUrl: params.writeUrl,
-        readUrl: params.readUrl,
-        get bestUrl() {
-            return params.adminUrl
-                ?? params.writeUrl
-                ?? params.readUrl;
+        get urls() {
+            return {
+                admin: params.adminUrl,
+                write: params.writeUrl,
+                read: params.readUrl,
+                get best() {
+                    return params.adminUrl
+                        ?? params.writeUrl
+                        ?? params.readUrl;
+                },
+            };
         },
         get role() {
             if (cap.isAdmin)
@@ -251,7 +255,7 @@ function createCollabDoc(params) {
                 return "writer";
             return "reader";
         },
-        async inviteUrl(grant) {
+        async invite(grant) {
             assertNotDestroyed();
             if (grant.namespaces) {
                 for (const ns of grant.namespaces) {
@@ -267,7 +271,7 @@ function createCollabDoc(params) {
                     "— not in own capability");
             }
             const narrowed = narrowCapability(keys, grant);
-            return buildUrl(base, ipnsName, narrowed);
+            return buildUrl(origin, ipnsName, narrowed);
         },
         get status() {
             return computeStatus(syncManager.status, awarenessRoom.connected, gossipActivity);
@@ -275,7 +279,7 @@ function createCollabDoc(params) {
         get saveState() {
             return computeSaveState(subdocManager.isDirty, isSaving);
         },
-        get relayPeerIds() {
+        get relays() {
             return params.roomDiscovery?.relayPeerIds
                 ?? new Set();
         },
@@ -288,7 +292,7 @@ function createCollabDoc(params) {
         get latestAnnouncedSeq() {
             return snapshotWatcher?.latestAnnouncedSeq ?? 0;
         },
-        get snapshotFetchState() {
+        get loadingState() {
             return snapshotWatcher?.fetchState
                 ?? { status: "idle" };
         },
@@ -308,10 +312,10 @@ function createCollabDoc(params) {
             return snapshotWatcher?.retainUntil
                 ?? null;
         },
-        whenReady() {
+        ready() {
             return readyPromise;
         },
-        async pushSnapshot() {
+        async publish() {
             assertNotDestroyed();
             if (!cap.canPushSnapshots ||
                 !signingKey ||
@@ -325,7 +329,7 @@ function createCollabDoc(params) {
             const { cid, block } = await snapshotLC.push(plaintext, readKey, signingKey, clockSum);
             isSaving = false;
             checkSaveState();
-            emit("snapshot-applied");
+            emit("snapshot");
             // Reset ack tracking synchronously so the UI
             // clears immediately and early acks aren't
             // dropped.
@@ -334,7 +338,7 @@ function createCollabDoc(params) {
             // Fire-and-forget: don't block the UI on slow
             // DHT operations.
             const cidShort = cid.toString().slice(0, 16);
-            log.info("pushSnapshot: cid=" +
+            log.info("publish: cid=" +
                 cidShort + "... clockSum=" + clockSum);
             (async () => {
                 const helia = getHelia();
@@ -359,12 +363,12 @@ function createCollabDoc(params) {
                     " (requires rotationKey)");
             }
             const newAdminSecret = generateAdminSecret();
-            const newDocKeys = await deriveDocKeys(newAdminSecret, params.appId, namespaces);
+            const newDocKeys = await deriveDocKeys(newAdminSecret, params.appId, channels);
             const newSigningKey = await ed25519KeyPairFromSeed(newDocKeys.ipnsKeyBytes);
             const newIpnsName = bytesToHex(newSigningKey.publicKey);
             // Copy current state to new subdoc manager
-            const newSubdocManager = createSubdocManager(newIpnsName, namespaces, {
-                primaryNamespace: params.primaryNamespace,
+            const newSubdocManager = createSubdocManager(newIpnsName, channels, {
+                primaryNamespace: params.primaryChannel,
             });
             const snapshot = subdocManager.encodeAll();
             newSubdocManager.applySnapshot(snapshot);
@@ -383,15 +387,15 @@ function createCollabDoc(params) {
                 awarenessRoomPassword: newDocKeys.awarenessRoomPassword,
                 namespaceKeys: newDocKeys.namespaceKeys,
             };
-            const newAdminUrl = await buildUrl(base, newIpnsName, newKeys);
-            const newWriteUrl = await buildUrl(base, newIpnsName, narrowCapability(newKeys, {
-                namespaces: [...namespaces],
+            const newAdminUrl = await buildUrl(origin, newIpnsName, newKeys);
+            const newWriteUrl = await buildUrl(origin, newIpnsName, narrowCapability(newKeys, {
+                namespaces: [...channels],
                 canPushSnapshots: true,
             }));
-            const newReadUrl = await buildUrl(base, newIpnsName, narrowCapability(newKeys, {
+            const newReadUrl = await buildUrl(origin, newIpnsName, narrowCapability(newKeys, {
                 namespaces: [],
             }));
-            const newCap = inferCapability(newKeys, namespaces);
+            const newCap = inferCapability(newKeys, channels);
             // Populate _meta on new doc
             const newMeta = newSubdocManager.metaDoc;
             const canPush = newMeta.getArray("canPushSnapshots");
@@ -409,22 +413,22 @@ function createCollabDoc(params) {
             catch {
                 // Helia may not be available
             }
-            const newDoc = createCollabDoc({
+            const newDoc = createDoc({
                 subdocManager: newSubdocManager,
                 syncManager: newSyncManager,
                 awarenessRoom: newAwarenessRoom,
                 cap: newCap,
                 keys: newKeys,
                 ipnsName: newIpnsName,
-                base,
-                namespaces,
+                origin,
+                channels,
                 adminUrl: newAdminUrl,
                 writeUrl: newWriteUrl,
                 readUrl: newReadUrl,
                 signingKey: newSigningKey,
                 readKey: newDocKeys.readKey,
                 appId: params.appId,
-                primaryNamespace: params.primaryNamespace,
+                primaryChannel: params.primaryChannel,
                 signalingUrls: params.signalingUrls,
                 syncOpts: params.syncOpts,
                 pubsub: params.pubsub,
@@ -561,7 +565,7 @@ function createCollabDoc(params) {
                 maxPeerClockSum,
                 latestAnnouncedSeq: snapshotWatcher?.latestAnnouncedSeq ?? 0,
                 ipnsSeq: snapshotLC.lastIpnsSeq,
-                fetchState: snapshotWatcher?.fetchState
+                loadingState: snapshotWatcher?.fetchState
                     ?? { status: "idle" },
                 hasAppliedSnapshot: snapshotWatcher?.hasAppliedSnapshot
                     ?? false,
@@ -588,10 +592,10 @@ function createCollabDoc(params) {
         },
     };
 }
-export function createCollabLib(options) {
-    const { namespaces, base } = options;
+export function pokapali(options) {
+    const { channels, origin } = options;
     const appId = options.appId ?? "";
-    const primaryNamespace = options.primaryNamespace ?? namespaces[0];
+    const primaryChannel = options.primaryChannel ?? channels[0];
     const signalingUrls = options.signalingUrls ?? [];
     const bootstrapPeers = options.bootstrapPeers;
     return {
@@ -600,7 +604,7 @@ export function createCollabLib(options) {
             try {
                 const pubsub = getHeliaPubsub();
                 acquireNodeRegistry(pubsub, () => getHelia());
-                const userIce = options.peerOpts?.config?.iceServers;
+                const userIce = options.rtc?.config?.iceServers;
                 const syncOpts = {
                     peerOpts: {
                         config: {
@@ -610,11 +614,11 @@ export function createCollabLib(options) {
                     pubsub,
                 };
                 const adminSecret = generateAdminSecret();
-                const docKeys = await deriveDocKeys(adminSecret, appId, namespaces);
+                const docKeys = await deriveDocKeys(adminSecret, appId, channels);
                 const signingKey = await ed25519KeyPairFromSeed(docKeys.ipnsKeyBytes);
                 const ipnsName = bytesToHex(signingKey.publicKey);
-                const subdocManager = createSubdocManager(ipnsName, namespaces, {
-                    primaryNamespace,
+                const subdocManager = createSubdocManager(ipnsName, channels, {
+                    primaryNamespace: primaryChannel,
                 });
                 const syncManager = setupNamespaceRooms(ipnsName, subdocManager, docKeys.namespaceKeys, signalingUrls, syncOpts);
                 const awarenessRoom = setupAwarenessRoom(ipnsName, docKeys.awarenessRoomPassword, signalingUrls, syncOpts);
@@ -626,15 +630,15 @@ export function createCollabLib(options) {
                     awarenessRoomPassword: docKeys.awarenessRoomPassword,
                     namespaceKeys: docKeys.namespaceKeys,
                 };
-                const adminUrl = await buildUrl(base, ipnsName, fullKeys);
-                const writeUrl = await buildUrl(base, ipnsName, narrowCapability(fullKeys, {
-                    namespaces: [...namespaces],
+                const adminUrl = await buildUrl(origin, ipnsName, fullKeys);
+                const writeUrl = await buildUrl(origin, ipnsName, narrowCapability(fullKeys, {
+                    namespaces: [...channels],
                     canPushSnapshots: true,
                 }));
-                const readUrl = await buildUrl(base, ipnsName, narrowCapability(fullKeys, {
+                const readUrl = await buildUrl(origin, ipnsName, narrowCapability(fullKeys, {
                     namespaces: [],
                 }));
-                const cap = inferCapability(fullKeys, namespaces);
+                const cap = inferCapability(fullKeys, channels);
                 // Populate _meta doc
                 const meta = subdocManager.metaDoc;
                 const canPush = meta.getArray("canPushSnapshots");
@@ -645,22 +649,22 @@ export function createCollabLib(options) {
                     authorized.set(ns, arr);
                     arr.push([key]);
                 }
-                return createCollabDoc({
+                return createDoc({
                     subdocManager,
                     syncManager,
                     awarenessRoom,
                     cap,
                     keys: fullKeys,
                     ipnsName,
-                    base,
-                    namespaces,
+                    origin,
+                    channels,
                     adminUrl,
                     writeUrl,
                     readUrl,
                     signingKey,
                     readKey: docKeys.readKey,
                     appId,
-                    primaryNamespace,
+                    primaryChannel,
                     signalingUrls,
                     syncOpts,
                     pubsub,
@@ -692,7 +696,7 @@ export function createCollabLib(options) {
             try {
                 const pubsub = getHeliaPubsub();
                 acquireNodeRegistry(pubsub, () => getHelia());
-                const userIce = options.peerOpts?.config?.iceServers;
+                const userIce = options.rtc?.config?.iceServers;
                 const syncOpts = {
                     peerOpts: {
                         config: {
@@ -701,24 +705,24 @@ export function createCollabLib(options) {
                     },
                     pubsub,
                 };
-                const cap = inferCapability(keys, namespaces);
-                const subdocManager = createSubdocManager(ipnsName, namespaces, {
-                    primaryNamespace,
+                const cap = inferCapability(keys, channels);
+                const subdocManager = createSubdocManager(ipnsName, channels, {
+                    primaryNamespace: primaryChannel,
                 });
                 const nsKeys = keys.namespaceKeys ?? {};
                 const syncManager = setupNamespaceRooms(ipnsName, subdocManager, nsKeys, signalingUrls, syncOpts);
                 const awarenessRoom = setupAwarenessRoom(ipnsName, keys.awarenessRoomPassword ?? "", signalingUrls, syncOpts);
                 const roomDiscovery = startRoomDiscovery(getHelia(), appId);
                 const adminUrl = keys.rotationKey
-                    ? await buildUrl(base, ipnsName, keys)
+                    ? await buildUrl(origin, ipnsName, keys)
                     : null;
                 const writeUrl = keys.ipnsKeyBytes
-                    ? await buildUrl(base, ipnsName, narrowCapability(keys, {
+                    ? await buildUrl(origin, ipnsName, narrowCapability(keys, {
                         namespaces: [...cap.namespaces],
                         canPushSnapshots: true,
                     }))
                     : null;
-                const readUrl = await buildUrl(base, ipnsName, narrowCapability(keys, {
+                const readUrl = await buildUrl(origin, ipnsName, narrowCapability(keys, {
                     namespaces: [],
                 }));
                 let signingKey = null;
@@ -726,22 +730,22 @@ export function createCollabLib(options) {
                     signingKey =
                         await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
                 }
-                const doc = createCollabDoc({
+                const doc = createDoc({
                     subdocManager,
                     syncManager,
                     awarenessRoom,
                     cap,
                     keys,
                     ipnsName,
-                    base,
-                    namespaces,
+                    origin,
+                    channels,
                     adminUrl,
                     writeUrl,
                     readUrl,
                     signingKey,
                     readKey: keys.readKey,
                     appId,
-                    primaryNamespace,
+                    primaryChannel,
                     signalingUrls,
                     syncOpts,
                     pubsub,
@@ -758,11 +762,11 @@ export function createCollabLib(options) {
         isDocUrl(url) {
             try {
                 const parsed = new URL(url);
-                const prefix = base.replace(/\/$/, "")
+                const prefix = origin.replace(/\/$/, "")
                     + "/doc/";
-                const origin = new URL(prefix).origin;
+                const orig = new URL(prefix).origin;
                 const path = new URL(prefix).pathname;
-                return parsed.origin === origin
+                return parsed.origin === orig
                     && parsed.pathname.startsWith(path)
                     && parsed.hash.length > 1;
             }

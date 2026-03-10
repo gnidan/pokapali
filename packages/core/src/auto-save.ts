@@ -1,4 +1,4 @@
-import type { CollabDoc } from "./index.js";
+import type { Doc } from "./index.js";
 
 const DEFAULT_DEBOUNCE_MS = 5_000;
 
@@ -7,16 +7,16 @@ export interface AutoSaveOptions {
 }
 
 /**
- * Set up auto-save for a CollabDoc:
- * - Debounced pushSnapshot on snapshot-recommended
+ * Set up auto-save for a Doc:
+ * - Debounced publish on publish-needed
  * - beforeunload prompt if unpushed changes
- * - pushSnapshot on visibilitychange (hidden)
+ * - publish on visibilitychange (hidden)
  *
  * Only activates if doc.capability.canPushSnapshots.
  * Returns a cleanup function.
  */
 export function createAutoSaver(
-  doc: CollabDoc,
+  doc: Doc,
   options?: AutoSaveOptions,
 ): () => void {
   if (!doc.capability.canPushSnapshots) {
@@ -33,7 +33,7 @@ export function createAutoSaver(
       clearTimeout(timer);
       timer = null;
     }
-    doc.pushSnapshot().catch(() => {});
+    doc.publish().catch(() => {});
   }
 
   function onSnapshotRecommended() {
@@ -57,7 +57,7 @@ export function createAutoSaver(
   }
 
   doc.on(
-    "snapshot-recommended",
+    "publish-needed",
     onSnapshotRecommended,
   );
   window.addEventListener(
@@ -75,7 +75,7 @@ export function createAutoSaver(
       timer = null;
     }
     doc.off(
-      "snapshot-recommended",
+      "publish-needed",
       onSnapshotRecommended,
     );
     window.removeEventListener(

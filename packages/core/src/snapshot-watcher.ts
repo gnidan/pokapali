@@ -19,7 +19,7 @@ const REANNOUNCE_MS = 15_000;
 const RETRY_INTERVAL_MS = 30_000;
 const MAX_OUTER_RETRIES = 10;
 
-export type SnapshotFetchState =
+export type LoadingState =
   | { status: "idle" }
   | { status: "resolving"; startedAt: number }
   | { status: "fetching"; cid: string;
@@ -46,7 +46,7 @@ export interface SnapshotWatcherOptions {
   ipnsPublicKeyBytes?: Uint8Array;
   onSnapshot: (cid: CID) => Promise<void>;
   onFetchStateChange?: (
-    state: SnapshotFetchState,
+    state: LoadingState,
   ) => void;
   onAck?: (peerId: string) => void;
   onGossipActivityChange?: (
@@ -70,7 +70,7 @@ export interface SnapshotWatcher {
   /** Track a newly pushed CID for ack collection. */
   trackCidForAcks(cid: string): void;
   readonly latestAnnouncedSeq: number;
-  readonly fetchState: SnapshotFetchState;
+  readonly fetchState: LoadingState;
   readonly hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
   readonly ackedBy: ReadonlySet<string>;
@@ -104,7 +104,7 @@ export function createSnapshotWatcher(
   let pendingCid: string | null = null;
   let latestAnnouncedSeq = 0;
   let retryAttempt = 0;
-  let fetchState: SnapshotFetchState =
+  let fetchState: LoadingState =
     { status: "idle" };
   let hasAppliedSnapshot = false;
   /** Tracks which CID the acks are for. */
@@ -168,7 +168,7 @@ export function createSnapshotWatcher(
     GOSSIP_DECAY_MS,
   );
 
-  function setFetchState(s: SnapshotFetchState) {
+  function setFetchState(s: LoadingState) {
     fetchState = s;
     options.onFetchStateChange?.(s);
   }

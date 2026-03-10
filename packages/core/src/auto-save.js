@@ -1,9 +1,9 @@
 const DEFAULT_DEBOUNCE_MS = 5_000;
 /**
- * Set up auto-save for a CollabDoc:
- * - Debounced pushSnapshot on snapshot-recommended
+ * Set up auto-save for a Doc:
+ * - Debounced publish on publish-needed
  * - beforeunload prompt if unpushed changes
- * - pushSnapshot on visibilitychange (hidden)
+ * - publish on visibilitychange (hidden)
  *
  * Only activates if doc.capability.canPushSnapshots.
  * Returns a cleanup function.
@@ -19,7 +19,7 @@ export function createAutoSaver(doc, options) {
             clearTimeout(timer);
             timer = null;
         }
-        doc.pushSnapshot().catch(() => { });
+        doc.publish().catch(() => { });
     }
     function onSnapshotRecommended() {
         if (timer)
@@ -37,7 +37,7 @@ export function createAutoSaver(doc, options) {
             doSave();
         }
     }
-    doc.on("snapshot-recommended", onSnapshotRecommended);
+    doc.on("publish-needed", onSnapshotRecommended);
     window.addEventListener("beforeunload", onBeforeUnload);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
@@ -45,7 +45,7 @@ export function createAutoSaver(doc, options) {
             clearTimeout(timer);
             timer = null;
         }
-        doc.off("snapshot-recommended", onSnapshotRecommended);
+        doc.off("publish-needed", onSnapshotRecommended);
         window.removeEventListener("beforeunload", onBeforeUnload);
         document.removeEventListener("visibilitychange", onVisibilityChange);
     };

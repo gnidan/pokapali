@@ -3,8 +3,8 @@ import {
   useCallback,
   useEffect,
 } from "react";
-import { createCollabLib } from "@pokapali/core";
-import type { CollabDoc } from "@pokapali/core";
+import { pokapali } from "@pokapali/core";
+import type { Doc } from "@pokapali/core";
 import { EditorView } from "./Editor";
 import { capitalize, formatAge } from "./utils";
 import {
@@ -19,15 +19,15 @@ function abbreviateId(id: string): string {
   return id.slice(0, 4) + "\u2026" + id.slice(-4);
 }
 
-const collab = createCollabLib({
+const app = pokapali({
   appId: "pokapali-example",
-  namespaces: ["content"],
-  base: window.location.origin +
+  channels: ["content"],
+  origin: window.location.origin +
     import.meta.env.BASE_URL.replace(/\/$/, ""),
 });
 
-function recordDoc(doc: CollabDoc) {
-  saveRecent(doc.bestUrl, capitalize(doc.role));
+function recordDoc(doc: Doc) {
+  saveRecent(doc.urls.best, capitalize(doc.role));
 }
 
 function RecentDocsList({
@@ -105,7 +105,7 @@ function RecentDocsList({
   );
 }
 
-function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
+function Landing({ onDoc }: { onDoc: (doc: Doc) => void }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +114,7 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
     setLoading(true);
     setError(null);
     try {
-      const doc = await collab.create();
+      const doc = await app.create();
       onDoc(doc);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -127,7 +127,7 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
       setLoading(true);
       setError(null);
       try {
-        const doc = await collab.open(rawUrl);
+        const doc = await app.open(rawUrl);
         onDoc(doc);
       } catch (e) {
         setError(
@@ -191,14 +191,14 @@ function Landing({ onDoc }: { onDoc: (doc: CollabDoc) => void }) {
 }
 
 export function App() {
-  const [doc, setDoc] = useState<CollabDoc | null>(null);
+  const [doc, setDoc] = useState<Doc | null>(null);
   const [autoOpening, setAutoOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const openDoc = useCallback(
-    (d: CollabDoc, replace = false) => {
+    (d: Doc, replace = false) => {
       recordDoc(d);
       setDoc(d);
-      const url = d.bestUrl;
+      const url = d.urls.best;
       if (replace) {
         window.history.replaceState(null, "", url);
       } else {
@@ -217,11 +217,11 @@ export function App() {
   // Auto-open if URL contains a doc path on mount
   useEffect(() => {
     const url = window.location.href;
-    if (!collab.isDocUrl(url)) return;
+    if (!app.isDocUrl(url)) return;
 
     let cancelled = false;
     setAutoOpening(true);
-    collab.open(url).then(
+    app.open(url).then(
       (d) => {
         if (!cancelled) {
           // Replace so back goes to wherever the
@@ -249,7 +249,7 @@ export function App() {
   // if the URL no longer points to a document
   useEffect(() => {
     const onPopState = () => {
-      if (!collab.isDocUrl(window.location.href)) {
+      if (!app.isDocUrl(window.location.href)) {
         goToLanding();
       }
     };

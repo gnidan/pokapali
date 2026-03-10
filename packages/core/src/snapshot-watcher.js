@@ -127,7 +127,8 @@ export function createSnapshotWatcher(options) {
         if (destroyed)
             return;
         touchGossip();
-        // Handle pinner ack
+        // Handle pinner ack (may coexist with snapshot
+        // data in pinner re-announces).
         if (ann.ack) {
             if (ann.cid === ackedCid) {
                 const isNew = !ackedBy.has(ann.ack.peerId);
@@ -148,7 +149,9 @@ export function createSnapshotWatcher(options) {
             else {
                 log.debug("ack cid mismatch:", ann.cid?.slice(0, 16), "expected:", ackedCid?.slice(0, 16));
             }
-            return;
+            // Ack-only message: no snapshot data to process
+            if (!ann.block && ann.seq === undefined)
+                return;
         }
         log.debug("announce received:", ann.cid.slice(0, 16) + "...");
         if (ann.seq !== undefined) {

@@ -5,7 +5,7 @@ import {
   useEffect,
   forwardRef,
 } from "react";
-import type { CollabDoc } from "@pokapali/core";
+import type { Doc } from "@pokapali/core";
 import { truncateUrl } from "@pokapali/core";
 
 function CopyRow({
@@ -76,7 +76,7 @@ function CopyRow({
 
 export const SharePanel = forwardRef<
   HTMLDivElement,
-  { doc: CollabDoc }
+  { doc: Doc }
 >(function SharePanel({ doc }, ref) {
   return (
     <div
@@ -87,30 +87,30 @@ export const SharePanel = forwardRef<
       aria-label="Share panel"
     >
       <h2>Share this document</h2>
-      {doc.adminUrl && (
+      {doc.urls.admin && (
         <CopyRow
           label="Admin"
           description={
             "Full control \u2014 can edit, publish," +
             " and manage access"
           }
-          value={doc.adminUrl}
+          value={doc.urls.admin}
         />
       )}
-      {doc.writeUrl && (
+      {doc.urls.write && (
         <CopyRow
           label="Write"
           description={
             "Can edit the document and publish" +
             " snapshots"
           }
-          value={doc.writeUrl}
+          value={doc.urls.write}
         />
       )}
       <CopyRow
         label="Read"
         description="View only — cannot make changes"
-        value={doc.readUrl}
+        value={doc.urls.read}
       />
     </div>
   );

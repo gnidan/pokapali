@@ -36,7 +36,7 @@ export function base64ToUint8(b64) {
     }
     return bytes;
 }
-export async function announceSnapshot(pubsub, appId, ipnsName, cid, seq, block) {
+export async function announceSnapshot(pubsub, appId, ipnsName, cid, seq, block, fromPinner, ack) {
     const topic = announceTopic(appId);
     const msg = { ipnsName, cid };
     if (seq !== undefined)
@@ -44,17 +44,26 @@ export async function announceSnapshot(pubsub, appId, ipnsName, cid, seq, block)
     if (block && block.length <= MAX_INLINE_BLOCK_BYTES) {
         msg.block = uint8ToBase64(block);
     }
+    if (fromPinner)
+        msg.fromPinner = true;
+    if (ack)
+        msg.ack = ack;
     const data = new TextEncoder().encode(JSON.stringify(msg));
     await pubsub.publish(topic, data);
 }
-export async function announceAck(pubsub, appId, ipnsName, cid, peerId, options) {
+/**
+ * Publish a pinner acknowledgment on GossipSub.
+ * Sent after a pinner successfully fetches and
+ * validates a snapshot block.
+ */
+export async function announceAck(pubsub, appId, ipnsName, cid, peerId, guaranteeUntil, retainUntil) {
     const topic = announceTopic(appId);
     const ack = { peerId };
-    if (options?.guaranteeUntil !== undefined) {
-        ack.guaranteeUntil = options.guaranteeUntil;
+    if (guaranteeUntil !== undefined) {
+        ack.guaranteeUntil = guaranteeUntil;
     }
-    if (options?.retainUntil !== undefined) {
-        ack.retainUntil = options.retainUntil;
+    if (retainUntil !== undefined) {
+        ack.retainUntil = retainUntil;
     }
     const msg = {
         ipnsName,

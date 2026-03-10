@@ -18,7 +18,7 @@ function mockDoc(opts?: {
       canPushSnapshots: opts?.canPush ?? true,
     },
     saveState: opts?.saveState ?? "saved",
-    pushSnapshot: vi.fn().mockResolvedValue(
+    publish: vi.fn().mockResolvedValue(
       undefined,
     ),
     on(
@@ -109,25 +109,25 @@ describe("createAutoSaver", () => {
     cleanup();
   });
 
-  it("debounces snapshot-recommended into one"
-    + " pushSnapshot call", async () => {
+  it("debounces publish-needed into one"
+    + " publish call", async () => {
     const doc = mockDoc();
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 500,
     });
 
-    doc._emit("snapshot-recommended");
-    doc._emit("snapshot-recommended");
-    doc._emit("snapshot-recommended");
+    doc._emit("publish-needed");
+    doc._emit("publish-needed");
+    doc._emit("publish-needed");
 
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(500);
 
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).toHaveBeenCalledTimes(1);
 
     cleanup();
@@ -140,49 +140,49 @@ describe("createAutoSaver", () => {
       debounceMs: 500,
     });
 
-    doc._emit("snapshot-recommended");
+    doc._emit("publish-needed");
     await vi.advanceTimersByTimeAsync(400);
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).not.toHaveBeenCalled();
 
     // Fire again — timer resets
-    doc._emit("snapshot-recommended");
+    doc._emit("publish-needed");
     await vi.advanceTimersByTimeAsync(400);
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(100);
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).toHaveBeenCalledTimes(1);
 
     cleanup();
   });
 
-  it("does not crash when pushSnapshot"
+  it("does not crash when publish"
     + " rejects", async () => {
     const doc = mockDoc();
-    doc.pushSnapshot.mockRejectedValue(
+    doc.publish.mockRejectedValue(
       new Error("network error"),
     );
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 100,
     });
 
-    doc._emit("snapshot-recommended");
+    doc._emit("publish-needed");
     await vi.advanceTimersByTimeAsync(100);
 
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).toHaveBeenCalledTimes(1);
 
     cleanup();
   });
 
   it("visibilitychange to hidden triggers"
-    + " immediate pushSnapshot", () => {
+    + " immediate publish", () => {
     const doc = mockDoc({
       saveState: "dirty",
     });
@@ -192,7 +192,7 @@ describe("createAutoSaver", () => {
     documentStub._dispatch("visibilitychange");
 
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).toHaveBeenCalledTimes(1);
 
     cleanup();
@@ -207,7 +207,7 @@ describe("createAutoSaver", () => {
     documentStub._dispatch("visibilitychange");
 
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).not.toHaveBeenCalled();
 
     cleanup();
@@ -256,18 +256,18 @@ describe("createAutoSaver", () => {
       debounceMs: 500,
     });
 
-    doc._emit("snapshot-recommended");
+    doc._emit("publish-needed");
     cleanup();
 
     await vi.advanceTimersByTimeAsync(500);
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).not.toHaveBeenCalled();
 
     // Doc listener removed
     expect(
       doc._listeners
-        .get("snapshot-recommended")?.size ?? 0,
+        .get("publish-needed")?.size ?? 0,
     ).toBe(0);
 
     // Window/document listeners removed
@@ -297,7 +297,7 @@ describe("createAutoSaver", () => {
       debounceMs: 500,
     });
 
-    doc._emit("snapshot-recommended");
+    doc._emit("publish-needed");
 
     // Visibility change triggers immediate save
     // and clears pending debounce
@@ -305,13 +305,13 @@ describe("createAutoSaver", () => {
     documentStub._dispatch("visibilitychange");
 
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).toHaveBeenCalledTimes(1);
 
     // Advance past original debounce — no second push
     await vi.advanceTimersByTimeAsync(500);
     expect(
-      doc.pushSnapshot,
+      doc.publish,
     ).toHaveBeenCalledTimes(1);
 
     cleanup();

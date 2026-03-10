@@ -73,52 +73,52 @@ vi.mock("@pokapali/snapshot", async () => {
         encodeSnapshot: vi.fn(actual.encodeSnapshot),
     };
 });
-import { createCollabLib, } from "./index.js";
+import { pokapali, } from "./index.js";
 const OPTS = {
     appId: "test-app",
-    namespaces: ["content", "comments"],
-    base: "https://example.com",
+    channels: ["content", "comments"],
+    origin: "https://example.com",
 };
 describe("@pokapali/core", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         clearForwardingStore();
     });
-    it("create() returns CollabDoc", async () => {
-        const lib = createCollabLib(OPTS);
+    it("create() returns Doc", async () => {
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
-        expect(doc.subdoc).toBeTypeOf("function");
+        expect(doc.channel).toBeTypeOf("function");
         expect(doc.provider).toBeDefined();
         expect(doc.awareness).toBeDefined();
         expect(doc.capability).toBeDefined();
-        expect(doc.adminUrl).toBeTypeOf("string");
-        expect(doc.writeUrl).toBeTypeOf("string");
-        expect(doc.readUrl).toBeTypeOf("string");
-        expect(doc.inviteUrl).toBeTypeOf("function");
-        expect(doc.pushSnapshot).toBeTypeOf("function");
+        expect(doc.urls.admin).toBeTypeOf("string");
+        expect(doc.urls.write).toBeTypeOf("string");
+        expect(doc.urls.read).toBeTypeOf("string");
+        expect(doc.invite).toBeTypeOf("function");
+        expect(doc.publish).toBeTypeOf("function");
         expect(doc.on).toBeTypeOf("function");
         expect(doc.off).toBeTypeOf("function");
         expect(doc.destroy).toBeTypeOf("function");
         doc.destroy();
     });
-    it("create() subdoc(ns) returns Y.Doc", async () => {
-        const lib = createCollabLib(OPTS);
+    it("create() channel(name) returns Y.Doc", async () => {
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
-        const content = doc.subdoc("content");
-        const comments = doc.subdoc("comments");
+        const content = doc.channel("content");
+        const comments = doc.channel("comments");
         expect(content).toBeInstanceOf(Y.Doc);
         expect(comments).toBeInstanceOf(Y.Doc);
         doc.destroy();
     });
-    it("create() subdoc(unknown) throws", async () => {
-        const lib = createCollabLib(OPTS);
+    it("create() channel(unknown) throws", async () => {
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
-        expect(() => doc.subdoc("nonexistent")).toThrow(/Unknown namespace "nonexistent"/);
-        expect(() => doc.subdoc("nonexistent")).toThrow(/content, comments/);
+        expect(() => doc.channel("nonexistent")).toThrow(/Unknown channel "nonexistent"/);
+        expect(() => doc.channel("nonexistent")).toThrow(/content, comments/);
         doc.destroy();
     });
     it("create() capability is admin", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         expect(doc.capability.isAdmin).toBe(true);
         expect(doc.capability.canPushSnapshots).toBe(true);
@@ -126,93 +126,93 @@ describe("@pokapali/core", () => {
         doc.destroy();
     });
     it("create() provider.awareness exists", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         expect(doc.provider.awareness).toBeDefined();
         expect(doc.awareness).toBe(doc.provider.awareness);
         doc.destroy();
     });
     it("create() URLs are pre-computed strings", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
-        expect(doc.adminUrl).toBeTypeOf("string");
-        expect(doc.writeUrl).toBeTypeOf("string");
-        expect(doc.readUrl).toBeTypeOf("string");
-        expect(doc.adminUrl).not.toBeNull();
-        expect(doc.writeUrl).not.toBeNull();
-        expect(doc.adminUrl).toContain("https://example.com/doc/");
-        expect(doc.readUrl).toContain("https://example.com/doc/");
+        expect(doc.urls.admin).toBeTypeOf("string");
+        expect(doc.urls.write).toBeTypeOf("string");
+        expect(doc.urls.read).toBeTypeOf("string");
+        expect(doc.urls.admin).not.toBeNull();
+        expect(doc.urls.write).not.toBeNull();
+        expect(doc.urls.admin).toContain("https://example.com/doc/");
+        expect(doc.urls.read).toContain("https://example.com/doc/");
         doc.destroy();
     });
     it("open(url) infers reader capability", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const admin = await lib.create();
-        const readUrl = admin.readUrl;
+        const readUrl = admin.urls.read;
         admin.destroy();
         const reader = await lib.open(readUrl);
         expect(reader.capability.isAdmin).toBe(false);
         expect(reader.capability.canPushSnapshots).toBe(false);
         expect(reader.capability.namespaces.size).toBe(0);
-        expect(reader.adminUrl).toBeNull();
-        expect(reader.writeUrl).toBeNull();
+        expect(reader.urls.admin).toBeNull();
+        expect(reader.urls.write).toBeNull();
         reader.destroy();
     });
-    it("pushSnapshot() increments seq", async () => {
+    it("publish() increments seq", async () => {
         const spy = vi.mocked(encodeSnapshot);
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         spy.mockClear();
-        await doc.pushSnapshot();
+        await doc.publish();
         expect(spy).toHaveBeenCalledTimes(1);
         // seq = 1, prev = null
         expect(spy.mock.calls[0][3]).toBe(1);
         expect(spy.mock.calls[0][2]).toBeNull();
-        await doc.pushSnapshot();
+        await doc.publish();
         expect(spy).toHaveBeenCalledTimes(2);
         // seq = 2, prev = CID
         expect(spy.mock.calls[1][3]).toBe(2);
         expect(spy.mock.calls[1][2]).not.toBeNull();
         doc.destroy();
     });
-    it("pushSnapshot() no-op for readers", async () => {
+    it("publish() no-op for readers", async () => {
         const spy = vi.mocked(encodeSnapshot);
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const admin = await lib.create();
-        const readUrl = admin.readUrl;
+        const readUrl = admin.urls.read;
         admin.destroy();
         spy.mockClear();
         const reader = await lib.open(readUrl);
-        await reader.pushSnapshot();
+        await reader.publish();
         expect(spy).not.toHaveBeenCalled();
         reader.destroy();
     });
-    it("inviteUrl returns narrowed URL", async () => {
-        const lib = createCollabLib(OPTS);
+    it("invite returns narrowed URL", async () => {
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
-        const url = await doc.inviteUrl({
+        const url = await doc.invite({
             namespaces: ["comments"],
         });
         expect(url).toContain("https://example.com/doc/");
         const parsed = await parseUrl(url);
-        const cap = inferCapability(parsed.keys, OPTS.namespaces);
+        const cap = inferCapability(parsed.keys, OPTS.channels);
         expect(cap.namespaces).toEqual(new Set(["comments"]));
         expect(cap.canPushSnapshots).toBe(false);
         expect(cap.isAdmin).toBe(false);
         doc.destroy();
     });
-    it("inviteUrl throws on escalation", async () => {
-        const lib = createCollabLib(OPTS);
+    it("invite throws on escalation", async () => {
+        const lib = pokapali(OPTS);
         const admin = await lib.create();
-        const readUrl = admin.readUrl;
+        const readUrl = admin.urls.read;
         admin.destroy();
         const reader = await lib.open(readUrl);
-        await expect(reader.inviteUrl({
+        await expect(reader.invite({
             canPushSnapshots: true,
         })).rejects.toThrow(/Cannot grant canPushSnapshots/);
         reader.destroy();
     });
     it("status reflects sync state", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         // With mock sync status "connected",
         // status should be "synced".
@@ -220,68 +220,68 @@ describe("@pokapali/core", () => {
         doc.destroy();
     });
     it("saveState reflects dirty + saving", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         // After create(), _meta writes trigger dirty.
         // Push to clear.
-        await doc.pushSnapshot();
+        await doc.publish();
         expect(doc.saveState).toBe("saved");
         // Edit a subdoc to trigger dirty
-        const content = doc.subdoc("content");
+        const content = doc.channel("content");
         content.getMap("test").set("key", "value");
         expect(doc.saveState).toBe("dirty");
         doc.destroy();
     });
-    it("on('save-state') fires on change", async () => {
-        const lib = createCollabLib(OPTS);
+    it("on('save') fires on change", async () => {
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         // Push snapshot to clear dirty state
-        await doc.pushSnapshot();
+        await doc.publish();
         expect(doc.saveState).toBe("saved");
         const states = [];
-        doc.on("save-state", (s) => {
+        doc.on("save", (s) => {
             states.push(s);
         });
         // Edit to trigger dirty → save-state change
-        const content = doc.subdoc("content");
+        const content = doc.channel("content");
         content.getMap("test").set("k", "v");
         expect(states).toContain("dirty");
         doc.destroy();
     });
-    it("on('snapshot-recommended') fires", async () => {
-        const lib = createCollabLib(OPTS);
+    it("on('publish-needed') fires", async () => {
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
-        await doc.pushSnapshot();
+        await doc.publish();
         let fired = false;
-        doc.on("snapshot-recommended", () => {
+        doc.on("publish-needed", () => {
             fired = true;
         });
-        const content = doc.subdoc("content");
+        const content = doc.channel("content");
         content.getMap("test").set("k", "v");
         expect(fired).toBe(true);
         doc.destroy();
     });
     it("destroy() is idempotent", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         doc.destroy();
         doc.destroy(); // no error
     });
     it("destroy() prevents further use", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
         doc.destroy();
-        expect(() => doc.subdoc("content")).toThrow(/destroyed/);
+        expect(() => doc.channel("content")).toThrow(/destroyed/);
     });
     it("_meta populated on create", async () => {
-        const lib = createCollabLib(OPTS);
+        const lib = pokapali(OPTS);
         const doc = await lib.create();
-        const meta = doc.subdoc("_meta");
+        const meta = doc.channel("_meta");
         const canPush = meta.getArray("canPushSnapshots");
         expect(canPush.length).toBe(1);
         expect(canPush.get(0)).toBeInstanceOf(Uint8Array);
         const authorized = meta.getMap("authorized");
-        for (const ns of OPTS.namespaces) {
+        for (const ns of OPTS.channels) {
             const arr = authorized.get(ns);
             expect(arr).toBeInstanceOf(Y.Array);
             expect(arr.length).toBe(1);
@@ -289,17 +289,17 @@ describe("@pokapali/core", () => {
         doc.destroy();
     });
     describe("history()", () => {
-        it("returns empty before any pushSnapshot", async () => {
-            const lib = createCollabLib(OPTS);
+        it("returns empty before any publish", async () => {
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
             const h = await doc.history();
             expect(h).toEqual([]);
             doc.destroy();
         });
-        it("returns entries after pushSnapshot", async () => {
-            const lib = createCollabLib(OPTS);
+        it("returns entries after publish", async () => {
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
-            await doc.pushSnapshot();
+            await doc.publish();
             const h = await doc.history();
             expect(h).toHaveLength(1);
             expect(h[0].seq).toBe(1);
@@ -308,12 +308,12 @@ describe("@pokapali/core", () => {
             doc.destroy();
         });
         it("walks chain newest-first", async () => {
-            const lib = createCollabLib(OPTS);
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
-            await doc.pushSnapshot();
-            const content = doc.subdoc("content");
+            await doc.publish();
+            const content = doc.channel("content");
             content.getMap("test").set("k", "v");
-            await doc.pushSnapshot();
+            await doc.publish();
             const h = await doc.history();
             expect(h).toHaveLength(2);
             // newest first
@@ -326,11 +326,11 @@ describe("@pokapali/core", () => {
     });
     describe("loadVersion()", () => {
         it("returns Y.Doc instances with content", async () => {
-            const lib = createCollabLib(OPTS);
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
-            const content = doc.subdoc("content");
+            const content = doc.channel("content");
             content.getMap("data").set("hello", "world");
-            await doc.pushSnapshot();
+            await doc.publish();
             const h = await doc.history();
             const version = await doc.loadVersion(h[0].cid);
             expect(version).toBeDefined();
@@ -342,7 +342,7 @@ describe("@pokapali/core", () => {
         it("throws for unknown CID", async () => {
             const { CID } = await import("multiformats/cid");
             const { sha256 } = await import("multiformats/hashes/sha2");
-            const lib = createCollabLib(OPTS);
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
             const hash = await sha256.digest(new Uint8Array([1, 2, 3]));
             const fakeCid = CID.createV1(0x71, hash);
@@ -352,36 +352,36 @@ describe("@pokapali/core", () => {
     });
     describe("rotate()", () => {
         it("returns new doc with same content", async () => {
-            const lib = createCollabLib(OPTS);
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
-            const content = doc.subdoc("content");
+            const content = doc.channel("content");
             content.getMap("data").set("hello", "world");
             const { newDoc, forwardingRecord } = await doc.rotate();
             expect(forwardingRecord).toBeInstanceOf(Uint8Array);
             expect(newDoc.capability.isAdmin).toBe(true);
-            const newContent = newDoc.subdoc("content");
+            const newContent = newDoc.channel("content");
             expect(newContent.getMap("data").get("hello")).toBe("world");
             // Old doc is destroyed
-            expect(() => doc.subdoc("content")).toThrow(/destroyed/);
+            expect(() => doc.channel("content")).toThrow(/destroyed/);
             // New doc has different URLs
-            expect(newDoc.adminUrl).not.toBe(doc.adminUrl);
-            expect(newDoc.readUrl).not.toBe(doc.readUrl);
+            expect(newDoc.urls.admin).not.toBe(doc.urls.admin);
+            expect(newDoc.urls.read).not.toBe(doc.urls.read);
             newDoc.destroy();
         });
         it("non-admin cannot rotate", async () => {
-            const lib = createCollabLib(OPTS);
+            const lib = pokapali(OPTS);
             const admin = await lib.create();
-            const readUrl = admin.readUrl;
+            const readUrl = admin.urls.read;
             admin.destroy();
             const reader = await lib.open(readUrl);
             await expect(reader.rotate()).rejects.toThrow(/Only admins can rotate/);
             reader.destroy();
         });
         it("forwarding record is verifiable", async () => {
-            const lib = createCollabLib(OPTS);
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
             // Extract rotationKey before rotate destroys
-            const adminUrl = doc.adminUrl;
+            const adminUrl = doc.urls.admin;
             const parsed = await parseUrl(adminUrl);
             const { forwardingRecord } = await doc.rotate();
             const fwd = decodeForwardingRecord(forwardingRecord);
@@ -389,8 +389,8 @@ describe("@pokapali/core", () => {
             expect(valid).toBe(true);
         });
     });
-    describe("CollabDoc.diagnostics", () => {
-        it("DiagnosticsInfo type is well-formed", () => {
+    describe("Doc.diagnostics", () => {
+        it("Diagnostics type is well-formed", () => {
             const info = {
                 ipfsPeers: 0,
                 nodes: [],
@@ -404,7 +404,7 @@ describe("@pokapali/core", () => {
                 maxPeerClockSum: 0,
                 latestAnnouncedSeq: 0,
                 ipnsSeq: null,
-                fetchState: { status: "idle" },
+                loadingState: { status: "idle" },
                 hasAppliedSnapshot: false,
                 ackedBy: [],
                 guaranteeUntil: null,
@@ -418,26 +418,26 @@ describe("@pokapali/core", () => {
             expect(info.retainUntil).toBeNull();
         });
     });
-    describe("CollabDoc.whenReady", () => {
-        it("whenReady returns a Promise", () => {
+    describe("Doc.ready", () => {
+        it("ready returns a Promise", () => {
             const p = Promise.resolve();
             expect(p).toBeInstanceOf(Promise);
         });
     });
     describe("forwarding detection in open()", () => {
         it("follows forwarding to new doc", async () => {
-            const lib = createCollabLib(OPTS);
+            const lib = pokapali(OPTS);
             const doc = await lib.create();
-            const content = doc.subdoc("content");
+            const content = doc.channel("content");
             content.getMap("data").set("key", "value");
-            const oldAdminUrl = doc.adminUrl;
+            const oldAdminUrl = doc.urls.admin;
             const { newDoc } = await doc.rotate();
             // Open old admin URL — should follow
             // forwarding to new doc's read URL
             const followed = await lib.open(oldAdminUrl);
             // The followed doc has a different ipnsName
             // (it resolved to the new doc)
-            expect(followed.readUrl).not.toBe(oldAdminUrl);
+            expect(followed.urls.read).not.toBe(oldAdminUrl);
             followed.destroy();
             newDoc.destroy();
         });

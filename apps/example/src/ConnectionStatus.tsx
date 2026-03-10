@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import type {
-  CollabDoc,
-  DiagnosticsInfo,
+  Doc,
+  Diagnostics,
   NodeInfo,
-  SnapshotFetchState,
+  LoadingState,
 } from "@pokapali/core";
 
 // --- Time formatting ---
@@ -57,7 +57,7 @@ function emptyHistory(): History {
 
 function pushSample(
   h: History,
-  info: DiagnosticsInfo,
+  info: Diagnostics,
 ) {
   h.peers.push(info.ipfsPeers);
   h.mesh.push(info.gossipsub.meshPeers);
@@ -237,7 +237,7 @@ function Dot({ state }: {
   );
 }
 
-function fetchLabel(fs: SnapshotFetchState): string {
+function fetchLabel(fs: LoadingState): string {
   switch (fs.status) {
     case "idle": return "Idle";
     case "resolving": return "Resolving IPNS\u2026";
@@ -281,13 +281,13 @@ function networkHealth(
 function SyncSummary({
   info,
 }: {
-  info: DiagnosticsInfo;
+  info: Diagnostics;
 }) {
   const behind = Math.max(
     info.maxPeerClockSum,
     info.latestAnnouncedSeq,
   ) - info.clockSum;
-  const fs = info.fetchState;
+  const fs = info.loadingState;
   const isLoading =
     !info.hasAppliedSnapshot &&
     fs.status !== "failed" &&
@@ -330,7 +330,7 @@ function NetworkDetail({
   info,
   history,
 }: {
-  info: DiagnosticsInfo;
+  info: Diagnostics;
   history: History;
 }) {
   const gs = info.gossipsub;
@@ -440,7 +440,7 @@ function NodeRow({ node }: { node: NodeInfo }) {
 function NodesDetail({
   info,
 }: {
-  info: DiagnosticsInfo;
+  info: Diagnostics;
 }) {
   return (
     <div className="cs-detail-section">
@@ -462,7 +462,7 @@ function SnapshotsDetail({
   info,
   history,
 }: {
-  info: DiagnosticsInfo;
+  info: Diagnostics;
   history: History;
 }) {
   return (
@@ -496,12 +496,12 @@ function SnapshotsDetail({
         </span>
         <span
           className={
-            info.fetchState.status === "failed"
+            info.loadingState.status === "failed"
               ? "cs-detail-warn"
               : ""
           }
         >
-          {fetchLabel(info.fetchState)}
+          {fetchLabel(info.loadingState)}
         </span>
       </div>
       {info.ackedBy.length > 0 && (
@@ -563,9 +563,9 @@ function SnapshotsDetail({
 export function ConnectionStatus({
   doc,
 }: {
-  doc: CollabDoc;
+  doc: Doc;
 }) {
-  const [info, setInfo] = useState<DiagnosticsInfo>(
+  const [info, setInfo] = useState<Diagnostics>(
     () => doc.diagnostics(),
   );
   const [expanded, setExpanded] = useState(false);
@@ -586,10 +586,10 @@ export function ConnectionStatus({
     refresh();
 
     doc.on("status", refresh);
-    doc.on("snapshot-recommended", refresh);
-    doc.on("snapshot-applied", refresh);
+    doc.on("publish-needed", refresh);
+    doc.on("snapshot", refresh);
     doc.on("ack", refresh);
-    doc.on("fetch-state", refresh);
+    doc.on("loading", refresh);
     const awareness = doc.awareness;
     awareness.on("change", refresh);
 
@@ -603,10 +603,10 @@ export function ConnectionStatus({
     return () => {
       active = false;
       doc.off("status", refresh);
-      doc.off("snapshot-recommended", refresh);
-      doc.off("snapshot-applied", refresh);
+      doc.off("publish-needed", refresh);
+      doc.off("snapshot", refresh);
       doc.off("ack", refresh);
-      doc.off("fetch-state", refresh);
+      doc.off("loading", refresh);
       awareness.off("change", refresh);
       clearInterval(poll);
     };
