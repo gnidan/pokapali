@@ -457,6 +457,19 @@ export async function startRelay(
    * routing even when DHT provide fails, ensuring
    * relays connect to each other for GossipSub.
    */
+  // GossipSub direct peer set for guaranteed
+  // relay-to-relay message delivery. Verified at
+  // startup — all usage is runtime-checked
+  // (has/forEach), so dynamic additions take
+  // effect immediately.
+  const gs = (helia.libp2p.services as any).pubsub;
+  if (!(gs.direct instanceof Set)) {
+    log.error(
+      "GossipSub direct peer API changed!"
+      + " Relay-to-relay delivery may be degraded.",
+    );
+  }
+
   async function findAndDialProviders() {
     try {
       const ctrl = new AbortController();
@@ -471,6 +484,7 @@ export async function startRelay(
         })
       ) {
         found++;
+        const pid = provider.id.toString();
         for (const ma of provider.multiaddrs) {
           try {
             await helia.libp2p.dial(ma, {
@@ -480,6 +494,18 @@ export async function startRelay(
               "dialed relay provider:"
               + ` ${ma.toString().slice(-20)}`,
             );
+            // Promote to direct peer for guaranteed
+            // message delivery between relays.
+            if (
+              gs.direct instanceof Set
+              && !gs.direct.has(pid)
+            ) {
+              gs.direct.add(pid);
+              log.info(
+                `direct-peered relay`
+                + ` ...${pid.slice(-8)}`,
+              );
+            }
           } catch {
             // Dial failure is fine — peer may be
             // unreachable or already connected.
