@@ -1126,7 +1126,9 @@ function createDoc(
               peerId: pid,
               short: pid.slice(-8),
               connected,
-              roles: acked ? ["pinner"] : [],
+              roles: acked
+                ? ["relay", "pinner"]
+                : ["relay"],
               rolesConfirmed: false,
               ackedCurrentCid: acked,
               lastSeenAt: 0,
