@@ -83,6 +83,10 @@ function graphFp(graph: TopologyGraph): string {
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
   kind: TopologyNode["kind"];
 }
 
@@ -138,11 +142,12 @@ function useForceLayout(
     const sim = forceSimulation<SimNode>(simNodes)
       .force(
         "link",
-        forceLink(links)
-          .id((d: any) => d.id)
-          .distance((l: any) => {
-            const s = l.source as SimNode;
-            const t = l.target as SimNode;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (forceLink as any)(links)
+          .id((d: SimNode) => d.id)
+          .distance((l: { source: SimNode; target: SimNode }) => {
+            const s = l.source;
+            const t = l.target;
             if (
               s.kind === "self" ||
               t.kind === "self"
@@ -187,10 +192,10 @@ function useForceLayout(
         for (const n of simNodes) {
           m.set(n.id, {
             x: Math.max(
-              30, Math.min(W - 30, n.x!),
+              30, Math.min(W - 30, n.x),
             ),
             y: Math.max(
-              30, Math.min(H - 30, n.y!),
+              30, Math.min(H - 30, n.y),
             ),
           });
         }
