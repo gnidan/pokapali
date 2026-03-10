@@ -744,34 +744,26 @@ Note: `FsBlockstore` v3 `get()` returns an
 `AsyncGenerator`, not a `Uint8Array` — the relay wraps
 this with a safe type-check adapter.
 
-**Relay-to-relay GossipSub topology.** Currently relays
-use `floodPublish: true`, which broadcasts every message
-to all connected peers. This works at small scale but
-causes a broadcast storm at 100+ nodes. The designed
-replacement is **dynamic direct peering via DHT
-discovery**:
+**Relay-to-relay GossipSub topology.** Relays use mesh
+routing (`floodPublish: false`) with D=3, Dlo=2, Dhi=8.
+Relay-to-relay delivery relies on normal GossipSub mesh
+formation — relays discover each other via DHT
+`findProviders(networkCID)`, dial, and tag the connection
+via `peerStore.merge` (tag value 200) to prevent the
+connection manager from pruning relay peers. GossipSub
+then naturally GRAFTs connected relays into the mesh.
 
-1. Relays discover each other via DHT
-   `findProviders(networkCID)` (already implemented)
-2. After successful dial, add the peer to
-   `pubsub.direct` (a `Set<string>` on the GossipSub
-   instance, checked at runtime in `selectPeersToPublish`,
-   `selectPeersToForward`, `acceptFrom`,
-   `directConnect` heartbeat, and mesh exclusion)
-3. Direct peers always receive published messages
-   regardless of mesh state — guaranteed delivery
-   without broadcast
-4. Disable `floodPublish` on relays (browsers keep it —
-   they have only 2-4 relay peers, negligible bandwidth)
+**Why not `pubsub.direct`:** GossipSub's `direct` Set
+excludes peers from mesh membership (they bypass GRAFT/
+PRUNE). This is the opposite of what relays need —
+relay-to-relay message forwarding depends on mesh
+membership. Peer tagging + normal mesh formation gives
+both connection stability (tag prevents pruning) and
+mesh delivery (D=3 achievable with 4+ relays).
 
-This is ~7 lines of code in `relay.ts`
-(`findAndDialProviders`). No hardcoded addresses — relay
-discovery is entirely via DHT. The `directConnect()`
-heartbeat reconnects dropped direct peers using
-`this.direct` (the Set), not `this.opts.directPeers`
-(the config array), so dynamically added peers get
-heartbeat reconnection too. Expected 5× bandwidth
-reduction at 25+ peers.
+No relay addresses are hardcoded. Discovery is entirely
+via DHT. Adding a new relay requires only starting the
+process — GossipSub mesh formation is automatic.
 
 The HTTP server exposes:
 - `GET /healthz` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)

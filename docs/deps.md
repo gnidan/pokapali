@@ -88,17 +88,16 @@ dependencies only, not part of the library.
 GossipSub pubsub for WebRTC signaling, peer discovery,
 snapshot announcements, pinner acks, and node capability
 broadcasting. Used in @pokapali/core (browser) and
-@pokapali/node (relay). Currently configured with
-`floodPublish: true`; planned migration to dynamic
-`directPeers` for relay-to-relay delivery (populated
-from DHT discovery, no hardcoded addresses). Browsers
+@pokapali/node (relay). Relays use `floodPublish: false`
+with mesh routing (D=3, Dlo=2, Dhi=8) and peer tagging
+(tag value 200) for relay-to-relay delivery. Browsers
 keep `floodPublish: true` (2-4 relay peers, negligible
-bandwidth). Tuned D/Dlo/Dhi for small networks:
-relay D=3/Dlo=2/Dhi=6, browser D=2/Dlo=2/Dhi=4. IP
-colocation scoring disabled (`IPColocationFactorWeight:
-0`) because browser peers connect via p2p-circuit through
-relay IPs, triggering false positives. Pinned to
-versions compatible with helia ^5.5.1 / libp2p 2.
+bandwidth, D=2/Dlo=2/Dhi=4). `maxOutboundBufferSize`
+set to 10MB (default Infinity caused OOM). IP colocation
+scoring disabled (`IPColocationFactorWeight: 0`) because
+browser peers connect via p2p-circuit through relay IPs,
+triggering false positives. Pinned to versions compatible
+with helia ^5.5.1 / libp2p 2.
 
 ## @libp2p/crypto/keys
 
