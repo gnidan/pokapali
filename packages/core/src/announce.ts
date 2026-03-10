@@ -20,6 +20,9 @@ export interface AnnouncePubSub {
 
 export interface AnnouncementAck {
   peerId: string;
+  /** Unix timestamp (ms) until which the pinner
+   *  guarantees retention of this snapshot. */
+  guaranteeUntil?: number;
 }
 
 export interface Announcement {
