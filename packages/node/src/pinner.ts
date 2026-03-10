@@ -746,11 +746,11 @@ export async function createPinner(
       }
     }
     // Backfill lastSeenAt for names from old state
-    // files that don't have it — default to now so
-    // they don't get immediately pruned on upgrade.
+    // files that don't have it — use 0 so they get
+    // pruned on next cycle.
     for (const name of knownNames) {
       if (!lastSeenAt.has(name)) {
-        lastSeenAt.set(name, Date.now());
+        lastSeenAt.set(name, 0);
       }
     }
     // Seed the schedule queue from restored state
