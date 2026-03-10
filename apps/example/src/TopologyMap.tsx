@@ -126,6 +126,11 @@ function useForceLayout(
     const byId = new Map(
       simNodes.map((n) => [n.id, n]),
     );
+    const isInfra = (k: TopologyNode["kind"]) =>
+      k === "relay" ||
+      k === "pinner" ||
+      k === "relay+pinner";
+
     const links = graph.edges
       .filter(
         (e) =>
@@ -148,26 +153,51 @@ function useForceLayout(
           .distance((l: { source: SimNode; target: SimNode }) => {
             const s = l.source;
             const t = l.target;
+            const bothInfra =
+              isInfra(s.kind) &&
+              isInfra(t.kind);
+            // Infra-infra: tight cluster
+            if (bothInfra) return 40;
+            // Self-to-infra: moderate
             if (
               s.kind === "self" ||
               t.kind === "self"
             ) {
-              const o =
-                s.kind === "self" ? t : s;
-              return o.kind === "browser"
-                ? 55 : 95;
+              return 60;
             }
-            return 70;
+            // Browser-to-relay: long leash
+            return 110;
           })
-          .strength(0.7),
+          .strength((l: { source: SimNode; target: SimNode }) => {
+            const s = l.source;
+            const t = l.target;
+            const bothInfra =
+              isInfra(s.kind) &&
+              isInfra(t.kind);
+            // Strong pull between infra nodes
+            if (bothInfra) return 0.9;
+            // Weak pull from browser→relay
+            // so relays aren't dragged outward
+            if (
+              s.kind === "browser" ||
+              t.kind === "browser"
+            ) {
+              return 0.15;
+            }
+            return 0.7;
+          }),
       )
       .force(
         "charge",
         forceManyBody<SimNode>().strength((d) => {
           switch (d.kind) {
             case "self": return -350;
-            case "browser": return -60;
-            default: return -200;
+            // Browsers repel each other to
+            // spread out around the relay cluster
+            case "browser": return -150;
+            // Infra nodes: mild repulsion
+            // (tight cluster via strong links)
+            default: return -120;
           }
         }),
       )
@@ -180,8 +210,18 @@ function useForceLayout(
           )
           .strength(0.8),
       )
-      .force("x", forceX(CX).strength(0.04))
-      .force("y", forceY(CY).strength(0.04))
+      .force(
+        "x",
+        forceX<SimNode>(CX).strength((d) =>
+          isInfra(d.kind) ? 0.12 : 0.03,
+        ),
+      )
+      .force(
+        "y",
+        forceY<SimNode>(CY).strength((d) =>
+          isInfra(d.kind) ? 0.12 : 0.03,
+        ),
+      )
       .alpha(0.6)
       .alphaDecay(0.025)
       .on("tick", () => {
