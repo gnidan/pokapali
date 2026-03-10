@@ -20,8 +20,8 @@ export interface AnnouncePubSub {
 
 export interface AnnouncementAck {
   peerId: string;
-  /** Unix timestamp (ms) until which the pinner
-   *  guarantees retention of this snapshot. */
+  /** Absolute timestamp (ms since epoch) until which
+   *  the pinner guarantees service for this doc. */
   guaranteeUntil?: number;
 }
 
@@ -100,12 +100,17 @@ export async function announceAck(
   ipnsName: string,
   cid: string,
   peerId: string,
+  guaranteeUntil?: number,
 ): Promise<void> {
   const topic = announceTopic(appId);
+  const ack: AnnouncementAck = { peerId };
+  if (guaranteeUntil !== undefined) {
+    ack.guaranteeUntil = guaranteeUntil;
+  }
   const msg: Announcement = {
     ipnsName,
     cid,
-    ack: { peerId },
+    ack,
   };
   const data = new TextEncoder().encode(
     JSON.stringify(msg),

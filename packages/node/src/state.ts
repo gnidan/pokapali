@@ -6,6 +6,8 @@ export interface PinnerState {
   tips: Record<string, string>;
   /** Maps ipnsName → appId for re-announcing. */
   nameToAppId?: Record<string, string>;
+  /** Maps ipnsName → last announcement timestamp. */
+  lastSeenAt?: Record<string, number>;
 }
 
 export async function loadState(path: string): Promise<PinnerState> {

@@ -32,9 +32,21 @@ const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
 const REPUBLISH_PER_NAME_DELAY_MS = 5_000;
 const REPUBLISH_TIMEOUT_MS = 15_000;
-const REANNOUNCE_INTERVAL_MS = 5 * 60_000;
 const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
+
+// Continuous scheduling constants
+const BASE_INTERVAL_MS = 30_000;
+const HALF_LIFE_MS = 30 * 60_000; // 30 min
+const MAX_INTERVAL_MS = 6 * 60 * 60_000; // 6h
+const MIN_GUARANTEE_MS = 10 * 60_000;
+const SCHEDULE_TICK_MS = 5_000; // check queue every 5s
+
+// Self-tuning capacity
+const INITIAL_PER_DOC_MS = 50;
+const EMA_ALPHA = 0.3;
+// Prune metadata when tracking > capacity * 10
+const PRUNE_HEADROOM = 10;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -107,6 +119,145 @@ export async function createPinner(
   const lastAckedCid = new Map<string, string>();
   // Map ipnsName → appId for re-announcing.
   const nameToAppId = new Map<string, string>();
+  // Activity tracking for continuous scheduling
+  const lastSeenAt = new Map<string, number>();
+  // Monotonic guarantee tracking (not persisted)
+  const guaranteedUntil = new Map<string, number>();
+
+  // Self-tuning capacity measurement
+  let perDocEma = INITIAL_PER_DOC_MS;
+  // Count of docs re-announced in last cycle
+  let scheduledDocCount = 0;
+
+  // --- Min-heap for re-announce scheduling ---
+  interface ScheduledDoc {
+    ipnsName: string;
+    nextAt: number;
+  }
+  const heap: ScheduledDoc[] = [];
+
+  function heapPush(doc: ScheduledDoc): void {
+    heap.push(doc);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (heap[parent].nextAt <= heap[i].nextAt) break;
+      [heap[parent], heap[i]] = [heap[i], heap[parent]];
+      i = parent;
+    }
+  }
+
+  function heapPop(): ScheduledDoc | undefined {
+    if (heap.length === 0) return undefined;
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      let i = 0;
+      while (true) {
+        let smallest = i;
+        const l = 2 * i + 1;
+        const r = 2 * i + 2;
+        if (
+          l < heap.length
+          && heap[l].nextAt < heap[smallest].nextAt
+        ) smallest = l;
+        if (
+          r < heap.length
+          && heap[r].nextAt < heap[smallest].nextAt
+        ) smallest = r;
+        if (smallest === i) break;
+        [heap[i], heap[smallest]] =
+          [heap[smallest], heap[i]];
+        i = smallest;
+      }
+    }
+    return top;
+  }
+
+  function heapPeek(): ScheduledDoc | undefined {
+    return heap[0];
+  }
+
+  // Track which docs are in the heap to avoid dupes
+  const inHeap = new Set<string>();
+
+  function scheduleDoc(
+    ipnsName: string,
+    nextAt: number,
+  ): void {
+    // Remove existing entry by marking stale
+    // (lazy deletion — checked on pop)
+    heapPush({ ipnsName, nextAt });
+    inHeap.add(ipnsName);
+  }
+
+  // --- Continuous interval / capacity ---
+
+  function loadFactor(): number {
+    const capacity = maxActiveDocs();
+    const utilization = capacity > 0
+      ? scheduledDocCount / capacity
+      : 1;
+    if (utilization <= 0.5) return 1;
+    return 1 + 9 * Math.pow(
+      (utilization - 0.5) / 0.5,
+      2,
+    );
+  }
+
+  function reannounceInterval(
+    ipnsName: string,
+    now: number,
+  ): number {
+    // If guarantee is active, use base interval
+    const gUntil = guaranteedUntil.get(ipnsName);
+    if (gUntil && now < gUntil) {
+      return BASE_INTERVAL_MS;
+    }
+
+    const seen = lastSeenAt.get(ipnsName) ?? 0;
+    const age = now - seen;
+    const recencyFactor = Math.pow(
+      2,
+      age / HALF_LIFE_MS,
+    );
+    const interval =
+      BASE_INTERVAL_MS * recencyFactor * loadFactor();
+    return Math.min(interval, MAX_INTERVAL_MS);
+  }
+
+  function maxActiveDocs(): number {
+    return Math.max(
+      1,
+      Math.floor(
+        (BASE_INTERVAL_MS * 0.8) / perDocEma,
+      ),
+    );
+  }
+
+  function calculateGuarantee(): number {
+    const lf = loadFactor();
+    const ratio = MAX_INTERVAL_MS /
+      (BASE_INTERVAL_MS * lf);
+    if (ratio <= 1) return MIN_GUARANTEE_MS;
+    const ageAtMax = HALF_LIFE_MS * Math.log2(ratio);
+    return Math.max(
+      MIN_GUARANTEE_MS,
+      Math.round(ageAtMax),
+    );
+  }
+
+  function issueGuarantee(ipnsName: string): number {
+    const calculated =
+      Date.now() + calculateGuarantee();
+    const existing =
+      guaranteedUntil.get(ipnsName) ?? 0;
+    // Monotonic: never shorten a promise
+    const guarantee = Math.max(calculated, existing);
+    guaranteedUntil.set(ipnsName, guarantee);
+    return guarantee;
+  }
   // Track fire-and-forget async work so tests (and
   // graceful shutdown) can await completion.
   const pending = new Set<Promise<unknown>>();
@@ -124,7 +275,7 @@ export async function createPinner(
   let initialRepublishTimer: ReturnType<
     typeof setTimeout
   > | null = null;
-  let reannounceInterval: ReturnType<
+  let scheduleInterval: ReturnType<
     typeof setInterval
   > | null = null;
   let persistInterval: ReturnType<
@@ -280,9 +431,15 @@ export async function createPinner(
   }
 
   async function resolveAll(): Promise<void> {
-    const names = [...knownNames];
+    const now = Date.now();
+    const names = [...knownNames].filter(
+      (n) => reannounceInterval(n, now) < MAX_INTERVAL_MS,
+    );
     if (names.length === 0) return;
-    log.debug(`re-resolving ${names.length} names`);
+    log.debug(
+      `re-resolving ${names.length}/${knownNames.size}`
+      + ` scheduled names`,
+    );
     // Batch to avoid OOM from unbounded concurrency
     const BATCH_SIZE = 10;
     for (let i = 0; i < names.length; i += BATCH_SIZE) {
@@ -305,9 +462,17 @@ export async function createPinner(
     if (!helia) return;
 
     const name = ipns(helia as any);
-    const names = [...knownNames];
+    const now = Date.now();
+    // Only republish docs still being re-announced
+    const names = [...knownNames].filter(
+      (n) => reannounceInterval(n, now) < MAX_INTERVAL_MS,
+    );
     if (names.length === 0) return;
-    log.debug(`republishing IPNS for ${names.length} names`);
+    log.debug(
+      `republishing IPNS for`
+      + ` ${names.length}/${knownNames.size}`
+      + ` scheduled names`,
+    );
 
     for (const ipnsName of names) {
       if (stopped) break;
@@ -360,28 +525,43 @@ export async function createPinner(
    * saturate. Peers fetch blocks from blockstore if
    * they don't already have them.
    */
-  async function reannounceAll(): Promise<void> {
+  /**
+   * Process due docs from the priority queue.
+   * Called on a timer; pops docs whose nextAt has
+   * passed, re-announces them, and reschedules with
+   * a new interval based on recency and load.
+   */
+  async function processScheduleQueue(): Promise<void> {
     if (!helia || !config.pubsub) return;
     const start = Date.now();
-    const names = [...knownNames];
-    // Stagger: spread over 80% of the interval
-    const staggerMs = names.length > 1
-      ? (REANNOUNCE_INTERVAL_MS * 0.8) / names.length
-      : 0;
-    for (const ipnsName of names) {
-      if (stopped) break;
+    let count = 0;
+
+    while (heap.length > 0 && !stopped) {
+      const top = heapPeek()!;
+      if (top.nextAt > start) break;
+
+      heapPop();
+
+      // Skip if doc was removed or is stale
+      if (!knownNames.has(top.ipnsName)) {
+        inHeap.delete(top.ipnsName);
+        continue;
+      }
+
+      const ipnsName = top.ipnsName;
       const appId = nameToAppId.get(ipnsName);
       if (!appId) continue;
       const cidStr = history.getTip(ipnsName);
       if (!cidStr) continue;
+
       try {
-        // No inline block — peers fetch if needed
         await announceSnapshot(
           config.pubsub,
           appId,
           ipnsName,
           cidStr,
         );
+        count++;
         log.debug(
           `re-announced`
           + ` ${ipnsName.slice(0, 12)}...`
@@ -394,16 +574,92 @@ export async function createPinner(
           err,
         );
       }
-      // Stagger with jitter to avoid burst
-      if (staggerMs > 0) {
-        const jitter = Math.random() * staggerMs * 0.5;
-        await new Promise<void>((r) =>
-          setTimeout(r, staggerMs + jitter),
+
+      // Reschedule with new interval
+      const now = Date.now();
+      const interval = reannounceInterval(
+        ipnsName,
+        now,
+      );
+      if (interval < MAX_INTERVAL_MS) {
+        scheduleDoc(
+          ipnsName,
+          now + interval,
         );
+      } else {
+        inHeap.delete(ipnsName);
       }
     }
-    reannounceCount++;
-    lastReannounceMs = Date.now() - start;
+
+    if (count > 0) {
+      reannounceCount++;
+      const elapsed = Date.now() - start;
+      lastReannounceMs = elapsed;
+      scheduledDocCount = inHeap.size;
+
+      // Update capacity EMA
+      const measured = elapsed / count;
+      perDocEma =
+        EMA_ALPHA * measured
+        + (1 - EMA_ALPHA) * perDocEma;
+
+      log.debug(
+        `reannounce: ${count} docs in ${elapsed}ms`
+        + ` (${measured.toFixed(1)}ms/doc,`
+        + ` capacity=${maxActiveDocs()},`
+        + ` scheduled=${inHeap.size})`,
+      );
+    }
+  }
+
+  /**
+   * Prune docs when tracking exceeds capacity * 10.
+   * Removes oldest by lastSeenAt.
+   */
+  async function pruneIfNeeded(): Promise<void> {
+    const maxTracked =
+      maxActiveDocs() * PRUNE_HEADROOM;
+    if (knownNames.size <= maxTracked) return;
+
+    const sorted = [...knownNames]
+      .map((n) => ({
+        name: n,
+        seen: lastSeenAt.get(n) ?? 0,
+      }))
+      .sort((a, b) => a.seen - b.seen);
+
+    const toPrune = sorted.slice(
+      0,
+      knownNames.size - maxTracked,
+    );
+
+    for (const { name } of toPrune) {
+      // Delete block from blockstore
+      const tipCid = history.getTip(name);
+      if (tipCid && helia) {
+        try {
+          const cid = CID.parse(tipCid);
+          await helia.blockstore.delete(cid);
+        } catch {
+          // Block may already be gone
+        }
+      }
+
+      knownNames.delete(name);
+      lastSeenAt.delete(name);
+      lastAckedCid.delete(name);
+      nameToAppId.delete(name);
+      guaranteedUntil.delete(name);
+      inHeap.delete(name);
+    }
+
+    if (toPrune.length > 0) {
+      markDirty();
+      log.info(
+        `pruned ${toPrune.length} docs,`
+        + ` ${knownNames.size} remaining`,
+      );
+    }
   }
 
   async function restoreState(): Promise<void> {
@@ -415,8 +671,6 @@ export async function createPinner(
       for (const [name, cidStr] of
         Object.entries(state.tips)
       ) {
-        // Restore tip into history so
-        // reannounceAll can find it.
         history.add(
           name,
           CID.parse(cidStr),
@@ -429,6 +683,21 @@ export async function createPinner(
         Object.entries(state.nameToAppId)
       ) {
         nameToAppId.set(name, appId);
+      }
+    }
+    if (state.lastSeenAt) {
+      for (const [name, ts] of
+        Object.entries(state.lastSeenAt)
+      ) {
+        lastSeenAt.set(name, ts);
+      }
+    }
+    // Seed the schedule queue from restored state
+    const now = Date.now();
+    for (const name of knownNames) {
+      const interval = reannounceInterval(name, now);
+      if (interval < MAX_INTERVAL_MS) {
+        scheduleDoc(name, now + interval);
       }
     }
   }
@@ -446,6 +715,7 @@ export async function createPinner(
       nameToAppId: Object.fromEntries(
         nameToAppId,
       ),
+      lastSeenAt: Object.fromEntries(lastSeenAt),
     });
     lastPersistMs = Date.now() - start;
     stateWriteCount++;
@@ -513,11 +783,11 @@ export async function createPinner(
         }
       }, PERSIST_INTERVAL_MS);
 
-      // Periodic re-announce with inline blocks
+      // Schedule queue processor
       if (config.pubsub) {
-        reannounceInterval = setInterval(
-          () => { track(reannounceAll()); },
-          REANNOUNCE_INTERVAL_MS,
+        scheduleInterval = setInterval(
+          () => { track(processScheduleQueue()); },
+          SCHEDULE_TICK_MS,
         );
       }
     },
@@ -533,8 +803,8 @@ export async function createPinner(
       if (initialRepublishTimer) {
         clearTimeout(initialRepublishTimer);
       }
-      if (reannounceInterval) {
-        clearInterval(reannounceInterval);
+      if (scheduleInterval) {
+        clearInterval(scheduleInterval);
       }
       if (persistInterval) {
         clearInterval(persistInterval);
@@ -553,6 +823,9 @@ export async function createPinner(
     ): void {
       knownNames.add(ipnsName);
       if (appId) nameToAppId.set(ipnsName, appId);
+      // Update recency — any announcement (writer or
+      // reader re-announce) counts as activity.
+      lastSeenAt.set(ipnsName, Date.now());
 
       // Dedup: if we already fetched+acked this CID,
       // just re-ack (cheap) so new browsers see it.
@@ -566,6 +839,8 @@ export async function createPinner(
           config.pubsub &&
           config.peerId
         ) {
+          const guarantee =
+            issueGuarantee(ipnsName);
           track(
             announceAck(
               config.pubsub,
@@ -573,6 +848,7 @@ export async function createPinner(
               ipnsName,
               cidStr,
               config.peerId,
+              guarantee,
             ).catch((err) => {
               log.warn("re-ack failed:", err);
             }),
@@ -585,6 +861,9 @@ export async function createPinner(
         `announcement: name=${ipnsName.slice(0, 12)}...`
         + ` cid=${cidStr.slice(0, 12)}...`,
       );
+      // New CID supersedes old guarantee
+      guaranteedUntil.delete(ipnsName);
+
       // Fetch the announced CID directly (don't
       // re-resolve IPNS — the announcement has the
       // latest CID, IPNS may lag behind).
@@ -598,12 +877,15 @@ export async function createPinner(
                 config.pubsub &&
                 config.peerId
               ) {
+                const guarantee =
+                  issueGuarantee(ipnsName);
                 await announceAck(
                   config.pubsub,
                   appId,
                   ipnsName,
                   cidStr,
                   config.peerId,
+                  guarantee,
                 );
                 lastAckedCid.set(
                   ipnsName, cidStr,
@@ -633,6 +915,14 @@ export async function createPinner(
             );
           }),
         );
+      }
+
+      // Schedule for re-announce
+      const now = Date.now();
+      const interval =
+        reannounceInterval(ipnsName, now);
+      if (interval < MAX_INTERVAL_MS) {
+        scheduleDoc(ipnsName, now + interval);
       }
     },
 
@@ -666,6 +956,7 @@ export async function createPinner(
       // Store block
       await storeBlock(cid, block);
       knownNames.add(ipnsName);
+      lastSeenAt.set(ipnsName, Date.now());
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
       markDirty();
