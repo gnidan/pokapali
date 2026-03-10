@@ -11,6 +11,7 @@ import { publicKeyFromRaw } from "@libp2p/crypto/keys";
 import {
   announceAck,
   announceSnapshot,
+  announceTopic,
 } from "@pokapali/core/announce";
 import type {
   AnnouncePubSub,
@@ -97,6 +98,10 @@ export interface Pinner {
     blockData?: Uint8Array,
     fromPinner?: boolean,
   ): void;
+  onGuaranteeQuery(
+    ipnsName: string,
+    appId: string,
+  ): void;
   metrics(): PinnerMetrics;
   history: HistoryTracker;
 }
@@ -132,6 +137,12 @@ export async function createPinner(
   // Monotonic guarantee tracking per ipnsName.
   // Not persisted — fresh guarantees after restart.
   const guaranteedUntil = new Map<string, number>();
+  // Rate-limit guarantee query responses:
+  // max 1 response per ipnsName per 10s.
+  const lastQueryResponse = new Map<
+    string, number
+  >();
+  const QUERY_RESPONSE_COOLDOWN_MS = 10_000;
 
   // Self-tuning capacity measurement
   let perDocEma = INITIAL_PER_DOC_MS;
@@ -985,6 +996,55 @@ export async function createPinner(
       if (interval < MAX_INTERVAL_MS) {
         scheduleDoc(ipnsName, now + interval);
       }
+    },
+
+    onGuaranteeQuery(
+      ipnsName: string,
+      appId: string,
+    ): void {
+      if (!knownNames.has(ipnsName)) return;
+      if (!config.pubsub || !config.peerId) return;
+
+      // Rate-limit: max 1 response per name per 10s
+      const now = Date.now();
+      const last =
+        lastQueryResponse.get(ipnsName) ?? 0;
+      if (now - last < QUERY_RESPONSE_COOLDOWN_MS) {
+        return;
+      }
+      lastQueryResponse.set(ipnsName, now);
+
+      const cidStr = history.getTip(ipnsName);
+      if (!cidStr) return;
+
+      const g = issueGuarantee(ipnsName);
+      const response = {
+        type: "guarantee-response",
+        ipnsName,
+        peerId: config.peerId,
+        cid: cidStr,
+        guaranteeUntil: g.guaranteeUntil,
+        retainUntil: g.retainUntil,
+      };
+      const data = new TextEncoder().encode(
+        JSON.stringify(response),
+      );
+      const topic = announceTopic(appId);
+      track(
+        config.pubsub
+          .publish(topic, data)
+          .catch((err) => {
+            log.warn(
+              "guarantee response failed:",
+              err,
+            );
+          }),
+      );
+      log.debug(
+        `guarantee response:`
+        + ` ${ipnsName.slice(0, 12)}...`
+        + ` cid=${cidStr.slice(0, 12)}...`,
+      );
     },
 
     async ingest(

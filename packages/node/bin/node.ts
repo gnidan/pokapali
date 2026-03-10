@@ -169,6 +169,7 @@ async function main() {
             evt.detail.topic,
           );
           if (!appId) return;
+          // Try parsing as announcement first
           const msg = parseAnnouncement(
             evt.detail.data,
           );
@@ -183,6 +184,26 @@ async function main() {
               blockData,
               msg.fromPinner,
             );
+            return;
+          }
+
+          // Check for guarantee query
+          try {
+            const text = new TextDecoder().decode(
+              evt.detail.data,
+            );
+            const obj = JSON.parse(text);
+            if (
+              obj?.type === "guarantee-query" &&
+              typeof obj.ipnsName === "string"
+            ) {
+              pinner!.onGuaranteeQuery(
+                obj.ipnsName,
+                appId,
+              );
+            }
+          } catch {
+            // Not valid JSON — ignore
           }
         },
       );
