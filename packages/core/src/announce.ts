@@ -20,6 +20,10 @@ export interface AnnouncePubSub {
 
 export interface AnnouncementAck {
   peerId: string;
+  /** Re-announce guarantee end (ms epoch). */
+  guaranteeUntil?: number;
+  /** Block retention end (ms epoch). */
+  retainUntil?: number;
 }
 
 export interface Announcement {
@@ -29,6 +33,8 @@ export interface Announcement {
   ack?: AnnouncementAck;
   /** Base64-encoded snapshot block data. */
   block?: string;
+  /** True when sent by a pinner re-announce. */
+  fromPinner?: boolean;
 }
 
 /**
@@ -73,6 +79,7 @@ export async function announceSnapshot(
   cid: string,
   seq?: number,
   block?: Uint8Array,
+  fromPinner?: boolean,
 ): Promise<void> {
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
@@ -80,6 +87,7 @@ export async function announceSnapshot(
   if (block && block.length <= MAX_INLINE_BLOCK_BYTES) {
     msg.block = uint8ToBase64(block);
   }
+  if (fromPinner) msg.fromPinner = true;
   const data = new TextEncoder().encode(
     JSON.stringify(msg),
   );
@@ -97,12 +105,21 @@ export async function announceAck(
   ipnsName: string,
   cid: string,
   peerId: string,
+  guaranteeUntil?: number,
+  retainUntil?: number,
 ): Promise<void> {
   const topic = announceTopic(appId);
+  const ack: AnnouncementAck = { peerId };
+  if (guaranteeUntil !== undefined) {
+    ack.guaranteeUntil = guaranteeUntil;
+  }
+  if (retainUntil !== undefined) {
+    ack.retainUntil = retainUntil;
+  }
   const msg: Announcement = {
     ipnsName,
     cid,
-    ack: { peerId },
+    ack,
   };
   const data = new TextEncoder().encode(
     JSON.stringify(msg),

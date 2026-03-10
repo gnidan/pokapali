@@ -35,6 +35,14 @@ const REPUBLISH_TIMEOUT_MS = 15_000;
 const REANNOUNCE_INTERVAL_MS = 5 * 60_000;
 const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
+// Two-phase guarantee model:
+// Phase 1: active re-announcing (7 days from last activity)
+const GUARANTEE_DURATION_MS = 7 * 24 * 60 * 60_000;
+// Phase 2: block retention (14 days from last activity)
+const RETENTION_DURATION_MS = 14 * 24 * 60 * 60_000;
+// Exponential decay for re-announce scheduling
+const HALF_LIFE_MS = 12 * 60 * 60_000;
+const MAX_INTERVAL_MS = 24 * 60 * 60_000;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -77,6 +85,7 @@ export interface Pinner {
     cidStr: string,
     appId?: string,
     blockData?: Uint8Array,
+    fromPinner?: boolean,
   ): void;
   metrics(): PinnerMetrics;
   history: HistoryTracker;
@@ -107,6 +116,12 @@ export async function createPinner(
   const lastAckedCid = new Map<string, string>();
   // Map ipnsName → appId for re-announcing.
   const nameToAppId = new Map<string, string>();
+  // Last activity timestamp per doc (writer or reader
+  // announcement, NOT pinner re-announce).
+  const lastSeenAt = new Map<string, number>();
+  // Monotonic guarantee tracking per ipnsName.
+  // Not persisted — fresh guarantees after restart.
+  const guaranteedUntil = new Map<string, number>();
   // Track fire-and-forget async work so tests (and
   // graceful shutdown) can await completion.
   const pending = new Set<Promise<unknown>>();
@@ -158,6 +173,34 @@ export async function createPinner(
         });
       }
     }, PERSIST_DEBOUNCE_MS);
+  }
+
+  function calculateGuarantee(
+    ipnsName: string,
+  ): number {
+    const seen = lastSeenAt.get(ipnsName) ?? Date.now();
+    return seen + GUARANTEE_DURATION_MS;
+  }
+
+  function calculateRetainUntil(
+    ipnsName: string,
+  ): number {
+    const seen = lastSeenAt.get(ipnsName) ?? Date.now();
+    return seen + RETENTION_DURATION_MS;
+  }
+
+  function issueGuarantee(
+    ipnsName: string,
+  ): { guaranteeUntil: number; retainUntil: number } {
+    const calculated = calculateGuarantee(ipnsName);
+    const existing =
+      guaranteedUntil.get(ipnsName) ?? 0;
+    const guarantee = Math.max(calculated, existing);
+    guaranteedUntil.set(ipnsName, guarantee);
+    return {
+      guaranteeUntil: guarantee,
+      retainUntil: calculateRetainUntil(ipnsName),
+    };
   }
 
   async function storeBlock(
@@ -375,12 +418,17 @@ export async function createPinner(
       const cidStr = history.getTip(ipnsName);
       if (!cidStr) continue;
       try {
-        // No inline block — peers fetch if needed
+        // No inline block — peers fetch if needed.
+        // fromPinner: true so other pinners don't
+        // refresh lastSeenAt (prevents keep-alive loop).
         await announceSnapshot(
           config.pubsub,
           appId,
           ipnsName,
           cidStr,
+          undefined,
+          undefined,
+          true,
         );
         log.debug(
           `re-announced`
@@ -431,6 +479,21 @@ export async function createPinner(
         nameToAppId.set(name, appId);
       }
     }
+    if (state.lastSeenAt) {
+      for (const [name, ts] of
+        Object.entries(state.lastSeenAt)
+      ) {
+        lastSeenAt.set(name, ts);
+      }
+    }
+    // Backfill lastSeenAt for names from old state
+    // files that don't have it — default to now so
+    // they don't get immediately pruned on upgrade.
+    for (const name of knownNames) {
+      if (!lastSeenAt.has(name)) {
+        lastSeenAt.set(name, Date.now());
+      }
+    }
   }
 
   async function persistState(): Promise<void> {
@@ -446,9 +509,45 @@ export async function createPinner(
       nameToAppId: Object.fromEntries(
         nameToAppId,
       ),
+      lastSeenAt: Object.fromEntries(
+        lastSeenAt,
+      ),
     });
     lastPersistMs = Date.now() - start;
     stateWriteCount++;
+  }
+
+  /**
+   * Prune docs that have been inactive longer than
+   * RETENTION_DURATION_MS (14 days). Capacity backstop:
+   * if tracking > capacity * 10, prune oldest first.
+   */
+  function pruneIfNeeded(): void {
+    const now = Date.now();
+    const toPrune: string[] = [];
+    for (const name of knownNames) {
+      const seen = lastSeenAt.get(name) ?? 0;
+      if (seen + RETENTION_DURATION_MS < now) {
+        toPrune.push(name);
+      }
+    }
+    for (const name of toPrune) {
+      knownNames.delete(name);
+      lastSeenAt.delete(name);
+      lastAckedCid.delete(name);
+      nameToAppId.delete(name);
+      guaranteedUntil.delete(name);
+      log.debug(
+        `pruned expired doc`
+        + ` ${name.slice(0, 12)}...`,
+      );
+    }
+    if (toPrune.length > 0) {
+      markDirty();
+      log.info(
+        `pruned ${toPrune.length} expired docs`,
+      );
+    }
   }
 
   return {
@@ -474,6 +573,7 @@ export async function createPinner(
 
     async start(): Promise<void> {
       await restoreState();
+      pruneIfNeeded();
 
       // Resolve all persisted names on startup
       if (helia && knownNames.size > 0) {
@@ -550,9 +650,21 @@ export async function createPinner(
       cidStr: string,
       appId?: string,
       blockData?: Uint8Array,
+      fromPinner?: boolean,
     ): void {
       knownNames.add(ipnsName);
       if (appId) nameToAppId.set(ipnsName, appId);
+
+      // Only refresh lastSeenAt for non-pinner
+      // announcements (writer/reader activity).
+      // Pinner re-announces are supply signals and
+      // must NOT keep docs alive indefinitely.
+      if (!fromPinner) {
+        lastSeenAt.set(ipnsName, Date.now());
+        // Reset monotonic guarantee on new activity
+        // so it recalculates from fresh lastSeenAt.
+        guaranteedUntil.delete(ipnsName);
+      }
 
       // Dedup: if we already fetched+acked this CID,
       // just re-ack (cheap) so new browsers see it.
@@ -566,6 +678,7 @@ export async function createPinner(
           config.pubsub &&
           config.peerId
         ) {
+          const g = issueGuarantee(ipnsName);
           track(
             announceAck(
               config.pubsub,
@@ -573,6 +686,8 @@ export async function createPinner(
               ipnsName,
               cidStr,
               config.peerId,
+              g.guaranteeUntil,
+              g.retainUntil,
             ).catch((err) => {
               log.warn("re-ack failed:", err);
             }),
@@ -598,12 +713,17 @@ export async function createPinner(
                 config.pubsub &&
                 config.peerId
               ) {
+                // New CID — reset monotonic guarantee
+                guaranteedUntil.delete(ipnsName);
+                const g = issueGuarantee(ipnsName);
                 await announceAck(
                   config.pubsub,
                   appId,
                   ipnsName,
                   cidStr,
                   config.peerId,
+                  g.guaranteeUntil,
+                  g.retainUntil,
                 );
                 lastAckedCid.set(
                   ipnsName, cidStr,
@@ -666,6 +786,7 @@ export async function createPinner(
       // Store block
       await storeBlock(cid, block);
       knownNames.add(ipnsName);
+      lastSeenAt.set(ipnsName, Date.now());
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
       markDirty();

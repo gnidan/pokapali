@@ -181,6 +181,7 @@ async function main() {
               msg.cid,
               appId,
               blockData,
+              msg.fromPinner,
             );
           }
         },
