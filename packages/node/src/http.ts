@@ -135,6 +135,32 @@ export function startHttpServer(
       return;
     }
 
+    if (
+      req.method === "GET"
+      && url.pathname === "/metrics"
+    ) {
+      const mem = process.memoryUsage();
+      const data: Record<string, unknown> = {
+        memory: {
+          rss: mem.rss,
+          heapUsed: mem.heapUsed,
+          heapTotal: mem.heapTotal,
+          external: mem.external,
+        },
+        uptime: Math.floor(
+          (Date.now() - startedAt) / 1000,
+        ),
+        pinner: config.pinner
+          ? config.pinner.metrics()
+          : null,
+      };
+      res.writeHead(200, {
+        "content-type": "application/json",
+      });
+      res.end(JSON.stringify(data));
+      return;
+    }
+
     if (pinner) {
       const ingestMatch = url.pathname.match(
         /^\/ingest\/([a-zA-Z0-9._-]+)$/,

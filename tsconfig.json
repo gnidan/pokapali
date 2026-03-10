@@ -9,6 +9,7 @@
     { "path": "packages/sync" },
     { "path": "packages/core" },
     { "path": "packages/node" },
+    { "path": "packages/load-test" },
     { "path": "apps/example" }
   ]
 }

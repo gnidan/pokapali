@@ -51,6 +51,18 @@ export interface PinnerConfig {
   peerId?: string;
 }
 
+export interface PinnerMetrics {
+  knownNames: number;
+  tipsTracked: number;
+  acksTracked: number;
+  snapshotsIngested: number;
+  rateLimitRejects: number;
+  reannounceCount: number;
+  lastReannounceMs: number;
+  lastPersistMs: number;
+  stateWriteCount: number;
+}
+
 export interface Pinner {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -66,6 +78,7 @@ export interface Pinner {
     appId?: string,
     blockData?: Uint8Array,
   ): void;
+  metrics(): PinnerMetrics;
   history: HistoryTracker;
 }
 
@@ -121,6 +134,14 @@ export async function createPinner(
     typeof setTimeout
   > | null = null;
   let dirty = false;
+
+  // Counters for /metrics endpoint
+  let snapshotsIngested = 0;
+  let rateLimitRejects = 0;
+  let reannounceCount = 0;
+  let lastReannounceMs = 0;
+  let lastPersistMs = 0;
+  let stateWriteCount = 0;
 
   function markDirty(): void {
     dirty = true;
@@ -334,6 +355,7 @@ export async function createPinner(
    */
   async function reannounceAll(): Promise<void> {
     if (!helia || !config.pubsub) return;
+    const start = Date.now();
     for (const ipnsName of knownNames) {
       if (stopped) break;
       const appId = nameToAppId.get(ipnsName);
@@ -367,6 +389,8 @@ export async function createPinner(
         );
       }
     }
+    reannounceCount++;
+    lastReannounceMs = Date.now() - start;
   }
 
   async function restoreState(): Promise<void> {
@@ -397,6 +421,7 @@ export async function createPinner(
   }
 
   async function persistState(): Promise<void> {
+    const start = Date.now();
     const tips: Record<string, string> = {};
     for (const name of knownNames) {
       const tip = history.getTip(name);
@@ -409,10 +434,26 @@ export async function createPinner(
         nameToAppId,
       ),
     });
+    lastPersistMs = Date.now() - start;
+    stateWriteCount++;
   }
 
   return {
     history,
+
+    metrics(): PinnerMetrics {
+      return {
+        knownNames: knownNames.size,
+        tipsTracked: history.allNames().length,
+        acksTracked: lastAckedCid.size,
+        snapshotsIngested,
+        rateLimitRejects,
+        reannounceCount,
+        lastReannounceMs,
+        lastPersistMs,
+        stateWriteCount,
+      };
+    },
 
     async flush(): Promise<void> {
       await Promise.allSettled([...pending]);
@@ -592,6 +633,7 @@ export async function createPinner(
         block.byteLength,
       );
       if (!check.allowed) {
+        rateLimitRejects++;
         return false;
       }
 
@@ -614,6 +656,7 @@ export async function createPinner(
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
       markDirty();
+      snapshotsIngested++;
 
       return true;
     },
