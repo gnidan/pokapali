@@ -23,6 +23,10 @@ export interface AnnouncementAck {
   /** Unix timestamp (ms) until which the pinner
    *  guarantees retention of this snapshot. */
   guaranteeUntil?: number;
+  /** Unix timestamp (ms) until which the pinner
+   *  will retain the block (requested by writer,
+   *  before full guarantee is confirmed). */
+  retainUntil?: number;
 }
 
 export interface Announcement {
@@ -32,6 +36,9 @@ export interface Announcement {
   ack?: AnnouncementAck;
   /** Base64-encoded snapshot block data. */
   block?: string;
+  /** True when this announcement originates from
+   *  a pinner (re-announce), not a writer. */
+  fromPinner?: boolean;
 }
 
 /**
@@ -94,18 +101,31 @@ export async function announceSnapshot(
  * Sent after a pinner successfully fetches and
  * validates a snapshot block.
  */
+export interface AnnounceAckOptions {
+  guaranteeUntil?: number;
+  retainUntil?: number;
+}
+
 export async function announceAck(
   pubsub: AnnouncePubSub,
   appId: string,
   ipnsName: string,
   cid: string,
   peerId: string,
+  options?: AnnounceAckOptions,
 ): Promise<void> {
   const topic = announceTopic(appId);
+  const ack: AnnouncementAck = { peerId };
+  if (options?.guaranteeUntil !== undefined) {
+    ack.guaranteeUntil = options.guaranteeUntil;
+  }
+  if (options?.retainUntil !== undefined) {
+    ack.retainUntil = options.retainUntil;
+  }
   const msg: Announcement = {
     ipnsName,
     cid,
-    ack: { peerId },
+    ack,
   };
   const data = new TextEncoder().encode(
     JSON.stringify(msg),

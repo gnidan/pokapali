@@ -77,6 +77,9 @@ export interface SnapshotWatcher {
   /** Latest guarantee-until timestamp across all
    *  pinners for the current CID, or null if none. */
   readonly guaranteeUntil: number | null;
+  /** Latest retain-until timestamp across all
+   *  pinners for the current CID, or null if none. */
+  readonly retainUntil: number | null;
   /** GossipSub liveness: inactive → subscribed →
    *  receiving. Decays after 60s without messages. */
   readonly gossipActivity: GossipActivity;
@@ -111,7 +114,10 @@ export function createSnapshotWatcher(
    *  loop between readers). */
   let lastAnnouncedCid: string | null = null;
   const ackedBy = new Set<string>();
-  const pinnerGuarantees = new Map<string, number>();
+  const pinnerGuarantees = new Map<
+    string,
+    { guarantee: number; retain: number }
+  >();
   let retryTimer: ReturnType<
     typeof setTimeout
   > | null = null;
@@ -239,14 +245,26 @@ export function createSnapshotWatcher(
       if (ann.cid === ackedCid) {
         const isNew = !ackedBy.has(ann.ack.peerId);
         ackedBy.add(ann.ack.peerId);
-        if (ann.ack.guaranteeUntil !== undefined) {
+        if (
+          ann.ack.guaranteeUntil !== undefined ||
+          ann.ack.retainUntil !== undefined
+        ) {
           const prev =
             pinnerGuarantees.get(
               ann.ack.peerId,
-            ) ?? 0;
+            ) ?? { guarantee: 0, retain: 0 };
           pinnerGuarantees.set(
             ann.ack.peerId,
-            Math.max(prev, ann.ack.guaranteeUntil),
+            {
+              guarantee: Math.max(
+                prev.guarantee,
+                ann.ack.guaranteeUntil ?? 0,
+              ),
+              retain: Math.max(
+                prev.retain,
+                ann.ack.retainUntil ?? 0,
+              ),
+            },
           );
         }
         if (isNew) {
@@ -541,7 +559,20 @@ export function createSnapshotWatcher(
 
     get guaranteeUntil(): number | null {
       if (pinnerGuarantees.size === 0) return null;
-      return Math.max(...pinnerGuarantees.values());
+      let max = 0;
+      for (const v of pinnerGuarantees.values()) {
+        if (v.guarantee > max) max = v.guarantee;
+      }
+      return max || null;
+    },
+
+    get retainUntil(): number | null {
+      if (pinnerGuarantees.size === 0) return null;
+      let max = 0;
+      for (const v of pinnerGuarantees.values()) {
+        if (v.retain > max) max = v.retain;
+      }
+      return max || null;
     },
 
     get gossipActivity(): GossipActivity {
