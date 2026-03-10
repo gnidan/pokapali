@@ -767,13 +767,13 @@ body {
 
 .topo-svg {
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
   height: auto;
 }
 
 .topo-label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   fill: #fff;
   pointer-events: none;
 }
@@ -785,8 +785,21 @@ body {
   pointer-events: none;
 }
 
+.topo-label-peer {
+  font-size: 9px;
+  font-weight: 600;
+  fill: #fff;
+  pointer-events: none;
+}
+
 .topo-role {
   font-size: 7px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.topo-guarantee {
+  font-size: 6.5px;
   font-weight: 500;
   pointer-events: none;
 }
@@ -806,9 +819,15 @@ body {
 }
 
 .topo-badge-text {
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 700;
   fill: #fff;
+  pointer-events: none;
+}
+
+.topo-legend-text {
+  font-size: 7px;
+  fill: #64748b;
   pointer-events: none;
 }
 
@@ -822,7 +841,7 @@ body {
 
 @keyframes edge-glow {
   0% { stroke-opacity: 1; stroke-width: 3; }
-  100% { stroke-opacity: 0.8; stroke-width: 2; }
+  100% { stroke-opacity: 0.5; stroke-width: 1.5; }
 }
 
 @keyframes ring-expand {

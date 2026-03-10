@@ -514,6 +514,9 @@ export function ConnectionStatus({
   const [expanded, setExpanded] = useState(false);
   const historyRef = useRef<History>(emptyHistory());
   const [pulseKey, setPulseKey] = useState(0);
+  const [awarenessPeers, setAwarenessPeers] = useState<
+    { name: string; color: string }[]
+  >([]);
 
   useEffect(() => {
     let active = true;
@@ -523,6 +526,20 @@ export function ConnectionStatus({
         const d = doc.diagnostics();
         pushSample(historyRef.current, d);
         setInfo(d);
+        // Extract other browsers from awareness
+        const localId = doc.awareness.clientID;
+        const peers: { name: string; color: string }[] = [];
+        doc.awareness.getStates().forEach(
+          (state, id) => {
+            if (id !== localId && state.user) {
+              peers.push(state.user as {
+                name: string;
+                color: string;
+              });
+            }
+          },
+        );
+        setAwarenessPeers(peers);
       } catch {
         // doc destroyed during teardown
       }
@@ -675,8 +692,8 @@ export function ConnectionStatus({
       {expanded && (
         <div className="cs-detail">
           <TopologyMap
-            nodes={info.nodes}
-            editors={info.editors}
+            info={info}
+            awarenessPeers={awarenessPeers}
             pulseKey={pulseKey}
           />
           <NetworkDetail
