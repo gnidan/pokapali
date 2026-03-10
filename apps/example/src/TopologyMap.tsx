@@ -242,6 +242,12 @@ function useParticles(
 
     for (const e of edges) {
       if (!e.connected) continue;
+      // Only animate edges involving _self —
+      // we only observe our own send/receive.
+      if (
+        e.source !== "_self" &&
+        e.target !== "_self"
+      ) continue;
       if (!posMap.has(e.source)) continue;
       if (!posMap.has(e.target)) continue;
       // Bidirectional: spawn particles both ways
