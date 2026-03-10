@@ -225,6 +225,11 @@ export async function startRelay(
     "/p2p-circuit",
   ];
 
+  // Relay peer IDs discovered via DHT. Created before
+  // Helia so the appSpecificScore callback can
+  // reference it. Populated in findAndDialProviders.
+  const knownRelayPeerIds = new Set<string>();
+
   const defaults = libp2pDefaults();
   const helia = await createHelia({
     blockstore: blockstore as any,
@@ -290,6 +295,10 @@ export async function startRelay(
             maxOutboundBufferSize: 10 * 1024 * 1024,
             scoreParams: {
               IPColocationFactorWeight: 0,
+              appSpecificScore: (peerId: string) =>
+                knownRelayPeerIds.has(peerId)
+                  ? 100 : 0,
+              appSpecificWeight: 1,
             },
           }),
           autoTLS: autoTLS({
@@ -589,6 +598,7 @@ export async function startRelay(
                 },
               },
             ).catch(() => {});
+            knownRelayPeerIds.add(pid);
             log.info(
               `tagged relay`
               + ` ...${pid.slice(-8)}`,
