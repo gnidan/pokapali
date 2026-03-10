@@ -57,6 +57,10 @@ vi.mock("./announce.js", () => ({
     "/pokapali/app/test/announce",
   ),
   parseAnnouncement: vi.fn().mockReturnValue(null),
+  parseGuaranteeResponse:
+    vi.fn().mockReturnValue(null),
+  publishGuaranteeQuery:
+    vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./peer-discovery.js", () => ({
