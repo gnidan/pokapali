@@ -14,6 +14,7 @@ import {
 } from "@pokapali/core/announce";
 import type {
   AnnouncePubSub,
+  AnnouncementAck,
 } from "@pokapali/core/announce";
 import {
   createRateLimiter,
@@ -35,6 +36,9 @@ const REPUBLISH_TIMEOUT_MS = 15_000;
 const REANNOUNCE_INTERVAL_MS = 30_000;
 const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
+// How far into the future the pinner guarantees
+// retention when re-announcing a snapshot.
+const GUARANTEE_DURATION_MS = 24 * 60 * 60_000;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -346,6 +350,16 @@ export async function createPinner(
           cid,
           { signal: AbortSignal.timeout(5_000) },
         );
+        // Embed ack with guarantee so browsers
+        // see retention info on first message.
+        const ack: AnnouncementAck | undefined =
+          config.peerId
+            ? {
+                peerId: config.peerId,
+                guaranteeUntil:
+                  Date.now() + GUARANTEE_DURATION_MS,
+              }
+            : undefined;
         await announceSnapshot(
           config.pubsub,
           appId,
@@ -353,6 +367,7 @@ export async function createPinner(
           cidStr,
           undefined,
           block,
+          ack,
         );
         log.debug(
           `re-announced`

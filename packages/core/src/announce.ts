@@ -83,6 +83,7 @@ export async function announceSnapshot(
   cid: string,
   seq?: number,
   block?: Uint8Array,
+  ack?: AnnouncementAck,
 ): Promise<void> {
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
@@ -90,6 +91,7 @@ export async function announceSnapshot(
   if (block && block.length <= MAX_INLINE_BLOCK_BYTES) {
     msg.block = uint8ToBase64(block);
   }
+  if (ack) msg.ack = ack;
   const data = new TextEncoder().encode(
     JSON.stringify(msg),
   );
