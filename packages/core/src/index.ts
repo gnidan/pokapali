@@ -157,6 +157,9 @@ export interface DiagnosticsInfo {
   hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
   ackedBy: string[];
+  /** Latest guarantee-until timestamp across all
+   *  pinners for the current CID, or null if none. */
+  guaranteeUntil: number | null;
 }
 
 export interface CollabDoc {
@@ -191,6 +194,9 @@ export interface CollabDoc {
   readonly hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
   readonly ackedBy: ReadonlySet<string>;
+  /** Latest guarantee-until timestamp across all
+   *  pinners for the current CID, or null if none. */
+  readonly guaranteeUntil: number | null;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -682,6 +688,11 @@ function createCollabDoc(
         ?? new Set();
     },
 
+    get guaranteeUntil(): number | null {
+      return snapshotWatcher?.guaranteeUntil
+        ?? null;
+    },
+
     whenReady(): Promise<void> {
       return readyPromise;
     },
@@ -1073,6 +1084,8 @@ function createCollabDoc(
           snapshotWatcher?.hasAppliedSnapshot
             ?? false,
         ackedBy: [...ackedSet],
+        guaranteeUntil:
+          snapshotWatcher?.guaranteeUntil ?? null,
       };
     },
 
