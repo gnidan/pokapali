@@ -266,8 +266,10 @@ describe("thinSnapshots", () => {
     tracker.add("doc1", tip, now - 1000);
 
     // Two snapshots in hour-bucket X, two in
-    // hour-bucket X+1, at 10 days ago
-    const baseTs = now - 10 * DAY;
+    // hour-bucket X+1, at 10 days ago.
+    // Align to hour boundary so +30min stays in
+    // the same bucket regardless of wall clock.
+    const baseTs = Math.floor((now - 10 * DAY) / HOUR) * HOUR;
     const h0a = await makeCid("h0a");
     const h0b = await makeCid("h0b");
     const h1a = await makeCid("h1a");

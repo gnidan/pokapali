@@ -352,6 +352,11 @@ async function main() {
       helia: relayHandle?.helia,
       pubsub,
       peerId,
+      retentionConfig: {
+        fullResolutionMs: retentionFullMs,
+        hourlyRetentionMs: retentionHourlyMs,
+        dailyRetentionMs: retentionDailyMs,
+      },
     });
     await pinner.start();
     log.info(`pinner started for: ${pinApps.join(", ")}`);

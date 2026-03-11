@@ -15,7 +15,7 @@ import type { AnnouncePubSub, AnnouncementAck } from "@pokapali/core/announce";
 import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
-import type { HistoryTracker } from "./history.js";
+import type { HistoryTracker, RetentionConfig } from "./history.js";
 import { loadState, saveState } from "./state.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { createLogger } from "@pokapali/log";
@@ -38,6 +38,15 @@ const PERSIST_DEBOUNCE_MS = 5_000;
 const GUARANTEE_DURATION_MS = 7 * 24 * 60 * 60_000;
 // Phase 2: block retention (14 days from last activity)
 const RETENTION_DURATION_MS = 14 * 24 * 60 * 60_000;
+
+// Version thinning sweep interval (6 hours)
+const THIN_SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
+
+const DEFAULT_RETENTION: RetentionConfig = {
+  fullResolutionMs: 7 * 24 * 60 * 60_000,
+  hourlyRetentionMs: 14 * 24 * 60 * 60_000,
+  dailyRetentionMs: 30 * 24 * 60 * 60_000,
+};
 
 // Continuous scheduling constants
 const BASE_INTERVAL_MS = 30_000;
@@ -64,6 +73,8 @@ export interface PinnerConfig {
   pubsub?: AnnouncePubSub;
   /** Stable peer ID for ack attribution. */
   peerId?: string;
+  /** Version retention tiers for thinning. */
+  retentionConfig?: RetentionConfig;
 }
 
 export interface PinnerMetrics {
@@ -108,6 +119,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   const statePath = config.storagePath + "/state.json";
   const historyIndexPath = config.storagePath + "/history-index.json";
   const helia = config.helia;
+  const retention = config.retentionConfig ?? DEFAULT_RETENTION;
 
   // In-memory block store as fallback when no Helia
   const memBlocks = new Map<string, Uint8Array>();
@@ -273,6 +285,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   let scheduleInterval: ReturnType<typeof setInterval> | null = null;
   let persistInterval: ReturnType<typeof setInterval> | null = null;
   let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let thinSweepInterval: ReturnType<typeof setInterval> | null = null;
   let dirty = false;
 
   // Counters for /metrics endpoint
@@ -730,17 +743,20 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
 
     for (const name of toPrune) {
-      // Delete block from blockstore
-      const tipCid = history.getTip(name);
-      if (tipCid && helia) {
-        try {
-          const cid = CID.parse(tipCid);
-          await helia.blockstore.delete(cid);
-        } catch (err) {
-          log.warn(
-            "blockstore delete failed for" + ` ${name.slice(0, 12)}...:`,
-            (err as Error).message,
-          );
+      // Delete ALL blocks for this doc, not just tip
+      const entry = history.getEntry(name);
+      if (entry && helia) {
+        for (const snap of entry.snapshots) {
+          try {
+            const cid = CID.parse(snap.cid);
+            await helia.blockstore.delete(cid);
+          } catch {
+            // Block already missing — fine
+          }
+        }
+      } else if (entry) {
+        for (const snap of entry.snapshots) {
+          memBlocks.delete(snap.cid);
         }
       }
 
@@ -930,6 +946,51 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
   }
 
+  /**
+   * Thin version history for a single doc: keep tip,
+   * one-per-hour in hourly tier, one-per-day in daily
+   * tier, prune beyond daily retention. Deletes
+   * removed blocks from blockstore.
+   */
+  async function thinVersionHistory(ipnsName: string): Promise<number> {
+    const removed = history.thinSnapshots(ipnsName, retention);
+    if (removed.length === 0) return 0;
+
+    if (helia) {
+      for (const cid of removed) {
+        try {
+          await helia.blockstore.delete(cid);
+        } catch {
+          // Block already missing — fine
+        }
+      }
+    } else {
+      for (const cid of removed) {
+        memBlocks.delete(cid.toString());
+      }
+    }
+    markDirty();
+    return removed.length;
+  }
+
+  /**
+   * Sweep all known names, thinning version history.
+   * Runs periodically (every 6h).
+   */
+  async function thinSweep(): Promise<void> {
+    let totalRemoved = 0;
+    for (const name of knownNames) {
+      if (stopped) break;
+      totalRemoved += await thinVersionHistory(name);
+    }
+    if (totalRemoved > 0) {
+      log.info(
+        `thin sweep: removed ${totalRemoved} blocks` +
+          ` across ${knownNames.size} docs`,
+      );
+    }
+  }
+
   async function persistState(): Promise<void> {
     const start = Date.now();
     const tips: Record<string, string> = {};
@@ -1016,6 +1077,11 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         }
       }, PERSIST_INTERVAL_MS);
 
+      // Periodic version thinning sweep
+      thinSweepInterval = setInterval(() => {
+        track(thinSweep());
+      }, THIN_SWEEP_INTERVAL_MS);
+
       // Schedule queue processor
       if (config.pubsub) {
         scheduleInterval = setInterval(() => {
@@ -1044,6 +1110,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       }
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
+      }
+      if (thinSweepInterval) {
+        clearInterval(thinSweepInterval);
       }
       await persistState();
     },
@@ -1118,6 +1187,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
                   g.retainUntil,
                 );
                 lastAckedCid.set(ipnsName, cidStr);
+                // Thin old versions after new ingest
+                await thinVersionHistory(ipnsName);
                 markDirty();
                 log.debug(
                   `acked` +
@@ -1226,6 +1297,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
       snapshotsIngested++;
+
+      // Thin old versions after ingesting new one
+      await thinVersionHistory(ipnsName);
 
       // Persist immediately — HTTP ingest is rare
       // and the caller needs crash safety (no 5s
