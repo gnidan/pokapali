@@ -27,7 +27,7 @@ export async function uploadBlock(
         body: block.buffer.slice(
           block.byteOffset,
           block.byteOffset + block.byteLength,
-        ),
+        ) as ArrayBuffer,
         headers: {
           "Content-Type": "application/octet-stream",
         },
