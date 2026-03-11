@@ -465,7 +465,7 @@ export function VersionHistory({
         {/* Version list */}
         <div className="vh-list-section">
           {listState.status === "loading" && (
-            <Spinner label="Loading history\u2026" />
+            <Spinner label="Loading history…" />
           )}
 
           {listState.status === "error" && (
@@ -518,9 +518,7 @@ export function VersionHistory({
             </div>
           )}
 
-          {preview.status === "loading" && (
-            <Spinner label="Loading version\u2026" />
-          )}
+          {preview.status === "loading" && <Spinner label="Loading version…" />}
 
           {preview.status === "error" && (
             <div className="vh-error">
@@ -540,7 +538,7 @@ export function VersionHistory({
                     onClick={() => setConfirmEntry(selectedEntry!)}
                     disabled={restoring}
                   >
-                    {restoring ? "Restoring\u2026" : "Restore"}
+                    {restoring ? "Restoring…" : "Restore"}
                   </button>
                 )}
                 {selectedIsCurrent && (
