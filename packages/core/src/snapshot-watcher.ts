@@ -251,8 +251,10 @@ export function createSnapshotWatcher(
       log.info(
         "guarantee response received from",
         gResp.peerId.slice(-8),
-        "guarantee:", gResp.guaranteeUntil,
-        "retain:", gResp.retainUntil,
+        "guarantee:",
+        gResp.guaranteeUntil,
+        "retain:",
+        gResp.retainUntil,
       );
       touchGossip();
       // Update guarantees for the responding pinner
