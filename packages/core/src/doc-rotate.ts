@@ -1,3 +1,4 @@
+import { createLogger } from "@pokapali/log";
 import type { Capability, CapabilityKeys } from "@pokapali/capability";
 import {
   inferCapability,
@@ -22,6 +23,8 @@ import {
 import { getHelia } from "./helia.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
 import type { Doc, DocParams } from "./create-doc.js";
+
+const log = createLogger("core:rotate");
 
 export interface RotateResult {
   newDoc: Doc;
@@ -138,8 +141,8 @@ export async function rotateDoc(
   let newRoomDiscovery;
   try {
     newRoomDiscovery = startRoomDiscovery(getHelia(), ctx.appId);
-  } catch {
-    // Helia may not be available
+  } catch (err) {
+    log.debug("room discovery skipped:", (err as Error)?.message ?? err);
   }
 
   const newDoc = createDocFn({

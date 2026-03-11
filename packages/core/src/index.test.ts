@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import {
-  clearForwardingStore,
+  _resetForwardingStore,
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
@@ -108,7 +108,7 @@ const OPTS = {
 describe("@pokapali/core", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearForwardingStore();
+    _resetForwardingStore();
   });
 
   it("create() returns Doc", async () => {

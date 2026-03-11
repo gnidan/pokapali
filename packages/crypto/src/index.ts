@@ -6,7 +6,7 @@ export function generateAdminSecret(): string {
   return base64urlEncode(bytes);
 }
 
-function base64urlEncode(bytes: Uint8Array): string {
+export function base64urlEncode(bytes: Uint8Array): string {
   const binStr = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
   return btoa(binStr)
     .replace(/\+/g, "-")

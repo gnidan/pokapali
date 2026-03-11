@@ -329,7 +329,6 @@ export {
   encodeForwardingRecord,
   decodeForwardingRecord,
   verifyForwardingRecord,
-  clearForwardingStore,
 } from "./forwarding.js";
 export type { ForwardingRecord } from "./forwarding.js";
 export { createAutoSaver } from "./auto-save.js";

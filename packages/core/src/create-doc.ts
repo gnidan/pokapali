@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type {
@@ -378,6 +377,7 @@ export function createDoc(params: DocParams): Doc {
       topSharing = createTopologySharing({
         awareness: awarenessRoom.awareness,
         registry,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         libp2p: (helia as any).libp2p,
       });
       registry.on("change", nodeChangeHandler);
@@ -718,6 +718,7 @@ export function createDoc(params: DocParams): Doc {
       return result as RotateResult;
     },
 
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     on(event: string, cb: (...args: any[]) => void) {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
@@ -728,6 +729,7 @@ export function createDoc(params: DocParams): Doc {
     off(event: string, cb: (...args: any[]) => void) {
       listeners.get(event)?.delete(cb);
     },
+    /* eslint-enable @typescript-eslint/no-explicit-any */
 
     diagnostics(): Diagnostics {
       assertNotDestroyed();

@@ -1,4 +1,5 @@
 import type { DocKeys } from "@pokapali/crypto";
+import { base64urlEncode } from "@pokapali/crypto";
 
 export interface CapabilityKeys {
   readKey?: CryptoKey;
@@ -254,14 +255,6 @@ export function narrowCapability(
 export type { DocKeys };
 
 // --- Encoding utilities ---
-
-function base64urlEncode(bytes: Uint8Array): string {
-  const binStr = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
-  return btoa(binStr)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
 
 function base64urlDecode(s: string): Uint8Array {
   const padded = s + "=".repeat((4 - (s.length % 4)) % 4);

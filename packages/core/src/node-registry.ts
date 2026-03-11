@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { PubSubLike } from "@pokapali/sync";
 import type { Helia } from "helia";
 import { createLogger } from "@pokapali/log";
@@ -76,16 +75,12 @@ function parseNeighbors(arr: unknown): Neighbor[] {
   if (!Array.isArray(arr)) return [];
   const result: Neighbor[] = [];
   for (const item of arr) {
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as any).peerId === "string"
-    ) {
-      const n: Neighbor = {
-        peerId: (item as any).peerId,
-      };
-      if (typeof (item as any).role === "string") {
-        n.role = (item as any).role;
+    if (typeof item !== "object" || item === null) continue;
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.peerId === "string") {
+      const n: Neighbor = { peerId: obj.peerId };
+      if (typeof obj.role === "string") {
+        n.role = obj.role;
       }
       result.push(n);
     }
@@ -178,10 +173,12 @@ export function createNodeRegistry(
   function getConnectedPeerIds(): Set<string> {
     try {
       const helia = getHelia();
-      const conns = (helia as any).libp2p.getConnections();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lp2p = (helia as any).libp2p;
+      const conns = lp2p.getConnections();
       const pids = new Set<string>();
       for (const conn of conns) {
-        pids.add((conn as any).remotePeer.toString());
+        pids.add(conn.remotePeer.toString());
       }
       return pids;
     } catch {
