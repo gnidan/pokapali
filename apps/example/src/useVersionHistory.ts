@@ -70,28 +70,41 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
 
   const tipCidStr = doc.tipCid?.toString() ?? null;
 
-  // Fetch version list + listen for new snapshots
+  // Fetch version list + listen for new snapshots.
+  // Wait for doc.ready() before fetching so the local
+  // chain has been loaded (fixes empty-history regression
+  // when pinner HTTP index is unavailable).
   useEffect(() => {
     cancelRef.current = false;
     setListState({ status: "loading" });
+    let fetched = false;
 
-    doc
-      .versionHistory()
-      .then((entries) => {
-        if (cancelRef.current) return;
-        setVersions(entries);
-        setListState({ status: "idle" });
-      })
-      .catch((err) => {
-        if (cancelRef.current) return;
-        setListState({
-          status: "error",
-          message: err instanceof Error ? err.message : String(err),
+    const fetchHistory = () => {
+      if (cancelRef.current || fetched) return;
+      fetched = true;
+      doc
+        .versionHistory()
+        .then((entries) => {
+          if (cancelRef.current) return;
+          setVersions(entries);
+          setListState({ status: "idle" });
+        })
+        .catch((err) => {
+          if (cancelRef.current) return;
+          setListState({
+            status: "error",
+            message: err instanceof Error ? err.message : String(err),
+          });
         });
-      });
+    };
+
+    doc.ready().then(fetchHistory);
 
     const onSnapshot = (e: { cid: unknown; seq: number; ts: number }) => {
       if (cancelRef.current) return;
+      // If we haven't fetched yet, trigger fetch now
+      // since the doc clearly has data.
+      if (!fetched) fetchHistory();
       setVersions((prev) => {
         if (prev.some((v) => v.seq === e.seq)) return prev;
         const entry: VersionEntry = {
