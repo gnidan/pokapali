@@ -1,21 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import type { Editor } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import Collaboration from "@tiptap/extension-collaboration";
-import DiffMatchPatch from "diff-match-patch";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — y-prosemirror has no type declarations
-import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Doc as YDoc } from "yjs";
 import type { Doc, VersionEntry } from "@pokapali/core";
 import type { VersionHistoryData } from "./useVersionHistory";
 
-const dmp = new DiffMatchPatch();
-
 // ── Types ────────────────────────────────────────
 
-type PreviewState =
+type LoadState =
   | { status: "idle" }
   | { status: "loading"; seq: number }
   | { status: "loaded"; seq: number; ydoc: YDoc }
@@ -33,26 +23,6 @@ function relativeAge(ts: number): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
   return days === 1 ? "1 day ago" : `${days} days ago`;
-}
-
-// ── Restore helper ───────────────────────────────
-
-async function restoreVersion(
-  doc: Doc,
-  editor: Editor,
-  cid: unknown,
-): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const channels = await doc.loadVersion(cid as any);
-  const versionDoc = channels["content"] ?? Object.values(channels)[0];
-  if (!versionDoc) {
-    throw new Error("No content in this version");
-  }
-
-  const frag = versionDoc.getXmlFragment("default");
-  const json = yXmlFragmentToProsemirrorJSON(frag);
-  editor.commands.setContent(json);
-  await doc.publish();
 }
 
 // ── Version list item ────────────────────────────
@@ -109,59 +79,6 @@ function VersionListItem({
   );
 }
 
-// ── Version preview (read-only Tiptap) ───────────
-
-function VersionPreview({ ydoc }: { ydoc: YDoc }) {
-  const editor = useEditor(
-    {
-      editable: false,
-      extensions: [
-        StarterKit.configure({ history: false }),
-        Collaboration.configure({ document: ydoc }),
-      ],
-    },
-    [ydoc],
-  );
-
-  return (
-    <div className="vh-preview">
-      <EditorContent editor={editor} />
-    </div>
-  );
-}
-
-// ── Diff view (inline additions/deletions) ───────
-
-function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
-  const parts = useMemo(() => {
-    const diffs = dmp.diff_main(oldText, newText);
-    dmp.diff_cleanupSemantic(diffs);
-    return diffs;
-  }, [oldText, newText]);
-
-  return (
-    <div className="vh-diff">
-      {parts.map(([op, text], i) => {
-        if (op === DiffMatchPatch.DIFF_INSERT) {
-          return (
-            <span key={i} className="vh-diff-add">
-              {text}
-            </span>
-          );
-        }
-        if (op === DiffMatchPatch.DIFF_DELETE) {
-          return (
-            <span key={i} className="vh-diff-del">
-              {text}
-            </span>
-          );
-        }
-        return <span key={i}>{text}</span>;
-      })}
-    </div>
-  );
-}
-
 // ── Spinner ──────────────────────────────────────
 
 function Spinner({ label }: { label: string }) {
@@ -173,86 +90,26 @@ function Spinner({ label }: { label: string }) {
   );
 }
 
-// ── Confirm dialog ───────────────────────────────
-
-function RestoreConfirm({
-  seq,
-  ts,
-  onConfirm,
-  onCancel,
-}: {
-  seq: number;
-  ts: number;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div
-      className="vh-confirm-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Confirm restore"
-    >
-      <div className="vh-confirm">
-        <p className="vh-confirm-text">
-          Restore to version #{seq} from {relativeAge(ts)}?
-        </p>
-        <p className="vh-confirm-note">
-          This creates a new version with the old content.
-        </p>
-        <div className="vh-confirm-actions">
-          <button className="vh-confirm-cancel" onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="vh-confirm-ok" onClick={onConfirm}>
-            Restore
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Toast notification ───────────────────────────
-
-function Toast({ message, onDone }: { message: string; onDone: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onDone, 3_000);
-    return () => clearTimeout(t);
-  }, [onDone]);
-
-  return (
-    <div className="vh-toast" role="status">
-      {message}
-    </div>
-  );
-}
-
 // ── Main component ───────────────────────────────
 
 export function VersionHistory({
   doc,
-  editor,
   history,
   onClose,
+  onPreview,
 }: {
   doc: Doc;
-  editor: Editor | null;
-  /** Preloaded version history data from useVersionHistory. */
+  /** Preloaded version history data. */
   history: VersionHistoryData;
   onClose: () => void;
+  /** Called when a version is loaded for preview. */
+  onPreview: (entry: VersionEntry, ydoc: YDoc) => void;
 }) {
-  const { versions, listState, versionTexts, deltas, visibleVersions } =
-    history;
+  const { versions, listState, deltas, visibleVersions } = history;
 
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
-  const [preview, setPreview] = useState<PreviewState>({
-    status: "idle",
-  });
+  const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
   const [unavailable, setUnavailable] = useState<Set<number>>(new Set());
-  const [confirmEntry, setConfirmEntry] = useState<VersionEntry | null>(null);
-  const [restoring, setRestoring] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const cancelRef = useRef(false);
 
   useEffect(() => {
@@ -264,107 +121,59 @@ export function VersionHistory({
 
   const tipCidStr = doc.tipCid?.toString() ?? null;
 
-  // Load a specific version for preview
+  // Load a specific version, then signal parent.
   const selectVersion = useCallback(
     (entry: VersionEntry) => {
       setSelectedSeq(entry.seq);
-      setPreview({
+      setLoadState({
         status: "loading",
         seq: entry.seq,
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      doc.loadVersion(entry.cid as any).then(
-        (channels) => {
-          if (cancelRef.current) return;
-          const ydoc = channels["content"] ?? Object.values(channels)[0];
-          if (!ydoc) {
-            setPreview({
+      doc
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .loadVersion(entry.cid as any)
+        .then(
+          (channels) => {
+            if (cancelRef.current) return;
+            const ydoc = channels["content"] ?? Object.values(channels)[0];
+            if (!ydoc) {
+              setLoadState({
+                status: "error",
+                seq: entry.seq,
+                message: "No content in this version",
+              });
+              return;
+            }
+            setLoadState({
+              status: "loaded",
+              seq: entry.seq,
+              ydoc,
+            });
+            onPreview(entry, ydoc);
+          },
+          (err) => {
+            if (cancelRef.current) return;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/not found|unknown cid/i.test(msg)) {
+              setUnavailable((prev) => {
+                const next = new Set(prev);
+                next.add(entry.seq);
+                return next;
+              });
+            }
+            setLoadState({
               status: "error",
               seq: entry.seq,
-              message: "No content in this version",
+              message: msg,
             });
-            return;
-          }
-          setPreview({
-            status: "loaded",
-            seq: entry.seq,
-            ydoc,
-          });
-        },
-        (err) => {
-          if (cancelRef.current) return;
-          const msg = err instanceof Error ? err.message : String(err);
-          if (/not found|unknown cid/i.test(msg)) {
-            setUnavailable((prev) => {
-              const next = new Set(prev);
-              next.add(entry.seq);
-              return next;
-            });
-          }
-          setPreview({
-            status: "error",
-            seq: entry.seq,
-            message: msg,
-          });
-        },
-      );
+          },
+        );
     },
-    [doc],
+    [doc, onPreview],
   );
 
-  // Restore flow
-  const handleRestore = useCallback(async () => {
-    if (!confirmEntry || !editor) return;
-    setRestoring(true);
-    try {
-      await restoreVersion(doc, editor, confirmEntry.cid);
-      setToast(`Restored to version #${confirmEntry.seq}`);
-      setConfirmEntry(null);
-      setRestoring(false);
-      setTimeout(() => onClose(), 1_500);
-    } catch (err) {
-      setRestoring(false);
-      setConfirmEntry(null);
-      setPreview({
-        status: "error",
-        seq: confirmEntry.seq,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [doc, editor, confirmEntry, onClose]);
-
   const unavailableCount = unavailable.size;
-
-  const selectedEntry =
-    selectedSeq != null ? versions.find((v) => v.seq === selectedSeq) : null;
-  const selectedIsCurrent =
-    selectedEntry != null &&
-    tipCidStr != null &&
-    selectedEntry.cid.toString() === tipCidStr;
-
-  // Diff texts for the selected version vs predecessor
-  const diffPair = useMemo<{
-    oldText: string;
-    newText: string;
-  } | null>(() => {
-    if (preview.status !== "loaded") return null;
-    const newText = versionTexts.get(preview.seq);
-    if (newText === undefined) return null;
-    const idx = versions.findIndex((v) => v.seq === preview.seq);
-    if (idx < 0) return null;
-    const prev = versions[idx + 1];
-    if (!prev) return { oldText: "", newText };
-    const oldText = versionTexts.get(prev.seq);
-    if (oldText === undefined) return null;
-    return { oldText, newText };
-  }, [preview, versions, versionTexts]);
-
-  const canRestore =
-    editor != null &&
-    doc.capability.canPushSnapshots &&
-    preview.status === "loaded" &&
-    !selectedIsCurrent;
 
   return (
     <div
@@ -384,7 +193,6 @@ export function VersionHistory({
       </div>
 
       <div className="vh-body">
-        {/* Version list */}
         <div className="vh-list-section">
           {listState.status === "loading" && (
             <Spinner label="Loading history…" />
@@ -413,7 +221,9 @@ export function VersionHistory({
                   onSelect={() => {
                     if (selectedSeq === entry.seq) {
                       setSelectedSeq(null);
-                      setPreview({ status: "idle" });
+                      setLoadState({
+                        status: "idle",
+                      });
                     } else {
                       selectVersion(entry);
                     }
@@ -439,64 +249,20 @@ export function VersionHistory({
             )}
         </div>
 
-        {/* Preview pane */}
-        <div className="vh-preview-section">
-          {preview.status === "idle" && (
-            <div className="vh-preview-placeholder">
-              Select a version to preview
-            </div>
+        {/* Loading / error status for version load */}
+        <div className="vh-status-section">
+          {loadState.status === "loading" && (
+            <Spinner label="Loading version…" />
           )}
-
-          {preview.status === "loading" && <Spinner label="Loading version…" />}
-
-          {preview.status === "error" && (
+          {loadState.status === "error" && (
             <div className="vh-error">
-              {/not found|unknown cid/i.test(preview.message)
+              {/not found|unknown cid/i.test(loadState.message)
                 ? "Version unavailable"
-                : preview.message}
+                : loadState.message}
             </div>
-          )}
-
-          {preview.status === "loaded" && (
-            <>
-              <div className="vh-preview-header">
-                <span>Version #{preview.seq}</span>
-                {canRestore && (
-                  <button
-                    className="vh-restore-btn"
-                    onClick={() => setConfirmEntry(selectedEntry!)}
-                    disabled={restoring}
-                  >
-                    {restoring ? "Restoring…" : "Restore"}
-                  </button>
-                )}
-                {selectedIsCurrent && (
-                  <span className="vh-current-label">Current version</span>
-                )}
-              </div>
-              {diffPair ? (
-                <DiffView
-                  oldText={diffPair.oldText}
-                  newText={diffPair.newText}
-                />
-              ) : (
-                <VersionPreview ydoc={preview.ydoc} />
-              )}
-            </>
           )}
         </div>
       </div>
-
-      {confirmEntry && (
-        <RestoreConfirm
-          seq={confirmEntry.seq}
-          ts={confirmEntry.ts}
-          onConfirm={handleRestore}
-          onCancel={() => setConfirmEntry(null)}
-        />
-      )}
-
-      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
 }
