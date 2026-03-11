@@ -177,10 +177,37 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   const inHeap = new Set<string>();
 
   function scheduleDoc(ipnsName: string, nextAt: number): void {
-    // Remove existing entry by marking stale
-    // (lazy deletion — checked on pop)
+    // Lazy deletion — old entry stays in heap as
+    // stale until popped or compacted.
+    if (inHeap.has(ipnsName)) stalePushes++;
     heapPush({ ipnsName, nextAt });
     inHeap.add(ipnsName);
+  }
+
+  // Track stale pushes so we can compact when the
+  // heap grows too large relative to live entries.
+  let stalePushes = 0;
+  const COMPACT_THRESHOLD = 500;
+
+  function compactHeap(): void {
+    // Rebuild heap keeping only the latest entry
+    // per ipnsName that is still in knownNames.
+    const best = new Map<string, ScheduledDoc>();
+    for (const doc of heap) {
+      if (!knownNames.has(doc.ipnsName)) continue;
+      const existing = best.get(doc.ipnsName);
+      if (!existing || doc.nextAt < existing.nextAt) {
+        best.set(doc.ipnsName, doc);
+      }
+    }
+    heap.length = 0;
+    inHeap.clear();
+    for (const doc of best.values()) {
+      heapPush(doc);
+      inHeap.add(doc.ipnsName);
+    }
+    stalePushes = 0;
+    log.debug(`heap compacted: ${best.size} entries`);
   }
 
   // --- Continuous interval / capacity ---
@@ -234,6 +261,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     p.finally(() => pending.delete(p));
   }
   let stopped = false;
+  const shutdownCtrl = new AbortController();
   let resolveInterval: ReturnType<typeof setInterval> | null = null;
   let republishInterval: ReturnType<typeof setInterval> | null = null;
   let initialRepublishTimer: ReturnType<typeof setTimeout> | null = null;
@@ -406,7 +434,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
    */
   /**
    * Republish a single IPNS record. Extracted so it
-   * can be called in parallel batches.
+   * can be called in parallel batches. Uses combined
+   * signal: per-call timeout + shutdown abort so the
+   * process doesn't hang on stop().
    */
   async function republishOne(ipnsName: string): Promise<boolean> {
     if (!helia) return false;
@@ -416,12 +446,15 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       const keyBytes = hexToBytes(ipnsName);
       const pubKey = publicKeyFromRaw(keyBytes);
 
-      const result = await name.resolve(pubKey, {
-        signal: AbortSignal.timeout(REPUBLISH_TIMEOUT_MS),
-      });
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(REPUBLISH_TIMEOUT_MS),
+        shutdownCtrl.signal,
+      ]);
+
+      const result = await name.resolve(pubKey, { signal });
 
       await name.republishRecord(pubKey.toMultihash(), result.record, {
-        signal: AbortSignal.timeout(REPUBLISH_TIMEOUT_MS),
+        signal,
       });
       log.debug(`republished IPNS for` + ` ${ipnsName.slice(0, 12)}...`);
       return true;
@@ -571,6 +604,11 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
           ` capacity=${maxActiveDocs()},` +
           ` scheduled=${inHeap.size})`,
       );
+    }
+
+    // Compact heap when stale entries accumulate
+    if (stalePushes >= COMPACT_THRESHOLD) {
+      compactHeap();
     }
   }
 
@@ -763,6 +801,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
     async stop(): Promise<void> {
       stopped = true;
+      shutdownCtrl.abort();
       if (resolveInterval) {
         clearInterval(resolveInterval);
       }

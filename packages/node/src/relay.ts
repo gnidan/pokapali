@@ -606,10 +606,11 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
 
   // Re-provide after autoTLS certificate is obtained
   // so the DHT peer record includes WSS addresses.
-  helia.libp2p.addEventListener("certificate:provision", () => {
+  const onCertProvision = () => {
     log.info("certificate obtained, re-providing");
     setTimeout(() => provideAll(), 15_000);
-  });
+  };
+  helia.libp2p.addEventListener("certificate:provision", onCertProvision);
 
   // Periodic re-provide
   const provideInterval = setInterval(provideAll, PROVIDE_INTERVAL_MS);
@@ -688,6 +689,10 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
       clearInterval(provideInterval);
       clearInterval(logInterval);
       clearInterval(capsInterval);
+      helia.libp2p.removeEventListener(
+        "certificate:provision",
+        onCertProvision,
+      );
       await helia.stop();
       log.info("stopped");
     },
