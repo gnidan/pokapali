@@ -555,6 +555,10 @@ describe("@pokapali/core", () => {
             peerId: string;
             roles: string[];
             lastSeenAt: number;
+            connected: boolean;
+            neighbors: { peerId: string; role?: string }[];
+            browserCount: number;
+            addrs: string[];
           }
         >();
         const mockRegistry = {
