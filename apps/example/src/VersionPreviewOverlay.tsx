@@ -151,11 +151,11 @@ function buildDiffDecorations(
       previewOffset += text.length;
     } else if (op === DiffMatchPatch.DIFF_DELETE) {
       // Text in current, not in preview → red widget.
-      // Strip synthetic '\n' block separators — they
-      // are not real content.
-      const cleaned = text.replace(/\n/g, " ").trim();
-      if (!cleaned) {
-        // Pure whitespace/newline diff — skip
+      // Split at synthetic '\n' block separators and
+      // filter empty segments.
+      const parts = text.split("\n").filter((s) => s.length > 0);
+      if (parts.length === 0) {
+        // Pure structural diff — skip
         continue;
       }
       const insertPos =
@@ -173,10 +173,15 @@ function buildDiffDecorations(
           Decoration.widget(
             insertPos,
             () => {
-              const span = document.createElement("span");
-              span.className = "vh-diff-del";
-              span.textContent = cleaned;
-              return span;
+              const el = document.createElement("span");
+              el.className = "vh-diff-del";
+              parts.forEach((part, i) => {
+                if (i > 0) {
+                  el.appendChild(document.createElement("br"));
+                }
+                el.appendChild(document.createTextNode(part));
+              });
+              return el;
             },
             { side: -1 },
           ),

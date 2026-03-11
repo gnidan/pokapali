@@ -119,6 +119,7 @@ export function VersionHistory({
   history,
   onClose,
   onPreview,
+  onClosePreview,
 }: {
   doc: Doc;
   /** Preloaded version history data. */
@@ -126,6 +127,8 @@ export function VersionHistory({
   onClose: () => void;
   /** Called when a version is loaded for preview. */
   onPreview: (entry: VersionEntry, ydoc: YDoc) => void;
+  /** Called when the user deselects (closes preview). */
+  onClosePreview: () => void;
 }) {
   const { versions, listState, deltas, visibleVersions } = history;
 
@@ -133,6 +136,9 @@ export function VersionHistory({
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
   const [unavailable, setUnavailable] = useState<Set<number>>(new Set());
   const cancelRef = useRef(false);
+  // Monotonic counter — only the latest request
+  // should call onPreview.
+  const requestRef = useRef(0);
 
   useEffect(() => {
     cancelRef.current = false;
@@ -146,6 +152,7 @@ export function VersionHistory({
   // Load a specific version, then signal parent.
   const selectVersion = useCallback(
     (entry: VersionEntry) => {
+      const requestId = ++requestRef.current;
       setSelectedSeq(entry.seq);
       setLoadState({
         status: "loading",
@@ -158,6 +165,11 @@ export function VersionHistory({
         .then(
           (channels) => {
             if (cancelRef.current) return;
+            // Stale — user clicked a different
+            // version while this was loading.
+            if (requestRef.current !== requestId) {
+              return;
+            }
             const ydoc = channels["content"] ?? Object.values(channels)[0];
             if (!ydoc) {
               setLoadState({
@@ -176,6 +188,9 @@ export function VersionHistory({
           },
           (err) => {
             if (cancelRef.current) return;
+            if (requestRef.current !== requestId) {
+              return;
+            }
             const msg = err instanceof Error ? err.message : String(err);
             if (/not found|unknown cid/i.test(msg)) {
               setUnavailable((prev) => {
@@ -246,6 +261,7 @@ export function VersionHistory({
                       setLoadState({
                         status: "idle",
                       });
+                      onClosePreview();
                     } else {
                       selectVersion(entry);
                     }

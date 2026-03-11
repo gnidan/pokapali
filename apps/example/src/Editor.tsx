@@ -404,6 +404,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             history={versionHistory}
             onClose={() => setShowHistory(false)}
             onPreview={handleVersionPreview}
+            onClosePreview={closePreview}
           />
         )}
       </div>
