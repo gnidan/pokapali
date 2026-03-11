@@ -495,6 +495,84 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
+  it("fires onNodeChange when neighbors change", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 0),
+    });
+    reg.onNodeChange(cb);
+
+    // Same roles, different neighbors — should fire
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-A",
+        ["relay"],
+        [{ peerId: "peer-B", role: "relay" }],
+        0,
+      ),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("fires onNodeChange when browserCount" + " changes", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 2),
+    });
+    reg.onNodeChange(cb);
+
+    // Same roles, different browserCount — should fire
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 5),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("fires onNodeChange when httpUrl changes", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 0),
+    });
+    reg.onNodeChange(cb);
+
+    // Same roles, new httpUrl — should fire
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-A",
+        ["relay"],
+        [],
+        0,
+        [],
+        "https://example.com:4443",
+      ),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
   it(
     "requires 2 consecutive disconnected checks" + " before flipping connected",
     () => {

@@ -124,6 +124,23 @@ function rolesEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
+function neighborsEqual(a: Neighbor[], b: Neighbor[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].peerId !== b[i].peerId) return false;
+    if (a[i].role !== b[i].role) return false;
+  }
+  return true;
+}
+
+function addrsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export function createNodeRegistry(
   pubsub: PubSubLike,
   getHelia: () => Helia,
@@ -171,11 +188,17 @@ export function createNodeRegistry(
 
     const connected = getConnectedPeerIds().has(caps.peerId);
     const prev = nodes.get(caps.peerId);
+    const newNeighbors = caps.neighbors ?? [];
+    const newAddrs = caps.addrs ?? [];
     const changed =
       !prev ||
       prev.connected !== connected ||
       prev.stale ||
-      !rolesEqual(prev.roles, caps.roles);
+      !rolesEqual(prev.roles, caps.roles) ||
+      !neighborsEqual(prev.neighbors, newNeighbors) ||
+      prev.browserCount !== caps.browserCount ||
+      prev.httpUrl !== caps.httpUrl ||
+      !addrsEqual(prev.addrs, newAddrs);
     // Fresh caps broadcast — reset hysteresis and
     // clear stale flag.
     disconnectCounts.delete(caps.peerId);
