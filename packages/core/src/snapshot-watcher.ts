@@ -185,9 +185,7 @@ export function createSnapshotWatcher(
   // after subscribe (GRAFT requires a heartbeat).
   // Readers delay here; writers delay in
   // startReannounce.
-  let initialQueryTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
+  let initialQueryTimer: ReturnType<typeof setTimeout> | null = null;
   if (!isWriter) {
     initialQueryTimer = setTimeout(() => {
       initialQueryTimer = null;
@@ -253,8 +251,10 @@ export function createSnapshotWatcher(
       log.info(
         "guarantee response received from",
         gResp.peerId.slice(-8),
-        "guarantee:", gResp.guaranteeUntil,
-        "retain:", gResp.retainUntil,
+        "guarantee:",
+        gResp.guaranteeUntil,
+        "retain:",
+        gResp.retainUntil,
       );
       touchGossip();
       // Update guarantees for the responding pinner
@@ -263,18 +263,25 @@ export function createSnapshotWatcher(
         guarantee: 0,
         retain: 0,
       };
-      pinnerGuarantees.set(gResp.peerId, {
+      const updated = {
         guarantee: Math.max(prev.guarantee, gResp.guaranteeUntil ?? 0),
         retain: Math.max(prev.retain, gResp.retainUntil ?? 0),
-      });
-      // Also track as acked if CID matches
+      };
+      const changed =
+        updated.guarantee !== prev.guarantee || updated.retain !== prev.retain;
+      pinnerGuarantees.set(gResp.peerId, updated);
+      // Track as acked if CID matches
       if (gResp.cid === ackedCid) {
         const isNew = !ackedBy.has(gResp.peerId);
         ackedBy.add(gResp.peerId);
         if (isNew) {
           log.debug("guarantee-response from", gResp.peerId.slice(-8));
-          options.onAck?.(gResp.peerId);
         }
+      }
+      // Notify on any guarantee change so the UI
+      // can update even without a CID match.
+      if (changed) {
+        options.onAck?.(gResp.peerId);
       }
       return;
     }
