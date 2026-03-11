@@ -93,7 +93,8 @@ export async function fetchVersionHistory(
     }
   }
 
-  // Fallback: local chain walking
+  // Fallback: local chain walking (no tier/expiresAt)
+  log.debug("no pinner HTTP history available, falling back to local chain");
   try {
     return await localHistory();
   } catch (err) {

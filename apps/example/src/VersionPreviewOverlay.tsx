@@ -151,10 +151,10 @@ function buildDiffDecorations(
       previewOffset += text.length;
     } else if (op === DiffMatchPatch.DIFF_DELETE) {
       // Text in current, not in preview → red widget.
-      // Split at synthetic '\n' block separators and
-      // filter empty segments.
-      const parts = text.split("\n").filter((s) => s.length > 0);
-      if (parts.length === 0) {
+      // Replace synthetic block-boundary '\n' with
+      // spaces for continuous inline display.
+      const cleaned = text.replace(/\n/g, " ").trim();
+      if (cleaned.length === 0) {
         // Pure structural diff — skip
         continue;
       }
@@ -175,12 +175,7 @@ function buildDiffDecorations(
             () => {
               const el = document.createElement("span");
               el.className = "vh-diff-del";
-              parts.forEach((part, i) => {
-                if (i > 0) {
-                  el.appendChild(document.createElement("br"));
-                }
-                el.appendChild(document.createTextNode(part));
-              });
+              el.textContent = cleaned;
               return el;
             },
             { side: -1 },
