@@ -14,6 +14,10 @@
       "types": "./dist/src/announce.d.ts",
       "default": "./dist/src/announce.js"
     },
+    "./block-upload": {
+      "types": "./dist/src/block-upload.d.ts",
+      "default": "./dist/src/block-upload.js"
+    },
     "./snapshot-lifecycle": {
       "types": "./dist/src/snapshot-lifecycle.d.ts",
       "default": "./dist/src/snapshot-lifecycle.js"

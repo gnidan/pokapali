@@ -14,6 +14,7 @@ interface Config {
   readers: number;
   durationS: number;
   bootstrap: string[];
+  httpUrls: string[];
   output: string | undefined;
   ramp: boolean;
   appId: string;
@@ -27,6 +28,7 @@ function parseArgs(argv: string[]): Config {
     readers: 0,
     durationS: 60,
     bootstrap: [],
+    httpUrls: [],
     output: undefined,
     ramp: false,
     appId: "pokapali-example",
@@ -46,6 +48,8 @@ function parseArgs(argv: string[]): Config {
       config.durationS = parseInt(argv[++i], 10);
     } else if (arg === "--bootstrap" && argv[i + 1]) {
       config.bootstrap.push(argv[++i]);
+    } else if (arg === "--http-url" && argv[i + 1]) {
+      config.httpUrls.push(argv[++i]);
     } else if (arg === "--output" && argv[i + 1]) {
       config.output = argv[++i];
     } else if (arg === "--ramp") {
@@ -152,6 +156,7 @@ async function main() {
       appId: config.appId,
       editIntervalMs: config.intervalMs,
       editSizeBytes: config.editSizeBytes,
+      httpUrls: config.httpUrls,
       onEvent(event: WriterEvent) {
         const mapped = mapWriterEvent(event, docId);
         if (mapped) metrics.record(mapped);
