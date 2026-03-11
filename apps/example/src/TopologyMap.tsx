@@ -150,13 +150,14 @@ function useForceLayout(
 
   // One-time simulation creation
   useEffect(() => {
-    const nodes = nodesRef.current;
     const tick = () => {
       const m = new Map<
         string,
         { x: number; y: number }
       >();
-      for (const n of nodes) {
+      // Read live ref — nodes array is replaced
+      // on each graph update
+      for (const n of nodesRef.current) {
         m.set(n.id, {
           x: Math.max(
             30, Math.min(W - 30, n.x),
@@ -169,7 +170,9 @@ function useForceLayout(
       setPosMap(m);
     };
 
-    const sim = forceSimulation<SimNode>(nodes)
+    const sim = forceSimulation<SimNode>(
+      nodesRef.current,
+    )
       .force(
         "link",
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
