@@ -430,7 +430,7 @@ function NodeShape({
   if (showGuarantee) {
     tip.push(
       guaranteeActive
-        ? `— pinned ${formatRelativeTime(guaranteeUntil)}`
+        ? `— retained ${formatRelativeTime(guaranteeUntil)}+`
         : "— guarantee expired",
     );
   }
@@ -533,7 +533,7 @@ function NodeShape({
           }
         >
           {guaranteeActive
-            ? `pinned ${formatRelativeTime(guaranteeUntil)}`
+            ? `retained ${formatRelativeTime(guaranteeUntil)}+`
             : "expired"}
         </text>
       )}
@@ -628,9 +628,14 @@ function Tooltip({
         <div className="topo-tooltip-ack">Acked current snapshot</div>
       )}
       {gActive && (
-        <div className={"topo-tooltip-guarantee active"}>
-          Pinned for {formatRelativeTime(guaranteeUntil!)}
-        </div>
+        <>
+          <div className={"topo-tooltip-guarantee active"}>
+            Retained {formatRelativeTime(guaranteeUntil!)}+
+          </div>
+          <div className="topo-tooltip-detail">
+            Rolling minimum — pinners auto-refresh
+          </div>
+        </>
       )}
       {gExpired && (
         <div className={"topo-tooltip-guarantee expired"}>
