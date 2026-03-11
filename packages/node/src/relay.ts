@@ -612,15 +612,24 @@ export async function startRelay(
                   },
                 },
               },
-            ).catch(() => {});
+            ).catch((err) => {
+              log.warn(
+                "peerStore.merge failed for"
+                + ` ...${pid.slice(-8)}:`,
+                err,
+              );
+            });
             knownRelayPeerIds.add(pid);
             log.info(
               `tagged relay`
               + ` ...${pid.slice(-8)}`,
             );
-          } catch {
-            // Dial failure is fine — peer may be
-            // unreachable or already connected.
+          } catch (err) {
+            log.debug(
+              "dial failed for provider"
+              + ` ...${pid.slice(-8)}:`,
+              (err as Error).message,
+            );
           }
         }
       }
