@@ -410,7 +410,14 @@ export function VersionHistory({
                   }
                   unavailable={unavailable.has(entry.seq)}
                   delta={deltas.get(entry.seq)}
-                  onSelect={() => selectVersion(entry)}
+                  onSelect={() => {
+                    if (selectedSeq === entry.seq) {
+                      setSelectedSeq(null);
+                      setPreview({ status: "idle" });
+                    } else {
+                      selectVersion(entry);
+                    }
+                  }}
                 />
               ))}
             </div>

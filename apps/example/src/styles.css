@@ -892,6 +892,7 @@ body {
   padding: 1.5rem;
   color: #94a3b8;
   font-size: 0.8rem;
+  flex: 1;
 }
 
 .vh-spinner-dot {
@@ -914,6 +915,10 @@ body {
 }
 
 .vh-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
   padding: 1rem;
   text-align: center;
   font-size: 0.8rem;
@@ -921,6 +926,10 @@ body {
 }
 
 .vh-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
   padding: 1rem;
   text-align: center;
   font-size: 0.8rem;
