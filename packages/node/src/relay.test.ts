@@ -4,6 +4,7 @@ import {
   decodeNodeCaps,
   appIdToCID,
   deriveHttpUrl,
+  deriveHttpUrlFromCert,
   NODE_CAPS_TOPIC,
   type NodeCapabilities,
 } from "./relay.js";
@@ -186,6 +187,45 @@ describe("deriveHttpUrl", () => {
   it("handles dns6 multiaddr", () => {
     const ma = "/dns6/host.example.com/tcp/4003/tls/ws";
     expect(deriveHttpUrl(ma, 4443)).toBe("https://host.example.com:4443");
+  });
+});
+
+describe("deriveHttpUrlFromCert", () => {
+  // Minimal PEM-like string with SAN embedded
+  const certPem =
+    "-----BEGIN CERTIFICATE-----\n" +
+    "DNS:*.k51qzi5uqu5dm7cjrpbk5wfo0src7j41ed0e" +
+    "2x7njwmjy8equ05i1w0p9lqs9p.libp2p.direct\n" +
+    "-----END CERTIFICATE-----";
+  const domain =
+    "k51qzi5uqu5dm7cjrpbk5wfo0src7j41ed0e" +
+    "2x7njwmjy8equ05i1w0p9lqs9p.libp2p.direct";
+
+  it("derives URL from cert SAN and public IP", () => {
+    const addrs = ["/ip4/144.202.54.236/tcp/4001/p2p/12D3KooWTest"];
+    expect(deriveHttpUrlFromCert(certPem, addrs, 4443)).toBe(
+      `https://144-202-54-236.${domain}:4443`,
+    );
+  });
+
+  it("skips circuit relay addrs", () => {
+    const addrs = [
+      "/ip4/1.2.3.4/tcp/4001/p2p/X/p2p-circuit/p2p/Y",
+      "/ip4/5.6.7.8/tcp/4001/p2p/12D3KooWTest",
+    ];
+    expect(deriveHttpUrlFromCert(certPem, addrs, 4443)).toBe(
+      `https://5-6-7-8.${domain}:4443`,
+    );
+  });
+
+  it("skips localhost", () => {
+    const addrs = ["/ip4/127.0.0.1/tcp/4001/p2p/12D3KooWTest"];
+    expect(deriveHttpUrlFromCert(certPem, addrs, 4443)).toBeUndefined();
+  });
+
+  it("returns undefined without cert SAN", () => {
+    const addrs = ["/ip4/1.2.3.4/tcp/4001/p2p/12D3KooWTest"];
+    expect(deriveHttpUrlFromCert("no-san-here", addrs, 4443)).toBeUndefined();
   });
 });
 

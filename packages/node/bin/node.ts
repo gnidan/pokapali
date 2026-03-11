@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 import { createPinner } from "../src/index.js";
-import { startRelay, deriveHttpUrl } from "../src/relay.js";
+import {
+  startRelay,
+  deriveHttpUrl,
+  deriveHttpUrlFromCert,
+} from "../src/relay.js";
 import { startHttpServer, startBlockServer } from "../src/http.js";
 import {
   announceTopic,
@@ -289,18 +293,27 @@ async function main() {
             : undefined,
       });
 
-      // Derive httpUrl from our own TLS multiaddr
-      // (exclude circuit relay addrs which have
-      // someone else's hostname).
+      // Derive httpUrl: try SNI multiaddr first, then
+      // fall back to extracting hostname from cert SAN.
+      // At cert provision time, libp2p may not yet have
+      // the SNI multiaddr registered.
       const wssAddr = relayHandle!
         .multiaddrs()
         .find((a) => a.includes("/tls/") && !a.includes("/p2p-circuit/"));
-      if (wssAddr) {
-        const url = deriveHttpUrl(wssAddr, httpsPort);
-        if (url) {
-          relayHandle!.httpUrl = url;
-          log.info(`block endpoint: ${url}`);
-        }
+      let url = wssAddr ? deriveHttpUrl(wssAddr, httpsPort) : undefined;
+
+      // Fallback: derive from cert SAN + relay IP
+      if (!url) {
+        url = deriveHttpUrlFromCert(
+          cert.cert,
+          relayHandle!.multiaddrs(),
+          httpsPort,
+        );
+      }
+
+      if (url) {
+        relayHandle!.httpUrl = url;
+        log.info(`block endpoint: ${url}`);
       }
     };
 

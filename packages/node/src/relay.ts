@@ -72,6 +72,41 @@ export function deriveHttpUrl(
   return undefined;
 }
 
+/**
+ * Derive httpUrl from the TLS cert SAN and relay's
+ * public IP. Used when SNI multiaddr isn't registered
+ * yet at cert provision time.
+ *
+ * Cert SAN: *.k51qzi...libp2p.direct
+ * Public IP: 144.202.54.236 (from /ip4/ multiaddrs)
+ * Result: https://144-202-54-236.k51qzi...libp2p.direct:4443
+ */
+export function deriveHttpUrlFromCert(
+  certPem: string,
+  multiaddrs: string[],
+  httpsPort: number,
+): string | undefined {
+  // Extract wildcard domain from cert SAN.
+  // PEM certs from autoTLS have SAN like:
+  //   DNS:*.k51qzi...libp2p.direct
+  // The base64-encoded cert contains the domain in
+  // plain text — search for .libp2p.direct pattern.
+  const sanMatch = certPem.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
+  if (!sanMatch) return undefined;
+  const domain = sanMatch[1];
+
+  // Find our public IPv4 from non-circuit multiaddrs
+  const ipMatch = multiaddrs
+    .filter((a) => !a.includes("/p2p-circuit/"))
+    .map((a) => a.match(/^\/ip4\/((?:\d+\.){3}\d+)\//))
+    .find((m) => m && !m[1].startsWith("127."));
+  if (!ipMatch) return undefined;
+
+  const ip = ipMatch[1];
+  const dashed = ip.replace(/\./g, "-");
+  return `https://${dashed}.${domain}:${httpsPort}`;
+}
+
 async function loadOrCreateKey(storagePath: string): Promise<PrivateKey> {
   const keyPath = join(storagePath, KEY_FILENAME);
   try {
