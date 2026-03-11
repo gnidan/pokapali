@@ -461,9 +461,7 @@ function createDoc(params: DocParams): Doc {
       }
     }
     if (entries.length > 0) {
-      params.roomDiscovery.addExternalRelays(
-        entries,
-      );
+      params.roomDiscovery.addExternalRelays(entries);
     }
   };
   try {

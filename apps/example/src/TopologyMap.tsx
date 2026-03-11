@@ -349,8 +349,7 @@ function NodeShape({
   onHover: (n: TopologyNode | null, e?: React.MouseEvent) => void;
 }) {
   const isSelf = node.kind === "self";
-  const isBrowser =
-    node.kind === "browser" || isSelf;
+  const isBrowser = node.kind === "browser" || isSelf;
   const r = NODE_R;
   const off = !node.connected && !isSelf;
 
@@ -460,8 +459,6 @@ function NodeShape({
         />
       )}
 
-
-
       {/* Main circle — colored ring = role */}
       <circle
         cx={0}
@@ -483,11 +480,7 @@ function NodeShape({
           y={1}
           textAnchor="middle"
           dominantBaseline="central"
-          className={
-            isBrowser
-              ? "topo-label-self"
-              : "topo-label-infra"
-          }
+          className={isBrowser ? "topo-label-self" : "topo-label-infra"}
         >
           {label}
         </text>

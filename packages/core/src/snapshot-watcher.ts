@@ -180,9 +180,7 @@ export function createSnapshotWatcher(
   // after subscribe (GRAFT requires a heartbeat).
   // Readers delay here; writers delay in
   // startReannounce.
-  let initialQueryTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
+  let initialQueryTimer: ReturnType<typeof setTimeout> | null = null;
   if (!isWriter) {
     initialQueryTimer = setTimeout(() => {
       initialQueryTimer = null;

@@ -698,38 +698,41 @@ describe("createSnapshotWatcher", () => {
       },
     );
 
-    it("fires query on startReannounce for" + " writers after mesh delay", () => {
-      const pubsub = makePubsub();
-      const helia = {
-        blockstore: { get: vi.fn() },
-      };
-      const watcher = createSnapshotWatcher({
-        appId: "test",
-        ipnsName: "abc123",
-        pubsub: pubsub as any,
-        getHelia: () => helia as any,
-        isWriter: true,
-        onSnapshot: vi.fn(),
-      });
+    it(
+      "fires query on startReannounce for" + " writers after mesh delay",
+      () => {
+        const pubsub = makePubsub();
+        const helia = {
+          blockstore: { get: vi.fn() },
+        };
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc123",
+          pubsub: pubsub as any,
+          getHelia: () => helia as any,
+          isWriter: true,
+          onSnapshot: vi.fn(),
+        });
 
-      watcher.startReannounce(
-        () => null,
-        () => undefined,
-      );
+        watcher.startReannounce(
+          () => null,
+          () => undefined,
+        );
 
-      // Not yet — waiting for mesh to form
-      expect(publishGuaranteeQuery).not.toHaveBeenCalled();
+        // Not yet — waiting for mesh to form
+        expect(publishGuaranteeQuery).not.toHaveBeenCalled();
 
-      // After 3s mesh delay
-      vi.advanceTimersByTime(3_000);
-      expect(publishGuaranteeQuery).toHaveBeenCalledWith(
-        pubsub,
-        "test",
-        "abc123",
-      );
+        // After 3s mesh delay
+        vi.advanceTimersByTime(3_000);
+        expect(publishGuaranteeQuery).toHaveBeenCalledWith(
+          pubsub,
+          "test",
+          "abc123",
+        );
 
-      watcher.destroy();
-    });
+        watcher.destroy();
+      },
+    );
 
     it("re-queries every 5 minutes", () => {
       const pubsub = makePubsub();
