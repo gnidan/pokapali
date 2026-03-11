@@ -523,6 +523,10 @@ function createDoc(params: DocParams): Doc {
         );
         if (applied) {
           snapshotLC.setLastIpnsSeq(computeClockSum());
+          // Track the loaded CID for ack matching so
+          // guarantee responses from pinners that already
+          // hold this snapshot set ackedCurrentCid.
+          snapshotWatcher?.trackCidForAcks(cid.toString());
           emit("snapshot");
           markReady();
         }
