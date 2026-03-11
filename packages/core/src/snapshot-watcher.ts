@@ -8,7 +8,9 @@ import {
   publishGuaranteeQuery,
   announceSnapshot,
   base64ToUint8,
+  MAX_INLINE_BLOCK_BYTES,
 } from "./announce.js";
+import { uploadBlock } from "./block-upload.js";
 import { resolveIPNS, watchIPNS } from "./ipns-helpers.js";
 import { createLogger } from "@pokapali/log";
 
@@ -47,6 +49,9 @@ export interface SnapshotWatcherOptions {
   onAck?: (peerId: string) => void;
   onGossipActivityChange?: (activity: GossipActivity) => void;
   performInitialResolve?: boolean;
+  /** Dynamic getter for relay HTTP URLs (for large
+   *  block uploads during re-announce). */
+  httpUrls?: () => string[];
 }
 
 export interface SnapshotWatcher {
@@ -521,6 +526,19 @@ export function createSnapshotWatcher(
     }
     const seq = reannounceGetSeq?.() ?? undefined;
     log.debug("re-announce:", cidStr.slice(0, 16));
+
+    // Large blocks: upload via HTTP before announcing
+    // without inline data. Best-effort — announce
+    // still goes out even if upload fails.
+    if (block && block.length > MAX_INLINE_BLOCK_BYTES) {
+      const urls = options.httpUrls?.() ?? [];
+      if (urls.length > 0) {
+        uploadBlock(cid, block, urls).catch((err) => {
+          log.warn("re-announce upload failed:", err);
+        });
+      }
+    }
+
     try {
       announceSnapshot(pubsub, appId, ipnsName, cidStr, seq, block);
     } catch (err) {

@@ -19,7 +19,8 @@ import type {
 import { CID } from "multiformats/cid";
 import { getHelia, releaseHelia } from "./helia.js";
 import { publishIPNS } from "./ipns-helpers.js";
-import { announceSnapshot } from "./announce.js";
+import { announceSnapshot, MAX_INLINE_BLOCK_BYTES } from "./announce.js";
+import { uploadBlock } from "./block-upload.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
 import { createSnapshotWatcher } from "./snapshot-watcher.js";
@@ -228,18 +229,20 @@ export function createDoc(params: DocParams): Doc {
     markReady();
   }
 
+  function getHttpUrls(): string[] {
+    const urls: string[] = [];
+    const reg = getNodeRegistry();
+    if (reg) {
+      for (const node of reg.nodes.values()) {
+        if (node.httpUrl) urls.push(node.httpUrl);
+      }
+    }
+    return urls;
+  }
+
   const snapshotLC = createSnapshotLifecycle({
     getHelia: () => getHelia(),
-    httpUrls: () => {
-      const urls: string[] = [];
-      const reg = getNodeRegistry();
-      if (reg) {
-        for (const node of reg.nodes.values()) {
-          if (node.httpUrl) urls.push(node.httpUrl);
-        }
-      }
-      return urls;
-    },
+    httpUrls: getHttpUrls,
   });
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
@@ -399,6 +402,7 @@ export function createDoc(params: DocParams): Doc {
       isWriter: cap.canPushSnapshots,
       ipnsPublicKeyBytes: hexToBytes(ipnsName),
       performInitialResolve: params.performInitialResolve,
+      httpUrls: getHttpUrls,
       onAck: (peerId) => {
         emit("ack", peerId);
       },
@@ -654,14 +658,31 @@ export function createDoc(params: DocParams): Doc {
         await publishIPNS(helia, keys.ipnsKeyBytes!, cid, clockSum);
         log.debug("IPNS published, announcing...");
         if (params.appId && params.pubsub) {
-          await announceSnapshot(
-            params.pubsub,
-            params.appId,
-            ipnsName,
-            cid.toString(),
-            clockSum,
-            block,
-          );
+          if (block.length > MAX_INLINE_BLOCK_BYTES) {
+            // Large block: upload via HTTP, then
+            // announce without inline data.
+            const urls = getHttpUrls();
+            if (urls.length > 0) {
+              await uploadBlock(cid, block, urls);
+            }
+            await announceSnapshot(
+              params.pubsub,
+              params.appId,
+              ipnsName,
+              cid.toString(),
+              clockSum,
+              // omit block — too large for GossipSub
+            );
+          } else {
+            await announceSnapshot(
+              params.pubsub,
+              params.appId,
+              ipnsName,
+              cid.toString(),
+              clockSum,
+              block,
+            );
+          }
           log.debug("announce sent");
         }
       })().catch((err: unknown) => {
