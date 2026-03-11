@@ -141,6 +141,17 @@ function buildDiffDecorations(
       const from = firstValidPos(preview.positions, previewOffset, segEnd);
       const last = lastValidPos(preview.positions, previewOffset, segEnd);
       const to = last >= 0 ? last + 1 : -1;
+      // TODO: remove debug logging
+      console.log(
+        "[diff] INSERT",
+        JSON.stringify(text),
+        "from:",
+        from,
+        "to:",
+        to,
+        "previewOffset:",
+        previewOffset,
+      );
       if (from >= 0 && to > from) {
         decorations.push(
           Decoration.inline(from, to, {
@@ -191,7 +202,25 @@ function buildDiffDecorations(
     }
   }
 
-  return DecorationSet.create(previewDoc, decorations);
+  // TODO: remove debug logging
+  console.log(
+    "[diff] decorations:",
+    decorations.length,
+    decorations.map((d) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const a = d as any;
+      if (a.type?.attrs?.class) {
+        return `inline(${a.from},${a.to}) ${a.type.attrs.class}`;
+      }
+      return `widget(${a.from ?? a.pos})`;
+    }),
+  );
+  try {
+    return DecorationSet.create(previewDoc, decorations);
+  } catch (err) {
+    console.error("[diff] DecorationSet.create failed:", err);
+    return DecorationSet.empty;
+  }
 }
 
 // ── Restore helper ───────────────────────────────
