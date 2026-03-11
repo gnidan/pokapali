@@ -90,116 +90,98 @@ interface SimNode extends SimulationNodeDatum {
   kind: TopologyNode["kind"];
 }
 
+const isInfra = (k: TopologyNode["kind"]) =>
+  k === "relay" ||
+  k === "pinner" ||
+  k === "relay+pinner";
+
+function linkDistanceFn(
+  l: { source: SimNode; target: SimNode },
+): number {
+  const s = l.source;
+  const t = l.target;
+  if (isInfra(s.kind) && isInfra(t.kind)) {
+    return 40;
+  }
+  if (s.kind === "self" || t.kind === "self") {
+    return 60;
+  }
+  return 110;
+}
+
+function linkStrengthFn(
+  l: { source: SimNode; target: SimNode },
+): number {
+  const s = l.source;
+  const t = l.target;
+  if (isInfra(s.kind) && isInfra(t.kind)) {
+    return 0.9;
+  }
+  if (
+    s.kind === "browser" ||
+    t.kind === "browser"
+  ) {
+    return 0.15;
+  }
+  return 0.7;
+}
+
+function chargeFn(d: SimNode): number {
+  switch (d.kind) {
+    case "self": return -350;
+    case "browser": return -150;
+    default: return -120;
+  }
+}
+
+function centerStrength(d: SimNode): number {
+  return isInfra(d.kind) ? 0.12 : 0.03;
+}
+
 function useForceLayout(
   graph: TopologyGraph,
 ): Map<string, { x: number; y: number }> {
   type Sim = Simulation<SimNode, undefined>;
   const simRef = useRef<Sim | null>(null);
-  const prevRef = useRef<SimNode[]>([]);
+  const nodesRef = useRef<SimNode[]>([]);
   const [posMap, setPosMap] = useState<
     Map<string, { x: number; y: number }>
   >(() => new Map());
 
+  // One-time simulation creation
   useEffect(() => {
-    const prev = new Map(
-      prevRef.current.map((n) => [n.id, n]),
-    );
+    const nodes = nodesRef.current;
+    const tick = () => {
+      const m = new Map<
+        string,
+        { x: number; y: number }
+      >();
+      for (const n of nodes) {
+        m.set(n.id, {
+          x: Math.max(
+            30, Math.min(W - 30, n.x),
+          ),
+          y: Math.max(
+            30, Math.min(H - 30, n.y),
+          ),
+        });
+      }
+      setPosMap(m);
+    };
 
-    const simNodes: SimNode[] =
-      graph.nodes.map((n) => {
-        const p = prev.get(n.id);
-        return {
-          id: n.id,
-          kind: n.kind,
-          x: p?.x ??
-            CX + (Math.random() - 0.5) * 80,
-          y: p?.y ??
-            CY + (Math.random() - 0.5) * 60,
-          vx: p?.vx ?? 0,
-          vy: p?.vy ?? 0,
-          fx: n.kind === "self" ? CX : undefined,
-          fy: n.kind === "self" ? CY : undefined,
-        };
-      });
-    prevRef.current = simNodes;
-
-    const byId = new Map(
-      simNodes.map((n) => [n.id, n]),
-    );
-    const isInfra = (k: TopologyNode["kind"]) =>
-      k === "relay" ||
-      k === "pinner" ||
-      k === "relay+pinner";
-
-    const links = graph.edges
-      .filter(
-        (e) =>
-          byId.has(e.source) &&
-          byId.has(e.target),
-      )
-      .map((e) => ({
-        source: e.source,
-        target: e.target,
-      }));
-
-    simRef.current?.stop();
-
-    const sim = forceSimulation<SimNode>(simNodes)
+    const sim = forceSimulation<SimNode>(nodes)
       .force(
         "link",
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (forceLink as any)(links)
+        (forceLink as any)([])
           .id((d: SimNode) => d.id)
-          .distance((l: { source: SimNode; target: SimNode }) => {
-            const s = l.source;
-            const t = l.target;
-            const bothInfra =
-              isInfra(s.kind) &&
-              isInfra(t.kind);
-            // Infra-infra: tight cluster
-            if (bothInfra) return 40;
-            // Self-to-infra: moderate
-            if (
-              s.kind === "self" ||
-              t.kind === "self"
-            ) {
-              return 60;
-            }
-            // Browser-to-relay: long leash
-            return 110;
-          })
-          .strength((l: { source: SimNode; target: SimNode }) => {
-            const s = l.source;
-            const t = l.target;
-            const bothInfra =
-              isInfra(s.kind) &&
-              isInfra(t.kind);
-            // Strong pull between infra nodes
-            if (bothInfra) return 0.9;
-            // Weak pull from browser→relay
-            // so relays aren't dragged outward
-            if (
-              s.kind === "browser" ||
-              t.kind === "browser"
-            ) {
-              return 0.15;
-            }
-            return 0.7;
-          }),
+          .distance(linkDistanceFn)
+          .strength(linkStrengthFn),
       )
       .force(
         "charge",
-        forceManyBody<SimNode>().strength((d) => {
-          switch (d.kind) {
-            case "self": return -350;
-            // Browsers repel each other to
-            // spread out around the relay cluster
-            case "browser": return -150;
-            // Infra nodes: mild repulsion
-            // (tight cluster via strong links)
-            default: return -120;
-          }
-        }),
+        forceManyBody<SimNode>()
+          .strength(chargeFn),
       )
       .force(
         "collide",
@@ -212,38 +194,88 @@ function useForceLayout(
       )
       .force(
         "x",
-        forceX<SimNode>(CX).strength((d) =>
-          isInfra(d.kind) ? 0.12 : 0.03,
-        ),
+        forceX<SimNode>(CX)
+          .strength(centerStrength),
       )
       .force(
         "y",
-        forceY<SimNode>(CY).strength((d) =>
-          isInfra(d.kind) ? 0.12 : 0.03,
-        ),
+        forceY<SimNode>(CY)
+          .strength(centerStrength),
       )
-      .alpha(0.6)
       .alphaDecay(0.025)
-      .on("tick", () => {
-        const m = new Map<
-          string,
-          { x: number; y: number }
-        >();
-        for (const n of simNodes) {
-          m.set(n.id, {
-            x: Math.max(
-              30, Math.min(W - 30, n.x),
-            ),
-            y: Math.max(
-              30, Math.min(H - 30, n.y),
-            ),
-          });
-        }
-        setPosMap(m);
-      });
+      .on("tick", tick);
 
     simRef.current = sim;
     return () => { sim.stop(); };
+  }, []);
+
+  // Incremental update on graph change
+  useEffect(() => {
+    const sim = simRef.current;
+    if (!sim) return;
+
+    const prev = new Map(
+      nodesRef.current.map((n) => [n.id, n]),
+    );
+    const nextIds = new Set(
+      graph.nodes.map((n) => n.id),
+    );
+
+    // Update existing + add new nodes
+    const nodes: SimNode[] = graph.nodes.map(
+      (n) => {
+        const existing = prev.get(n.id);
+        if (existing) {
+          // Update mutable properties in place
+          existing.kind = n.kind;
+          existing.fx =
+            n.kind === "self" ? CX : undefined;
+          existing.fy =
+            n.kind === "self" ? CY : undefined;
+          return existing;
+        }
+        // New node — position near center
+        return {
+          id: n.id,
+          kind: n.kind,
+          x: CX + (Math.random() - 0.5) * 80,
+          y: CY + (Math.random() - 0.5) * 60,
+          vx: 0,
+          vy: 0,
+          fx:
+            n.kind === "self" ? CX : undefined,
+          fy:
+            n.kind === "self" ? CY : undefined,
+        };
+      },
+    );
+    nodesRef.current = nodes;
+
+    const byId = new Map(
+      nodes.map((n) => [n.id, n]),
+    );
+    const links = graph.edges
+      .filter(
+        (e) =>
+          byId.has(e.source) &&
+          byId.has(e.target),
+      )
+      .map((e) => ({
+        source: e.source,
+        target: e.target,
+      }));
+
+    // Push updated arrays into the simulation
+    sim.nodes(nodes);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sim.force("link") as any)?.links(links);
+
+    // Structural change (nodes added/removed):
+    // moderate reheat. Data-only change: gentle.
+    const structural =
+      nextIds.size !== prev.size ||
+      [...nextIds].some((id) => !prev.has(id));
+    sim.alpha(structural ? 0.3 : 0.08).restart();
   }, [graph]);
 
   return posMap;
