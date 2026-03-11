@@ -23,11 +23,9 @@ const H = 300;
 const CX = W / 2;
 const CY = H / 2;
 const NODE_R = 15;
-const SELF_R = 20;
 
 const C = {
   self: "#10b981",
-  selfGlow: "rgba(16,185,129,0.25)",
   node: "#475569",
   nodeFill: "#f8fafc",
   nodeStroke: "#94a3b8",
@@ -86,9 +84,8 @@ function linkDistanceFn(l: { source: SimNode; target: SimNode }): number {
   if (isInfra(s.kind) && isInfra(t.kind)) {
     return 40;
   }
-  if (s.kind === "self" || t.kind === "self") {
-    return 60;
-  }
+  // Browser/self → relay: long leash so
+  // browsers orbit outside the infra cluster
   return 110;
 }
 
@@ -98,21 +95,16 @@ function linkStrengthFn(l: { source: SimNode; target: SimNode }): number {
   if (isInfra(s.kind) && isInfra(t.kind)) {
     return 0.9;
   }
-  if (s.kind === "browser" || t.kind === "browser") {
-    return 0.15;
-  }
-  return 0.7;
+  // Browser/self → relay: weak pull so relays
+  // aren't dragged outward
+  return 0.15;
 }
 
 function chargeFn(d: SimNode): number {
-  switch (d.kind) {
-    case "self":
-      return -350;
-    case "browser":
-      return -150;
-    default:
-      return -120;
-  }
+  if (isInfra(d.kind)) return -120;
+  // Browsers (including self) repel each other
+  // to spread around the relay cluster
+  return -150;
 }
 
 function centerStrength(d: SimNode): number {
@@ -157,7 +149,7 @@ function useForceLayout(
       .force(
         "collide",
         forceCollide<SimNode>()
-          .radius((d) => (d.kind === "self" ? SELF_R : NODE_R) + 12)
+          .radius(() => NODE_R + 12)
           .strength(0.8),
       )
       .force("x", forceX<SimNode>(CX).strength(centerStrength))
@@ -183,10 +175,7 @@ function useForceLayout(
     const nodes: SimNode[] = graph.nodes.map((n) => {
       const existing = prev.get(n.id);
       if (existing) {
-        // Update mutable properties in place
         existing.kind = n.kind;
-        existing.fx = n.kind === "self" ? CX : undefined;
-        existing.fy = n.kind === "self" ? CY : undefined;
         return existing;
       }
       // New node — position near center
@@ -197,8 +186,6 @@ function useForceLayout(
         y: CY + (Math.random() - 0.5) * 60,
         vx: 0,
         vy: 0,
-        fx: n.kind === "self" ? CX : undefined,
-        fy: n.kind === "self" ? CY : undefined,
       };
     });
     nodesRef.current = nodes;
@@ -330,9 +317,9 @@ function useParticles(
 function PersonIcon() {
   // Simple head + shoulders silhouette
   return (
-    <g opacity={0.5}>
-      <circle cx={0} cy={-2} r={4} fill="#64748b" />
-      <path d="M-6,7 Q-6,2 0,2 Q6,2 6,7" fill="#64748b" />
+    <g opacity={0.7}>
+      <circle cx={0} cy={-2} r={4} fill="#fff" />
+      <path d="M-6,7 Q-6,2 0,2 Q6,2 6,7" fill="#fff" />
     </g>
   );
 }
@@ -362,7 +349,9 @@ function NodeShape({
   onHover: (n: TopologyNode | null, e?: React.MouseEvent) => void;
 }) {
   const isSelf = node.kind === "self";
-  const r = isSelf ? SELF_R : NODE_R;
+  const isBrowser =
+    node.kind === "browser" || isSelf;
+  const r = NODE_R;
   const off = !node.connected && !isSelf;
 
   const handleEnter = useCallback(
@@ -373,7 +362,6 @@ function NodeShape({
 
   // Determine roles
   const isPinner = node.kind === "pinner" || node.kind === "relay+pinner";
-  const isBrowser = node.kind === "browser";
 
   // Guarantee state
   const now = Date.now();
@@ -384,10 +372,7 @@ function NodeShape({
   // Role ring color (primary visual identifier)
   let roleStroke: string;
   let roleStrokeW: number;
-  if (isSelf) {
-    roleStroke = "#fff";
-    roleStrokeW = 2.5;
-  } else if (off) {
+  if (off) {
     roleStroke = C.disconnectedStroke;
     roleStrokeW = 1.5;
   } else if (node.kind === "relay") {
@@ -400,21 +385,23 @@ function NodeShape({
     roleStroke = C.dual;
     roleStrokeW = 3;
   } else if (isBrowser) {
-    roleStroke = C.browser;
-    roleStrokeW = 1.5;
+    // Browsers: white border on solid fill
+    roleStroke = "#fff";
+    roleStrokeW = 2;
   } else {
     roleStroke = C.nodeStroke;
     roleStrokeW = 2;
   }
 
-  // Circle fill
+  // Circle fill: browsers get solid color,
+  // infra nodes get light/empty fill
   let fill: string;
-  if (isSelf) {
-    fill = C.self;
-  } else if (off) {
+  if (off) {
     fill = C.disconnected;
+  } else if (isSelf) {
+    fill = C.self;
   } else if (isBrowser) {
-    fill = C.browserFill;
+    fill = C.browser;
   } else {
     fill = C.nodeFill;
   }
@@ -473,8 +460,7 @@ function NodeShape({
         />
       )}
 
-      {/* Self glow */}
-      {isSelf && <circle cx={0} cy={0} r={r + 8} fill={C.selfGlow} />}
+
 
       {/* Main circle — colored ring = role */}
       <circle
@@ -498,11 +484,9 @@ function NodeShape({
           textAnchor="middle"
           dominantBaseline="central"
           className={
-            isSelf
+            isBrowser
               ? "topo-label-self"
-              : isBrowser
-                ? "topo-label-browser"
-                : "topo-label-infra"
+              : "topo-label-infra"
           }
         >
           {label}
@@ -691,22 +675,23 @@ export function TopologyMap({
     } catch {
       return; // doc destroyed
     }
-    const fp = graphFp(g);
+    // Always update guarantee immediately — it's
+    // cheap (no d3 simulation restart needed)
+    setGuaranteeUntil(gu);
 
+    const fp = graphFp(g);
     if (fp !== prevFpRef.current) {
       prevFpRef.current = fp;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       setGraph(g);
-      setGuaranteeUntil(gu);
     } else {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
         setGraph(g);
-        setGuaranteeUntil(gu);
       }, 8_000);
     }
   }, [doc]);
@@ -766,18 +751,17 @@ export function TopologyMap({
     [],
   );
 
-  // Render order: browsers, infra, self on top
+  // Render order: browsers/self behind infra
   const sorted = graph.nodes.slice().sort((a, b) => {
     const order = (k: TopologyNode["kind"]) => {
       switch (k) {
         case "browser":
+        case "self":
           return 0;
         case "relay":
         case "pinner":
         case "relay+pinner":
           return 1;
-        case "self":
-          return 2;
       }
     };
     return order(a.kind) - order(b.kind);

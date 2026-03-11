@@ -378,7 +378,6 @@ function SnapshotsDetail({
 
 export function ConnectionStatus({ doc }: { doc: Doc }) {
   const [info, setInfo] = useState<Diagnostics>(() => doc.diagnostics());
-  const [showDetail, setShowDetail] = useState(false);
   const historyRef = useRef<History>(emptyHistory());
   const [pulseKey, setPulseKey] = useState(0);
 
@@ -431,15 +430,9 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
 
   return (
     <div className="connection-status-wrap">
-      {/* Topology map — always visible */}
-      <TopologyMap doc={doc} pulseKey={pulseKey} />
-
       {/* Summary bar */}
-      <button
+      <div
         className="connection-status"
-        onClick={() => setShowDetail((s) => !s)}
-        title="Click for diagnostics"
-        aria-expanded={showDetail}
         aria-label={
           `${info.editors} user(s), ` +
           `${connectedNodes} ` +
@@ -447,8 +440,6 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
           `${info.ipfsPeers} network peers`
         }
       >
-        <span className="cs-expand">{showDetail ? "\u25B4" : "\u25BE"}</span>
-
         <span className="cs-section" title="Users on this document">
           <span className="cs-value">{info.editors}</span>
           <span className="cs-label">
@@ -490,8 +481,8 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
               <span className="cs-divider" />
               {info.nodes.some((n) => n.connected && !n.rolesConfirmed) ? (
                 <span
-                  className={"cs-section " + "cs-checking-pinners"}
-                  title={"Waiting for node capability" + " broadcasts\u2026"}
+                  className={"cs-section cs-checking-pinners"}
+                  title={"Waiting for node capability broadcasts\u2026"}
                 >
                   Checking for pinners…
                 </span>
@@ -499,9 +490,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
                 <span
                   className={"cs-section cs-no-pinner"}
                   title={
-                    "No pinners connected " +
-                    "\u2014 changes may not " +
-                    "persist"
+                    "No pinners connected \u2014 changes may not persist"
                   }
                 >
                   No pinners
@@ -509,15 +498,14 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
               )}
             </>
           )}
-      </button>
+      </div>
 
-      {/* Expandable detail panels */}
-      {showDetail && (
-        <div className="cs-detail">
-          <NetworkDetail info={info} history={h} />
-          <SnapshotsDetail info={info} history={h} />
-        </div>
-      )}
+      {/* Detail panel — always visible */}
+      <div className="cs-detail">
+        <TopologyMap doc={doc} pulseKey={pulseKey} />
+        <NetworkDetail info={info} history={h} />
+        <SnapshotsDetail info={info} history={h} />
+      </div>
     </div>
   );
 }
