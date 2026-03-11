@@ -59,9 +59,9 @@ The network enhances the experience (real-time cursors,
 snapshot persistence) but is never required for the core
 function of editing.
 
-This shapes API design: `doc.subdoc("content")` returns a
+This shapes API design: `doc.channel("content")` returns a
 `Y.Doc` synchronously. The editor mounts immediately.
-Network state is observable (`status`, `fetchState`) but
+Network state is observable (`status`, `loadingState`) but
 never blocks the user.
 
 ## Writers sync in real-time, readers sync via snapshots
@@ -140,8 +140,8 @@ Pokapali enforces which namespace access key gates which
 subdocument. What lives in those subdocuments — rich text,
 plain text, JSON, drawings — is the application's business.
 
-Similarly, the library exposes `pushSnapshot()` and emits
-`snapshot-recommended`, but when to snapshot is application
+Similarly, the library exposes `publish()` and emits
+`publish-needed`, but when to snapshot is application
 policy. The built-in `createAutoSaver` is a convenience,
 not a requirement.
 
@@ -151,9 +151,9 @@ No relay, pinner, or peer address is hardcoded in library
 or infrastructure code. All relay discovery happens via DHT
 (`findProviders` on a network-wide CID), peer exchange
 (awareness-based relay sharing), or localStorage caching of
-previously discovered relays. Relay-to-relay peering uses
-dynamic `directPeers` populated from DHT discovery, not
-static configuration.
+previously discovered relays. Relay-to-relay peering uses peer tagging (value 200) with
+connections established via DHT discovery, not static
+configuration.
 
 The only hardcoded addresses are IPFS bootstrap nodes
 (Protocol Labs public infrastructure) — these are needed
