@@ -394,7 +394,7 @@ export function VersionHistory({
             <div className="vh-error">{listState.message}</div>
           )}
 
-          {listState.status === "idle" && visibleVersions.length === 0 && (
+          {listState.status === "idle" && versions.length === 0 && (
             <div className="vh-empty">No versions published yet.</div>
           )}
 
