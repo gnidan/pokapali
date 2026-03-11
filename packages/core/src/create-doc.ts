@@ -403,12 +403,16 @@ export function createDoc(params: DocParams): Doc {
       ipnsPublicKeyBytes: hexToBytes(ipnsName),
       performInitialResolve: params.performInitialResolve,
       httpUrls: getHttpUrls,
+      onGuaranteeQuery: () => {
+        emit("guarantee-query");
+      },
       onAck: (peerId) => {
         emit("ack", peerId);
       },
       onGossipActivityChange: (activity) => {
         gossipActivity = activity;
         checkStatus();
+        emit("gossip-activity", activity);
       },
       onFetchStateChange: (state) => {
         emit("loading", state);

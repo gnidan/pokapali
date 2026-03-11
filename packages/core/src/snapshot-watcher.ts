@@ -48,6 +48,7 @@ export interface SnapshotWatcherOptions {
   onFetchStateChange?: (state: LoadingState) => void;
   onAck?: (peerId: string) => void;
   onGossipActivityChange?: (activity: GossipActivity) => void;
+  onGuaranteeQuery?: () => void;
   performInitialResolve?: boolean;
   /** Dynamic getter for relay HTTP URLs (for large
    *  block uploads during re-announce). */
@@ -177,6 +178,7 @@ export function createSnapshotWatcher(
   // so pinners respond with their current state.
   function fireGuaranteeQuery() {
     log.info("firing guarantee query");
+    options.onGuaranteeQuery?.();
     publishGuaranteeQuery(pubsub, appId, ipnsName)
       .then(() => {
         log.debug("guarantee query published");
