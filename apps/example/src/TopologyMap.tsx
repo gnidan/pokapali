@@ -944,14 +944,62 @@ export function TopologyMap({
       );
     };
 
+    // Gossip activity: ambient particles when
+    // receiving GossipSub messages. Subtle single
+    // particle from a random infra node → self.
+    const onGossip = (...args: unknown[]) => {
+      const activity = args[0];
+      if (activity !== "receiving") return;
+      const infra = selfInfraEdges();
+      if (infra.length === 0) return;
+      const idx = Math.floor(Math.random() * infra.length);
+      spawnParticles(
+        g,
+        [
+          {
+            srcId: infra[idx],
+            tgtId: "_self",
+            color: C.edge, // subtle gray
+          },
+        ],
+        posMapRef,
+        rafRef,
+      );
+    };
+
+    // Guarantee query: outbound self → pinners
+    const onGuaranteeQuery = () => {
+      const pinners = graphRef.current.nodes
+        .filter(
+          (n) =>
+            n.connected && (n.kind === "pinner" || n.kind === "relay+pinner"),
+        )
+        .map((n) => n.id);
+      if (pinners.length === 0) return;
+      spawnParticles(
+        g,
+        pinners.map((id) => ({
+          srcId: "_self",
+          tgtId: id,
+          color: C.pinner, // amber for guarantee
+        })),
+        posMapRef,
+        rafRef,
+      );
+    };
+
     doc.on("snapshot", onSnapshot);
     doc.on("ack", onAck);
     doc.on("loading", onLoading);
+    doc.on("gossip-activity", onGossip);
+    doc.on("guarantee-query", onGuaranteeQuery);
 
     return () => {
       doc.off("snapshot", onSnapshot);
       doc.off("ack", onAck);
       doc.off("loading", onLoading);
+      doc.off("gossip-activity", onGossip);
+      doc.off("guarantee-query", onGuaranteeQuery);
       cancelAnimationFrame(rafRef.current);
     };
   }, [doc, posMapRef]);
