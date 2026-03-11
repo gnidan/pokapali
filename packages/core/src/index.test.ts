@@ -555,6 +555,11 @@ describe("@pokapali/core", () => {
             peerId: string;
             roles: string[];
             lastSeenAt: number;
+            connected: boolean;
+            neighbors: { peerId: string }[];
+            browserCount: number;
+            addrs: string[];
+            httpUrl: string | undefined;
           }
         >();
         const mockRegistry = {
@@ -589,6 +594,7 @@ describe("@pokapali/core", () => {
           neighbors: [],
           browserCount: 0,
           addrs: [],
+          httpUrl: undefined,
         });
         nodeChangeCb!();
 
@@ -611,6 +617,7 @@ describe("@pokapali/core", () => {
           neighbors: [],
           browserCount: 0,
           addrs: [],
+          httpUrl: undefined,
         });
         nodeChangeCb!();
         expect(publishGuaranteeQuery).toHaveBeenCalled();

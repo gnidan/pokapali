@@ -23,6 +23,9 @@ export interface KnownNode {
   browserCount: number | undefined;
   /** Public WSS addresses from caps broadcast. */
   addrs: string[];
+  /** HTTPS block endpoint URL (e.g.
+   *  https://host:4443) from caps v2. */
+  httpUrl: string | undefined;
 }
 
 export interface NodeRegistry {
@@ -42,6 +45,7 @@ interface NodeCapsMessage {
   neighbors?: Neighbor[];
   browserCount?: number;
   addrs?: string[];
+  httpUrl?: string;
 }
 
 function parseNeighbors(arr: unknown): Neighbor[] {
@@ -87,6 +91,9 @@ function parseCapsMessage(data: Uint8Array): NodeCapsMessage | null {
       }
       if (Array.isArray(obj.addrs)) {
         msg.addrs = obj.addrs.filter((a: unknown) => typeof a === "string");
+      }
+      if (typeof obj.httpUrl === "string") {
+        msg.httpUrl = obj.httpUrl;
       }
     }
     return msg;
@@ -158,6 +165,7 @@ export function createNodeRegistry(
       neighbors: caps.neighbors ?? [],
       browserCount: caps.browserCount,
       addrs: caps.addrs ?? [],
+      httpUrl: caps.httpUrl,
     });
     if (!prev) {
       log.info(

@@ -17,6 +17,7 @@ function makeNode(
     neighbors,
     browserCount,
     addrs: [],
+    httpUrl: undefined,
   };
 }
 

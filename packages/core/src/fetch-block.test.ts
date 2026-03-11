@@ -3,9 +3,11 @@ import { fetchBlock } from "./fetch-block.js";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
-async function fakeCid(): Promise<CID> {
-  const hash = await sha256.digest(new Uint8Array([1, 2, 3]));
-  return CID.createV1(0x71, hash);
+const DAG_CBOR_CODE = 0x71;
+
+async function fakeCid(data = new Uint8Array([1, 2, 3])): Promise<CID> {
+  const hash = await sha256.digest(data);
+  return CID.createV1(DAG_CBOR_CODE, hash);
 }
 
 describe("fetchBlock", () => {
@@ -50,6 +52,158 @@ describe("fetchBlock", () => {
         timeoutMs: 5000,
       }),
     ).rejects.toThrow("gone");
+  });
+
+  describe("HTTP fallback", () => {
+    it("falls back to HTTP after blockstore" + " retries exhaust", async () => {
+      const data = new Uint8Array([10, 20, 30]);
+      const cid = await fakeCid(data);
+      const blockstore = {
+        get: vi.fn().mockRejectedValue(new Error("gone")),
+      };
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(data.buffer),
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const result = await fetchBlock({ blockstore }, cid, {
+        retries: 0,
+        baseMs: 1,
+        httpUrls: ["https://relay.example.com"],
+      });
+
+      expect(result).toEqual(data);
+      expect(mockFetch).toHaveBeenCalledOnce();
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        `https://relay.example.com/block/${cid.toString()}`,
+      );
+
+      vi.unstubAllGlobals();
+    });
+
+    it("rejects blocks with CID mismatch", async () => {
+      const data = new Uint8Array([10, 20, 30]);
+      const cid = await fakeCid(data);
+      const blockstore = {
+        get: vi.fn().mockRejectedValue(new Error("gone")),
+      };
+
+      // Return tampered data
+      const tampered = new Uint8Array([99, 99, 99]);
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(tampered.buffer),
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      await expect(
+        fetchBlock({ blockstore }, cid, {
+          retries: 0,
+          baseMs: 1,
+          httpUrls: ["https://relay.example.com"],
+        }),
+      ).rejects.toThrow("gone");
+
+      vi.unstubAllGlobals();
+    });
+
+    it("tries next URL on HTTP failure", async () => {
+      const data = new Uint8Array([10, 20, 30]);
+      const cid = await fakeCid(data);
+      const blockstore = {
+        get: vi.fn().mockRejectedValue(new Error("gone")),
+      };
+
+      const mockFetch = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("network error"))
+        .mockResolvedValue({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(data.buffer),
+        });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const result = await fetchBlock({ blockstore }, cid, {
+        retries: 0,
+        baseMs: 1,
+        httpUrls: ["https://bad.example.com", "https://good.example.com"],
+      });
+
+      expect(result).toEqual(data);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("skips HTTP fallback when no URLs" + " provided", async () => {
+      const cid = await fakeCid();
+      const blockstore = {
+        get: vi.fn().mockRejectedValue(new Error("gone")),
+      };
+
+      await expect(
+        fetchBlock({ blockstore }, cid, {
+          retries: 0,
+          baseMs: 1,
+        }),
+      ).rejects.toThrow("gone");
+    });
+
+    it("throws original error when all HTTP" + " URLs fail", async () => {
+      const cid = await fakeCid();
+      const blockstore = {
+        get: vi.fn().mockRejectedValue(new Error("blockstore error")),
+      };
+
+      const mockFetch = vi.fn().mockRejectedValue(new Error("network error"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      await expect(
+        fetchBlock({ blockstore }, cid, {
+          retries: 0,
+          baseMs: 1,
+          httpUrls: ["https://relay.example.com"],
+        }),
+      ).rejects.toThrow("blockstore error");
+
+      vi.unstubAllGlobals();
+    });
+
+    it("skips non-ok HTTP responses", async () => {
+      const data = new Uint8Array([10, 20, 30]);
+      const cid = await fakeCid(data);
+      const blockstore = {
+        get: vi.fn().mockRejectedValue(new Error("gone")),
+      };
+
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+        })
+        .mockResolvedValue({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(data.buffer),
+        });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const result = await fetchBlock({ blockstore }, cid, {
+        retries: 0,
+        baseMs: 1,
+        httpUrls: [
+          "https://no-block.example.com",
+          "https://has-block.example.com",
+        ],
+      });
+
+      expect(result).toEqual(data);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
   });
 
   describe("timeout / abort", () => {
