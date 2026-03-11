@@ -1,10 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
-import {
-  createSubdocManager,
-  SNAPSHOT_ORIGIN,
-  INDEXEDDB_ORIGIN,
-} from "./index.js";
+import { createSubdocManager, INDEXEDDB_ORIGIN } from "./index.js";
 
 describe("@pokapali/subdocs", () => {
   const ipns = "k51test123";

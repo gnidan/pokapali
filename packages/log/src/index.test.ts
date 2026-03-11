@@ -1,15 +1,5 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  vi,
-} from "vitest";
-import {
-  createLogger,
-  setLogLevel,
-  getLogLevel,
-} from "./index.js";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { createLogger, setLogLevel, getLogLevel } from "./index.js";
 
 describe("@pokapali/log", () => {
   beforeEach(() => {
@@ -18,39 +8,25 @@ describe("@pokapali/log", () => {
   });
 
   it("logs with module prefix", () => {
-    const spy = vi.spyOn(console, "log")
-      .mockImplementation(() => {});
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const log = createLogger("test");
     log.info("hello");
-    expect(spy).toHaveBeenCalledWith(
-      "[pokapali:test]",
-      "hello",
-    );
+    expect(spy).toHaveBeenCalledWith("[pokapali:test]", "hello");
   });
 
   it("supports multiple args", () => {
-    const spy = vi.spyOn(console, "log")
-      .mockImplementation(() => {});
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const log = createLogger("test");
     log.info("count:", 42, "done");
-    expect(spy).toHaveBeenCalledWith(
-      "[pokapali:test]",
-      "count:",
-      42,
-      "done",
-    );
+    expect(spy).toHaveBeenCalledWith("[pokapali:test]", "count:", 42, "done");
   });
 
   it("routes levels to correct console methods", () => {
     setLogLevel("debug");
-    const debugSpy = vi.spyOn(console, "debug")
-      .mockImplementation(() => {});
-    const logSpy = vi.spyOn(console, "log")
-      .mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn")
-      .mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error")
-      .mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const log = createLogger("test");
     log.debug("d");
@@ -66,8 +42,7 @@ describe("@pokapali/log", () => {
 
   describe("level filtering", () => {
     it("suppresses debug at info level", () => {
-      const spy = vi.spyOn(console, "debug")
-        .mockImplementation(() => {});
+      const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
       setLogLevel("info");
       const log = createLogger("test");
       log.debug("should not appear");
@@ -75,8 +50,7 @@ describe("@pokapali/log", () => {
     });
 
     it("shows debug at debug level", () => {
-      const spy = vi.spyOn(console, "debug")
-        .mockImplementation(() => {});
+      const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
       setLogLevel("debug");
       const log = createLogger("test");
       log.debug("should appear");
@@ -84,8 +58,7 @@ describe("@pokapali/log", () => {
     });
 
     it("suppresses info at warn level", () => {
-      const logSpy = vi.spyOn(console, "log")
-        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       setLogLevel("warn");
       const log = createLogger("test");
       log.info("should not appear");
@@ -93,8 +66,7 @@ describe("@pokapali/log", () => {
     });
 
     it("shows warn at warn level", () => {
-      const spy = vi.spyOn(console, "warn")
-        .mockImplementation(() => {});
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
       setLogLevel("warn");
       const log = createLogger("test");
       log.warn("should appear");
@@ -103,12 +75,9 @@ describe("@pokapali/log", () => {
 
     it("only shows error at error level", () => {
       setLogLevel("error");
-      const logSpy = vi.spyOn(console, "log")
-        .mockImplementation(() => {});
-      const warnSpy = vi.spyOn(console, "warn")
-        .mockImplementation(() => {});
-      const errorSpy = vi.spyOn(console, "error")
-        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       const log = createLogger("test");
       log.info("no");
@@ -118,6 +87,25 @@ describe("@pokapali/log", () => {
       expect(logSpy).not.toHaveBeenCalled();
       expect(warnSpy).not.toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("suppresses everything at silent level", () => {
+      setLogLevel("silent");
+      const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const log = createLogger("test");
+      log.debug("no");
+      log.info("no");
+      log.warn("no");
+      log.error("no");
+
+      expect(debugSpy).not.toHaveBeenCalled();
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -134,8 +122,7 @@ describe("@pokapali/log", () => {
   });
 
   it("level changes affect existing loggers", () => {
-    const spy = vi.spyOn(console, "debug")
-      .mockImplementation(() => {});
+    const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const log = createLogger("test");
 
     setLogLevel("info");

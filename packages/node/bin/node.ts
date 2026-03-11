@@ -8,17 +8,12 @@ import {
   parseAnnouncement,
   base64ToUint8,
 } from "@pokapali/core/announce";
-import {
-  createLogger,
-  setLogLevel,
-} from "@pokapali/log";
+import { createLogger, setLogLevel } from "@pokapali/log";
 import type { LogLevel } from "@pokapali/log";
 
 const log = createLogger("node");
 
-const VALID_LOG_LEVELS: LogLevel[] = [
-  "debug", "info", "warn", "error",
-];
+const VALID_LOG_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
 function parseArgs(argv: string[]): {
   port: number;
@@ -39,32 +34,20 @@ function parseArgs(argv: string[]): {
     const arg = argv[i];
     if (arg === "--port" && argv[i + 1]) {
       port = parseInt(argv[++i], 10);
-    } else if (
-      arg === "--storage-path" && argv[i + 1]
-    ) {
+    } else if (arg === "--storage-path" && argv[i + 1]) {
       storagePath = argv[++i];
     } else if (arg === "--relay") {
       relay = true;
     } else if (arg === "--pin" && argv[i + 1]) {
-      pinApps = argv[++i]
-        .split(",")
-        .map((s) => s.trim());
-    } else if (
-      arg === "--announce" && argv[i + 1]
-    ) {
-      announceAddrs = argv[++i]
-        .split(",")
-        .map((s) => s.trim());
-    } else if (
-      arg === "--log-level" && argv[i + 1]
-    ) {
+      pinApps = argv[++i].split(",").map((s) => s.trim());
+    } else if (arg === "--announce" && argv[i + 1]) {
+      announceAddrs = argv[++i].split(",").map((s) => s.trim());
+    } else if (arg === "--log-level" && argv[i + 1]) {
       const val = argv[++i];
-      if (
-        !VALID_LOG_LEVELS.includes(val as LogLevel)
-      ) {
+      if (!VALID_LOG_LEVELS.includes(val as LogLevel)) {
         console.error(
-          `invalid --log-level "${val}".`
-          + ` Valid: ${VALID_LOG_LEVELS.join(", ")}`,
+          `invalid --log-level "${val}".` +
+            ` Valid: ${VALID_LOG_LEVELS.join(", ")}`,
         );
         process.exit(1);
       }
@@ -77,15 +60,17 @@ function parseArgs(argv: string[]): {
     process.exit(1);
   }
   if (!relay && pinApps.length === 0) {
-    console.error(
-      "at least one of --relay or --pin is required",
-    );
+    console.error("at least one of --relay or --pin is required");
     process.exit(1);
   }
 
   return {
-    port, storagePath, relay, pinApps,
-    announceAddrs, logLevel,
+    port,
+    storagePath,
+    relay,
+    pinApps,
+    announceAddrs,
+    logLevel,
   };
 }
 
@@ -97,37 +82,28 @@ async function main() {
     log.error("uncaught exception:", err.message);
   });
 
-  const {
-    port, storagePath, relay, pinApps,
-    announceAddrs, logLevel,
-  } = parseArgs(process.argv);
+  const { port, storagePath, relay, pinApps, announceAddrs, logLevel } =
+    parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
   if (logLevel) {
     setLogLevel(logLevel);
   }
 
-  const modes = [
-    relay ? "relay" : "",
-    pinApps.length > 0 ? "pin" : "",
-  ].filter(Boolean).join("+");
+  const modes = [relay ? "relay" : "", pinApps.length > 0 ? "pin" : ""]
+    .filter(Boolean)
+    .join("+");
   log.info(`starting (${modes})`);
   log.info(`  storage: ${storagePath}`);
 
-  let relayHandle: Awaited<
-    ReturnType<typeof startRelay>
-  > | null = null;
-  let pinner: Awaited<
-    ReturnType<typeof createPinner>
-  > | null = null;
+  let relayHandle: Awaited<ReturnType<typeof startRelay>> | null = null;
+  let pinner: Awaited<ReturnType<typeof createPinner>> | null = null;
 
   if (relay) {
     relayHandle = await startRelay({
       storagePath,
       announceAddrs,
-      pinAppIds: pinApps.length > 0
-        ? pinApps
-        : undefined,
+      pinAppIds: pinApps.length > 0 ? pinApps : undefined,
     });
     log.info("relay started");
     for (const ma of relayHandle.multiaddrs()) {
@@ -137,7 +113,8 @@ async function main() {
 
   // Extract pubsub from relay for pinner ack support
   const pubsub = relayHandle
-    ? (relayHandle.helia.libp2p.services as any).pubsub
+    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (relayHandle.helia.libp2p.services as any).pubsub
     : undefined;
   const peerId = relayHandle
     ? relayHandle.helia.libp2p.peerId.toString()
@@ -152,9 +129,7 @@ async function main() {
       peerId,
     });
     await pinner.start();
-    log.info(
-      `pinner started for: ${pinApps.join(", ")}`,
-    );
+    log.info(`pinner started for: ${pinApps.join(", ")}`);
 
     // Wire GossipSub announcements to pinner
     if (relayHandle) {
@@ -162,54 +137,39 @@ async function main() {
       for (const app of pinApps) {
         topicToApp.set(announceTopic(app), app);
       }
-      pubsub.addEventListener(
-        "message",
-        (evt: any) => {
-          const appId = topicToApp.get(
-            evt.detail.topic,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pubsub.addEventListener("message", (evt: any) => {
+        const appId = topicToApp.get(evt.detail.topic);
+        if (!appId) return;
+        // Try parsing as announcement first
+        const msg = parseAnnouncement(evt.detail.data);
+        if (msg && !msg.ack) {
+          const blockData = msg.block ? base64ToUint8(msg.block) : undefined;
+          pinner!.onAnnouncement(
+            msg.ipnsName,
+            msg.cid,
+            appId,
+            blockData,
+            msg.fromPinner,
           );
-          if (!appId) return;
-          // Try parsing as announcement first
-          const msg = parseAnnouncement(
-            evt.detail.data,
-          );
-          if (msg && !msg.ack) {
-            const blockData = msg.block
-              ? base64ToUint8(msg.block)
-              : undefined;
-            pinner!.onAnnouncement(
-              msg.ipnsName,
-              msg.cid,
-              appId,
-              blockData,
-              msg.fromPinner,
-            );
-            return;
-          }
+          return;
+        }
 
-          // Check for guarantee query
-          try {
-            const text = new TextDecoder().decode(
-              evt.detail.data,
-            );
-            const obj = JSON.parse(text);
-            if (
-              obj?.type === "guarantee-query" &&
-              typeof obj.ipnsName === "string"
-            ) {
-              pinner!.onGuaranteeQuery(
-                obj.ipnsName,
-                appId,
-              );
-            }
-          } catch {
-            // Not valid JSON — ignore
+        // Check for guarantee query
+        try {
+          const text = new TextDecoder().decode(evt.detail.data);
+          const obj = JSON.parse(text);
+          if (
+            obj?.type === "guarantee-query" &&
+            typeof obj.ipnsName === "string"
+          ) {
+            pinner!.onGuaranteeQuery(obj.ipnsName, appId);
           }
-        },
-      );
-      log.info(
-        "wired GossipSub announcements to pinner",
-      );
+        } catch {
+          // Not valid JSON — ignore
+        }
+      });
+      log.info("wired GossipSub announcements to pinner");
     }
   }
 

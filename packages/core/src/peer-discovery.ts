@@ -1,12 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Helia } from "helia";
 import { multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { createLogger } from "@pokapali/log";
-import {
-  loadCachedRelays,
-  upsertCachedRelay,
-} from "./relay-cache.js";
+import { loadCachedRelays, upsertCachedRelay } from "./relay-cache.js";
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
@@ -26,9 +24,7 @@ const RELAY_TAG_VALUE = 100;
 const log = createLogger("discovery");
 
 async function networkCID(): Promise<CID> {
-  const bytes = new TextEncoder().encode(
-    "pokapali-network",
-  );
+  const bytes = new TextEncoder().encode("pokapali-network");
   const hash = await sha256.digest(bytes);
   return CID.createV1(RAW_CODEC, hash);
 }
@@ -51,11 +47,7 @@ export function extractWssAddrs(
       }
       return true;
     })
-    .map((s) =>
-      multiaddr(
-        s.includes("/p2p/") ? s : s + p2pSuffix,
-      ),
-    );
+    .map((s) => multiaddr(s.includes("/p2p/") ? s : s + p2pSuffix));
 }
 
 // --- Discovery ---
@@ -101,39 +93,32 @@ export function startRoomDiscovery(
     typeof globalThis.location !== "undefined" &&
     globalThis.location.protocol === "https:";
 
-  function wssAddrs(
-    pid: string,
-    rawAddrs: string[],
-  ) {
+  function wssAddrs(pid: string, rawAddrs: string[]) {
     return extractWssAddrs(pid, rawAddrs, secure);
   }
 
   function tagRelay(pid: string) {
-    const conn = helia.libp2p.getConnections()
-      .find(
-        (c) => c.remotePeer.toString() === pid,
-      );
+    const conn = helia.libp2p
+      .getConnections()
+      .find((c) => c.remotePeer.toString() === pid);
     if (!conn) return;
-    helia.libp2p.peerStore.merge(
-      conn.remotePeer,
-      {
+    helia.libp2p.peerStore
+      .merge(conn.remotePeer, {
         tags: {
           [RELAY_TAG]: { value: RELAY_TAG_VALUE },
         },
-      },
-    ).catch(() => {});
+      })
+      .catch(() => {});
   }
 
   function untagRelay(pid: string) {
-    const conn = helia.libp2p.getConnections()
-      .find(
-        (c) => c.remotePeer.toString() === pid,
-      );
+    const conn = helia.libp2p
+      .getConnections()
+      .find((c) => c.remotePeer.toString() === pid);
     if (!conn) return;
-    helia.libp2p.peerStore.merge(
-      conn.remotePeer,
-      { tags: { [RELAY_TAG]: undefined } },
-    ).catch(() => {});
+    helia.libp2p.peerStore
+      .merge(conn.remotePeer, { tags: { [RELAY_TAG]: undefined } })
+      .catch(() => {});
   }
 
   function trackRelay(pid: string, addrs: string[]) {
@@ -160,10 +145,7 @@ export function startRoomDiscovery(
       wssAddrs.map((ma) => ma.toString()),
     );
     const dialCtrl = new AbortController();
-    const dialTimer = setTimeout(
-      () => dialCtrl.abort(),
-      DIAL_TIMEOUT_MS,
-    );
+    const dialTimer = setTimeout(() => dialCtrl.abort(), DIAL_TIMEOUT_MS);
     try {
       if (wssAddrs.length > 0) {
         await helia.libp2p.dial(wssAddrs, {
@@ -181,15 +163,10 @@ export function startRoomDiscovery(
       return true;
     } catch (err) {
       const e = err as any;
-      log.debug(
-        `relay ...${short} FAIL:`,
-        e.message ?? err,
-      );
+      log.debug(`relay ...${short} FAIL:`, e.message ?? err);
       if (e.errors) {
         for (const sub of e.errors) {
-          log.debug(
-            `  sub-error:`, sub.message ?? sub,
-          );
+          log.debug(`  sub-error:`, sub.message ?? sub);
         }
       }
       return false;
@@ -201,48 +178,37 @@ export function startRoomDiscovery(
   async function dialCachedRelays() {
     const cached = loadCachedRelays();
     const now = Date.now();
-    const fresh = cached.filter(
-      (r) => now - r.lastSeen < RELAY_CACHE_TTL_MS,
-    );
+    const fresh = cached.filter((r) => now - r.lastSeen < RELAY_CACHE_TTL_MS);
     if (fresh.length === 0) return;
 
-    log.debug(
-      `trying ${fresh.length} cached relay(s)`,
+    log.debug(`trying ${fresh.length} cached relay(s)`);
+
+    await Promise.all(
+      fresh.map(async (entry) => {
+        if (stopped) return;
+
+        const pid = entry.peerId;
+        const short = pid.slice(-8);
+        const already = helia.libp2p
+          .getConnections()
+          .some((c) => c.remotePeer.toString() === pid);
+        if (already) {
+          trackRelay(pid, entry.addrs);
+          log.debug(`cached relay ...${short} (connected)`);
+          return;
+        }
+
+        const dialAddrs = wssAddrs(pid, entry.addrs);
+        if (dialAddrs.length === 0) return;
+
+        const ok = await dialRelay(pid, dialAddrs, entry.addrs);
+        if (ok) {
+          upsertCachedRelay(pid, entry.addrs);
+        }
+        // Don't evict on failure — the 24h TTL in
+        // loadCachedRelays handles natural expiry.
+      }),
     );
-
-    await Promise.all(fresh.map(async (entry) => {
-      if (stopped) return;
-
-      const pid = entry.peerId;
-      const short = pid.slice(-8);
-      const already = helia.libp2p
-        .getConnections()
-        .some(
-          (c) => c.remotePeer.toString() === pid,
-        );
-      if (already) {
-        trackRelay(pid, entry.addrs);
-        log.debug(
-          `cached relay ...${short} (connected)`,
-        );
-        return;
-      }
-
-      const dialAddrs = wssAddrs(
-        pid,
-        entry.addrs,
-      );
-      if (dialAddrs.length === 0) return;
-
-      const ok = await dialRelay(
-        pid, dialAddrs, entry.addrs,
-      );
-      if (ok) {
-        upsertCachedRelay(pid, entry.addrs);
-      }
-      // Don't evict on failure — the 24h TTL in
-      // loadCachedRelays handles natural expiry.
-    }));
   }
 
   interface ProviderToDial {
@@ -262,19 +228,16 @@ export function startRoomDiscovery(
 
     try {
       const cid = await networkCID();
-      const timeout = setTimeout(
-        () => ctrl.abort(),
-        FIND_TIMEOUT_MS,
-      );
+      const timeout = setTimeout(() => ctrl.abort(), FIND_TIMEOUT_MS);
 
       // Phase 1: collect providers from iterator
       // (bounded by FIND_TIMEOUT_MS). Slow dials no
       // longer block iteration.
       const toDial: ProviderToDial[] = [];
       let found = 0;
-      for await (const provider of
-        helia.routing.findProviders(cid, { signal })
-      ) {
+      for await (const provider of helia.routing.findProviders(cid, {
+        signal,
+      })) {
         if (signal.aborted) break;
         found++;
 
@@ -282,25 +245,20 @@ export function startRoomDiscovery(
         const short = pid.slice(-8);
         const already = helia.libp2p
           .getConnections()
-          .some(
-            (c) => c.remotePeer.toString() === pid,
-          );
+          .some((c) => c.remotePeer.toString() === pid);
 
         if (already) {
-          const addrs = (
-            provider.multiaddrs ?? []
-          ).map((ma: any) => ma.toString());
+          const addrs = (provider.multiaddrs ?? []).map((ma: any) =>
+            ma.toString(),
+          );
           trackRelay(pid, addrs);
           upsertCachedRelay(pid, addrs);
-          log.debug(
-            `relay ...${short} (connected)`,
-          );
+          log.debug(`relay ...${short} (connected)`);
           continue;
         }
 
-        const addrs = provider.multiaddrs?.map(
-          (ma: any) => ma.toString(),
-        ) ?? [];
+        const addrs =
+          provider.multiaddrs?.map((ma: any) => ma.toString()) ?? [];
 
         // Only try providers with browser-dialable
         // addresses (ws, wss, webrtc, webrtc-direct)
@@ -315,16 +273,15 @@ export function startRoomDiscovery(
             a.includes("/p2p-circuit"),
         );
         if (!dialable && addrs.length > 0) {
-          log.debug(
-            `relay ...${short} skipped`,
-            `(no browser-dialable addrs)`,
-          );
+          log.debug(`relay ...${short} skipped`, `(no browser-dialable addrs)`);
           continue;
         }
 
         const filtered = wssAddrs(pid, addrs);
         toDial.push({
-          pid, filtered, addrs,
+          pid,
+          filtered,
+          addrs,
           peerId: provider.id,
         });
       }
@@ -339,12 +296,7 @@ export function startRoomDiscovery(
       if (toDial.length > 0) {
         await Promise.allSettled(
           toDial.map(async (p) => {
-            const ok = await dialRelay(
-              p.pid,
-              p.filtered,
-              p.addrs,
-              p.peerId,
-            );
+            const ok = await dialRelay(p.pid, p.filtered, p.addrs, p.peerId);
             if (ok) {
               upsertCachedRelay(p.pid, p.addrs);
             }
@@ -364,19 +316,17 @@ export function startRoomDiscovery(
   function logStatus() {
     const peers = helia.libp2p.getPeers();
     const addrs = helia.libp2p.getMultiaddrs();
-    const connectedCount = [...relayPeerIds].filter(
-      (pid) => helia.libp2p.getConnections().some(
-        (c) => c.remotePeer.toString() === pid,
-      ),
+    const connectedCount = [...relayPeerIds].filter((pid) =>
+      helia.libp2p
+        .getConnections()
+        .some((c) => c.remotePeer.toString() === pid),
     ).length;
     log.info(
       `${relayPeerIds.size} relays tracked,`,
       `${connectedCount} connected,`,
       `${peers.length} total peers`,
     );
-    log.debug(
-      `${addrs.length} listening addrs`,
-    );
+    log.debug(`${addrs.length} listening addrs`);
   }
 
   // --- Relay reconnection on disconnect ---
@@ -389,15 +339,10 @@ export function startRoomDiscovery(
   // sharing. Only fully untracked after all attempts
   // are exhausted.
 
-  const reconnectTimers = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
+  const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const reconnectAttempts = new Map<string, number>();
 
-  const disconnectHandler = (
-    evt: CustomEvent,
-  ) => {
+  const disconnectHandler = (evt: CustomEvent) => {
     const peerId = evt.detail;
     const pid = peerId.toString();
     if (!relayPeerIds.has(pid)) return;
@@ -409,8 +354,7 @@ export function startRoomDiscovery(
 
     if (stopped) return;
 
-    const attempts =
-      reconnectAttempts.get(pid) ?? 0;
+    const attempts = reconnectAttempts.get(pid) ?? 0;
     if (attempts >= MAX_RECONNECT_ATTEMPTS) {
       log.info(
         `relay ...${short} disconnected,`,
@@ -421,8 +365,7 @@ export function startRoomDiscovery(
       return;
     }
 
-    const delay = RECONNECT_BASE_DELAY_MS
-      * Math.pow(2, attempts);
+    const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts);
     log.info(
       `relay ...${short} disconnected,`,
       `redial in ${delay / 1000}s`,
@@ -435,44 +378,31 @@ export function startRoomDiscovery(
         reconnectTimers.delete(pid);
         if (stopped) return;
 
-        const cached = loadCachedRelays().find(
-          (r) => r.peerId === pid,
-        );
+        const cached = loadCachedRelays().find((r) => r.peerId === pid);
         if (!cached) {
           untrackRelay(pid);
           return;
         }
 
-        const redialAddrs = wssAddrs(
-          pid, cached.addrs,
-        );
+        const redialAddrs = wssAddrs(pid, cached.addrs);
         if (redialAddrs.length === 0) {
           untrackRelay(pid);
           return;
         }
 
-        const ok = await dialRelay(
-          pid, redialAddrs, cached.addrs,
-        );
+        const ok = await dialRelay(pid, redialAddrs, cached.addrs);
         if (ok) {
           reconnectAttempts.delete(pid);
           upsertCachedRelay(pid, cached.addrs);
-          log.info(
-            `relay ...${short} reconnected`,
-          );
+          log.info(`relay ...${short} reconnected`);
         } else {
-          reconnectAttempts.set(
-            pid, attempts + 1,
-          );
+          reconnectAttempts.set(pid, attempts + 1);
         }
       }, delay),
     );
   };
 
-  helia.libp2p.addEventListener(
-    "peer:disconnect",
-    disconnectHandler,
-  );
+  helia.libp2p.addEventListener("peer:disconnect", disconnectHandler);
 
   // Try cached relays and DHT discovery concurrently.
   // Cache dials are fast; DHT is slow. No reason to wait.
@@ -496,9 +426,7 @@ export function startRoomDiscovery(
     if (!stopped) logStatus();
   }, LOG_INTERVAL_MS);
 
-  async function addExternalRelays(
-    entries: RelayEntry[],
-  ) {
+  async function addExternalRelays(entries: RelayEntry[]) {
     for (const entry of entries) {
       if (stopped) break;
 
@@ -506,16 +434,11 @@ export function startRoomDiscovery(
       const short = pid.slice(-8);
       const connected = helia.libp2p
         .getConnections()
-        .some(
-          (c) => c.remotePeer.toString() === pid,
-        );
+        .some((c) => c.remotePeer.toString() === pid);
 
       if (connected) {
         trackRelay(pid, entry.addrs);
-        log.debug(
-          `peer-shared relay ...${short}`,
-          `(connected)`,
-        );
+        log.debug(`peer-shared relay ...${short}`, `(connected)`);
         upsertCachedRelay(pid, entry.addrs);
         continue;
       }
@@ -524,17 +447,11 @@ export function startRoomDiscovery(
       // pending reconnect timer).
       if (reconnectTimers.has(pid)) continue;
 
-      const extAddrs = wssAddrs(
-        pid, entry.addrs,
-      );
+      const extAddrs = wssAddrs(pid, entry.addrs);
       if (extAddrs.length === 0) continue;
 
-      log.debug(
-        `peer-shared relay ...${short}`,
-      );
-      const ok = await dialRelay(
-        pid, extAddrs, entry.addrs,
-      );
+      log.debug(`peer-shared relay ...${short}`);
+      const ok = await dialRelay(pid, extAddrs, entry.addrs);
       if (ok) {
         upsertCachedRelay(pid, entry.addrs);
       }
@@ -546,9 +463,10 @@ export function startRoomDiscovery(
       return relayPeerIds;
     },
     relayEntries(): RelayEntry[] {
-      return [...relayAddrs.entries()].map(
-        ([peerId, addrs]) => ({ peerId, addrs }),
-      );
+      return [...relayAddrs.entries()].map(([peerId, addrs]) => ({
+        peerId,
+        addrs,
+      }));
     },
     addExternalRelays(entries: RelayEntry[]) {
       addExternalRelays(entries);
@@ -564,10 +482,7 @@ export function startRoomDiscovery(
       }
       reconnectTimers.clear();
       reconnectAttempts.clear();
-      helia.libp2p.removeEventListener(
-        "peer:disconnect",
-        disconnectHandler,
-      );
+      helia.libp2p.removeEventListener("peer:disconnect", disconnectHandler);
     },
   };
 }

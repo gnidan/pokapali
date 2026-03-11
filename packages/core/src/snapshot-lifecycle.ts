@@ -1,8 +1,6 @@
 import * as Y from "yjs";
 import type { CID } from "multiformats/cid";
-import {
-  CID as CIDClass,
-} from "multiformats/cid";
+import { CID as CIDClass } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import {
   encodeSnapshot,
@@ -38,19 +36,12 @@ export interface SnapshotLifecycle {
   applyRemote(
     cid: CID,
     readKey: CryptoKey,
-    onApply: (
-      plaintext: Record<string, Uint8Array>,
-    ) => void,
+    onApply: (plaintext: Record<string, Uint8Array>) => void,
   ): Promise<boolean>;
 
-  history(): Promise<
-    Array<{ cid: CID; seq: number; ts: number }>
-  >;
+  history(): Promise<Array<{ cid: CID; seq: number; ts: number }>>;
 
-  loadVersion(
-    cid: CID,
-    readKey: CryptoKey,
-  ): Promise<Record<string, Y.Doc>>;
+  loadVersion(cid: CID, readKey: CryptoKey): Promise<Record<string, Y.Doc>>;
 
   getBlock(cidStr: string): Uint8Array | undefined;
   putBlock(cidStr: string, block: Uint8Array): void;
@@ -71,12 +62,7 @@ export function createSnapshotLifecycle(
   let lastAppliedCid: string | null = null;
 
   return {
-    async push(
-      plaintext,
-      readKey,
-      signingKey,
-      clockSum,
-    ): Promise<PushResult> {
+    async push(plaintext, readKey, signingKey, clockSum): Promise<PushResult> {
       const prevForThis = prev;
       const seqForThis = seq;
 
@@ -89,10 +75,7 @@ export function createSnapshotLifecycle(
         signingKey,
       );
       const hash = await sha256.digest(block);
-      const cid = CIDClass.createV1(
-        DAG_CBOR_CODE,
-        hash,
-      );
+      const cid = CIDClass.createV1(DAG_CBOR_CODE, hash);
 
       const cidStr = cid.toString();
       blocks.set(cidStr, block);
@@ -110,11 +93,7 @@ export function createSnapshotLifecycle(
       };
     },
 
-    async applyRemote(
-      cid,
-      readKey,
-      onApply,
-    ): Promise<boolean> {
+    async applyRemote(cid, readKey, onApply): Promise<boolean> {
       const cidStr = cid.toString();
       if (cidStr === lastAppliedCid) return false;
 
@@ -122,17 +101,14 @@ export function createSnapshotLifecycle(
       const block = await fetchBlock(helia, cid);
 
       const node = decodeSnapshot(block);
-      const plaintext =
-        await decryptSnapshot(node, readKey);
+      const plaintext = await decryptSnapshot(node, readKey);
 
       blocks.set(cidStr, block);
 
       // Serve the validated block to other peers
       // via bitswap.
       if (helia.blockstore.put) {
-        Promise.resolve(
-          helia.blockstore.put(cid, block),
-        ).catch(() => {});
+        Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
       }
 
       onApply(plaintext);
@@ -152,10 +128,7 @@ export function createSnapshotLifecycle(
       const getter = async (cid: CID) => {
         const block = blocks.get(cid.toString());
         if (!block) {
-          throw new Error(
-            "Block not found: " +
-              cid.toString(),
-          );
+          throw new Error("Block not found: " + cid.toString());
         }
         return block;
       };
@@ -166,10 +139,7 @@ export function createSnapshotLifecycle(
         ts: number;
       }> = [];
       let currentCid: CID | null = prev;
-      for await (const node of walkChain(
-        prev,
-        getter,
-      )) {
+      for await (const node of walkChain(prev, getter)) {
         entries.push({
           cid: currentCid!,
           seq: node.seq,
@@ -185,23 +155,15 @@ export function createSnapshotLifecycle(
       if (!block) {
         try {
           const helia = options.getHelia();
-          block =
-            await helia.blockstore.get(cid);
+          block = await helia.blockstore.get(cid);
         } catch {
-          throw new Error(
-            "Unknown CID: " + cid.toString(),
-          );
+          throw new Error("Unknown CID: " + cid.toString());
         }
       }
       const node = decodeSnapshot(block);
-      const plaintext = await decryptSnapshot(
-        node,
-        readKey,
-      );
+      const plaintext = await decryptSnapshot(node, readKey);
       const result: Record<string, Y.Doc> = {};
-      for (const [ns, bytes] of Object.entries(
-        plaintext,
-      )) {
+      for (const [ns, bytes] of Object.entries(plaintext)) {
         const doc = new Y.Doc();
         Y.applyUpdate(doc, bytes);
         result[ns] = doc;

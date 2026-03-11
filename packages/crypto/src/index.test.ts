@@ -218,24 +218,16 @@ describe("hexToBytes / bytesToHex", () => {
   });
 
   it("throws on odd-length hex", () => {
-    expect(() => hexToBytes("abc")).toThrow(
-      "odd-length",
-    );
+    expect(() => hexToBytes("abc")).toThrow("odd-length");
   });
 
   it("throws on invalid hex characters", () => {
-    expect(() => hexToBytes("zz")).toThrow(
-      "invalid hex",
-    );
-    expect(() => hexToBytes("0g")).toThrow(
-      "invalid hex",
-    );
+    expect(() => hexToBytes("zz")).toThrow("invalid hex");
+    expect(() => hexToBytes("0g")).toThrow("invalid hex");
   });
 
   it("accepts uppercase hex", () => {
     const bytes = hexToBytes("FF00AB");
-    expect(bytes).toEqual(
-      new Uint8Array([255, 0, 171]),
-    );
+    expect(bytes).toEqual(new Uint8Array([255, 0, 171]));
   });
 });

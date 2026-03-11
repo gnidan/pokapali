@@ -1,10 +1,4 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  forwardRef,
-} from "react";
+import { useState, useCallback, useRef, useEffect, forwardRef } from "react";
 import type { Doc } from "@pokapali/core";
 import { truncateUrl } from "@pokapali/core";
 
@@ -18,9 +12,7 @@ function CopyRow({
   value: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -32,22 +24,15 @@ function CopyRow({
     navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(
-        () => setCopied(false),
-        1500,
-      );
+      timer.current = setTimeout(() => setCopied(false), 1500);
     });
   }, [value]);
 
   return (
     <div className="share-card">
       <div className="share-card-header">
-        <span className="share-card-label">
-          {label}
-        </span>
-        <span className="share-card-desc">
-          {description}
-        </span>
+        <span className="share-card-label">{label}</span>
+        <span className="share-card-desc">{description}</span>
       </div>
       <div className="share-card-row">
         <input
@@ -63,10 +48,7 @@ function CopyRow({
             e.target.value = truncateUrl(value);
           }}
         />
-        <button
-          className="copy-btn"
-          onClick={copy}
-        >
+        <button className="copy-btn" onClick={copy}>
           {copied ? "Copied!" : "Copy link"}
         </button>
       </div>
@@ -74,44 +56,39 @@ function CopyRow({
   );
 }
 
-export const SharePanel = forwardRef<
-  HTMLDivElement,
-  { doc: Doc }
->(function SharePanel({ doc }, ref) {
-  return (
-    <div
-      className="share-panel"
-      ref={ref}
-      tabIndex={-1}
-      role="region"
-      aria-label="Share panel"
-    >
-      <h2>Share this document</h2>
-      {doc.urls.admin && (
+export const SharePanel = forwardRef<HTMLDivElement, { doc: Doc }>(
+  function SharePanel({ doc }, ref) {
+    return (
+      <div
+        className="share-panel"
+        ref={ref}
+        tabIndex={-1}
+        role="region"
+        aria-label="Share panel"
+      >
+        <h2>Share this document</h2>
+        {doc.urls.admin && (
+          <CopyRow
+            label="Admin"
+            description={
+              "Full control \u2014 can edit, publish," + " and manage access"
+            }
+            value={doc.urls.admin}
+          />
+        )}
+        {doc.urls.write && (
+          <CopyRow
+            label="Write"
+            description={"Can edit the document and publish" + " snapshots"}
+            value={doc.urls.write}
+          />
+        )}
         <CopyRow
-          label="Admin"
-          description={
-            "Full control \u2014 can edit, publish," +
-            " and manage access"
-          }
-          value={doc.urls.admin}
+          label="Read"
+          description="View only — cannot make changes"
+          value={doc.urls.read}
         />
-      )}
-      {doc.urls.write && (
-        <CopyRow
-          label="Write"
-          description={
-            "Can edit the document and publish" +
-            " snapshots"
-          }
-          value={doc.urls.write}
-        />
-      )}
-      <CopyRow
-        label="Read"
-        description="View only — cannot make changes"
-        value={doc.urls.read}
-      />
-    </div>
-  );
-});
+      </div>
+    );
+  },
+);

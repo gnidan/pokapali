@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { request } from "node:http";
 import type { Server } from "node:http";
 import { startHttpServer } from "./http.js";
@@ -21,22 +15,11 @@ function mockRelay(opts?: {
   gsPeers?: number;
 }) {
   const pid = opts?.peerId ?? "12D3KooWTestPeer";
-  const conns = Array.from(
-    { length: opts?.connections ?? 2 },
-    () => ({}),
-  );
-  const peers = Array.from(
-    { length: opts?.peers ?? 3 },
-    () => ({}),
-  );
-  const addrs = (opts?.multiaddrs ?? []).map(
-    (a) => ({ toString: () => a }),
-  );
+  const conns = Array.from({ length: opts?.connections ?? 2 }, () => ({}));
+  const peers = Array.from({ length: opts?.peers ?? 3 }, () => ({}));
+  const addrs = (opts?.multiaddrs ?? []).map((a) => ({ toString: () => a }));
   const topics = opts?.topics ?? [];
-  const gsPeers = Array.from(
-    { length: opts?.gsPeers ?? 0 },
-    () => ({}),
-  );
+  const gsPeers = Array.from({ length: opts?.gsPeers ?? 0 }, () => ({}));
 
   return {
     peerId: () => pid,
@@ -66,11 +49,12 @@ function mockPinner(opts?: {
 }) {
   return {
     ingest: async () => opts?.ingestResult ?? true,
-    metrics: () => opts?.metrics ?? {
-      knownNames: 10,
-      tipsTracked: 10,
-      acksTracked: 5,
-    },
+    metrics: () =>
+      opts?.metrics ?? {
+        knownNames: 10,
+        tipsTracked: 10,
+        acksTracked: 5,
+      },
   } as any;
 }
 
@@ -91,9 +75,7 @@ function fetch(
         port,
         method,
         path,
-        headers: body
-          ? { "content-length": body.length }
-          : undefined,
+        headers: body ? { "content-length": body.length } : undefined,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -118,9 +100,7 @@ describe("startHttpServer", () => {
 
   afterEach(async () => {
     if (server) {
-      await new Promise<void>((r) =>
-        server.close(() => r()),
-      );
+      await new Promise<void>((r) => server.close(() => r()));
     }
   });
 
@@ -151,19 +131,15 @@ describe("startHttpServer", () => {
       expect(typeof data.uptime).toBe("number");
     });
 
-    it("returns null peerId without relay",
-      async () => {
-        start();
-        const res = await fetch(
-          port, "GET", "/health",
-        );
-        const data = JSON.parse(res.body);
-        expect(data.ok).toBe(true);
-        expect(data.peerId).toBeNull();
-        expect(data.peers).toBe(0);
-        expect(data.connections).toBe(0);
-      },
-    );
+    it("returns null peerId without relay", async () => {
+      start();
+      const res = await fetch(port, "GET", "/health");
+      const data = JSON.parse(res.body);
+      expect(data.ok).toBe(true);
+      expect(data.peerId).toBeNull();
+      expect(data.peers).toBe(0);
+      expect(data.connections).toBe(0);
+    });
   });
 
   describe("GET /status", () => {
@@ -188,23 +164,17 @@ describe("startHttpServer", () => {
       expect(data.mode).toBe("relay");
     });
 
-    it("shows none mode without relay or pinner",
-      async () => {
-        start();
-        const res = await fetch(
-          port, "GET", "/status",
-        );
-        const data = JSON.parse(res.body);
-        expect(data.mode).toBe("none");
-      },
-    );
+    it("shows none mode without relay or pinner", async () => {
+      start();
+      const res = await fetch(port, "GET", "/status");
+      const data = JSON.parse(res.body);
+      expect(data.mode).toBe("none");
+    });
 
     it("detects WSS from multiaddrs", async () => {
       start({
         relay: mockRelay({
-          multiaddrs: [
-            "/ip4/1.2.3.4/tcp/4003/tls/ws",
-          ],
+          multiaddrs: ["/ip4/1.2.3.4/tcp/4003/tls/ws"],
         }),
       });
       const res = await fetch(port, "GET", "/status");
@@ -234,77 +204,61 @@ describe("startHttpServer", () => {
       const data = JSON.parse(res.body);
       expect(data.gossipsub).not.toBeNull();
       expect(data.gossipsub.peers).toBe(2);
-      expect(data.gossipsub.topics).toHaveProperty(
-        "topic-a",
-      );
+      expect(data.gossipsub.topics).toHaveProperty("topic-a");
     });
   });
 
   describe("GET /metrics", () => {
-    it("returns memory and pinner metrics",
-      async () => {
-        start({
-          pinner: mockPinner({
-            metrics: { knownNames: 42 },
-          }),
-        });
-        const res = await fetch(
-          port, "GET", "/metrics",
-        );
-        expect(res.status).toBe(200);
-        const data = JSON.parse(res.body);
-        expect(data.memory).toHaveProperty("rss");
-        expect(data.memory).toHaveProperty("heapUsed");
-        expect(data.pinner.knownNames).toBe(42);
-        expect(typeof data.uptime).toBe("number");
-      },
-    );
+    it("returns memory and pinner metrics", async () => {
+      start({
+        pinner: mockPinner({
+          metrics: { knownNames: 42 },
+        }),
+      });
+      const res = await fetch(port, "GET", "/metrics");
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.memory).toHaveProperty("rss");
+      expect(data.memory).toHaveProperty("heapUsed");
+      expect(data.pinner.knownNames).toBe(42);
+      expect(typeof data.uptime).toBe("number");
+    });
 
-    it("returns null pinner when no pinner",
-      async () => {
-        start();
-        const res = await fetch(
-          port, "GET", "/metrics",
-        );
-        const data = JSON.parse(res.body);
-        expect(data.pinner).toBeNull();
-      },
-    );
+    it("returns null pinner when no pinner", async () => {
+      start();
+      const res = await fetch(port, "GET", "/metrics");
+      const data = JSON.parse(res.body);
+      expect(data.pinner).toBeNull();
+    });
   });
 
   describe("POST /ingest/:ipnsName", () => {
-    it("accepts valid body and returns 200",
-      async () => {
-        start({ pinner: mockPinner() });
-        const body = Buffer.from("snapshot-data");
-        const res = await fetch(
-          port, "POST", "/ingest/test-name", body,
-        );
-        expect(res.status).toBe(200);
-        const data = JSON.parse(res.body);
-        expect(data.ok).toBe(true);
-      },
-    );
+    it("accepts valid body and returns 200", async () => {
+      start({ pinner: mockPinner() });
+      const body = Buffer.from("snapshot-data");
+      const res = await fetch(port, "POST", "/ingest/test-name", body);
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.ok).toBe(true);
+    });
 
-    it("returns 429 when pinner rejects",
-      async () => {
-        start({
-          pinner: mockPinner({ ingestResult: false }),
-        });
-        const body = Buffer.from("snapshot-data");
-        const res = await fetch(
-          port, "POST", "/ingest/test-name", body,
-        );
-        expect(res.status).toBe(429);
-        const data = JSON.parse(res.body);
-        expect(data.error).toBe("rejected");
-      },
-    );
+    it("returns 429 when pinner rejects", async () => {
+      start({
+        pinner: mockPinner({ ingestResult: false }),
+      });
+      const body = Buffer.from("snapshot-data");
+      const res = await fetch(port, "POST", "/ingest/test-name", body);
+      expect(res.status).toBe(429);
+      const data = JSON.parse(res.body);
+      expect(data.error).toBe("rejected");
+    });
 
     it("returns 400 for empty body", async () => {
       start({ pinner: mockPinner() });
       const res = await fetch(
-        port, "POST", "/ingest/test-name",
+        port,
+        "POST",
+        "/ingest/test-name",
         Buffer.alloc(0),
       );
       expect(res.status).toBe(400);
@@ -320,9 +274,7 @@ describe("startHttpServer", () => {
       // response or a connection error.
       const body = Buffer.alloc(6_000_001);
       try {
-        const res = await fetch(
-          port, "POST", "/ingest/test-name", body,
-        );
+        const res = await fetch(port, "POST", "/ingest/test-name", body);
         expect(res.status).toBe(413);
         const data = JSON.parse(res.body);
         expect(data.error).toBe("body too large");
@@ -330,30 +282,23 @@ describe("startHttpServer", () => {
         // "socket hang up" or "ECONNRESET" means
         // the server correctly rejected the body
         expect(
-          err.message === "socket hang up"
-          || err.code === "ECONNRESET",
+          err.message === "socket hang up" || err.code === "ECONNRESET",
         ).toBe(true);
       }
     });
 
-    it("returns 404 when no pinner configured",
-      async () => {
-        start();
-        const body = Buffer.from("data");
-        const res = await fetch(
-          port, "POST", "/ingest/test-name", body,
-        );
-        expect(res.status).toBe(404);
-      },
-    );
+    it("returns 404 when no pinner configured", async () => {
+      start();
+      const body = Buffer.from("data");
+      const res = await fetch(port, "POST", "/ingest/test-name", body);
+      expect(res.status).toBe(404);
+    });
 
     it("validates ipnsName format", async () => {
       start({ pinner: mockPinner() });
       // Invalid chars in ipnsName
       const body = Buffer.from("data");
-      const res = await fetch(
-        port, "POST", "/ingest/bad%20name!", body,
-      );
+      const res = await fetch(port, "POST", "/ingest/bad%20name!", body);
       expect(res.status).toBe(404);
     });
   });
@@ -361,22 +306,16 @@ describe("startHttpServer", () => {
   describe("unknown routes", () => {
     it("returns 404 for unknown path", async () => {
       start({ relay: mockRelay() });
-      const res = await fetch(
-        port, "GET", "/nonexistent",
-      );
+      const res = await fetch(port, "GET", "/nonexistent");
       expect(res.status).toBe(404);
       const data = JSON.parse(res.body);
       expect(data.error).toBe("not found");
     });
 
-    it("returns 404 for POST to /health",
-      async () => {
-        start({ relay: mockRelay() });
-        const res = await fetch(
-          port, "POST", "/health",
-        );
-        expect(res.status).toBe(404);
-      },
-    );
+    it("returns 404 for POST to /health", async () => {
+      start({ relay: mockRelay() });
+      const res = await fetch(port, "POST", "/health");
+      expect(res.status).toBe(404);
+    });
   });
 });

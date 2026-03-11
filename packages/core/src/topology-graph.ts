@@ -5,13 +5,11 @@
  * Extracted from index.ts to reduce file size.
  */
 
-import type { AwarenessTopology } from
-  "./topology-sharing.js";
+import type { AwarenessTopology } from "./topology-sharing.js";
 
 export interface TopologyNode {
   id: string;
-  kind: "self" | "relay" | "pinner"
-    | "relay+pinner" | "browser";
+  kind: "self" | "relay" | "pinner" | "relay+pinner" | "browser";
   label: string;
   connected: boolean;
   roles: string[];
@@ -132,15 +130,11 @@ export function buildTopologyGraph(
 
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
-    const topo =
-      (state as any)?.topology as
-        AwarenessTopology | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const topo = (state as any)?.topology as AwarenessTopology | undefined;
     if (!topo?.knownNodes) continue;
     for (const kn of topo.knownNodes) {
-      if (
-        typeof kn.peerId !== "string" ||
-        !Array.isArray(kn.roles)
-      ) {
+      if (typeof kn.peerId !== "string" || !Array.isArray(kn.roles)) {
         continue;
       }
       if (seenNodeIds.has(kn.peerId)) continue;
@@ -148,8 +142,7 @@ export function buildTopologyGraph(
       graphNodes.push({
         id: kn.peerId,
         kind: nodeKind(kn.roles),
-        label:
-          `...${kn.peerId.slice(-8)}`,
+        label: `...${kn.peerId.slice(-8)}`,
         connected: false,
         roles: kn.roles,
         browserCount: kn.browserCount,
@@ -161,17 +154,15 @@ export function buildTopologyGraph(
   //    from awareness topology state.
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
-    const topo =
-      (state as any)?.topology as
-        AwarenessTopology | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const topo = (state as any)?.topology as AwarenessTopology | undefined;
 
     const peerId = `awareness:${clientId}`;
     graphNodes.push({
       id: peerId,
       kind: "browser",
-      label:
-        (state as any)?.user?.name
-          ?? `Peer ${clientId}`,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      label: (state as any)?.user?.name ?? `Peer ${clientId}`,
       connected: true,
       roles: [],
       clientId,
@@ -179,20 +170,15 @@ export function buildTopologyGraph(
 
     // Relay edges from this browser peer
     if (topo?.connectedRelays) {
-      for (const relayPid of
-        topo.connectedRelays
-      ) {
+      for (const relayPid of topo.connectedRelays) {
         // Ensure the relay node exists
         if (!seenNodeIds.has(relayPid)) {
           seenNodeIds.add(relayPid);
-          const relayRoles =
-            topo.relayRoles?.[relayPid]
-              ?? [];
+          const relayRoles = topo.relayRoles?.[relayPid] ?? [];
           graphNodes.push({
             id: relayPid,
             kind: nodeKind(relayRoles),
-            label:
-              `...${relayPid.slice(-8)}`,
+            label: `...${relayPid.slice(-8)}`,
             connected: false,
             roles: relayRoles,
           });

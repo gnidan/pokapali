@@ -41,6 +41,7 @@ GET /block/:cid
 ```
 
 **Response:**
+
 - `200 OK` with `application/octet-stream` body
   (raw block bytes)
 - `404 Not Found` if the CID is not in the blockstore
@@ -48,6 +49,7 @@ GET /block/:cid
 - `429 Too Many Requests` if rate-limited
 
 **Headers:**
+
 - `Content-Type: application/octet-stream`
 - `Content-Length: <byte-count>`
 - `Cache-Control: public, max-age=31536000, immutable`
@@ -59,9 +61,7 @@ GET /block/:cid
 Add to `startHttpServer` after the existing routes:
 
 ```ts
-const blockMatch = url.pathname.match(
-  /^\/block\/([a-zA-Z0-9]+)$/,
-);
+const blockMatch = url.pathname.match(/^\/block\/([a-zA-Z0-9]+)$/);
 if (req.method === "GET" && blockMatch) {
   const cidStr = blockMatch[1];
   let cid: CID;
@@ -71,9 +71,11 @@ if (req.method === "GET" && blockMatch) {
     res.writeHead(400, {
       "content-type": "application/json",
     });
-    res.end(JSON.stringify({
-      error: "invalid CID",
-    }));
+    res.end(
+      JSON.stringify({
+        error: "invalid CID",
+      }),
+    );
     return;
   }
 
@@ -82,29 +84,31 @@ if (req.method === "GET" && blockMatch) {
     res.writeHead(429, {
       "content-type": "application/json",
     });
-    res.end(JSON.stringify({
-      error: "rate limited",
-    }));
+    res.end(
+      JSON.stringify({
+        error: "rate limited",
+      }),
+    );
     return;
   }
 
   try {
-    const block = await relay.helia.blockstore
-      .get(cid);
+    const block = await relay.helia.blockstore.get(cid);
     res.writeHead(200, {
       "content-type": "application/octet-stream",
       "content-length": String(block.length),
-      "cache-control":
-        "public, max-age=31536000, immutable",
+      "cache-control": "public, max-age=31536000, immutable",
     });
     res.end(block);
   } catch {
     res.writeHead(404, {
       "content-type": "application/json",
     });
-    res.end(JSON.stringify({
-      error: "block not found",
-    }));
+    res.end(
+      JSON.stringify({
+        error: "block not found",
+      }),
+    );
   }
 }
 ```
@@ -130,6 +134,7 @@ bandwidth abuse.
 Blocks are encrypted with `readKey`. Possessing a
 CID without the readKey yields only ciphertext.
 The CID itself is learned from:
+
 1. A GossipSub announcement (requires subscribing
    to the announce topic with the appId)
 2. An IPNS resolve (requires knowing the IPNS name
@@ -147,6 +152,7 @@ control.
 ### Discovery: how browsers find relay HTTP URLs
 
 Browsers already know relay addresses from:
+
 1. **peer-discovery.ts** — DHT-discovered relay
    multiaddrs, stored in `relayPeerIds`
 2. **Node caps v2** — `addrs[]` field contains WSS
@@ -154,6 +160,7 @@ Browsers already know relay addresses from:
    `/dns4/chi.pokapali.com/tcp/443/wss/...`
 
 The HTTP URL is derived from the WSS multiaddr:
+
 - `/dns4/chi.pokapali.com/tcp/443/wss/...`
   → `https://chi.pokapali.com`
 - `/ip4/1.2.3.4/tcp/8443/wss/...`
@@ -171,6 +178,7 @@ WSS port is the libp2p transport port; the HTTP
 status/block server is a separate `createServer`.
 
 **Options:**
+
 1. **Same port:** Serve HTTP block requests on the
    same port as WSS by adding an HTTP upgrade
    handler or running an HTTP server alongside the
@@ -189,6 +197,7 @@ status/block server is a separate `createServer`.
 **Recommendation: option 3 (advertise in caps).**
 It's explicit, works for any port/hostname
 configuration, and requires minimal change:
+
 - Relay: add `httpUrl` to caps message (derived
   from `--port` flag and the WSS hostname)
 - node-registry.ts: add `httpUrl?: string` to
@@ -218,19 +227,14 @@ try each HTTP URL:
 ```ts
 // After blockstore retries exhausted:
 if (options?.httpFallbackUrls?.length) {
-  for (const baseUrl of
-    options.httpFallbackUrls
-  ) {
+  for (const baseUrl of options.httpFallbackUrls) {
     try {
-      const url =
-        `${baseUrl}/block/${cid.toString()}`;
+      const url = `${baseUrl}/block/${cid.toString()}`;
       const resp = await fetch(url, {
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (resp.ok) {
-        const block = new Uint8Array(
-          await resp.arrayBuffer(),
-        );
+        const block = new Uint8Array(await resp.arrayBuffer());
         // Verify CID matches content
         // (content-addressed integrity)
         return block;
@@ -293,6 +297,7 @@ fallback logic in `fetchBlock` where it belongs.
 5. Return raw bytes with immutable cache headers
 
 **Tests:** Add to a new `http.test.ts`:
+
 - Valid CID → 200 + bytes
 - Invalid CID string → 400
 - Missing CID → 404
@@ -301,6 +306,7 @@ fallback logic in `fetchBlock` where it belongs.
 ### Step 2: Caps httpUrl advertisement (ops)
 
 **Files:**
+
 - `packages/node/src/relay.ts` — add `httpUrl` to
   caps publish
 - `packages/core/src/node-registry.ts` — add
@@ -315,6 +321,7 @@ fallback logic in `fetchBlock` where it belongs.
 ### Step 3: Browser fallback fetch (core)
 
 **Files:**
+
 - `packages/core/src/fetch-block.ts` — add
   `httpFallbackUrls` option + HTTP fetch loop
 - `packages/core/src/snapshot-lifecycle.ts` — add
@@ -369,6 +376,7 @@ fallback logic in `fetchBlock` where it belongs.
 ## Future: CLI and MCP use
 
 The HTTP block endpoint also enables:
+
 - `pokapali-doc read <url>` can fetch blocks via
   HTTP instead of needing a full Helia stack
 - MCP server can fetch blocks via HTTP for lower

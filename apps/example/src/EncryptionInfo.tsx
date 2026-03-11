@@ -1,8 +1,6 @@
 import { useEffect, useRef } from "react";
 
-export function LockIcon(
-  { size = 16 }: { size?: number },
-) {
+export function LockIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -15,37 +13,23 @@ export function LockIcon(
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <rect
-        x="3" y="11"
-        width="18" height="11" rx="2"
-      />
+      <rect x="3" y="11" width="18" height="11" rx="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   );
 }
 
-export function EncryptionInfo({
-  onClose,
-}: {
-  onClose: () => void;
-}) {
+export function EncryptionInfo({ onClose }: { onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (
-        ref.current &&
-        !ref.current.contains(e.target as Node)
-      ) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
         onClose();
       }
     };
     document.addEventListener("mousedown", handler);
-    return () =>
-      document.removeEventListener(
-        "mousedown",
-        handler,
-      );
+    return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
   useEffect(() => {
@@ -53,11 +37,7 @@ export function EncryptionInfo({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handler);
-    return () =>
-      document.removeEventListener(
-        "keydown",
-        handler,
-      );
+    return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
   return (
@@ -67,19 +47,14 @@ export function EncryptionInfo({
         End-to-end encrypted
       </div>
       <p>
-        Relay and pinner nodes cannot read your
-        content — they only store encrypted blocks.
+        Relay and pinner nodes cannot read your content — they only store
+        encrypted blocks.
       </p>
       <p>
-        Only people with the document link can
-        read it. Your link determines your access
-        level: admin, writer, or reader.
+        Only people with the document link can read it. Your link determines
+        your access level: admin, writer, or reader.
       </p>
-      <button
-        className="encryption-close"
-        onClick={onClose}
-        aria-label="Close"
-      >
+      <button className="encryption-close" onClick={onClose} aria-label="Close">
         &#x2715;
       </button>
     </div>

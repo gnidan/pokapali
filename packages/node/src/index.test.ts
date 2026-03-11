@@ -171,7 +171,7 @@ describe("@pokapali/node", () => {
     await p2.start();
 
     // knownNames should be restored
-    const names = p2.history.allNames();
+    p2.history.allNames();
     // History is in-memory so won't survive,
     // but knownNames are persisted. We verify
     // via state file round-trip tested separately.

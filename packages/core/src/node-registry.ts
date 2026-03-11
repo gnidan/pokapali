@@ -1,11 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { PubSubLike } from "@pokapali/sync";
 import type { Helia } from "helia";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("node-registry");
 
-export const NODE_CAPS_TOPIC =
-  "pokapali._node-caps._p2p._pubsub";
+export const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
 const STALE_MS = 90_000;
 const PRUNE_INTERVAL_MS = 30_000;
 
@@ -44,9 +44,7 @@ interface NodeCapsMessage {
   addrs?: string[];
 }
 
-function parseNeighbors(
-  arr: unknown,
-): Neighbor[] {
+function parseNeighbors(arr: unknown): Neighbor[] {
   if (!Array.isArray(arr)) return [];
   const result: Neighbor[] = [];
   for (const item of arr) {
@@ -67,13 +65,9 @@ function parseNeighbors(
   return result;
 }
 
-function parseCapsMessage(
-  data: Uint8Array,
-): NodeCapsMessage | null {
+function parseCapsMessage(data: Uint8Array): NodeCapsMessage | null {
   try {
-    const obj = JSON.parse(
-      new TextDecoder().decode(data),
-    );
+    const obj = JSON.parse(new TextDecoder().decode(data));
     if (
       (obj?.version !== 1 && obj?.version !== 2) ||
       typeof obj.peerId !== "string" ||
@@ -87,15 +81,12 @@ function parseCapsMessage(
       roles: obj.roles,
     };
     if (obj.version === 2) {
-      msg.neighbors =
-        parseNeighbors(obj.neighbors);
+      msg.neighbors = parseNeighbors(obj.neighbors);
       if (typeof obj.browserCount === "number") {
         msg.browserCount = obj.browserCount;
       }
       if (Array.isArray(obj.addrs)) {
-        msg.addrs = obj.addrs.filter(
-          (a: unknown) => typeof a === "string",
-        );
+        msg.addrs = obj.addrs.filter((a: unknown) => typeof a === "string");
       }
     }
     return msg;
@@ -104,10 +95,7 @@ function parseCapsMessage(
   }
 }
 
-function rolesEqual(
-  a: string[],
-  b: string[],
-): boolean {
+function rolesEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
@@ -127,10 +115,7 @@ export function createNodeRegistry(
       try {
         cb();
       } catch (err) {
-        log.warn(
-          "change listener error:",
-          (err as Error)?.message ?? err,
-        );
+        log.warn("change listener error:", (err as Error)?.message ?? err);
       }
     }
   }
@@ -141,13 +126,10 @@ export function createNodeRegistry(
   function getConnectedPeerIds(): Set<string> {
     try {
       const helia = getHelia();
-      const conns =
-        (helia as any).libp2p.getConnections();
+      const conns = (helia as any).libp2p.getConnections();
       const pids = new Set<string>();
       for (const conn of conns) {
-        pids.add(
-          (conn as any).remotePeer.toString(),
-        );
+        pids.add((conn as any).remotePeer.toString());
       }
       return pids;
     } catch {
@@ -162,12 +144,12 @@ export function createNodeRegistry(
     const caps = parseCapsMessage(detail.data);
     if (!caps) return;
 
-    const connected =
-      getConnectedPeerIds().has(caps.peerId);
+    const connected = getConnectedPeerIds().has(caps.peerId);
     const prev = nodes.get(caps.peerId);
-    const changed = !prev
-      || prev.connected !== connected
-      || !rolesEqual(prev.roles, caps.roles);
+    const changed =
+      !prev ||
+      prev.connected !== connected ||
+      !rolesEqual(prev.roles, caps.roles);
     nodes.set(caps.peerId, {
       peerId: caps.peerId,
       roles: caps.roles,
@@ -185,11 +167,7 @@ export function createNodeRegistry(
         connected ? "(connected)" : "(not connected)",
       );
     } else {
-      log.debug(
-        "node seen:",
-        caps.peerId.slice(-8),
-        caps.roles.join(","),
-      );
+      log.debug("node seen:", caps.peerId.slice(-8), caps.roles.join(","));
     }
     if (changed) {
       notifyChange();
@@ -206,9 +184,7 @@ export function createNodeRegistry(
     for (const [pid, node] of nodes) {
       if (now - node.lastSeenAt > STALE_MS) {
         nodes.delete(pid);
-        log.debug(
-          "pruned stale node:", pid.slice(-8),
-        );
+        log.debug("pruned stale node:", pid.slice(-8));
         changed = true;
       } else {
         const wasConnected = node.connected;
@@ -237,10 +213,7 @@ export function createNodeRegistry(
     destroy() {
       clearInterval(pruneTimer);
       changeListeners.clear();
-      pubsub.removeEventListener(
-        "message",
-        messageHandler,
-      );
+      pubsub.removeEventListener("message", messageHandler);
     },
   };
 }
@@ -254,16 +227,12 @@ export function acquireNodeRegistry(
   getHelia: () => Helia,
 ): NodeRegistry {
   if (!sharedRegistry) {
-    sharedRegistry = createNodeRegistry(
-      pubsub,
-      getHelia,
-    );
+    sharedRegistry = createNodeRegistry(pubsub, getHelia);
   }
   return sharedRegistry;
 }
 
-export function getNodeRegistry():
-  NodeRegistry | null {
+export function getNodeRegistry(): NodeRegistry | null {
   return sharedRegistry;
 }
 

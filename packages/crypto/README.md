@@ -20,7 +20,7 @@ and the Web Crypto API for AES-GCM encryption.
 - **`ed25519KeyPairFromSeed(seed)`** — Ed25519 keypair
   from a 32-byte seed
 - **`signBytes(data, keyPair)`** / **`verifySignature(
-  data, signature, publicKey)`** — Ed25519 sign/verify
+data, signature, publicKey)`** — Ed25519 sign/verify
 - **`encryptSubdoc(data, readKey)`** /
   **`decryptSubdoc(ciphertext, readKey)`** — AES-GCM
   encrypt/decrypt

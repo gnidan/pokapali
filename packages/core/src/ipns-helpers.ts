@@ -1,15 +1,9 @@
 import { createIPNSRecord } from "ipns";
 import type { IPNSRecord } from "ipns";
-import {
-  generateKeyPairFromSeed,
-  publicKeyFromRaw,
-} from "@libp2p/crypto/keys";
+import { generateKeyPairFromSeed, publicKeyFromRaw } from "@libp2p/crypto/keys";
 import { ipns } from "@helia/ipns";
 import type { Helia } from "helia";
-import {
-  CID as CIDClass,
-  type CID,
-} from "multiformats/cid";
+import { CID as CIDClass, type CID } from "multiformats/cid";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("ipns");
@@ -24,10 +18,13 @@ const DEFAULT_LIFETIME_MS = 24 * 60 * 60 * 1000;
  * calls don't overlap. If a publish is in flight and a
  * newer CID is queued, the stale CID is skipped.
  */
-const publishQueues = new Map<string, {
-  inflight: Promise<void>;
-  pending: { cid: CID; seq: bigint } | null;
-}>();
+const publishQueues = new Map<
+  string,
+  {
+    inflight: Promise<void>;
+    pending: { cid: CID; seq: bigint } | null;
+  }
+>();
 
 async function enqueuePublish(
   keyHex: string,
@@ -46,10 +43,7 @@ async function enqueuePublish(
     return;
   }
 
-  const run = async (
-    currentCid: CID,
-    currentSeq: bigint,
-  ) => {
+  const run = async (currentCid: CID, currentSeq: bigint) => {
     try {
       await doPublish(currentCid, currentSeq);
     } catch (err) {
@@ -96,9 +90,8 @@ export async function publishIPNS(
   cid: CID,
   clockSum: number,
 ): Promise<void> {
-  const keyHex = Array.from(
-    ipnsKeyBytes,
-    (b) => b.toString(16).padStart(2, "0"),
+  const keyHex = Array.from(ipnsKeyBytes, (b) =>
+    b.toString(16).padStart(2, "0"),
   ).join("");
 
   await enqueuePublish(
@@ -107,22 +100,18 @@ export async function publishIPNS(
     BigInt(clockSum),
     async (cidToPublish, seq) => {
       log.debug(
-        "doPublish: seq=" + seq + " cid=" +
+        "doPublish: seq=" +
+          seq +
+          " cid=" +
           cidToPublish.toString().slice(0, 16) +
           "...",
       );
-      const privateKey = await generateKeyPairFromSeed(
-        "Ed25519",
-        ipnsKeyBytes,
-      );
+      const privateKey = await generateKeyPairFromSeed("Ed25519", ipnsKeyBytes);
 
-      const delegated = (helia.libp2p.services as any)
-        .delegatedRouting;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const delegated = (helia.libp2p.services as any).delegatedRouting;
       if (!delegated?.putIPNS) {
-        log.warn(
-          "no delegatedRouting.putIPNS"
-            + " — skipping",
-        );
+        log.warn("no delegatedRouting.putIPNS" + " — skipping");
         return;
       }
 
@@ -138,16 +127,11 @@ export async function publishIPNS(
       let effectiveSeq = seq;
       if (delegated.getIPNS) {
         try {
-          const existing: IPNSRecord =
-            await delegated.getIPNS(keyCid, {
-              signal: AbortSignal.timeout(5_000),
-            });
-          const existingSeq =
-            existing.sequence ?? 0n;
-          log.debug(
-            "existing seq=" + existingSeq +
-              " clockSum seq=" + seq,
-          );
+          const existing: IPNSRecord = await delegated.getIPNS(keyCid, {
+            signal: AbortSignal.timeout(5_000),
+          });
+          const existingSeq = existing.sequence ?? 0n;
+          log.debug("existing seq=" + existingSeq + " clockSum seq=" + seq);
           if (existingSeq >= effectiveSeq) {
             effectiveSeq = existingSeq + 1n;
           }
@@ -156,33 +140,21 @@ export async function publishIPNS(
         }
       }
 
-      log.debug(
-        "publishing with effectiveSeq=" +
-          effectiveSeq,
-      );
+      log.debug("publishing with effectiveSeq=" + effectiveSeq);
 
-      const record =
-        await (createIPNSRecord as Function)(
-          privateKey,
-          cidToPublish,
-          effectiveSeq,
-          DEFAULT_LIFETIME_MS,
-        ) as IPNSRecord;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+      const record = (await (createIPNSRecord as Function)(
+        privateKey,
+        cidToPublish,
+        effectiveSeq,
+        DEFAULT_LIFETIME_MS,
+      )) as IPNSRecord;
 
       const ctrl = new AbortController();
-      const timer = setTimeout(
-        () => ctrl.abort(),
-        PUBLISH_TIMEOUT_MS,
-      );
+      const timer = setTimeout(() => ctrl.abort(), PUBLISH_TIMEOUT_MS);
       try {
-        await delegated.putIPNS(
-          keyCid,
-          record,
-          { signal: ctrl.signal },
-        );
-        log.info(
-          "putIPNS success seq=" + effectiveSeq,
-        );
+        await delegated.putIPNS(keyCid, record, { signal: ctrl.signal });
+        log.info("putIPNS success seq=" + effectiveSeq);
       } finally {
         clearTimeout(timer);
       }
@@ -206,61 +178,38 @@ export async function resolveIPNS(
   const publicKey = publicKeyFromRaw(publicKeyBytes);
 
   // Try delegated HTTP first (fast, reliable).
-  const delegated = (helia.libp2p.services as any)
-    .delegatedRouting;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const delegated = (helia.libp2p.services as any).delegatedRouting;
   if (delegated?.getIPNS) {
-    const keyCid = CIDClass.createV1(
-      LIBP2P_KEY_CODEC,
-      publicKey.toMultihash(),
-    );
+    const keyCid = CIDClass.createV1(LIBP2P_KEY_CODEC, publicKey.toMultihash());
     try {
-      const record: IPNSRecord =
-        await delegated.getIPNS(keyCid, {
-          signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
-        });
+      const record: IPNSRecord = await delegated.getIPNS(keyCid, {
+        signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+      });
       // value is "/ipfs/<cid>" string
       const val = record.value;
-      const cidStr = val.startsWith("/ipfs/")
-        ? val.slice(6)
-        : val;
-      log.debug(
-        "resolve (delegated):",
-        cidStr.slice(0, 16) + "...",
-      );
+      const cidStr = val.startsWith("/ipfs/") ? val.slice(6) : val;
+      log.debug("resolve (delegated):", cidStr.slice(0, 16) + "...");
       return CIDClass.parse(cidStr);
     } catch (err) {
-      log.debug(
-        "delegated resolve failed,"
-          + " falling back to DHT:",
-        err,
-      );
+      log.debug("delegated resolve failed," + " falling back to DHT:", err);
     }
   } else {
-    log.warn(
-      "resolve: no delegated routing available",
-    );
+    log.warn("resolve: no delegated routing available");
   }
 
   // Fallback: full Helia routing (includes DHT).
   const name = ipns(helia);
   const ctrl = new AbortController();
-  const timer = setTimeout(
-    () => ctrl.abort(),
-    RESOLVE_TIMEOUT_MS,
-  );
+  const timer = setTimeout(() => ctrl.abort(), RESOLVE_TIMEOUT_MS);
   try {
     const result = await name.resolve(publicKey, {
       signal: ctrl.signal,
     });
-    log.debug(
-      "resolve (DHT):",
-      result.cid.toString().slice(0, 16) + "...",
-    );
+    log.debug("resolve (DHT):", result.cid.toString().slice(0, 16) + "...");
     return result.cid;
   } catch (err) {
-    log.warn(
-      "resolve failed (both paths):", err,
-    );
+    log.warn("resolve failed (both paths):", err);
     return null;
   } finally {
     clearTimeout(timer);
@@ -284,24 +233,21 @@ export function watchIPNS(
   onUpdate: (cid: CID) => void,
   intervalOrOpts?: number | WatchIPNSOptions,
 ): () => void {
-  const opts = typeof intervalOrOpts === "number"
-    ? { intervalMs: intervalOrOpts }
-    : intervalOrOpts ?? {};
+  const opts =
+    typeof intervalOrOpts === "number"
+      ? { intervalMs: intervalOrOpts }
+      : (intervalOrOpts ?? {});
   const intervalMs = opts.intervalMs ?? 30_000;
 
   let lastCid: string | null = null;
   let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null =
-    null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   async function poll() {
     if (stopped) return;
     opts.onPollStart?.();
     try {
-      const cid = await resolveIPNS(
-        helia,
-        publicKeyBytes,
-      );
+      const cid = await resolveIPNS(helia, publicKeyBytes);
       if (cid) {
         const cidStr = cid.toString();
         if (cidStr !== lastCid) {

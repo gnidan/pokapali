@@ -1,8 +1,4 @@
-export type {
-  PinnerConfig,
-  Pinner,
-  PinnerMetrics,
-} from "./pinner.js";
+export type { PinnerConfig, Pinner, PinnerMetrics } from "./pinner.js";
 
 export { createPinner } from "./pinner.js";
 

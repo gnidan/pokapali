@@ -1,7 +1,7 @@
 # Design Principles
 
 These are the architectural values behind Pokapali. They
-explain *why* things are built the way they are. Read this
+explain _why_ things are built the way they are. Read this
 before contributing code.
 
 ---
@@ -12,7 +12,7 @@ A Pokapali URL encodes everything needed to access a
 document: the document identity (IPNS name in the path)
 and the access level (key material in the fragment). Sharing
 a URL shares a capability. There are no accounts, no tokens,
-no sign-up flows. The URL *is* the credential.
+no sign-up flows. The URL _is_ the credential.
 
 The fragment is never sent to servers. Browsers strip it
 from HTTP requests by design, so capability material stays
@@ -96,7 +96,7 @@ to IPNS and announce — the rest is the network's problem.
 ## Pinners are structurally zero-knowledge
 
 Pinners validate block structure (CBOR schema, Ed25519
-signature) but cannot verify *authorization* — they don't
+signature) but cannot verify _authorization_ — they don't
 know which keys are allowed to publish. Authorization
 requires decrypting `_meta` with `readKey`, which pinners
 don't have.

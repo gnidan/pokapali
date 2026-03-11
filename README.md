@@ -15,16 +15,16 @@ no sign-up.
 
 ## Packages
 
-| Package | Description |
-|---|---|
-| [`@pokapali/core`](packages/core) | Document lifecycle, snapshot push/pull, capability URLs |
-| [`@pokapali/sync`](packages/sync) | WebRTC room setup via GossipSub signaling |
-| [`@pokapali/crypto`](packages/crypto) | Key derivation (HKDF), Ed25519 signing, AES-GCM encryption |
-| [`@pokapali/capability`](packages/capability) | Capability URL encoding/decoding and access level inference |
-| [`@pokapali/subdocs`](packages/subdocs) | Yjs subdocument manager with namespace isolation |
-| [`@pokapali/snapshot`](packages/snapshot) | Snapshot encoding, decoding, verification, and chain walking |
-| [`@pokapali/node`](packages/node) | Relay server, pinner, and HTTP health endpoints (Node.js) |
-| [`@pokapali/log`](packages/log) | Zero-dependency structured logging |
+| Package                                       | Description                                                  |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| [`@pokapali/core`](packages/core)             | Document lifecycle, snapshot push/pull, capability URLs      |
+| [`@pokapali/sync`](packages/sync)             | WebRTC room setup via GossipSub signaling                    |
+| [`@pokapali/crypto`](packages/crypto)         | Key derivation (HKDF), Ed25519 signing, AES-GCM encryption   |
+| [`@pokapali/capability`](packages/capability) | Capability URL encoding/decoding and access level inference  |
+| [`@pokapali/subdocs`](packages/subdocs)       | Yjs subdocument manager with namespace isolation             |
+| [`@pokapali/snapshot`](packages/snapshot)     | Snapshot encoding, decoding, verification, and chain walking |
+| [`@pokapali/node`](packages/node)             | Relay server, pinner, and HTTP health endpoints (Node.js)    |
+| [`@pokapali/log`](packages/log)               | Zero-dependency structured logging                           |
 
 Most apps only import `@pokapali/core`. The other packages
 are the building blocks it composes.
@@ -78,7 +78,7 @@ real-time via WebRTC and persist via IPFS snapshots.
 
 ## How It Works
 
-**Capability URLs** — the URL *is* the permission token.
+**Capability URLs** — the URL _is_ the permission token.
 The path contains the public IPNS name; the fragment
 (never sent to servers) contains encrypted key material.
 Which keys are present determines access level (admin,

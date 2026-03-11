@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type {
@@ -21,10 +22,7 @@ import {
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createSubdocManager } from "@pokapali/subdocs";
 import type { SubdocManager } from "@pokapali/subdocs";
-import {
-  setupNamespaceRooms,
-  setupAwarenessRoom,
-} from "@pokapali/sync";
+import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
 import type {
   SyncManager,
   AwarenessRoom,
@@ -46,60 +44,25 @@ import {
   getHeliaPubsub,
   getHelia,
 } from "./helia.js";
-import {
-  publishIPNS,
-} from "./ipns-helpers.js";
-import {
-  announceSnapshot,
-} from "./announce.js";
-import {
-  startRoomDiscovery,
-} from "./peer-discovery.js";
+import { publishIPNS } from "./ipns-helpers.js";
+import { announceSnapshot } from "./announce.js";
+import { startRoomDiscovery } from "./peer-discovery.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
-import {
-  createSnapshotLifecycle,
-} from "./snapshot-lifecycle.js";
-import type {
-  SnapshotLifecycle,
-} from "./snapshot-lifecycle.js";
-import {
-  createSnapshotWatcher,
-} from "./snapshot-watcher.js";
+import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
+import { createSnapshotWatcher } from "./snapshot-watcher.js";
 import type {
   SnapshotWatcher,
   LoadingState,
   GossipActivity,
 } from "./snapshot-watcher.js";
-import {
-  createRelaySharing,
-} from "./relay-sharing.js";
-import type {
-  RelaySharing,
-} from "./relay-sharing.js";
-import {
-  acquireNodeRegistry,
-  getNodeRegistry,
-} from "./node-registry.js";
-import type {
-  NodeRegistry,
-  Neighbor,
-} from "./node-registry.js";
-import {
-  createTopologySharing,
-} from "./topology-sharing.js";
-import type {
-  TopologySharing,
-} from "./topology-sharing.js";
-import {
-  buildTopologyGraph,
-  nodeKind,
-} from "./topology-graph.js";
-import type {
-  TopologyNode,
-  TopologyGraphEdge,
-  TopologyGraph,
-  TopologyEdge,
-} from "./topology-graph.js";
+import { createRelaySharing } from "./relay-sharing.js";
+import type { RelaySharing } from "./relay-sharing.js";
+import { acquireNodeRegistry, getNodeRegistry } from "./node-registry.js";
+import type { Neighbor } from "./node-registry.js";
+import { createTopologySharing } from "./topology-sharing.js";
+import type { TopologySharing } from "./topology-sharing.js";
+import { buildTopologyGraph } from "./topology-graph.js";
+import type { TopologyGraph, TopologyEdge } from "./topology-graph.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
@@ -120,24 +83,13 @@ export interface PokapaliConfig {
   rtc?: SyncOptions["peerOpts"];
 }
 
-export type DocStatus =
-  | "connecting"
-  | "synced"
-  | "receiving"
-  | "offline";
+export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
 
-export type SaveState =
-  | "saved"
-  | "unpublished"
-  | "saving"
-  | "dirty";
+export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
 
-export type {
-  GossipActivity,
-} from "./snapshot-watcher.js";
+export type { GossipActivity } from "./snapshot-watcher.js";
 
-export type { LoadingState } from
-  "./snapshot-watcher.js";
+export type { LoadingState } from "./snapshot-watcher.js";
 
 export interface RotateResult {
   newDoc: Doc;
@@ -249,43 +201,19 @@ export interface Doc {
   ready(): Promise<void>;
   publish(): Promise<void>;
   rotate(): Promise<RotateResult>;
-  on(
-    event: "status",
-    cb: (status: DocStatus) => void,
-  ): void;
+  on(event: "status", cb: (status: DocStatus) => void): void;
   on(event: "publish-needed", cb: () => void): void;
   on(event: "snapshot", cb: () => void): void;
-  on(
-    event: "loading",
-    cb: (state: LoadingState) => void,
-  ): void;
+  on(event: "loading", cb: (state: LoadingState) => void): void;
   on(event: "ack", cb: (peerId: string) => void): void;
-  on(
-    event: "save",
-    cb: (state: SaveState) => void,
-  ): void;
+  on(event: "save", cb: (state: SaveState) => void): void;
   on(event: "node-change", cb: () => void): void;
-  off(
-    event: "status",
-    cb: (status: DocStatus) => void,
-  ): void;
-  off(
-    event: "publish-needed",
-    cb: () => void,
-  ): void;
-  off(
-    event: "snapshot",
-    cb: () => void,
-  ): void;
-  off(
-    event: "loading",
-    cb: (state: LoadingState) => void,
-  ): void;
+  off(event: "status", cb: (status: DocStatus) => void): void;
+  off(event: "publish-needed", cb: () => void): void;
+  off(event: "snapshot", cb: () => void): void;
+  off(event: "loading", cb: (state: LoadingState) => void): void;
   off(event: "ack", cb: (peerId: string) => void): void;
-  off(
-    event: "save",
-    cb: (state: SaveState) => void,
-  ): void;
+  off(event: "save", cb: (state: SaveState) => void): void;
   off(event: "node-change", cb: () => void): void;
   diagnostics(): Diagnostics;
   /** Merged topology graph from own connections,
@@ -311,12 +239,7 @@ export interface PokapaliApp {
   docIdFromUrl(url: string): string;
 }
 
-
-
-type SyncStatus =
-  | "connecting"
-  | "connected"
-  | "disconnected";
+type SyncStatus = "connecting" | "connected" | "disconnected";
 
 function computeStatus(
   syncStatus: SyncStatus,
@@ -333,10 +256,7 @@ function computeStatus(
   return "offline";
 }
 
-function computeSaveState(
-  isDirty: boolean,
-  isSaving: boolean,
-): SaveState {
+function computeSaveState(isDirty: boolean, isSaving: boolean): SaveState {
   if (isSaving) return "saving";
   if (isDirty) return "dirty";
   return "saved";
@@ -375,25 +295,17 @@ function populateMeta(
   signingPublicKey: Uint8Array,
   namespaceKeys: Record<string, Uint8Array>,
 ) {
-  const canPush =
-    metaDoc.getArray<Uint8Array>(
-      "canPushSnapshots",
-    );
+  const canPush = metaDoc.getArray<Uint8Array>("canPushSnapshots");
   canPush.push([signingPublicKey]);
-  const authorized =
-    metaDoc.getMap("authorized");
-  for (const [ns, key] of
-    Object.entries(namespaceKeys)
-  ) {
+  const authorized = metaDoc.getMap("authorized");
+  for (const [ns, key] of Object.entries(namespaceKeys)) {
     const arr = new Y.Array<Uint8Array>();
     authorized.set(ns, arr);
     arr.push([key]);
   }
 }
 
-function createDoc(
-  params: DocParams,
-): Doc {
+function createDoc(params: DocParams): Doc {
   const {
     subdocManager,
     syncManager,
@@ -428,7 +340,7 @@ function createDoc(
   const snapshotLC = createSnapshotLifecycle({
     getHelia: () => getHelia(),
   });
-  const listeners = new Map<string, Set<Function>>();
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
   function emit(event: string, ...args: unknown[]) {
     const cbs = listeners.get(event);
@@ -446,10 +358,7 @@ function createDoc(
     awarenessRoom.connected,
     gossipActivity,
   );
-  let lastSaveState = computeSaveState(
-    subdocManager.isDirty,
-    isSaving,
-  );
+  let lastSaveState = computeSaveState(subdocManager.isDirty, isSaving);
 
   function checkStatus() {
     const next = computeStatus(
@@ -464,10 +373,7 @@ function createDoc(
   }
 
   function checkSaveState() {
-    const next = computeSaveState(
-      subdocManager.isDirty,
-      isSaving,
-    );
+    const next = computeSaveState(subdocManager.isDirty, isSaving);
     if (next !== lastSaveState) {
       lastSaveState = next;
       emit("save", next);
@@ -477,9 +383,7 @@ function createDoc(
   function computeClockSum(): number {
     let sum = 0;
     for (const ns of channels) {
-      const sv = Y.encodeStateVector(
-        subdocManager.subdoc(ns),
-      );
+      const sv = Y.encodeStateVector(subdocManager.subdoc(ns));
       const decoded = Y.decodeStateVector(sv);
       for (const clock of decoded.values()) {
         sum += clock;
@@ -491,10 +395,7 @@ function createDoc(
   subdocManager.on("dirty", () => {
     checkSaveState();
     emit("publish-needed");
-    awarenessRoom.awareness.setLocalStateField(
-      "clockSum",
-      computeClockSum(),
-    );
+    awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
   });
 
   syncManager.onStatusChange(() => checkStatus());
@@ -515,8 +416,7 @@ function createDoc(
   // Share relay info with WebRTC peers via awareness.
   let relaySharing: RelaySharing | null = null;
   let topSharing: TopologySharing | null = null;
-  let cleanupRelayConnect: (() => void) | null =
-    null;
+  let cleanupRelayConnect: (() => void) | null = null;
   if (params.roomDiscovery) {
     relaySharing = createRelaySharing({
       awareness: awarenessRoom.awareness,
@@ -551,9 +451,7 @@ function createDoc(
     }
     if (!params.roomDiscovery) return;
     if (!reg) return;
-    const entries: {
-      peerId: string; addrs: string[];
-    }[] = [];
+    const entries: { peerId: string; addrs: string[] }[] = [];
     for (const node of reg.nodes.values()) {
       if (node.addrs.length > 0) {
         entries.push({
@@ -580,10 +478,7 @@ function createDoc(
       registry.onNodeChange(nodeChangeHandler);
     }
   } catch (err) {
-    log.warn(
-      "topology sharing init skipped:",
-      (err as Error)?.message ?? err,
-    );
+    log.warn("topology sharing init skipped:", (err as Error)?.message ?? err);
   }
 
   // Snapshot watching: announce subscription, IPNS
@@ -592,9 +487,7 @@ function createDoc(
   if (readKey && params.pubsub && params.appId) {
     const rk = readKey;
     log.debug(
-      "announce setup: pubsub=" +
-        !!params.pubsub +
-        " appId=" + params.appId,
+      "announce setup: pubsub=" + !!params.pubsub + " appId=" + params.appId,
     );
     snapshotWatcher = createSnapshotWatcher({
       appId: params.appId,
@@ -603,8 +496,7 @@ function createDoc(
       getHelia: () => getHelia(),
       isWriter: cap.canPushSnapshots,
       ipnsPublicKeyBytes: hexToBytes(ipnsName),
-      performInitialResolve:
-        params.performInitialResolve,
+      performInitialResolve: params.performInitialResolve,
       onAck: (peerId) => {
         emit("ack", peerId);
       },
@@ -620,8 +512,7 @@ function createDoc(
         // the user sees status indicators instead of a
         // blank loading screen.
         if (
-          (state.status === "idle" ||
-            state.status === "failed") &&
+          (state.status === "idle" || state.status === "failed") &&
           !readyResolved &&
           !snapshotWatcher?.hasAppliedSnapshot
         ) {
@@ -629,19 +520,11 @@ function createDoc(
         }
       },
       onSnapshot: async (cid) => {
-        const applied =
-          await snapshotLC.applyRemote(
-            cid,
-            rk,
-            (plaintext) =>
-              subdocManager.applySnapshot(
-                plaintext,
-              ),
-          );
+        const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) =>
+          subdocManager.applySnapshot(plaintext),
+        );
         if (applied) {
-          snapshotLC.setLastIpnsSeq(
-            computeClockSum(),
-          );
+          snapshotLC.setLastIpnsSeq(computeClockSum());
           emit("snapshot");
           markReady();
         }
@@ -663,25 +546,16 @@ function createDoc(
     if (params.roomDiscovery) {
       const rd = params.roomDiscovery;
       const sw = snapshotWatcher;
-      const connectHandler = (
-        evt: CustomEvent,
-      ) => {
-        const pid =
-          evt.detail?.toString?.() ?? "";
+      const connectHandler = (evt: CustomEvent) => {
+        const pid = evt.detail?.toString?.() ?? "";
         if (rd.relayPeerIds.has(pid)) {
           sw.reannounceNow();
         }
       };
       const helia = getHelia();
-      helia.libp2p.addEventListener(
-        "peer:connect",
-        connectHandler,
-      );
+      helia.libp2p.addEventListener("peer:connect", connectHandler);
       cleanupRelayConnect = () => {
-        helia.libp2p.removeEventListener(
-          "peer:connect",
-          connectHandler,
-        );
+        helia.libp2p.removeEventListener("peer:connect", connectHandler);
       };
     }
   }
@@ -692,13 +566,9 @@ function createDoc(
     relaySharing?.destroy();
     topSharing?.destroy();
     try {
-      getNodeRegistry()
-        ?.offNodeChange(nodeChangeHandler);
+      getNodeRegistry()?.offNodeChange(nodeChangeHandler);
     } catch (err) {
-      log.warn(
-        "offNodeChange cleanup error:",
-        (err as Error)?.message ?? err,
-      );
+      log.warn("offNodeChange cleanup error:", (err as Error)?.message ?? err);
     }
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();
@@ -727,9 +597,7 @@ function createDoc(
         return subdocManager.subdoc(name);
       } catch {
         throw new Error(
-          `Unknown channel "${name}". ` +
-            "Configured: " +
-            channels.join(", "),
+          `Unknown channel "${name}". ` + "Configured: " + channels.join(", "),
         );
       }
     },
@@ -752,9 +620,7 @@ function createDoc(
         write: params.writeUrl,
         read: params.readUrl,
         get best(): string {
-          return params.adminUrl
-            ?? params.writeUrl
-            ?? params.readUrl;
+          return params.adminUrl ?? params.writeUrl ?? params.readUrl;
         },
       };
     },
@@ -765,27 +631,20 @@ function createDoc(
       return "reader";
     },
 
-    async invite(
-      grant: CapabilityGrant,
-    ): Promise<string> {
+    async invite(grant: CapabilityGrant): Promise<string> {
       assertNotDestroyed();
       if (grant.namespaces) {
         for (const ns of grant.namespaces) {
           if (!cap.namespaces.has(ns)) {
             throw new Error(
-              `Cannot grant "${ns}" ` +
-                "— not in own capability",
+              `Cannot grant "${ns}" ` + "— not in own capability",
             );
           }
         }
       }
-      if (
-        grant.canPushSnapshots &&
-        !cap.canPushSnapshots
-      ) {
+      if (grant.canPushSnapshots && !cap.canPushSnapshots) {
         throw new Error(
-          "Cannot grant canPushSnapshots " +
-            "— not in own capability",
+          "Cannot grant canPushSnapshots " + "— not in own capability",
         );
       }
       const narrowed = narrowCapability(keys, grant);
@@ -801,15 +660,11 @@ function createDoc(
     },
 
     get saveState(): SaveState {
-      return computeSaveState(
-        subdocManager.isDirty,
-        isSaving,
-      );
+      return computeSaveState(subdocManager.isDirty, isSaving);
     },
 
     get relays(): ReadonlySet<string> {
-      return params.roomDiscovery?.relayPeerIds
-        ?? new Set();
+      return params.roomDiscovery?.relayPeerIds ?? new Set();
     },
 
     get clockSum(): number {
@@ -825,28 +680,23 @@ function createDoc(
     },
 
     get loadingState(): LoadingState {
-      return snapshotWatcher?.fetchState
-        ?? { status: "idle" };
+      return snapshotWatcher?.fetchState ?? { status: "idle" };
     },
 
     get hasAppliedSnapshot(): boolean {
-      return snapshotWatcher
-        ?.hasAppliedSnapshot ?? false;
+      return snapshotWatcher?.hasAppliedSnapshot ?? false;
     },
 
     get ackedBy(): ReadonlySet<string> {
-      return snapshotWatcher?.ackedBy
-        ?? new Set();
+      return snapshotWatcher?.ackedBy ?? new Set();
     },
 
     get guaranteeUntil(): number | null {
-      return snapshotWatcher?.guaranteeUntil
-        ?? null;
+      return snapshotWatcher?.guaranteeUntil ?? null;
     },
 
     get retainUntil(): number | null {
-      return snapshotWatcher?.retainUntil
-        ?? null;
+      return snapshotWatcher?.retainUntil ?? null;
     },
 
     ready(): Promise<void> {
@@ -855,11 +705,7 @@ function createDoc(
 
     async publish(): Promise<void> {
       assertNotDestroyed();
-      if (
-        !cap.canPushSnapshots ||
-        !signingKey ||
-        !readKey
-      ) {
+      if (!cap.canPushSnapshots || !signingKey || !readKey) {
         return;
       }
       isSaving = true;
@@ -881,35 +727,19 @@ function createDoc(
       // Reset ack tracking synchronously so the UI
       // clears immediately and early acks aren't
       // dropped.
-      snapshotWatcher?.trackCidForAcks(
-        cid.toString(),
-      );
+      snapshotWatcher?.trackCidForAcks(cid.toString());
 
       // Persist to Helia + publish IPNS + announce.
       // Fire-and-forget: don't block the UI on slow
       // DHT operations.
       const cidShort = cid.toString().slice(0, 16);
-      log.info(
-        "publish: cid=" +
-          cidShort + "... clockSum=" + clockSum,
-      );
+      log.info("publish: cid=" + cidShort + "... clockSum=" + clockSum);
       (async () => {
         const helia = getHelia();
-        log.debug(
-          "blockstore.put...",
-          cidShort + "...",
-        );
-        await Promise.resolve(
-          helia.blockstore.put(cid, block),
-        );
-        log.debug(
-          "blockstore.put done,"
-            + " publishing IPNS...",
-        );
-        await publishIPNS(
-          helia, keys.ipnsKeyBytes!, cid,
-          clockSum,
-        );
+        log.debug("blockstore.put...", cidShort + "...");
+        await Promise.resolve(helia.blockstore.put(cid, block));
+        log.debug("blockstore.put done," + " publishing IPNS...");
+        await publishIPNS(helia, keys.ipnsKeyBytes!, cid, clockSum);
         log.debug("IPNS published, announcing...");
         if (params.appId && params.pubsub) {
           await announceSnapshot(
@@ -923,19 +753,14 @@ function createDoc(
           log.debug("announce sent");
         }
       })().catch((err: unknown) => {
-        log.error(
-          "IPNS publish/announce failed:", err,
-        );
+        log.error("IPNS publish/announce failed:", err);
       });
     },
 
     async rotate(): Promise<RotateResult> {
       assertNotDestroyed();
       if (!cap.isAdmin || !keys.rotationKey) {
-        throw new Error(
-          "Only admins can rotate" +
-            " (requires rotationKey)",
-        );
+        throw new Error("Only admins can rotate" + " (requires rotationKey)");
       }
 
       const newAdminSecret = generateAdminSecret();
@@ -945,30 +770,21 @@ function createDoc(
         channels,
       );
 
-      const newSigningKey =
-        await ed25519KeyPairFromSeed(
-          newDocKeys.ipnsKeyBytes,
-        );
-      const newIpnsName = bytesToHex(
-        newSigningKey.publicKey,
+      const newSigningKey = await ed25519KeyPairFromSeed(
+        newDocKeys.ipnsKeyBytes,
       );
+      const newIpnsName = bytesToHex(newSigningKey.publicKey);
 
       // Copy current state to new subdoc manager
-      const newSubdocManager = createSubdocManager(
-        newIpnsName,
-        channels,
-        {
-          primaryNamespace: params.primaryChannel,
-        },
-      );
+      const newSubdocManager = createSubdocManager(newIpnsName, channels, {
+        primaryNamespace: params.primaryChannel,
+      });
       const snapshot = subdocManager.encodeAll();
       newSubdocManager.applySnapshot(snapshot);
 
       const rotateSyncOpts: SyncOptions = {
         ...params.syncOpts,
-        ...(params.pubsub
-          ? { pubsub: params.pubsub }
-          : {}),
+        ...(params.pubsub ? { pubsub: params.pubsub } : {}),
       };
 
       const newSyncManager = setupNamespaceRooms(
@@ -990,16 +806,11 @@ function createDoc(
         readKey: newDocKeys.readKey,
         ipnsKeyBytes: newDocKeys.ipnsKeyBytes,
         rotationKey: newDocKeys.rotationKey,
-        awarenessRoomPassword:
-          newDocKeys.awarenessRoomPassword,
+        awarenessRoomPassword: newDocKeys.awarenessRoomPassword,
         namespaceKeys: newDocKeys.namespaceKeys,
       };
 
-      const newAdminUrl = await buildUrl(
-        origin,
-        newIpnsName,
-        newKeys,
-      );
+      const newAdminUrl = await buildUrl(origin, newIpnsName, newKeys);
       const newWriteUrl = await buildUrl(
         origin,
         newIpnsName,
@@ -1016,10 +827,7 @@ function createDoc(
         }),
       );
 
-      const newCap = inferCapability(
-        newKeys,
-        channels,
-      );
+      const newCap = inferCapability(newKeys, channels);
 
       populateMeta(
         newSubdocManager.metaDoc,
@@ -1029,10 +837,7 @@ function createDoc(
 
       let newRoomDiscovery: RoomDiscovery | undefined;
       try {
-        newRoomDiscovery = startRoomDiscovery(
-          getHelia(),
-          params.appId,
-        );
+        newRoomDiscovery = startRoomDiscovery(getHelia(), params.appId);
       } catch {
         // Helia may not be available
       }
@@ -1060,15 +865,13 @@ function createDoc(
       });
 
       // Create and store forwarding record
-      const fwdRecord =
-        await createForwardingRecord(
-          ipnsName,
-          newIpnsName,
-          newReadUrl,
-          keys.rotationKey,
-        );
-      const encoded =
-        encodeForwardingRecord(fwdRecord);
+      const fwdRecord = await createForwardingRecord(
+        ipnsName,
+        newIpnsName,
+        newReadUrl,
+        keys.rotationKey,
+      );
+      const encoded = encodeForwardingRecord(fwdRecord);
       storeForwardingRecord(ipnsName, encoded);
 
       // Destroy old doc
@@ -1080,22 +883,14 @@ function createDoc(
       };
     },
 
-    on(
-      event: string,
-      // eslint-disable-next-line
-      cb: (...args: any[]) => void,
-    ) {
+    on(event: string, cb: (...args: any[]) => void) {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
       }
       listeners.get(event)!.add(cb);
     },
 
-    off(
-      event: string,
-      // eslint-disable-next-line
-      cb: (...args: any[]) => void,
-    ) {
+    off(event: string, cb: (...args: any[]) => void) {
       listeners.get(event)?.delete(cb);
     },
 
@@ -1109,8 +904,7 @@ function createDoc(
         meshPeers: 0,
       };
 
-      const ackedSet = snapshotWatcher?.ackedBy
-        ?? new Set<string>();
+      const ackedSet = snapshotWatcher?.ackedBy ?? new Set<string>();
 
       try {
         const helia = getHelia();
@@ -1121,18 +915,15 @@ function createDoc(
         const registry = getNodeRegistry();
         const seenPids = new Set<string>();
         if (registry) {
-          for (const node of registry.nodes
-            .values()
-          ) {
+          for (const node of registry.nodes.values()) {
             seenPids.add(node.peerId);
-            const acked =
-              ackedSet.has(node.peerId);
+            const acked = ackedSet.has(node.peerId);
             // If peer acked, it's a pinner even
             // if caps didn't include that role.
-            const roles = acked &&
-              !node.roles.includes("pinner")
-              ? [...node.roles, "pinner"]
-              : node.roles;
+            const roles =
+              acked && !node.roles.includes("pinner")
+                ? [...node.roles, "pinner"]
+                : node.roles;
             nodeList.push({
               peerId: node.peerId,
               short: node.peerId.slice(-8),
@@ -1150,24 +941,20 @@ function createDoc(
         // Merge DHT-discovered relays not yet in
         // the registry (before caps broadcast).
         // Roles unknown until caps arrives.
-        const dhtRelays =
-          params.roomDiscovery?.relayPeerIds;
+        const dhtRelays = params.roomDiscovery?.relayPeerIds;
         if (dhtRelays) {
           for (const pid of dhtRelays) {
             if (seenPids.has(pid)) continue;
             const conns = libp2p.getConnections();
             const connected = conns.some(
-              (c: any) =>
-                c.remotePeer.toString() === pid,
+              (c: any) => c.remotePeer.toString() === pid,
             );
             const acked = ackedSet.has(pid);
             nodeList.push({
               peerId: pid,
               short: pid.slice(-8),
               connected,
-              roles: acked
-                ? ["relay", "pinner"]
-                : ["relay"],
+              roles: acked ? ["relay", "pinner"] : ["relay"],
               rolesConfirmed: false,
               ackedCurrentCid: acked,
               lastSeenAt: 0,
@@ -1179,10 +966,8 @@ function createDoc(
 
         try {
           const pubsub = libp2p.services.pubsub;
-          const topics: string[] =
-            pubsub.getTopics?.() ?? [];
-          const gsPeers =
-            pubsub.getPeers?.() ?? [];
+          const topics: string[] = pubsub.getTopics?.() ?? [];
+          const gsPeers = pubsub.getPeers?.() ?? [];
           const mesh = (pubsub as any).mesh as
             | Map<string, Set<string>>
             | undefined;
@@ -1197,30 +982,27 @@ function createDoc(
             topics: topics.length,
             meshPeers,
           };
-        } catch {}
+        } catch {
+          // GossipSub internals unavailable
+        }
       } catch (err) {
-        log.warn(
-          "diagnostics error:",
-          (err as Error)?.message ?? err,
-        );
+        log.warn("diagnostics error:", (err as Error)?.message ?? err);
       }
 
       let maxPeerClockSum = 0;
       let editors = 1;
       try {
-        const states =
-          awarenessRoom.awareness.getStates();
+        const states = awarenessRoom.awareness.getStates();
         editors = Math.max(1, states.size);
         for (const [, state] of states) {
           const cs = (state as any)?.clockSum;
-          if (
-            typeof cs === "number" &&
-            cs > maxPeerClockSum
-          ) {
+          if (typeof cs === "number" && cs > maxPeerClockSum) {
             maxPeerClockSum = cs;
           }
         }
-      } catch {}
+      } catch {
+        // awareness unavailable
+      }
 
       // Build topology edges from node neighbors
       const topology: TopologyEdge[] = [];
@@ -1229,8 +1011,7 @@ function createDoc(
           topology.push({
             source: node.peerId,
             target: nb.peerId,
-            ...(nb.role ? { targetRole: nb.role }
-              : {}),
+            ...(nb.role ? { targetRole: nb.role } : {}),
           });
         }
       }
@@ -1242,29 +1023,20 @@ function createDoc(
         gossipsub,
         clockSum: computeClockSum(),
         maxPeerClockSum,
-        latestAnnouncedSeq:
-          snapshotWatcher?.latestAnnouncedSeq ?? 0,
+        latestAnnouncedSeq: snapshotWatcher?.latestAnnouncedSeq ?? 0,
         ipnsSeq: snapshotLC.lastIpnsSeq,
-        loadingState: snapshotWatcher?.fetchState
-          ?? { status: "idle" },
-        hasAppliedSnapshot:
-          snapshotWatcher?.hasAppliedSnapshot
-            ?? false,
+        loadingState: snapshotWatcher?.fetchState ?? { status: "idle" },
+        hasAppliedSnapshot: snapshotWatcher?.hasAppliedSnapshot ?? false,
         ackedBy: [...ackedSet],
-        guaranteeUntil:
-          snapshotWatcher?.guaranteeUntil ?? null,
-        retainUntil:
-          snapshotWatcher?.retainUntil ?? null,
+        guaranteeUntil: snapshotWatcher?.guaranteeUntil ?? null,
+        retainUntil: snapshotWatcher?.retainUntil ?? null,
         topology,
       };
     },
 
     topologyGraph(): TopologyGraph {
       assertNotDestroyed();
-      return buildTopologyGraph(
-        this.diagnostics(),
-        awarenessRoom.awareness,
-      );
+      return buildTopologyGraph(this.diagnostics(), awarenessRoom.awareness);
     },
 
     async history() {
@@ -1287,13 +1059,10 @@ function createDoc(
   } as Doc;
 }
 
-export function pokapali(
-  options: PokapaliConfig,
-): PokapaliApp {
+export function pokapali(options: PokapaliConfig): PokapaliApp {
   const { channels, origin } = options;
   const appId = options.appId ?? "";
-  const primaryChannel =
-    options.primaryChannel ?? channels[0];
+  const primaryChannel = options.primaryChannel ?? channels[0];
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
 
@@ -1301,126 +1070,100 @@ export function pokapali(
     async create(): Promise<Doc> {
       await acquireHelia({ bootstrapPeers });
       try {
-      const pubsub =
-        getHeliaPubsub() as unknown as PubSubLike;
-      acquireNodeRegistry(pubsub, () => getHelia());
+        const pubsub = getHeliaPubsub() as unknown as PubSubLike;
+        acquireNodeRegistry(pubsub, () => getHelia());
 
-      const userIce =
-        options.rtc?.config?.iceServers;
-      const syncOpts: SyncOptions = {
-        peerOpts: {
-          config: {
-            iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+        const userIce = options.rtc?.config?.iceServers;
+        const syncOpts: SyncOptions = {
+          peerOpts: {
+            config: {
+              iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+            },
           },
-        },
-        pubsub,
-      };
+          pubsub,
+        };
 
-      const adminSecret = generateAdminSecret();
-      const docKeys = await deriveDocKeys(
-        adminSecret,
-        appId,
-        channels,
-      );
+        const adminSecret = generateAdminSecret();
+        const docKeys = await deriveDocKeys(adminSecret, appId, channels);
 
-      const signingKey =
-        await ed25519KeyPairFromSeed(
-          docKeys.ipnsKeyBytes,
-        );
-      const ipnsName = bytesToHex(
-        signingKey.publicKey,
-      );
+        const signingKey = await ed25519KeyPairFromSeed(docKeys.ipnsKeyBytes);
+        const ipnsName = bytesToHex(signingKey.publicKey);
 
-      const subdocManager = createSubdocManager(
-        ipnsName,
-        channels,
-        {
+        const subdocManager = createSubdocManager(ipnsName, channels, {
           primaryNamespace: primaryChannel,
-        },
-      );
+        });
 
-      const syncManager = setupNamespaceRooms(
-        ipnsName,
-        subdocManager,
-        docKeys.namespaceKeys,
-        signalingUrls,
-        syncOpts,
-      );
+        const syncManager = setupNamespaceRooms(
+          ipnsName,
+          subdocManager,
+          docKeys.namespaceKeys,
+          signalingUrls,
+          syncOpts,
+        );
 
-      const awarenessRoom = setupAwarenessRoom(
-        ipnsName,
-        docKeys.awarenessRoomPassword,
-        signalingUrls,
-        syncOpts,
-      );
-
-      const roomDiscovery = startRoomDiscovery(
-        getHelia(),
-        appId,
-      );
-
-      const fullKeys: CapabilityKeys = {
-        readKey: docKeys.readKey,
-        ipnsKeyBytes: docKeys.ipnsKeyBytes,
-        rotationKey: docKeys.rotationKey,
-        awarenessRoomPassword:
+        const awarenessRoom = setupAwarenessRoom(
+          ipnsName,
           docKeys.awarenessRoomPassword,
-        namespaceKeys: docKeys.namespaceKeys,
-      };
+          signalingUrls,
+          syncOpts,
+        );
 
-      const adminUrl = await buildUrl(
-        origin,
-        ipnsName,
-        fullKeys,
-      );
-      const writeUrl = await buildUrl(
-        origin,
-        ipnsName,
-        narrowCapability(fullKeys, {
-          namespaces: [...channels],
-          canPushSnapshots: true,
-        }),
-      );
-      const readUrl = await buildUrl(
-        origin,
-        ipnsName,
-        narrowCapability(fullKeys, {
-          namespaces: [],
-        }),
-      );
+        const roomDiscovery = startRoomDiscovery(getHelia(), appId);
 
-      const cap = inferCapability(
-        fullKeys,
-        channels,
-      );
+        const fullKeys: CapabilityKeys = {
+          readKey: docKeys.readKey,
+          ipnsKeyBytes: docKeys.ipnsKeyBytes,
+          rotationKey: docKeys.rotationKey,
+          awarenessRoomPassword: docKeys.awarenessRoomPassword,
+          namespaceKeys: docKeys.namespaceKeys,
+        };
 
-      populateMeta(
-        subdocManager.metaDoc,
-        signingKey.publicKey,
-        docKeys.namespaceKeys,
-      );
+        const adminUrl = await buildUrl(origin, ipnsName, fullKeys);
+        const writeUrl = await buildUrl(
+          origin,
+          ipnsName,
+          narrowCapability(fullKeys, {
+            namespaces: [...channels],
+            canPushSnapshots: true,
+          }),
+        );
+        const readUrl = await buildUrl(
+          origin,
+          ipnsName,
+          narrowCapability(fullKeys, {
+            namespaces: [],
+          }),
+        );
 
-      return createDoc({
-        subdocManager,
-        syncManager,
-        awarenessRoom,
-        cap,
-        keys: fullKeys,
-        ipnsName,
-        origin,
-        channels,
-        adminUrl,
-        writeUrl,
-        readUrl,
-        signingKey,
-        readKey: docKeys.readKey,
-        appId,
-        primaryChannel,
-        signalingUrls,
-        syncOpts,
-        pubsub,
-        roomDiscovery,
-      });
+        const cap = inferCapability(fullKeys, channels);
+
+        populateMeta(
+          subdocManager.metaDoc,
+          signingKey.publicKey,
+          docKeys.namespaceKeys,
+        );
+
+        return createDoc({
+          subdocManager,
+          syncManager,
+          awarenessRoom,
+          cap,
+          keys: fullKeys,
+          ipnsName,
+          origin,
+          channels,
+          adminUrl,
+          writeUrl,
+          readUrl,
+          signingKey,
+          readKey: docKeys.readKey,
+          appId,
+          primaryChannel,
+          signalingUrls,
+          syncOpts,
+          pubsub,
+          roomDiscovery,
+        });
       } catch (err) {
         await releaseHelia();
         throw err;
@@ -1432,22 +1175,13 @@ export function pokapali(
       const { ipnsName, keys } = parsed;
 
       // Check for forwarding record
-      const fwdBytes =
-        lookupForwardingRecord(ipnsName);
+      const fwdBytes = lookupForwardingRecord(ipnsName);
       if (fwdBytes) {
-        const fwd =
-          decodeForwardingRecord(fwdBytes);
+        const fwd = decodeForwardingRecord(fwdBytes);
         if (keys.rotationKey) {
-          const valid =
-            await verifyForwardingRecord(
-              fwd,
-              keys.rotationKey,
-            );
+          const valid = await verifyForwardingRecord(fwd, keys.rotationKey);
           if (!valid) {
-            throw new Error(
-              "Invalid forwarding record" +
-                " signature",
-            );
+            throw new Error("Invalid forwarding record" + " signature");
           }
         }
         return this.open(fwd.newUrl);
@@ -1455,108 +1189,93 @@ export function pokapali(
 
       await acquireHelia({ bootstrapPeers });
       try {
-      const pubsub =
-        getHeliaPubsub() as unknown as PubSubLike;
-      acquireNodeRegistry(pubsub, () => getHelia());
+        const pubsub = getHeliaPubsub() as unknown as PubSubLike;
+        acquireNodeRegistry(pubsub, () => getHelia());
 
-      const userIce =
-        options.rtc?.config?.iceServers;
-      const syncOpts: SyncOptions = {
-        peerOpts: {
-          config: {
-            iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+        const userIce = options.rtc?.config?.iceServers;
+        const syncOpts: SyncOptions = {
+          peerOpts: {
+            config: {
+              iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+            },
           },
-        },
-        pubsub,
-      };
+          pubsub,
+        };
 
-      const cap = inferCapability(
-        keys,
-        channels,
-      );
+        const cap = inferCapability(keys, channels);
 
-      const subdocManager = createSubdocManager(
-        ipnsName,
-        channels,
-        {
+        const subdocManager = createSubdocManager(ipnsName, channels, {
           primaryNamespace: primaryChannel,
-        },
-      );
+        });
 
-      const nsKeys = keys.namespaceKeys ?? {};
-      const syncManager = setupNamespaceRooms(
-        ipnsName,
-        subdocManager,
-        nsKeys,
-        signalingUrls,
-        syncOpts,
-      );
+        const nsKeys = keys.namespaceKeys ?? {};
+        const syncManager = setupNamespaceRooms(
+          ipnsName,
+          subdocManager,
+          nsKeys,
+          signalingUrls,
+          syncOpts,
+        );
 
-      const awarenessRoom = setupAwarenessRoom(
-        ipnsName,
-        keys.awarenessRoomPassword ?? "",
-        signalingUrls,
-        syncOpts,
-      );
+        const awarenessRoom = setupAwarenessRoom(
+          ipnsName,
+          keys.awarenessRoomPassword ?? "",
+          signalingUrls,
+          syncOpts,
+        );
 
-      const roomDiscovery = startRoomDiscovery(
-        getHelia(),
-        appId,
-      );
+        const roomDiscovery = startRoomDiscovery(getHelia(), appId);
 
-      const adminUrl = keys.rotationKey
-        ? await buildUrl(origin, ipnsName, keys)
-        : null;
-      const writeUrl = keys.ipnsKeyBytes
-        ? await buildUrl(
-            origin,
-            ipnsName,
-            narrowCapability(keys, {
-              namespaces: [...cap.namespaces],
-              canPushSnapshots: true,
-            }),
-          )
-        : null;
-      const readUrl = await buildUrl(
-        origin,
-        ipnsName,
-        narrowCapability(keys, {
-          namespaces: [],
-        }),
-      );
+        const adminUrl = keys.rotationKey
+          ? await buildUrl(origin, ipnsName, keys)
+          : null;
+        const writeUrl = keys.ipnsKeyBytes
+          ? await buildUrl(
+              origin,
+              ipnsName,
+              narrowCapability(keys, {
+                namespaces: [...cap.namespaces],
+                canPushSnapshots: true,
+              }),
+            )
+          : null;
+        const readUrl = await buildUrl(
+          origin,
+          ipnsName,
+          narrowCapability(keys, {
+            namespaces: [],
+          }),
+        );
 
-      let signingKey: Ed25519KeyPair | null = null;
-      if (keys.ipnsKeyBytes) {
-        signingKey =
-          await ed25519KeyPairFromSeed(
-            keys.ipnsKeyBytes,
-          );
-      }
+        let signingKey: Ed25519KeyPair | null = null;
+        if (keys.ipnsKeyBytes) {
+          signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+        }
 
-      const doc = createDoc({
-        subdocManager,
-        syncManager,
-        awarenessRoom,
-        cap,
-        keys,
-        ipnsName,
-        origin,
-        channels,
-        adminUrl,
-        writeUrl,
-        readUrl,
-        signingKey,
-        readKey: keys.readKey,
-        appId,
-        primaryChannel,
-        signalingUrls,
-        syncOpts,
-        pubsub,
-        roomDiscovery,
-        performInitialResolve: !!keys.readKey,
-      });
+        const doc = createDoc({
+          subdocManager,
+          syncManager,
+          awarenessRoom,
+          cap,
+          keys,
+          ipnsName,
+          origin,
+          channels,
+          adminUrl,
+          writeUrl,
+          readUrl,
+          signingKey,
+          readKey: keys.readKey,
+          appId,
+          primaryChannel,
+          signalingUrls,
+          syncOpts,
+          pubsub,
+          roomDiscovery,
+          performInitialResolve: !!keys.readKey,
+        });
 
-      return doc;
+        return doc;
       } catch (err) {
         await releaseHelia();
         throw err;
@@ -1566,13 +1285,14 @@ export function pokapali(
     isDocUrl(url: string): boolean {
       try {
         const parsed = new URL(url);
-        const prefix = origin.replace(/\/$/, "")
-          + "/doc/";
+        const prefix = origin.replace(/\/$/, "") + "/doc/";
         const orig = new URL(prefix).origin;
         const path = new URL(prefix).pathname;
-        return parsed.origin === orig
-          && parsed.pathname.startsWith(path)
-          && parsed.hash.length > 1;
+        return (
+          parsed.origin === orig &&
+          parsed.pathname.startsWith(path) &&
+          parsed.hash.length > 1
+        );
       } catch {
         return false;
       }
@@ -1590,26 +1310,13 @@ export {
   verifyForwardingRecord,
   clearForwardingStore,
 } from "./forwarding.js";
-export type {
-  ForwardingRecord,
-} from "./forwarding.js";
+export type { ForwardingRecord } from "./forwarding.js";
 export { getHelia } from "./helia.js";
-export {
-  createAutoSaver,
-} from "./auto-save.js";
-export type {
-  AutoSaveOptions,
-} from "./auto-save.js";
+export { createAutoSaver } from "./auto-save.js";
+export type { AutoSaveOptions } from "./auto-save.js";
 export { truncateUrl, docIdFromUrl } from "./url-utils.js";
-export {
-  NODE_CAPS_TOPIC,
-  _resetNodeRegistry,
-} from "./node-registry.js";
-export type {
-  KnownNode,
-  Neighbor,
-  NodeRegistry,
-} from "./node-registry.js";
+export { NODE_CAPS_TOPIC, _resetNodeRegistry } from "./node-registry.js";
+export type { KnownNode, Neighbor, NodeRegistry } from "./node-registry.js";
 export type {
   AwarenessTopology,
   AwarenessKnownNode,

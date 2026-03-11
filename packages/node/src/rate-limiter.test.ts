@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
+import { createRateLimiter } from "./rate-limiter.js";
 
 describe("RateLimiter", () => {
   it("allows snapshots within limits", () => {

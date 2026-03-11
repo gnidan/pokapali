@@ -48,9 +48,7 @@ interface Summary {
   retainMaxDays: number | null;
 }
 
-export function createMetrics(
-  outputPath?: string,
-): MetricsCollector {
+export function createMetrics(outputPath?: string): MetricsCollector {
   const startedAt = Date.now();
   let peakRss = 0;
 
@@ -103,8 +101,7 @@ export function createMetrics(
         case "ack-received":
           acksReceived++;
           if (event.cid) {
-            const pushTs =
-              pendingSnapshots.get(event.cid);
+            const pushTs = pendingSnapshots.get(event.cid);
             if (pushTs != null) {
               ackLatencies.push(event.ts - pushTs);
               // Only measure first ack per CID
@@ -113,14 +110,10 @@ export function createMetrics(
           }
           if (event.guaranteeUntil != null) {
             acksWithGuarantee++;
-            guaranteeWindows.push(
-              event.guaranteeUntil - event.ts,
-            );
+            guaranteeWindows.push(event.guaranteeUntil - event.ts);
           }
           if (event.retainUntil != null) {
-            retainWindows.push(
-              event.retainUntil - event.ts,
-            );
+            retainWindows.push(event.retainUntil - event.ts);
           }
           break;
       }
@@ -132,9 +125,7 @@ export function createMetrics(
         stream.end();
       }
 
-      const sorted = ackLatencies
-        .slice()
-        .sort((a, b) => a - b);
+      const sorted = ackLatencies.slice().sort((a, b) => a - b);
       const p = (pct: number): number => {
         if (sorted.length === 0) return 0;
         const idx = Math.min(
@@ -148,9 +139,9 @@ export function createMetrics(
       const minMax = (arr: number[]) =>
         arr.length > 0
           ? {
-            min: Math.min(...arr) / MS_PER_DAY,
-            max: Math.max(...arr) / MS_PER_DAY,
-          }
+              min: Math.min(...arr) / MS_PER_DAY,
+              max: Math.max(...arr) / MS_PER_DAY,
+            }
           : null;
       const gw = minMax(guaranteeWindows);
       const rw = minMax(retainWindows);
@@ -160,19 +151,15 @@ export function createMetrics(
         totalDocs: docs.size,
         snapshotsPushed,
         acksReceived,
-        ackPercent: snapshotsPushed > 0
-          ? Math.round(
-            (acksReceived / snapshotsPushed)
-              * 100,
-          )
-          : 0,
+        ackPercent:
+          snapshotsPushed > 0
+            ? Math.round((acksReceived / snapshotsPushed) * 100)
+            : 0,
         ackLatencyP50: p(0.5),
         ackLatencyP95: p(0.95),
         ackLatencyP99: p(0.99),
         durationS: Math.round(durationS),
-        memoryPeakMB: Math.round(
-          peakRss / 1024 / 1024,
-        ),
+        memoryPeakMB: Math.round(peakRss / 1024 / 1024),
         acksWithGuarantee,
         guaranteeMinDays: gw?.min ?? null,
         guaranteeMaxDays: gw?.max ?? null,
@@ -181,60 +168,41 @@ export function createMetrics(
       };
 
       console.error("\n--- Load Test Summary ---");
+      console.error(`  Docs:       ${summary.totalDocs}`);
+      console.error(`  Snapshots:  ${summary.snapshotsPushed}`);
       console.error(
-        `  Docs:       ${summary.totalDocs}`,
+        `  Acks:       ${summary.acksReceived}` + ` (${summary.ackPercent}%)`,
       );
-      console.error(
-        `  Snapshots:  ${summary.snapshotsPushed}`,
-      );
-      console.error(
-        `  Acks:       ${summary.acksReceived}`
-        + ` (${summary.ackPercent}%)`,
-      );
-      console.error(
-        `  Ack p50:    ${summary.ackLatencyP50}ms`,
-      );
-      console.error(
-        `  Ack p95:    ${summary.ackLatencyP95}ms`,
-      );
-      console.error(
-        `  Ack p99:    ${summary.ackLatencyP99}ms`,
-      );
-      console.error(
-        `  Duration:   ${summary.durationS}s`,
-      );
-      console.error(
-        `  Peak RSS:   ${summary.memoryPeakMB}MB`,
-      );
+      console.error(`  Ack p50:    ${summary.ackLatencyP50}ms`);
+      console.error(`  Ack p95:    ${summary.ackLatencyP95}ms`);
+      console.error(`  Ack p99:    ${summary.ackLatencyP99}ms`);
+      console.error(`  Duration:   ${summary.durationS}s`);
+      console.error(`  Peak RSS:   ${summary.memoryPeakMB}MB`);
       if (summary.acksWithGuarantee > 0) {
         console.error(
-          `  Guarantees: ${summary.acksWithGuarantee}`
-          + ` acks with guarantee fields`,
+          `  Guarantees: ${summary.acksWithGuarantee}` +
+            ` acks with guarantee fields`,
         );
         if (
-          summary.guaranteeMinDays != null
-          && summary.guaranteeMaxDays != null
+          summary.guaranteeMinDays != null &&
+          summary.guaranteeMaxDays != null
         ) {
           console.error(
-            `  Guarantee:  `
-            + `${summary.guaranteeMinDays.toFixed(1)}`
-            + `-${summary.guaranteeMaxDays.toFixed(1)}d`,
+            `  Guarantee:  ` +
+              `${summary.guaranteeMinDays.toFixed(1)}` +
+              `-${summary.guaranteeMaxDays.toFixed(1)}d`,
           );
         }
-        if (
-          summary.retainMinDays != null
-          && summary.retainMaxDays != null
-        ) {
+        if (summary.retainMinDays != null && summary.retainMaxDays != null) {
           console.error(
-            `  Retain:     `
-            + `${summary.retainMinDays.toFixed(1)}`
-            + `-${summary.retainMaxDays.toFixed(1)}d`,
+            `  Retain:     ` +
+              `${summary.retainMinDays.toFixed(1)}` +
+              `-${summary.retainMaxDays.toFixed(1)}d`,
           );
         }
       } else {
         console.error(
-          "  Guarantees: none"
-          + " (pinners not sending guarantee fields)",
+          "  Guarantees: none" + " (pinners not sending guarantee fields)",
         );
       }
     },

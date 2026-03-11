@@ -1,15 +1,8 @@
 #!/usr/bin/env node
 
 import { createMetrics } from "../src/metrics.js";
-import {
-  createHeliaNode,
-  type HeliaNode,
-} from "../src/helia-node.js";
-import {
-  startWriter,
-  type Writer,
-  type WriterEvent,
-} from "../src/writer.js";
+import { createHeliaNode, type HeliaNode } from "../src/helia-node.js";
+import { startWriter, type Writer, type WriterEvent } from "../src/writer.js";
 import { createLogger, setLogLevel } from "@pokapali/log";
 
 const log = createLogger("load-test");
@@ -41,35 +34,22 @@ function parseArgs(argv: string[]): Config {
     const arg = argv[i];
     if (arg === "--docs" && argv[i + 1]) {
       config.docs = parseInt(argv[++i], 10);
-    } else if (
-      arg === "--interval" && argv[i + 1]
-    ) {
+    } else if (arg === "--interval" && argv[i + 1]) {
       config.intervalMs = parseInt(argv[++i], 10);
-    } else if (
-      arg === "--readers" && argv[i + 1]
-    ) {
+    } else if (arg === "--readers" && argv[i + 1]) {
       config.readers = parseInt(argv[++i], 10);
-    } else if (
-      arg === "--duration" && argv[i + 1]
-    ) {
+    } else if (arg === "--duration" && argv[i + 1]) {
       config.durationS = parseInt(argv[++i], 10);
-    } else if (
-      arg === "--bootstrap" && argv[i + 1]
-    ) {
+    } else if (arg === "--bootstrap" && argv[i + 1]) {
       config.bootstrap.push(argv[++i]);
-    } else if (
-      arg === "--output" && argv[i + 1]
-    ) {
+    } else if (arg === "--output" && argv[i + 1]) {
       config.output = argv[++i];
     } else if (arg === "--ramp") {
       config.ramp = true;
-    } else if (
-      arg === "--app-id" && argv[i + 1]
-    ) {
+    } else if (arg === "--app-id" && argv[i + 1]) {
       config.appId = argv[++i];
-    } else if (
-      arg === "--log-level" && argv[i + 1]
-    ) {
+    } else if (arg === "--log-level" && argv[i + 1]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setLogLevel(argv[++i] as any);
     } else {
       console.error(`unknown arg: ${arg}`);
@@ -129,15 +109,13 @@ async function main() {
   const metrics = createMetrics(config.output);
 
   log.info(
-    `starting: ${config.docs} docs,`
-    + ` ${config.intervalMs}ms interval,`
-    + ` ${config.durationS}s duration,`
-    + ` appId=${config.appId}`,
+    `starting: ${config.docs} docs,` +
+      ` ${config.intervalMs}ms interval,` +
+      ` ${config.durationS}s duration,` +
+      ` appId=${config.appId}`,
   );
   if (config.bootstrap.length > 0) {
-    log.info(
-      `  bootstrap: ${config.bootstrap.join(", ")}`,
-    );
+    log.info(`  bootstrap: ${config.bootstrap.join(", ")}`);
   }
   if (config.ramp) {
     log.info("  ramp: staggering doc creation");
@@ -154,18 +132,14 @@ async function main() {
   const writers: Writer[] = [];
 
   // Spawn writers
-  const rampDelay = config.ramp && config.docs > 1
-    ? durationMs / config.docs
-    : 0;
+  const rampDelay =
+    config.ramp && config.docs > 1 ? durationMs / config.docs : 0;
 
   for (let i = 0; i < config.docs; i++) {
     const docId = `doc-${i}`;
 
     if (config.ramp && i > 0) {
-      log.info(
-        `ramp: waiting ${rampDelay}ms`
-        + ` before doc ${i}...`,
-      );
+      log.info(`ramp: waiting ${rampDelay}ms` + ` before doc ${i}...`);
       await sleep(rampDelay);
     }
 
@@ -184,14 +158,11 @@ async function main() {
       type: "doc-created",
       docId,
     });
-    log.info(
-      `writer ${writer.writerId} → ${docId}`,
-    );
+    log.info(`writer ${writer.writerId} → ${docId}`);
   }
 
   log.info(
-    `${writers.length} writers running,`
-    + ` waiting ${config.durationS}s...`,
+    `${writers.length} writers running,` + ` waiting ${config.durationS}s...`,
   );
 
   // Wait for duration then shutdown

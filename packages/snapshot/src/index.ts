@@ -1,6 +1,5 @@
 import * as dagCbor from "@ipld/dag-cbor";
 import { CID } from "multiformats/cid";
-import { sha256 } from "multiformats/hashes/sha2";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import {
   encryptSubdoc,
