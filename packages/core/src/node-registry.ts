@@ -6,8 +6,18 @@ import { createLogger } from "@pokapali/log";
 const log = createLogger("node-registry");
 
 export const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
-const STALE_MS = 90_000;
+/** Node becomes stale (greyed out) after this long
+ *  without a caps broadcast. 5x the 30s caps interval
+ *  gives margin for dropped GossipSub messages. */
+const STALE_MS = 150_000;
+/** Hard-remove threshold — stale nodes linger in
+ *  the registry (visible but greyed) until this. */
+const REMOVE_MS = 300_000;
 const PRUNE_INTERVAL_MS = 30_000;
+/** Consecutive disconnected prune checks required
+ *  before flipping connected → false. Prevents
+ *  single-check flicker from transient hiccups. */
+const DISCONNECT_HYSTERESIS = 2;
 
 export interface Neighbor {
   peerId: string;
@@ -19,6 +29,10 @@ export interface KnownNode {
   roles: string[];
   lastSeenAt: number;
   connected: boolean;
+  /** True when no caps broadcast received within
+   *  STALE_MS but not yet hard-removed. Node remains
+   *  in registry so the graph can show it greyed. */
+  stale: boolean;
   neighbors: Neighbor[];
   browserCount: number | undefined;
   /** Public WSS addresses from caps broadcast. */
@@ -115,6 +129,10 @@ export function createNodeRegistry(
   getHelia: () => Helia,
 ): NodeRegistry {
   const nodes = new Map<string, KnownNode>();
+  /** Consecutive prune checks where the peer was not
+   *  in the libp2p connection list. Reset to 0 on
+   *  each caps message or when connection is seen. */
+  const disconnectCounts = new Map<string, number>();
   const changeListeners = new Set<() => void>();
 
   function notifyChange() {
@@ -156,12 +174,17 @@ export function createNodeRegistry(
     const changed =
       !prev ||
       prev.connected !== connected ||
+      prev.stale ||
       !rolesEqual(prev.roles, caps.roles);
+    // Fresh caps broadcast — reset hysteresis and
+    // clear stale flag.
+    disconnectCounts.delete(caps.peerId);
     nodes.set(caps.peerId, {
       peerId: caps.peerId,
       roles: caps.roles,
       lastSeenAt: Date.now(),
       connected,
+      stale: false,
       neighbors: caps.neighbors ?? [],
       browserCount: caps.browserCount,
       addrs: caps.addrs ?? [],
@@ -190,14 +213,41 @@ export function createNodeRegistry(
     const connectedPids = getConnectedPeerIds();
     let changed = false;
     for (const [pid, node] of nodes) {
-      if (now - node.lastSeenAt > STALE_MS) {
+      const age = now - node.lastSeenAt;
+
+      // Hard-remove: no caps for REMOVE_MS
+      if (age > REMOVE_MS) {
         nodes.delete(pid);
-        log.debug("pruned stale node:", pid.slice(-8));
+        disconnectCounts.delete(pid);
+        log.debug("removed node:", pid.slice(-8));
         changed = true;
-      } else {
-        const wasConnected = node.connected;
-        node.connected = connectedPids.has(pid);
-        if (wasConnected !== node.connected) {
+        continue;
+      }
+
+      // Mark stale (greyed in graph, still visible)
+      if (age > STALE_MS && !node.stale) {
+        node.stale = true;
+        log.debug("stale node:", pid.slice(-8));
+        changed = true;
+      }
+
+      // Connected state with hysteresis
+      const isConnected = connectedPids.has(pid);
+      if (isConnected) {
+        // Connection confirmed — reset counter
+        disconnectCounts.delete(pid);
+        if (!node.connected) {
+          node.connected = true;
+          changed = true;
+        }
+      } else if (node.connected) {
+        // Not connected — increment counter,
+        // only flip after DISCONNECT_HYSTERESIS
+        // consecutive checks.
+        const count = (disconnectCounts.get(pid) ?? 0) + 1;
+        disconnectCounts.set(pid, count);
+        if (count >= DISCONNECT_HYSTERESIS) {
+          node.connected = false;
           changed = true;
         }
       }
