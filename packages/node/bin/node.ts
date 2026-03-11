@@ -33,11 +33,22 @@ Options:
   --announce <addr1,addr2>    Public multiaddrs to announce
   --delegated-routing <url>   Delegated routing endpoint
                               (default: delegated-ipfs.dev)
+  --retention-full <ms>       Full-resolution retention
+                              (default: 7d = 604800000)
+  --retention-hourly <ms>     Hourly retention
+                              (default: 14d = 1209600000)
+  --retention-daily <ms>      Daily retention
+                              (default: 30d = 2592000000)
   --log-level <level>         debug, info, warn, error
   --help                      Show this help message
 
 At least one of --relay or --pin is required.`);
 }
+
+const MS_PER_DAY = 24 * 60 * 60_000;
+const DEFAULT_RETENTION_FULL_MS = 7 * MS_PER_DAY;
+const DEFAULT_RETENTION_HOURLY_MS = 14 * MS_PER_DAY;
+const DEFAULT_RETENTION_DAILY_MS = 30 * MS_PER_DAY;
 
 interface ParsedArgs {
   port: number;
@@ -51,6 +62,9 @@ interface ParsedArgs {
   announceAddrs: string[];
   delegatedRoutingUrl: string | null;
   logLevel: LogLevel | null;
+  retentionFullMs: number;
+  retentionHourlyMs: number;
+  retentionDailyMs: number;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -65,6 +79,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   let announceAddrs: string[] = [];
   let delegatedRoutingUrl: string | null = null;
   let logLevel: LogLevel | null = null;
+  let retentionFullMs = DEFAULT_RETENTION_FULL_MS;
+  let retentionHourlyMs = DEFAULT_RETENTION_HOURLY_MS;
+  let retentionDailyMs = DEFAULT_RETENTION_DAILY_MS;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -113,6 +130,24 @@ function parseArgs(argv: string[]): ParsedArgs {
         process.exit(1);
       }
       logLevel = val as LogLevel;
+    } else if (arg === "--retention-full" && argv[i + 1]) {
+      retentionFullMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionFullMs)) {
+        console.error(`invalid --retention-full: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--retention-hourly" && argv[i + 1]) {
+      retentionHourlyMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionHourlyMs)) {
+        console.error(`invalid --retention-hourly: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--retention-daily" && argv[i + 1]) {
+      retentionDailyMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionDailyMs)) {
+        console.error(`invalid --retention-daily: "${argv[i]}"`);
+        process.exit(1);
+      }
     }
   }
 
@@ -137,6 +172,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     announceAddrs,
     delegatedRoutingUrl,
     logLevel,
+    retentionFullMs,
+    retentionHourlyMs,
+    retentionDailyMs,
   };
 }
 
@@ -160,6 +198,9 @@ async function main() {
     announceAddrs,
     delegatedRoutingUrl,
     logLevel,
+    retentionFullMs,
+    retentionHourlyMs,
+    retentionDailyMs,
   } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
@@ -207,6 +248,11 @@ async function main() {
         corsOrigin,
         rateLimitRpm,
         trustProxy,
+        retentionPolicy: {
+          fullResolutionMs: retentionFullMs,
+          hourlyRetentionMs: retentionHourlyMs,
+          dailyRetentionMs: retentionDailyMs,
+        },
         getBlock: async (cid) => {
           try {
             const has = await blockstore.has(cid);
