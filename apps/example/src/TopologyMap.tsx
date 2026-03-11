@@ -317,9 +317,9 @@ function useParticles(
 function PersonIcon() {
   // Simple head + shoulders silhouette
   return (
-    <g opacity={0.5}>
-      <circle cx={0} cy={-2} r={4} fill="#64748b" />
-      <path d="M-6,7 Q-6,2 0,2 Q6,2 6,7" fill="#64748b" />
+    <g opacity={0.7}>
+      <circle cx={0} cy={-2} r={4} fill="#fff" />
+      <path d="M-6,7 Q-6,2 0,2 Q6,2 6,7" fill="#fff" />
     </g>
   );
 }
@@ -386,25 +386,23 @@ function NodeShape({
     roleStroke = C.dual;
     roleStrokeW = 3;
   } else if (isBrowser) {
-    // Self and other browsers: subtle border
-    // on colored fill
-    roleStroke = isSelf
-      ? "#059669" : C.browser;
-    roleStrokeW = 1.5;
+    // Browsers: white border on solid fill
+    roleStroke = "#fff";
+    roleStrokeW = 2;
   } else {
     roleStroke = C.nodeStroke;
     roleStrokeW = 2;
   }
 
-  // Circle fill: browsers get colored fill,
+  // Circle fill: browsers get solid color,
   // infra nodes get light/empty fill
   let fill: string;
   if (off) {
     fill = C.disconnected;
   } else if (isSelf) {
-    fill = "#d1fae5"; // green-100 tint
+    fill = C.self;
   } else if (isBrowser) {
-    fill = C.browserFill;
+    fill = C.browser;
   } else {
     fill = C.nodeFill;
   }
@@ -488,7 +486,7 @@ function NodeShape({
           dominantBaseline="central"
           className={
             isBrowser
-              ? "topo-label-browser"
+              ? "topo-label-self"
               : "topo-label-infra"
           }
         >
