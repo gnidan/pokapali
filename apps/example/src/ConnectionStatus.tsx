@@ -491,7 +491,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
                   className={"cs-section cs-no-pinner"}
                   title={"No pinners connected \u2014 changes may not persist"}
                 >
-                  No pinners
+                  No connected pinners
                 </span>
               )}
             </>
