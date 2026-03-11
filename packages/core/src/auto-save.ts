@@ -31,6 +31,7 @@ export function createAutoSaver(
       clearTimeout(timer);
       timer = null;
     }
+    if (doc.saveState !== "dirty") return;
     doc.publish().catch(() => {});
   }
 
