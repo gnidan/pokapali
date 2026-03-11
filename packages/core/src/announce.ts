@@ -52,7 +52,7 @@ export function announceTopic(appId: string): string {
  * @param ipnsName hex-encoded IPNS public key
  * @param cid      CID string of the published snapshot
  */
-const MAX_INLINE_BLOCK_BYTES = 256 * 1024;
+const MAX_INLINE_BLOCK_BYTES = 1024 * 1024;
 
 function uint8ToBase64(bytes: Uint8Array): string {
   let binary = "";
