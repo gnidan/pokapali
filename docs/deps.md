@@ -91,8 +91,8 @@ broadcasting. Used in @pokapali/core (browser) and
 @pokapali/node (relay). Relays use `floodPublish: false`
 with mesh routing (D=3, Dlo=2, Dhi=8) and peer tagging
 (tag value 200) for relay-to-relay delivery. Browsers
-keep `floodPublish: true` (2-4 relay peers, negligible
-bandwidth, D=2/Dlo=2/Dhi=4). `maxOutboundBufferSize`
+use `floodPublish: false` with mesh routing
+(D=3, Dlo=2, Dhi=6, Dout=1, Dscore=1). `maxOutboundBufferSize`
 set to 10MB (default Infinity caused OOM). IP colocation
 scoring disabled (`IPColocationFactorWeight: 0`) because
 browser peers connect via p2p-circuit through relay IPs,

@@ -100,11 +100,11 @@ doc.channel("comments"); // Y.Doc for "comments" — pass
                          // to comments UI
 doc.provider; // for awareness / cursor presence
               // (shared room, ephemeral)
-doc.capability; // { channels: Set<string>,
+doc.capability; // { namespaces: Set<string>,
                 //   canPushSnapshots: bool,
                 //   isAdmin: bool }
 doc.urls.admin; // keep private — derives everything
-doc.urls.write; // read + write all channels
+doc.urls.write; // read + write all namespaces
                 // + canPushSnapshots
 doc.urls.read;  // read only
 doc.status;     // observable: "connecting" | "synced"
@@ -115,9 +115,9 @@ doc.saveState;  // observable: "saved" | "dirty"
 // Generate a custom capability URL — any subset of
 // channels, with or without snapshot pushing
 doc.invite({
-  channels: ["comments"],
+  namespaces: ["comments"],
   canPushSnapshots: true, // explicit — not implied
-                          // by channel access
+                          // by namespace access
 });
 
 // Open an existing document — capability inferred
@@ -127,7 +127,7 @@ doc.channel("content");  // Y.Doc — readable by all
                          // capability levels
 doc.channel("comments"); // Y.Doc — readable by all
                          // capability levels
-doc.capability; // { channels: Set<string>,
+doc.capability; // { namespaces: Set<string>,
                 //   canPushSnapshots: bool,
                 //   isAdmin: bool }
 doc.invite(capability); // generate lower-privilege URLs
@@ -173,7 +173,7 @@ configuration:
 
 ```ts
 const isReadOnly =
-  !doc.capability.channels.has("content");
+  !doc.capability.namespaces.has("content");
 const editor = new Editor({
   editable: !isReadOnly,
   extensions: [
@@ -406,7 +406,7 @@ GossipSub-announced snapshot fetches.
 ### Sync architecture
 
 For each channel in the peer's capability set
-(`doc.capability.channels`), the library creates a
+(`doc.capability.namespaces`), the library creates a
 `WebrtcProvider` connecting to a room named
 `${ipnsName}:${namespace}`. This gives the peer
 real-time bidirectional CRDT sync for that channel —
@@ -1041,8 +1041,9 @@ via DHT. Adding a new relay requires only starting the
 process — GossipSub mesh formation is automatic.
 
 The HTTP server exposes:
-- `GET /healthz` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
+- `GET /health` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
 - `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, pinner state, and lifetime metrics (see below)
+- `GET /metrics` — returns Prometheus-formatted metrics
 
 ### Document lifetime metrics (designed)
 
@@ -1149,12 +1150,21 @@ topic `pokapali._node-caps._p2p._pubsub`. Every 30
 seconds, a node publishes a JSON capability message:
 
 ```ts
-interface NodeCapabilities {
-  version: 1;
+interface NodeCapsMessage {
+  version: 1 | 2;
   peerId: string;
-  roles: string[];  // e.g. ["relay", "pinner"]
+  roles: string[];       // e.g. ["relay", "pinner"]
+  // v2 additions:
+  neighbors?: Neighbor[];  // connected relay/pinner peers
+  browserCount?: number;   // connected browser count
+  addrs?: string[];        // WSS multiaddrs for dialing
 }
 ```
+
+Version 2 caps enable topology map construction: relays
+report their neighbors and browser count so peers can
+build a full relay mesh graph. The `addrs` field lets
+browsers dial caps-discovered relays directly.
 
 Roles are configured at startup — a relay-only node
 advertises `["relay"]`, a pinner-only node `["pinner"]`,
@@ -1180,8 +1190,11 @@ interface NodeInfo {
   short: string;
   connected: boolean;
   roles: string[];
+  rolesConfirmed: boolean;
   ackedCurrentCid: boolean;
   lastSeenAt: number;
+  neighbors: Neighbor[];
+  browserCount: number | undefined;
 }
 ```
 
@@ -1343,8 +1356,9 @@ All rooms share a single GossipSub topic
 (`/pokapali/signaling`); room routing happens via the room
 name in the JSON payload. This avoids per-room topic
 overhead and keeps mesh health simple. GossipSub is
-configured with `floodPublish: true` to prevent mesh
-degradation on low-traffic topics. Periodic re-announce
+configured with `floodPublish: false` and mesh routing
+(D=3, Dlo=2, Dhi=6 for browsers; D=3, Dlo=2, Dhi=8
+for relays). Periodic re-announce
 (every 15 s) ensures late-joining peers discover existing
 rooms.
 

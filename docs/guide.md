@@ -106,7 +106,7 @@ access the document at that level without a server.
 ```ts
 doc.capability.isAdmin;        // boolean
 doc.capability.canPushSnapshots; // boolean
-doc.capability.channels;       // Set<string>
+doc.capability.namespaces;     // Set<string>
 ```
 
 **Generate invite links:**
@@ -114,12 +114,12 @@ doc.capability.channels;       // Set<string>
 ```ts
 // Write access to the "content" channel
 const writeInvite = await doc.invite({
-  channels: ["content"],
+  namespaces: ["content"],
 });
 
-// Read-only (no channels)
+// Read-only (no namespaces)
 const readInvite = await doc.invite({
-  channels: [],
+  namespaces: [],
 });
 ```
 
@@ -189,8 +189,9 @@ const info = doc.diagnostics();
 
 // info.nodes: NodeInfo[]
 // Each node has:
-//   peerId, short, connected, roles,
-//   ackedCurrentCid, lastSeenAt
+//   peerId, short, connected, roles, rolesConfirmed,
+//   ackedCurrentCid, lastSeenAt, neighbors,
+//   browserCount
 
 // Check for connected pinners
 const hasPinner = info.nodes.some(
