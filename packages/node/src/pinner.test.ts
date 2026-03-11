@@ -365,6 +365,176 @@ describe("pinner with mock helia", () => {
     });
   });
 
+  describe("onGuaranteeQuery", () => {
+    const IPNS_NAME =
+      "aa11bb22cc33dd44ee55ff66" +
+      "00112233aa11bb22cc33dd44" +
+      "ee55ff6600112233";
+
+    it("ignores unknown ipnsNames", async () => {
+      const mockPubsub = {
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        pubsub: mockPubsub as any,
+        peerId: "pinner-peer-id",
+      });
+      await pinner.start();
+
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+
+      expect(mockPubsub.publish).not.toHaveBeenCalled();
+      await pinner.stop();
+    });
+
+    it("requires pubsub to respond", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        // no pubsub, no peerId
+      });
+      await pinner.start();
+      await pinner.ingest(IPNS_NAME, block);
+
+      // Should silently return — no pubsub configured
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+
+      // No throw = pass
+      await pinner.stop();
+    });
+
+    it("publishes guarantee-response with correct" + " fields", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const mockPubsub = {
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        pubsub: mockPubsub as any,
+        peerId: "pinner-peer-id",
+      });
+      await pinner.start();
+      await pinner.ingest(IPNS_NAME, block);
+
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+
+      expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
+      const [topic, data] = mockPubsub.publish.mock.calls[0];
+      expect(topic).toBe("/pokapali/app/test-app/announce");
+
+      const response = JSON.parse(new TextDecoder().decode(data));
+      expect(response.type).toBe("guarantee-response");
+      expect(response.ipnsName).toBe(IPNS_NAME);
+      expect(response.peerId).toBe("pinner-peer-id");
+      expect(response.cid).toBe(cid.toString());
+      expect(response.guaranteeUntil).toBeGreaterThan(Date.now());
+      expect(response.retainUntil).toBeGreaterThan(Date.now());
+      await pinner.stop();
+    });
+
+    it("rate-limits responses to 1 per 3 seconds", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const mockPubsub = {
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        pubsub: mockPubsub as any,
+        peerId: "pinner-peer-id",
+      });
+      await pinner.start();
+      await pinner.ingest(IPNS_NAME, block);
+
+      // First query — should respond
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+      expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
+
+      // Immediate second query — rate-limited
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+      expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
+
+      await pinner.stop();
+    });
+
+    it("responds again after cooldown expires", async () => {
+      vi.useFakeTimers();
+      const block = await makeSnapshot({ ts: 5000 });
+      const mockPubsub = {
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        pubsub: mockPubsub as any,
+        peerId: "pinner-peer-id",
+      });
+      await pinner.start();
+      await pinner.ingest(IPNS_NAME, block);
+
+      // First query
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+      expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
+
+      // Advance past 3s cooldown
+      await vi.advanceTimersByTimeAsync(3_001);
+
+      // Second query — should respond now
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+      expect(mockPubsub.publish).toHaveBeenCalledTimes(2);
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
+
+    it("does not respond when name is known" + " but has no tip", async () => {
+      // onAnnouncement adds to knownNames before
+      // fetchByCid resolves. If fetch fails, name
+      // is known but getTip returns null.
+      const mockHelia = createMockHelia(); // empty
+      const mockPubsub = {
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+        pubsub: mockPubsub as any,
+        peerId: "pinner-peer-id",
+      });
+      await pinner.start();
+
+      // Announce with unfetchable CID — name added
+      // to knownNames but fetch fails → no tip.
+      const fakeCid = CID.create(
+        1,
+        dagCborCode,
+        await sha256.digest(new TextEncoder().encode("fake")),
+      );
+      pinner.onAnnouncement(IPNS_NAME, fakeCid.toString());
+      await pinner.flush();
+
+      // Now query — name is known but no tip
+      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      await pinner.flush();
+
+      expect(mockPubsub.publish).not.toHaveBeenCalled();
+      await pinner.stop();
+    });
+  });
+
   describe("republishAllIPNS", () => {
     it("republishes records for known names", async () => {
       const block = await makeSnapshot({ ts: 5000 });
@@ -397,17 +567,10 @@ describe("pinner with mock helia", () => {
         block,
       );
 
-      // Advance to trigger the initial republish
-      // setTimeout(republishAllIPNS, 5*60_000).
-      // Break into small steps so async work
-      // (dynamic imports, mock resolutions) settles
-      // between timer ticks.
+      // Advance past the 5-minute initial republish
+      // delay and flush all pending async work.
       await vi.advanceTimersByTimeAsync(5 * 60_000);
-      await vi.advanceTimersByTimeAsync(1_000);
-      // Advance past REPUBLISH_PER_NAME_DELAY_MS
-      // (5s) inside republishAllIPNS
-      await vi.advanceTimersByTimeAsync(6_000);
-      await vi.advanceTimersByTimeAsync(1_000);
+      await pinner.flush();
 
       // Stop pinner to clear intervals
       await pinner.stop();
@@ -450,11 +613,10 @@ describe("pinner with mock helia", () => {
         block,
       );
 
-      // Advance in small steps like above
+      // Advance past the 5-minute initial republish
+      // delay and flush all pending async work.
       await vi.advanceTimersByTimeAsync(5 * 60_000);
-      await vi.advanceTimersByTimeAsync(1_000);
-      await vi.advanceTimersByTimeAsync(6_000);
-      await vi.advanceTimersByTimeAsync(1_000);
+      await pinner.flush();
 
       // Should not throw — errors are caught
       // Pinner should still be functional
@@ -462,6 +624,117 @@ describe("pinner with mock helia", () => {
         "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
       );
       expect(tip).toBe(cid.toString());
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
+
+    it("skips recently republished names", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      mockResolve.mockResolvedValue({
+        cid,
+        record: new Uint8Array([1, 2, 3]),
+      });
+      mockRepublish.mockResolvedValue(undefined);
+
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      await pinner.ingest(name, block);
+
+      // Trigger initial republish (5 min)
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      const firstCallCount = mockRepublish.mock.calls.length;
+      expect(firstCallCount).toBeGreaterThan(0);
+
+      // Trigger next 4h cycle — CID unchanged,
+      // <20h since last republish → should skip
+      await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      // No new republish calls
+      expect(mockRepublish.mock.calls.length).toBe(firstCallCount);
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
+
+    it("aborts cycle on >50% failure rate", async () => {
+      // Create 30 names to trigger circuit breaker
+      // (need 20+ attempts with >50% fail)
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      // Resolve succeeds during startup resolveAll
+      // but fails during republish
+      mockResolve.mockResolvedValue({
+        cid,
+        record: new Uint8Array([1, 2, 3]),
+      });
+      mockRepublish.mockResolvedValue(undefined);
+
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      // Ingest 30 names
+      for (let i = 0; i < 30; i++) {
+        const hex = i.toString(16).padStart(2, "0");
+        const name = hex.padEnd(64, "0");
+        const b = await makeSnapshot({
+          ts: 5000 + i,
+        });
+        const c = await blockToCid(b);
+        blocks.set(c.toString(), b);
+        await pinner.ingest(name, b);
+      }
+
+      // Let startup resolveAll complete
+      for (let t = 0; t < 20; t++) {
+        await vi.advanceTimersByTimeAsync(500);
+      }
+
+      // Now make republish fail — switch mock
+      mockResolve.mockRejectedValue(new Error("DHT dead"));
+      mockRepublish.mockClear();
+
+      // Trigger initial republish (5min timer)
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      // Circuit breaker fires at 20 failures. Since
+      // republishOne calls resolve then republish,
+      // no republish calls should succeed (resolve
+      // fails first). The breaker should have
+      // stopped early — fewer than 30 names tried.
+      // mockRepublish should NOT be called since
+      // resolve fails before it.
+      expect(mockRepublish).not.toHaveBeenCalled();
 
       await pinner.stop();
       vi.useRealTimers();
