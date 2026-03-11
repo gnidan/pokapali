@@ -215,103 +215,98 @@ function useForceLayout(
   return posMap;
 }
 
-// ── Particle animation (imperative, topology-safe)
+// ── Particle animation (event-driven, directional)
+//
+// Particles represent actual data flow:
+// - "snapshot" event (writer): outbound self → infra
+// - "snapshot" event (reader): inbound infra → self
+// - "ack" event: inbound from specific pinner → self
 
-function useParticles(
-  groupRef: React.RefObject<SVGGElement | null>,
-  pulseKey: number,
-  edges: TopologyGraphEdge[],
+interface ParticleSpec {
+  srcId: string;
+  tgtId: string;
+  color: string;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function spawnParticles(
+  g: SVGGElement,
+  specs: ParticleSpec[],
   posMapRef: React.RefObject<Map<string, { x: number; y: number }>>,
+  rafRef: React.RefObject<number>,
 ) {
-  const rafRef = useRef(0);
+  interface P {
+    el: SVGCircleElement;
+    srcId: string;
+    tgtId: string;
+    born: number;
+    dur: number;
+  }
+  const particles: P[] = [];
+  const now = performance.now();
 
-  useEffect(() => {
-    const g = groupRef.current;
-    const posMap = posMapRef.current;
-    if (!g || pulseKey === 0 || posMap.size === 0) {
-      return;
+  for (const spec of specs) {
+    const pm = posMapRef.current;
+    if (!pm.has(spec.srcId) || !pm.has(spec.tgtId)) {
+      continue;
     }
-
-    interface P {
-      el: SVGCircleElement;
-      srcId: string;
-      tgtId: string;
-      born: number;
-      dur: number;
+    const count = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      const el = document.createElementNS(SVG_NS, "circle");
+      el.setAttribute("r", "2.5");
+      el.setAttribute("fill", spec.color);
+      el.setAttribute("opacity", "0");
+      g.appendChild(el);
+      particles.push({
+        el,
+        srcId: spec.srcId,
+        tgtId: spec.tgtId,
+        born: now + i * 150 + Math.random() * 100,
+        dur: 700 + Math.random() * 500,
+      });
     }
-    const particles: P[] = [];
-    const ns = "http://www.w3.org/2000/svg";
+  }
 
-    for (const e of edges) {
-      if (!e.connected) continue;
-      // Only animate edges involving _self —
-      // we only observe our own send/receive.
-      if (e.source !== "_self" && e.target !== "_self") continue;
-      if (!posMap.has(e.source)) continue;
-      if (!posMap.has(e.target)) continue;
-      // Bidirectional: spawn particles both ways
-      const dirs = [
-        [e.source, e.target],
-        [e.target, e.source],
-      ] as const;
-      for (const [src, tgt] of dirs) {
-        const count = 1 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < count; i++) {
-          const el = document.createElementNS(ns, "circle");
-          el.setAttribute("r", "2.5");
-          el.setAttribute("fill", C.particle);
-          el.setAttribute("opacity", "0");
-          g.appendChild(el);
-          particles.push({
-            el,
-            srcId: src,
-            tgtId: tgt,
-            born: performance.now() + i * 150 + Math.random() * 100,
-            dur: 700 + Math.random() * 500,
-          });
-        }
-      }
-    }
+  if (particles.length === 0) return;
 
-    const tick = (now: number) => {
-      const pm = posMapRef.current;
-      let alive = 0;
-      for (const p of particles) {
-        if (now < p.born) {
-          alive++;
-          continue;
-        }
-        const t = (now - p.born) / p.dur;
-        if (t >= 1) {
-          p.el.remove();
-          continue;
-        }
-        // Look up current positions (safe if
-        // topology changed mid-animation)
-        const s = pm.get(p.srcId);
-        const d = pm.get(p.tgtId);
-        if (!s || !d) {
-          p.el.remove();
-          continue;
-        }
+  const tick = (t: number) => {
+    const pm = posMapRef.current;
+    let alive = 0;
+    for (const p of particles) {
+      if (t < p.born) {
         alive++;
-        const ease = 1 - (1 - t) ** 2;
-        p.el.setAttribute("cx", String(s.x + (d.x - s.x) * ease));
-        p.el.setAttribute("cy", String(s.y + (d.y - s.y) * ease));
-        p.el.setAttribute("opacity", String(t < 0.7 ? 0.85 : (1 - t) / 0.3));
+        continue;
       }
-      if (alive > 0) {
-        rafRef.current = requestAnimationFrame(tick);
+      const frac = (t - p.born) / p.dur;
+      if (frac >= 1) {
+        p.el.remove();
+        continue;
       }
-    };
+      const s = pm.get(p.srcId);
+      const d = pm.get(p.tgtId);
+      if (!s || !d) {
+        p.el.remove();
+        continue;
+      }
+      alive++;
+      const ease = 1 - (1 - frac) ** 2;
+      const cx = s.x + (d.x - s.x) * ease;
+      const cy = s.y + (d.y - s.y) * ease;
+      p.el.setAttribute("cx", String(cx));
+      p.el.setAttribute("cy", String(cy));
+      p.el.setAttribute(
+        "opacity",
+        String(frac < 0.7 ? 0.85 : (1 - frac) / 0.3),
+      );
+    }
+    if (alive > 0) {
+      rafRef.current = requestAnimationFrame(tick);
+    }
+  };
 
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      for (const p of particles) p.el.remove();
-    };
-  }, [pulseKey, groupRef, posMapRef]);
+  cancelAnimationFrame(rafRef.current);
+  rafRef.current = requestAnimationFrame(tick);
 }
 
 // ── Person silhouette for anonymous browsers ─────
@@ -755,13 +750,13 @@ function Tooltip({
 
 export function TopologyMap({
   doc,
-  pulseKey,
 }: {
   doc: {
     topologyGraph(): TopologyGraph;
     diagnostics(): Diagnostics;
-    on(event: string, cb: () => void): void;
-    off(event: string, cb: () => void): void;
+    capability: { canPushSnapshots: boolean };
+    on(event: string, cb: (...args: unknown[]) => void): void;
+    off(event: string, cb: (...args: unknown[]) => void): void;
     awareness: {
       on(event: string, cb: () => void): void;
       off(event: string, cb: () => void): void;
@@ -769,7 +764,6 @@ export function TopologyMap({
       clientID: number;
     };
   };
-  pulseKey: number;
 }) {
   const [graph, setGraph] = useState<TopologyGraph>(() => doc.topologyGraph());
   const [guaranteeUntil, setGuaranteeUntil] = useState<number | null>(
@@ -863,9 +857,73 @@ export function TopologyMap({
   const posMapRef = useRef(posMap);
   posMapRef.current = posMap;
 
-  // Particle animation
+  // Particle animation — event-driven, directional
   const particleRef = useRef<SVGGElement | null>(null);
-  useParticles(particleRef, pulseKey, graph.edges, posMapRef);
+  const rafRef = useRef(0);
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
+
+  useEffect(() => {
+    const g = particleRef.current;
+    if (!g) return;
+
+    // Connected infra node IDs for self edges
+    const selfInfraEdges = () =>
+      graphRef.current.edges
+        .filter(
+          (e) => e.connected && (e.source === "_self" || e.target === "_self"),
+        )
+        .map((e) => (e.source === "_self" ? e.target : e.source))
+        .filter((id) => {
+          const n = graphRef.current.nodes.find((nd) => nd.id === id);
+          return n && isInfra(n.kind);
+        });
+
+    // Snapshot: writer → outbound to infra,
+    //           reader → inbound from infra
+    const onSnapshot = () => {
+      const infra = selfInfraEdges();
+      if (infra.length === 0) return;
+      const isWriter = doc.capability.canPushSnapshots;
+      const color = isWriter ? C.particle : "#22c55e";
+      const specs: ParticleSpec[] = infra.map((id) =>
+        isWriter
+          ? { srcId: "_self", tgtId: id, color }
+          : { srcId: id, tgtId: "_self", color },
+      );
+      spawnParticles(g, specs, posMapRef, rafRef);
+    };
+
+    // Ack: inbound from specific pinner → self
+    const onAck = (...args: unknown[]) => {
+      const peerId = args[0];
+      if (typeof peerId !== "string") return;
+      // Find the pinner node in the graph
+      const node = graphRef.current.nodes.find((n) => n.id === peerId);
+      if (!node) return;
+      spawnParticles(
+        g,
+        [
+          {
+            srcId: peerId,
+            tgtId: "_self",
+            color: "#22c55e",
+          },
+        ],
+        posMapRef,
+        rafRef,
+      );
+    };
+
+    doc.on("snapshot", onSnapshot);
+    doc.on("ack", onAck);
+
+    return () => {
+      doc.off("snapshot", onSnapshot);
+      doc.off("ack", onAck);
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, [doc, posMapRef]);
 
   // Tooltip state
   const svgRef = useRef<SVGSVGElement | null>(null);
