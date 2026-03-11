@@ -24,8 +24,6 @@ export function createSubdocManager(
   namespaces: string[],
   options?: SubdocManagerOptions,
 ): SubdocManager {
-  const primaryNamespace = options?.primaryNamespace ?? namespaces[0];
-
   const docs = new Map<string, Y.Doc>();
   let dirty = false;
   let destroyed = false;

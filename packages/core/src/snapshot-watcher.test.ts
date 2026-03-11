@@ -16,7 +16,6 @@ vi.mock("./announce.js", () => ({
 import { createSnapshotWatcher } from "./snapshot-watcher.js";
 import { resolveIPNS, watchIPNS } from "./ipns-helpers.js";
 import {
-  announceTopic,
   parseAnnouncement,
   parseGuaranteeResponse,
   publishGuaranteeQuery,

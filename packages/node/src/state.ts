@@ -38,7 +38,7 @@ export async function loadState(path: string): Promise<PinnerState> {
   let raw: string;
   try {
     raw = await readFile(path, "utf-8");
-  } catch (err) {
+  } catch {
     log.info("no state file at", path, "— starting fresh");
     return { ...FALLBACK };
   }

@@ -287,8 +287,6 @@ describe("setupAwarenessRoom", () => {
 
   it("onStatusChange fires callback", () => {
     const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
-    const p = instances[0];
-
     // Capture the "status" event handler registered
     // on the provider — MockProvider stores it via on()
     const cb = vi.fn();

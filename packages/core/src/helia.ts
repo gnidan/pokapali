@@ -20,7 +20,7 @@ let sharedHelia: HeliaWithPubsub | null = null;
 let refCount = 0;
 
 export async function acquireHelia(
-  options?: HeliaOptions,
+  _options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
   if (sharedHelia) {
     refCount++;

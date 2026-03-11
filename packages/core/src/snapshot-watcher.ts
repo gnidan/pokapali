@@ -10,7 +10,6 @@ import {
   base64ToUint8,
 } from "./announce.js";
 import { resolveIPNS, watchIPNS } from "./ipns-helpers.js";
-import type { BlockGetter } from "./fetch-block.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("snapshot-watcher");
