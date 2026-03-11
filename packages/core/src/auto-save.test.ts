@@ -79,7 +79,7 @@ describe("createAutoSaver", () => {
   });
 
   it("debounces publish-needed into one" + " publish call", async () => {
-    const doc = mockDoc();
+    const doc = mockDoc({ saveState: "dirty" });
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 500,
     });
@@ -98,7 +98,7 @@ describe("createAutoSaver", () => {
   });
 
   it("resets debounce timer on each new" + " event", async () => {
-    const doc = mockDoc();
+    const doc = mockDoc({ saveState: "dirty" });
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 500,
     });
@@ -119,7 +119,7 @@ describe("createAutoSaver", () => {
   });
 
   it("does not crash when publish" + " rejects", async () => {
-    const doc = mockDoc();
+    const doc = mockDoc({ saveState: "dirty" });
     doc.publish.mockRejectedValue(new Error("network error"));
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 100,
