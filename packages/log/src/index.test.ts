@@ -119,6 +119,29 @@ describe("@pokapali/log", () => {
       expect(warnSpy).not.toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledTimes(1);
     });
+
+    it("suppresses everything at silent level", () => {
+      setLogLevel("silent");
+      const debugSpy = vi.spyOn(console, "debug")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log")
+        .mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn")
+        .mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      const log = createLogger("test");
+      log.debug("no");
+      log.info("no");
+      log.warn("no");
+      log.error("no");
+
+      expect(debugSpy).not.toHaveBeenCalled();
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe("getLogLevel / setLogLevel", () => {
