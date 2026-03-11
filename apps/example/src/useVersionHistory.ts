@@ -2,7 +2,10 @@ import { useState, useEffect, useRef, useMemo } from "react";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+import DiffMatchPatch from "diff-match-patch";
 import type { Doc, VersionEntry } from "@pokapali/core";
+
+const dmp = new DiffMatchPatch();
 
 type LoadState =
   | { status: "idle" }
@@ -174,12 +177,25 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
       if (text === undefined) continue;
       const next = versions[i + 1];
       if (!next) {
+        // First version — all content is "added"
         result.set(versions[i].seq, text.length);
         continue;
       }
       const prevText = versionTexts.get(next.seq);
       if (prevText === undefined) continue;
-      result.set(versions[i].seq, text.length - prevText.length);
+      // Use diff-match-patch for accurate change
+      // counts that match the overlay's diff display.
+      const diffs = dmp.diff_main(prevText, text);
+      let inserted = 0;
+      let deleted = 0;
+      for (const [op, seg] of diffs) {
+        if (op === DiffMatchPatch.DIFF_INSERT) {
+          inserted += seg.length;
+        } else if (op === DiffMatchPatch.DIFF_DELETE) {
+          deleted += seg.length;
+        }
+      }
+      result.set(versions[i].seq, inserted - deleted);
     }
     return result;
   }, [versions, versionTexts]);
