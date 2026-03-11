@@ -146,8 +146,9 @@ describe("thinSnapshots", () => {
     tracker.add("doc1", tip, now - 1000);
 
     // Add 3 snapshots in the same hour, 10 days ago
-    // (within hourly tier: 7-14d)
-    const baseTs = now - 10 * DAY;
+    // (within hourly tier: 7-14d).
+    // Align to hour start to avoid straddling.
+    const baseTs = Math.floor((now - 10 * DAY) / HOUR) * HOUR;
     const a = await makeCid("hourly-a");
     const b = await makeCid("hourly-b");
     const c = await makeCid("hourly-c");
@@ -176,8 +177,9 @@ describe("thinSnapshots", () => {
     tracker.add("doc1", tip, now - 1000);
 
     // Add 3 snapshots on the same day, 20 days ago
-    // (within daily tier: 14-30d)
-    const baseTs = now - 20 * DAY;
+    // (within daily tier: 14-30d).
+    // Align to day start to avoid straddling.
+    const baseTs = Math.floor((now - 20 * DAY) / DAY) * DAY;
     const a = await makeCid("daily-a");
     const b = await makeCid("daily-b");
     const c = await makeCid("daily-c");
@@ -300,11 +302,13 @@ describe("thinSnapshots", () => {
 
     // Snapshot 3 days ago — would be in "full" tier
     // with default config (7d), but with custom
-    // config of 2d it's in "hourly" tier
+    // config of 2d it's in "hourly" tier.
+    // Align to hour start to avoid straddling.
+    const hourlyBase = Math.floor((now - 3 * DAY) / HOUR) * HOUR;
     const a = await makeCid("short-a");
     const b = await makeCid("short-b");
-    tracker.add("doc1", a, now - 3 * DAY);
-    tracker.add("doc1", b, now - 3 * DAY + 10 * 60_000);
+    tracker.add("doc1", a, hourlyBase);
+    tracker.add("doc1", b, hourlyBase + 10 * 60_000);
 
     const shortConfig: RetentionConfig = {
       fullResolutionMs: 2 * DAY,
@@ -333,18 +337,20 @@ describe("thinSnapshots", () => {
     tracker.add("doc1", full, now - 3 * DAY);
 
     // Hourly tier (10 days ago) — 2 in same hour,
-    // keep latest
+    // keep latest. Align to hour start.
+    const hourBase = Math.floor((now - 10 * DAY) / HOUR) * HOUR;
     const hourA = await makeCid("hour-a");
     const hourB = await makeCid("hour-b");
-    tracker.add("doc1", hourA, now - 10 * DAY);
-    tracker.add("doc1", hourB, now - 10 * DAY + 15 * 60_000);
+    tracker.add("doc1", hourA, hourBase);
+    tracker.add("doc1", hourB, hourBase + 15 * 60_000);
 
     // Daily tier (20 days ago) — 2 in same day,
-    // keep latest
+    // keep latest. Align to day start.
+    const dayBase = Math.floor((now - 20 * DAY) / DAY) * DAY;
     const dayA = await makeCid("day-a");
     const dayB = await makeCid("day-b");
-    tracker.add("doc1", dayA, now - 20 * DAY);
-    tracker.add("doc1", dayB, now - 20 * DAY + 3 * HOUR);
+    tracker.add("doc1", dayA, dayBase);
+    tracker.add("doc1", dayB, dayBase + 3 * HOUR);
 
     // Beyond daily (35 days ago) — pruned entirely
     const ancient = await makeCid("ancient");
