@@ -454,6 +454,11 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     knownPeerRoles.set(caps.peerId, caps.roles);
   });
 
+  // Mutable — set by bin/node.ts once the HTTPS
+  // block server is listening. Referenced by
+  // publishCaps() for caps advertisements.
+  let httpUrl: string | undefined;
+
   function publishCaps() {
     // Build neighbor list from connected peers
     // with known roles (relays/pinners).
@@ -703,8 +708,6 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
       }
     }
   }, LOG_INTERVAL_MS);
-
-  let httpUrl: string | undefined;
 
   return {
     helia,
