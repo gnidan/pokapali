@@ -230,20 +230,93 @@ interface ParticleSpec {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// ── Particle pool ────────────────────────────────
+//
+// Single animation loop manages all particles.
+// Previous design had each spawnParticles() call
+// create its own rAF loop + cancel the previous
+// one, orphaning in-flight particles' DOM elements
+// (the "stalled particles" bug).
+
+interface LiveParticle {
+  el: SVGCircleElement;
+  srcId: string;
+  tgtId: string;
+  born: number;
+  dur: number;
+}
+
+interface ParticlePool {
+  particles: LiveParticle[];
+  raf: number;
+  running: boolean;
+}
+
+function createParticlePool(): ParticlePool {
+  return { particles: [], raf: 0, running: false };
+}
+
+function startLoop(
+  pool: ParticlePool,
+  posMapRef: React.RefObject<Map<string, { x: number; y: number }>>,
+) {
+  if (pool.running) return;
+  pool.running = true;
+
+  const tick = (t: number) => {
+    const pm = posMapRef.current;
+    let alive = 0;
+    for (let i = pool.particles.length - 1; i >= 0; i--) {
+      const p = pool.particles[i];
+      if (t < p.born) {
+        alive++;
+        continue;
+      }
+      const frac = (t - p.born) / p.dur;
+      if (frac >= 1) {
+        p.el.remove();
+        pool.particles.splice(i, 1);
+        continue;
+      }
+      const s = pm.get(p.srcId);
+      const d = pm.get(p.tgtId);
+      if (!s || !d) {
+        p.el.remove();
+        pool.particles.splice(i, 1);
+        continue;
+      }
+      alive++;
+      const ease = 1 - (1 - frac) ** 2;
+      p.el.setAttribute("cx", String(s.x + (d.x - s.x) * ease));
+      p.el.setAttribute("cy", String(s.y + (d.y - s.y) * ease));
+      p.el.setAttribute(
+        "opacity",
+        String(frac < 0.7 ? 0.85 : (1 - frac) / 0.3),
+      );
+    }
+    if (alive > 0) {
+      pool.raf = requestAnimationFrame(tick);
+    } else {
+      pool.running = false;
+    }
+  };
+
+  pool.raf = requestAnimationFrame(tick);
+}
+
+function destroyPool(pool: ParticlePool) {
+  cancelAnimationFrame(pool.raf);
+  pool.running = false;
+  for (const p of pool.particles) p.el.remove();
+  pool.particles.length = 0;
+}
+
 function spawnParticles(
   g: SVGGElement,
   specs: ParticleSpec[],
   posMapRef: React.RefObject<Map<string, { x: number; y: number }>>,
-  rafRef: React.RefObject<number>,
+  pool: ParticlePool,
 ) {
-  interface P {
-    el: SVGCircleElement;
-    srcId: string;
-    tgtId: string;
-    born: number;
-    dur: number;
-  }
-  const particles: P[] = [];
   const now = performance.now();
 
   for (const spec of specs) {
@@ -258,7 +331,7 @@ function spawnParticles(
       el.setAttribute("fill", spec.color);
       el.setAttribute("opacity", "0");
       g.appendChild(el);
-      particles.push({
+      pool.particles.push({
         el,
         srcId: spec.srcId,
         tgtId: spec.tgtId,
@@ -268,45 +341,8 @@ function spawnParticles(
     }
   }
 
-  if (particles.length === 0) return;
-
-  const tick = (t: number) => {
-    const pm = posMapRef.current;
-    let alive = 0;
-    for (const p of particles) {
-      if (t < p.born) {
-        alive++;
-        continue;
-      }
-      const frac = (t - p.born) / p.dur;
-      if (frac >= 1) {
-        p.el.remove();
-        continue;
-      }
-      const s = pm.get(p.srcId);
-      const d = pm.get(p.tgtId);
-      if (!s || !d) {
-        p.el.remove();
-        continue;
-      }
-      alive++;
-      const ease = 1 - (1 - frac) ** 2;
-      const cx = s.x + (d.x - s.x) * ease;
-      const cy = s.y + (d.y - s.y) * ease;
-      p.el.setAttribute("cx", String(cx));
-      p.el.setAttribute("cy", String(cy));
-      p.el.setAttribute(
-        "opacity",
-        String(frac < 0.7 ? 0.85 : (1 - frac) / 0.3),
-      );
-    }
-    if (alive > 0) {
-      rafRef.current = requestAnimationFrame(tick);
-    }
-  };
-
-  cancelAnimationFrame(rafRef.current);
-  rafRef.current = requestAnimationFrame(tick);
+  // Kick the loop if not already running
+  startLoop(pool, posMapRef);
 }
 
 // ── Person silhouette for anonymous browsers ─────
@@ -859,13 +895,14 @@ export function TopologyMap({
 
   // Particle animation — event-driven, directional
   const particleRef = useRef<SVGGElement | null>(null);
-  const rafRef = useRef(0);
+  const poolRef = useRef(createParticlePool());
   const graphRef = useRef(graph);
   graphRef.current = graph;
 
   useEffect(() => {
     const g = particleRef.current;
     if (!g) return;
+    const pool = poolRef.current;
 
     // Connected infra node IDs for self edges
     const selfInfraEdges = () =>
@@ -889,9 +926,13 @@ export function TopologyMap({
       const specs: ParticleSpec[] = infra.map((id) =>
         isWriter
           ? { srcId: "_self", tgtId: id, color }
-          : { srcId: id, tgtId: "_self", color },
+          : {
+              srcId: id,
+              tgtId: "_self",
+              color,
+            },
       );
-      spawnParticles(g, specs, posMapRef, rafRef);
+      spawnParticles(g, specs, posMapRef, pool);
     };
 
     // Ack: inbound from specific pinner → self
@@ -910,14 +951,13 @@ export function TopologyMap({
           },
         ],
         posMapRef,
-        rafRef,
+        pool,
       );
     };
 
     // Loading: inbound particles during block
-    // fetches (resolving/fetching/retrying).
-    // Blue particles from infra → self represent
-    // IPNS resolve + block fetch traffic.
+    // fetches (resolving/fetching).
+    // Blue particles from infra → self.
     const onLoading = (...args: unknown[]) => {
       const state = args[0] as { status: string } | undefined;
       if (!state) return;
@@ -926,9 +966,6 @@ export function TopologyMap({
       if (!active) return;
       const infra = selfInfraEdges();
       if (infra.length === 0) return;
-      // Pick one random infra node to animate
-      // (we don't know which node the fetch
-      // targets, so single particle is honest)
       const idx = Math.floor(Math.random() * infra.length);
       spawnParticles(
         g,
@@ -936,17 +973,16 @@ export function TopologyMap({
           {
             srcId: infra[idx],
             tgtId: "_self",
-            color: C.relay, // blue for fetch
+            color: C.relay,
           },
         ],
         posMapRef,
-        rafRef,
+        pool,
       );
     };
 
-    // Gossip activity: ambient particles when
-    // receiving GossipSub messages. Subtle single
-    // particle from a random infra node → self.
+    // Gossip activity: ambient particle when
+    // receiving GossipSub messages.
     const onGossip = (...args: unknown[]) => {
       const activity = args[0];
       if (activity !== "receiving") return;
@@ -959,11 +995,11 @@ export function TopologyMap({
           {
             srcId: infra[idx],
             tgtId: "_self",
-            color: C.edge, // subtle gray
+            color: C.edge,
           },
         ],
         posMapRef,
-        rafRef,
+        pool,
       );
     };
 
@@ -981,10 +1017,10 @@ export function TopologyMap({
         pinners.map((id) => ({
           srcId: "_self",
           tgtId: id,
-          color: C.pinner, // amber for guarantee
+          color: C.pinner,
         })),
         posMapRef,
-        rafRef,
+        pool,
       );
     };
 
@@ -1000,7 +1036,7 @@ export function TopologyMap({
       doc.off("loading", onLoading);
       doc.off("gossip-activity", onGossip);
       doc.off("guarantee-query", onGuaranteeQuery);
-      cancelAnimationFrame(rafRef.current);
+      destroyPool(pool);
     };
   }, [doc, posMapRef]);
 
