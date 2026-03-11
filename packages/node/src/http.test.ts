@@ -1,8 +1,13 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import { request } from "node:http";
+import { request as httpsRequest } from "node:https";
 import type { Server } from "node:http";
-import { startHttpServer } from "./http.js";
-import type { HttpConfig } from "./http.js";
+import type { Server as HttpsServer } from "node:https";
+import { execSync } from "node:child_process";
+import { startHttpServer, startBlockServer } from "./http.js";
+import type { HttpConfig, HttpsConfig } from "./http.js";
+import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 
 // Minimal mock relay that satisfies the interface
 // used by getHealthData / getStatusData.
@@ -317,5 +322,201 @@ describe("startHttpServer", () => {
       const res = await fetch(port, "POST", "/health");
       expect(res.status).toBe(404);
     });
+  });
+});
+
+// --- Block server tests ---
+
+// Generate self-signed cert for testing
+let testKey: string;
+let testCert: string;
+
+beforeAll(() => {
+  const out = execSync(
+    "openssl req -x509 -newkey ec -pkeyopt" +
+      " ec_paramgen_curve:prime256v1 -keyout /dev/stdout" +
+      " -out /dev/stdout -days 1 -nodes" +
+      ' -subj "/CN=localhost" 2>/dev/null',
+    { encoding: "utf-8" },
+  );
+  // openssl outputs key then cert, both PEM
+  const keyMatch = out.match(
+    /-----BEGIN PRIVATE KEY-----[\s\S]+?-----END PRIVATE KEY-----/,
+  );
+  const certMatch = out.match(
+    /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/,
+  );
+  testKey = keyMatch![0];
+  testCert = certMatch![0];
+});
+
+function fetchHttps(
+  port: number,
+  method: string,
+  path: string,
+  headers?: Record<string, string>,
+): Promise<{
+  status: number;
+  body: Buffer;
+  headers: Record<string, string>;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method,
+        path,
+        rejectUnauthorized: false,
+        headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          const respHeaders: Record<string, string> = {};
+          for (const [k, v] of Object.entries(res.headers)) {
+            if (typeof v === "string") respHeaders[k] = v;
+          }
+          resolve({
+            status: res.statusCode!,
+            body: Buffer.concat(chunks),
+            headers: respHeaders,
+          });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+describe("startBlockServer", () => {
+  let server: HttpsServer;
+  let port: number;
+
+  // In-memory blockstore
+  const blocks = new Map<string, Uint8Array>();
+
+  afterEach(async () => {
+    if (server) {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+    blocks.clear();
+  });
+
+  function startBlock(overrides?: Partial<HttpsConfig>) {
+    const cfg: HttpsConfig = {
+      port: 0,
+      key: testKey,
+      cert: testCert,
+      corsOrigin: "*",
+      rateLimitRpm: 60,
+      trustProxy: false,
+      getBlock: async (cid) => {
+        return blocks.get(cid.toString()) ?? null;
+      },
+      ...overrides,
+    };
+    server = startBlockServer(cfg);
+    const addr = server.address() as any;
+    port = addr.port;
+  }
+
+  async function putBlock(data: Uint8Array): Promise<CID> {
+    const hash = await sha256.digest(data);
+    const cid = CID.createV1(0x55, hash);
+    blocks.set(cid.toString(), data);
+    return cid;
+  }
+
+  it("serves a block by CID", async () => {
+    startBlock();
+    const data = new Uint8Array([1, 2, 3, 4]);
+    const cid = await putBlock(data);
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`);
+    expect(res.status).toBe(200);
+    expect([...res.body]).toEqual([1, 2, 3, 4]);
+    expect(res.headers["content-type"]).toBe("application/octet-stream");
+    expect(res.headers["cache-control"]).toContain("immutable");
+  });
+
+  it("returns 404 for missing block", async () => {
+    startBlock();
+    const hash = await sha256.digest(new Uint8Array([99]));
+    const cid = CID.createV1(0x55, hash);
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`);
+    expect(res.status).toBe(404);
+    const data = JSON.parse(res.body.toString());
+    expect(data.error).toBe("block not found");
+  });
+
+  it("returns 400 for invalid CID", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "GET", "/block/not-a-valid-cid");
+    expect(res.status).toBe(400);
+    const data = JSON.parse(res.body.toString());
+    expect(data.error).toBe("invalid CID");
+  });
+
+  it("returns 429 when rate limited", async () => {
+    startBlock({ rateLimitRpm: 2 });
+    const data = new Uint8Array([10]);
+    const cid = await putBlock(data);
+    const path = `/block/${cid.toString()}`;
+
+    // Use up the limit
+    await fetchHttps(port, "GET", path);
+    await fetchHttps(port, "GET", path);
+
+    const res = await fetchHttps(port, "GET", path);
+    expect(res.status).toBe(429);
+    expect(res.headers["retry-after"]).toBe("60");
+  });
+
+  it("handles OPTIONS preflight", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "OPTIONS", "/block/anything");
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toBe("GET");
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+
+  it("returns CORS * by default", async () => {
+    startBlock();
+    const data = new Uint8Array([5]);
+    const cid = await putBlock(data);
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`);
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+
+  it("matches configured CORS origin", async () => {
+    startBlock({
+      corsOrigin: "https://a.com,https://b.com",
+    });
+    const data = new Uint8Array([6]);
+    const cid = await putBlock(data);
+
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`, {
+      Origin: "https://b.com",
+    });
+    expect(res.headers["access-control-allow-origin"]).toBe("https://b.com");
+  });
+
+  it("omits CORS for non-matching origin", async () => {
+    startBlock({ corsOrigin: "https://a.com" });
+    const data = new Uint8Array([7]);
+    const cid = await putBlock(data);
+
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`, {
+      Origin: "https://evil.com",
+    });
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("returns 404 for non-block paths", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "GET", "/health");
+    expect(res.status).toBe(404);
   });
 });

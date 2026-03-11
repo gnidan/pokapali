@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { createPinner } from "../src/index.js";
-import { startRelay } from "../src/relay.js";
-import { startHttpServer } from "../src/http.js";
+import { startRelay, deriveHttpUrl } from "../src/relay.js";
+import { startHttpServer, startBlockServer } from "../src/http.js";
 import {
   announceTopic,
   parseAnnouncement,
@@ -10,6 +10,7 @@ import {
 } from "@pokapali/core/announce";
 import { createLogger, setLogLevel } from "@pokapali/log";
 import type { LogLevel } from "@pokapali/log";
+import type { Server as HttpsServer } from "node:https";
 
 const log = createLogger("node");
 
@@ -23,7 +24,11 @@ Options:
   --storage-path <path>       Storage directory (required)
   --relay                     Run as relay node
   --pin <app1,app2,...>       Pin snapshots for app IDs
-  --port <number>             HTTP port (default: 3000)
+  --port <number>             HTTP admin port (default: 3000)
+  --https-port <number>       HTTPS block server port (default: 4443)
+  --cors-origin <origins>     CORS origins (default: "*")
+  --rate-limit-rpm <number>   Block requests/min per IP (default: 60)
+  --trust-proxy               Trust X-Forwarded-For for rate limiting
   --announce <addr1,addr2>    Public multiaddrs to announce
   --delegated-routing <url>   Delegated routing endpoint
                               (default: delegated-ipfs.dev)
@@ -35,6 +40,10 @@ At least one of --relay or --pin is required.`);
 
 interface ParsedArgs {
   port: number;
+  httpsPort: number;
+  corsOrigin: string;
+  rateLimitRpm: number;
+  trustProxy: boolean;
   storagePath: string;
   relay: boolean;
   pinApps: string[];
@@ -45,6 +54,10 @@ interface ParsedArgs {
 
 function parseArgs(argv: string[]): ParsedArgs {
   let port = 3000;
+  let httpsPort = 4443;
+  let corsOrigin = "*";
+  let rateLimitRpm = 60;
+  let trustProxy = false;
   let storagePath = "";
   let relay = false;
   let pinApps: string[] = [];
@@ -63,6 +76,22 @@ function parseArgs(argv: string[]): ParsedArgs {
         console.error(`invalid --port value: "${argv[i]}"`);
         process.exit(1);
       }
+    } else if (arg === "--https-port" && argv[i + 1]) {
+      httpsPort = parseInt(argv[++i], 10);
+      if (Number.isNaN(httpsPort)) {
+        console.error(`invalid --https-port value: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--cors-origin" && argv[i + 1]) {
+      corsOrigin = argv[++i];
+    } else if (arg === "--rate-limit-rpm" && argv[i + 1]) {
+      rateLimitRpm = parseInt(argv[++i], 10);
+      if (Number.isNaN(rateLimitRpm)) {
+        console.error(`invalid --rate-limit-rpm: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--trust-proxy") {
+      trustProxy = true;
     } else if (arg === "--storage-path" && argv[i + 1]) {
       storagePath = argv[++i];
     } else if (arg === "--relay") {
@@ -97,6 +126,10 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   return {
     port,
+    httpsPort,
+    corsOrigin,
+    rateLimitRpm,
+    trustProxy,
     storagePath,
     relay,
     pinApps,
@@ -116,6 +149,10 @@ async function main() {
 
   const {
     port,
+    httpsPort,
+    corsOrigin,
+    rateLimitRpm,
+    trustProxy,
     storagePath,
     relay,
     pinApps,
@@ -149,6 +186,82 @@ async function main() {
     for (const ma of relayHandle.multiaddrs()) {
       log.info(`  ${ma}`);
     }
+  }
+
+  // Start HTTPS block server when cert arrives
+  let blockServer: HttpsServer | null = null;
+  if (relayHandle) {
+    // Check if cert is already available
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const autoTLSSvc = (relayHandle.helia.libp2p.services as any).autoTLS;
+    const existingCert = autoTLSSvc?.certificate;
+
+    const launchBlockServer = (cert: { key: string; cert: string }) => {
+      if (blockServer) return; // already started
+      const blockstore = relayHandle!.helia.blockstore;
+      blockServer = startBlockServer({
+        port: httpsPort,
+        key: cert.key,
+        cert: cert.cert,
+        corsOrigin,
+        rateLimitRpm,
+        trustProxy,
+        getBlock: async (cid) => {
+          try {
+            const has = await blockstore.has(cid);
+            if (!has) return null;
+            return await blockstore.get(cid);
+          } catch {
+            return null;
+          }
+        },
+      });
+
+      // Derive httpUrl from WSS multiaddr
+      const wssAddr = relayHandle!
+        .multiaddrs()
+        .find((a) => a.includes("/tls/"));
+      if (wssAddr) {
+        const url = deriveHttpUrl(wssAddr, httpsPort);
+        if (url) {
+          relayHandle!.httpUrl = url;
+          log.info(`block endpoint: ${url}`);
+        }
+      }
+    };
+
+    if (existingCert?.key && existingCert?.cert) {
+      launchBlockServer(existingCert);
+    }
+
+    relayHandle.helia.libp2p.addEventListener(
+      "certificate:provision",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (evt: any) => {
+        const cert = evt.detail;
+        if (cert?.key && cert?.cert) {
+          launchBlockServer(cert);
+        }
+      },
+    );
+
+    // Handle cert renewal — swap server
+    relayHandle.helia.libp2p.addEventListener(
+      "certificate:renew",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (evt: any) => {
+        const cert = evt.detail;
+        if (!cert?.key || !cert?.cert) return;
+        log.info("cert renewed, restarting block server");
+        const old = blockServer;
+        blockServer = null;
+        if (old) {
+          old.close();
+          old.closeAllConnections();
+        }
+        launchBlockServer(cert);
+      },
+    );
   }
 
   // Extract pubsub from relay for pinner ack support
@@ -229,6 +342,10 @@ async function main() {
     log.info("shutting down...");
     server.close();
     server.closeAllConnections();
+    if (blockServer) {
+      blockServer.close();
+      blockServer.closeAllConnections();
+    }
     if (pinner) {
       await pinner.flush();
       await pinner.stop();
