@@ -675,22 +675,23 @@ export function TopologyMap({
     } catch {
       return; // doc destroyed
     }
-    const fp = graphFp(g);
+    // Always update guarantee immediately — it's
+    // cheap (no d3 simulation restart needed)
+    setGuaranteeUntil(gu);
 
+    const fp = graphFp(g);
     if (fp !== prevFpRef.current) {
       prevFpRef.current = fp;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       setGraph(g);
-      setGuaranteeUntil(gu);
     } else {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
         setGraph(g);
-        setGuaranteeUntil(gu);
       }, 8_000);
     }
   }, [doc]);
