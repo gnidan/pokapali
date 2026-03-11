@@ -9,8 +9,11 @@ import {
   walkChain,
 } from "@pokapali/snapshot";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
+import { createLogger } from "@pokapali/log";
 import { fetchBlock } from "./fetch-block.js";
 import type { BlockGetter } from "./fetch-block.js";
+
+const log = createLogger("snapshot-lifecycle");
 
 const DAG_CBOR_CODE = 0x71;
 
@@ -132,11 +135,50 @@ export function createSnapshotLifecycle(
       if (!prev) return [];
 
       const getter = async (cid: CID) => {
-        const block = blocks.get(cid.toString());
-        if (!block) {
-          throw new Error("Block not found: " + cid.toString());
+        // 1. In-memory blocks (always available for
+        //    locally-pushed snapshots)
+        const cached = blocks.get(cid.toString());
+        if (cached) return cached;
+
+        // 2. Blockstore (picks up blocks from bitswap
+        //    / applyRemote that stored to blockstore)
+        try {
+          const helia = options.getHelia();
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 5_000);
+          try {
+            const block = await helia.blockstore.get(cid, {
+              signal: ctrl.signal,
+            });
+            blocks.set(cid.toString(), block);
+            return block;
+          } finally {
+            clearTimeout(timer);
+          }
+        } catch {
+          // blockstore miss — try HTTP
         }
-        return block;
+
+        // 3. HTTP block endpoints (pinner / relay)
+        const urls = options.httpUrls?.() ?? [];
+        for (const baseUrl of urls) {
+          try {
+            const resp = await fetch(`${baseUrl}/block/${cid.toString()}`, {
+              signal: AbortSignal.timeout(5_000),
+            });
+            if (!resp.ok) continue;
+            const bytes = new Uint8Array(await resp.arrayBuffer());
+            const hash = await sha256.digest(bytes);
+            const verified = CIDClass.createV1(cid.code, hash);
+            if (!verified.equals(cid)) continue;
+            blocks.set(cid.toString(), bytes);
+            return bytes;
+          } catch {
+            continue;
+          }
+        }
+
+        throw new Error("Block not found: " + cid.toString());
       };
 
       const entries: Array<{
@@ -145,13 +187,25 @@ export function createSnapshotLifecycle(
         ts: number;
       }> = [];
       let currentCid: CID | null = prev;
-      for await (const node of walkChain(prev, getter)) {
-        entries.push({
-          cid: currentCid!,
-          seq: node.seq,
-          ts: node.ts,
-        });
-        currentCid = node.prev;
+      try {
+        for await (const node of walkChain(prev, getter)) {
+          entries.push({
+            cid: currentCid!,
+            seq: node.seq,
+            ts: node.ts,
+          });
+          currentCid = node.prev;
+        }
+      } catch (err) {
+        // Gracefully return partial chain — missing
+        // blocks are common after page refresh when
+        // only the tip was fetched via applyRemote.
+        log.debug(
+          "history walk stopped at",
+          entries.length,
+          "entries:",
+          (err as Error)?.message ?? err,
+        );
       }
       return entries;
     },

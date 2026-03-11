@@ -638,6 +638,103 @@ body {
   position: relative;
 }
 
+/* ── Version preview overlay ─────────────────── */
+
+.version-preview-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.vpo-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+
+.vpo-close {
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  color: #374151;
+}
+.vpo-close:hover {
+  background: #f3f4f6;
+}
+
+.vpo-info {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.vpo-age {
+  font-weight: 400;
+  color: #6b7280;
+  margin-left: 0.5rem;
+}
+
+.vpo-current-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.vpo-restore {
+  margin-left: auto;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.vpo-restore:hover {
+  background: #1d4ed8;
+}
+.vpo-restore:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vpo-editor {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.vpo-editor .tiptap {
+  padding: 1rem;
+  outline: none;
+  min-height: 400px;
+}
+
+.vpo-editor .tiptap p {
+  margin: 0.5em 0;
+}
+
+.vpo-editor .tiptap h1,
+.vpo-editor .tiptap h2,
+.vpo-editor .tiptap h3 {
+  margin: 0.75em 0 0.25em;
+}
+
 /* ── Version history drawer ───────────────────── */
 
 .vh-drawer {
@@ -646,7 +743,7 @@ body {
   right: 0;
   width: 350px;
   max-width: 100%;
-  height: 100%;
+  max-height: min(100%, 800px);
   min-height: 400px;
   background: white;
   border: 1px solid #e5e7eb;
@@ -694,16 +791,16 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* List section */
 
 .vh-list-section {
-  flex: 0 0 auto;
-  max-height: 45%;
+  flex: 1;
   overflow-y: auto;
-  border-bottom: 1px solid #e5e7eb;
   padding: 0.5rem;
+  min-height: 0;
 }
 
 .vh-list {
@@ -749,9 +846,50 @@ body {
   font-weight: 600;
 }
 
+.vh-item-delta {
+  font-family: monospace;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.vh-item-delta.added {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.vh-item-delta.removed {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.vh-item-delta.unchanged {
+  color: #6b7280;
+  background: #f3f4f6;
+}
+
+.vh-item.selected .vh-item-delta.added {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.vh-item.selected .vh-item-delta.removed {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.vh-item.selected .vh-item-delta.unchanged {
+  color: #93c5fd;
+  background: rgba(147, 197, 253, 0.15);
+}
+
 .vh-item-ts {
   font-size: 0.7rem;
   color: #94a3b8;
+  flex-shrink: 0;
+  text-align: right;
 }
 
 .vh-item.selected .vh-item-ts {
@@ -781,6 +919,7 @@ body {
   padding: 0.5rem;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .vh-preview {
@@ -795,11 +934,39 @@ body {
   padding: 0.75rem;
   outline: none;
   font-size: 0.85rem;
-  min-height: 120px;
+  min-height: 200px;
 }
 
 .vh-preview .tiptap p {
   margin: 0.4em 0;
+}
+
+/* Inline diff view */
+
+.vh-diff {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fafbfc;
+  overflow-y: auto;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 200px;
+}
+
+.vh-diff-add {
+  background: #dcfce7;
+  color: #166534;
+  text-decoration: none;
+}
+
+.vh-diff-del {
+  background: #fee2e2;
+  color: #991b1b;
+  text-decoration: line-through;
 }
 
 .vh-preview-placeholder {
@@ -821,6 +988,7 @@ body {
   padding: 1.5rem;
   color: #94a3b8;
   font-size: 0.8rem;
+  flex: 1;
 }
 
 .vh-spinner-dot {
@@ -843,6 +1011,10 @@ body {
 }
 
 .vh-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
   padding: 1rem;
   text-align: center;
   font-size: 0.8rem;
@@ -850,6 +1022,10 @@ body {
 }
 
 .vh-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
   padding: 1rem;
   text-align: center;
   font-size: 0.8rem;
