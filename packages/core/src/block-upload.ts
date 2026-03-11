@@ -24,7 +24,10 @@ export async function uploadBlock(
     try {
       const resp = await fetch(`${baseUrl}/block/${cidStr}`, {
         method: "POST",
-        body: block,
+        body: block.buffer.slice(
+          block.byteOffset,
+          block.byteOffset + block.byteLength,
+        ),
         headers: {
           "Content-Type": "application/octet-stream",
         },
