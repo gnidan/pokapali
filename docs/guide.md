@@ -146,6 +146,13 @@ doc.on("snapshot", () => {
 });
 ```
 
+**Block distribution:** Snapshots up to 1 MB are
+distributed inline via GossipSub announcements. Larger
+snapshots (1–6 MB) are uploaded to connected pinners
+via HTTP POST and fetched by readers via HTTP GET. This
+is transparent — `publish()` and snapshot fetching
+handle it automatically.
+
 ### 7. Document status
 
 Pokapali separates connectivity from persistence:
@@ -180,6 +187,30 @@ doc.on("save", (state) => {
 });
 ```
 
+**Additional events** for network visualization:
+
+```ts
+// Block fetch progress (IPNS resolve, block fetch)
+doc.on("loading", (state) => {
+  // state.status: "idle" | "resolving" |
+  //   "fetching" | "retrying" | "failed"
+});
+
+// GossipSub activity changes
+doc.on("gossip-activity", (activity) => {
+  // "inactive" | "subscribed" | "receiving"
+});
+
+// Outbound guarantee query sent to pinners
+doc.on("guarantee-query", () => {});
+
+// Pinner acknowledged current snapshot
+doc.on("ack", (peerId) => {});
+
+// Infrastructure node discovered or changed
+doc.on("node-change", () => {});
+```
+
 ### 8. Node diagnostics
 
 `doc.diagnostics()` returns detailed network info
@@ -209,6 +240,28 @@ Nodes advertise their roles (`"relay"`, `"pinner"`, or
 both) via GossipSub. Use this to show users whether
 their changes will be persisted remotely — if no pinner
 is connected, warn them.
+
+**Topology graph** — `doc.topologyGraph()` returns a
+`TopologyGraph` with `nodes` and `edges` suitable for
+rendering a network visualization:
+
+```ts
+const topo = doc.topologyGraph();
+
+// topo.nodes: TopologyNode[]
+//   id, kind ("self" | "relay" | "pinner" |
+//     "relay+pinner" | "browser"),
+//   label, connected, roles, clientId?,
+//   ackedCurrentCid?, browserCount?
+
+// topo.edges: TopologyGraphEdge[]
+//   source, target, connected
+```
+
+The graph merges local diagnostics, node-registry data,
+and awareness state from remote peers, giving a
+whole-network view even of nodes not directly connected
+to you.
 
 ### 9. Auto-save
 
@@ -365,3 +418,13 @@ const channels = await doc.loadVersion(versions[0].cid);
 - **Monitor node health** with
   `doc.diagnostics().nodes` to warn users when no
   pinners are connected.
+- **Large documents** (over 1 MB serialized) require at
+  least one pinner with HTTP block upload support. The
+  library handles this automatically — blocks that
+  exceed the 1 MB GossipSub inline limit are uploaded
+  via HTTP POST and fetched via HTTP GET.
+- **Topology visualization** — use `doc.topologyGraph()`
+  combined with the network events (`snapshot`, `ack`,
+  `loading`, `gossip-activity`, `guarantee-query`) to
+  build a live network map showing data flow between
+  your app and infrastructure nodes.
