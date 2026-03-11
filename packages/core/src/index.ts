@@ -89,8 +89,17 @@ import {
 } from "./topology-sharing.js";
 import type {
   TopologySharing,
-  AwarenessTopology,
 } from "./topology-sharing.js";
+import {
+  buildTopologyGraph,
+  nodeKind,
+} from "./topology-graph.js";
+import type {
+  TopologyNode,
+  TopologyGraphEdge,
+  TopologyGraph,
+  TopologyEdge,
+} from "./topology-graph.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
@@ -182,35 +191,12 @@ export interface Diagnostics {
   topology: TopologyEdge[];
 }
 
-export interface TopologyEdge {
-  source: string;
-  target: string;
-  targetRole?: string;
-}
-
-export interface TopologyNode {
-  id: string;
-  kind: "self" | "relay" | "pinner"
-    | "relay+pinner" | "browser";
-  label: string;
-  connected: boolean;
-  roles: string[];
-  /** Awareness client ID (for browser nodes). */
-  clientId?: number;
-  ackedCurrentCid?: boolean;
-  browserCount?: number;
-}
-
-export interface TopologyGraphEdge {
-  source: string;
-  target: string;
-  connected: boolean;
-}
-
-export interface TopologyGraph {
-  nodes: TopologyNode[];
-  edges: TopologyGraphEdge[];
-}
+export type {
+  TopologyEdge,
+  TopologyNode,
+  TopologyGraphEdge,
+  TopologyGraph,
+} from "./topology-graph.js";
 
 export interface DocUrls {
   readonly admin: string | null;
@@ -379,15 +365,30 @@ interface DocParams {
   performInitialResolve?: boolean;
 }
 
-type NodeKind = TopologyNode["kind"];
-
-function nodeKind(roles: string[]): NodeKind {
-  const isPinner = roles.includes("pinner");
-  const isRelay = roles.includes("relay");
-  if (isPinner && isRelay) return "relay+pinner";
-  if (isPinner) return "pinner";
-  if (isRelay) return "relay";
-  return "browser";
+/**
+ * Populate the _meta subdoc with initial signing
+ * key and namespace authorization entries.
+ * Used by both create() and rotate().
+ */
+function populateMeta(
+  metaDoc: Y.Doc,
+  signingPublicKey: Uint8Array,
+  namespaceKeys: Record<string, Uint8Array>,
+) {
+  const canPush =
+    metaDoc.getArray<Uint8Array>(
+      "canPushSnapshots",
+    );
+  canPush.push([signingPublicKey]);
+  const authorized =
+    metaDoc.getMap("authorized");
+  for (const [ns, key] of
+    Object.entries(namespaceKeys)
+  ) {
+    const arr = new Y.Array<Uint8Array>();
+    authorized.set(ns, arr);
+    arr.push([key]);
+  }
 }
 
 function createDoc(
@@ -557,8 +558,11 @@ function createDoc(
       });
       registry.onNodeChange(nodeChangeHandler);
     }
-  } catch {
-    // Helia not ready yet — skip topology sharing
+  } catch (err) {
+    log.warn(
+      "topology sharing init skipped:",
+      (err as Error)?.message ?? err,
+    );
   }
 
   // Snapshot watching: announce subscription, IPNS
@@ -669,7 +673,12 @@ function createDoc(
     try {
       getNodeRegistry()
         ?.offNodeChange(nodeChangeHandler);
-    } catch {}
+    } catch (err) {
+      log.warn(
+        "offNodeChange cleanup error:",
+        (err as Error)?.message ?? err,
+      );
+    }
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();
     syncManager.destroy();
@@ -991,22 +1000,11 @@ function createDoc(
         channels,
       );
 
-      // Populate _meta on new doc
-      const newMeta = newSubdocManager.metaDoc;
-      const canPush =
-        newMeta.getArray<Uint8Array>(
-          "canPushSnapshots",
-        );
-      canPush.push([newSigningKey.publicKey]);
-      const authorized =
-        newMeta.getMap("authorized");
-      for (const [ns, key] of Object.entries(
+      populateMeta(
+        newSubdocManager.metaDoc,
+        newSigningKey.publicKey,
         newDocKeys.namespaceKeys,
-      )) {
-        const arr = new Y.Array<Uint8Array>();
-        authorized.set(ns, arr);
-        arr.push([key]);
-      }
+      );
 
       let newRoomDiscovery: RoomDiscovery | undefined;
       try {
@@ -1242,6 +1240,7 @@ function createDoc(
 
     topologyGraph(): TopologyGraph {
       assertNotDestroyed();
+<<<<<<< HEAD
       const info = this.diagnostics();
       const graphNodes: TopologyNode[] = [];
       const edges: TopologyGraphEdge[] = [];
@@ -1370,6 +1369,12 @@ function createDoc(
       }
 
       return { nodes: graphNodes, edges };
+=======
+      return buildTopologyGraph(
+        this.diagnostics(),
+        awarenessRoom.awareness,
+      );
+>>>>>>> core
     },
 
     async history() {
@@ -1499,22 +1504,11 @@ export function pokapali(
         channels,
       );
 
-      // Populate _meta doc
-      const meta = subdocManager.metaDoc;
-      const canPush =
-        meta.getArray<Uint8Array>(
-          "canPushSnapshots",
-        );
-      canPush.push([signingKey.publicKey]);
-      const authorized =
-        meta.getMap("authorized");
-      for (const [ns, key] of Object.entries(
+      populateMeta(
+        subdocManager.metaDoc,
+        signingKey.publicKey,
         docKeys.namespaceKeys,
-      )) {
-        const arr = new Y.Array<Uint8Array>();
-        authorized.set(ns, arr);
-        arr.push([key]);
-      }
+      );
 
       return createDoc({
         subdocManager,
