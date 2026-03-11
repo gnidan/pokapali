@@ -15,11 +15,25 @@ function abbreviateId(id: string): string {
   return id.slice(0, 4) + "\u2026" + id.slice(-4);
 }
 
-const app = pokapali({
-  appId: "pokapali-example",
-  channels: ["content"],
-  origin: window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
-});
+// Persist across Vite HMR to avoid duplicate
+// Helia/WebRTC instances on hot reload
+function getApp() {
+  if (import.meta.hot?.data.app) {
+    return import.meta.hot.data.app as ReturnType<typeof pokapali>;
+  }
+  const instance = pokapali({
+    appId: "pokapali-example",
+    channels: ["content"],
+    origin:
+      window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
+  });
+  if (import.meta.hot) {
+    import.meta.hot.data.app = instance;
+  }
+  return instance;
+}
+
+const app = getApp();
 
 function recordDoc(doc: Doc) {
   saveRecent(doc.urls.best, capitalize(doc.role));
