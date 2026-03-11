@@ -10,6 +10,7 @@ import { SaveIndicator, LastUpdated } from "./SaveIndicator";
 import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
 import { SharePanel } from "./SharePanel";
 import { VersionHistory } from "./VersionHistory";
+import { useVersionHistory } from "./useVersionHistory";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -44,6 +45,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const titleRef = useRef<HTMLInputElement>(null);
   const titleBtnRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
+
+  // Preload version history on doc open so the
+  // drawer opens instantly when the user clicks History.
+  const versionHistory = useVersionHistory(doc);
 
   const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
@@ -367,6 +372,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
           <VersionHistory
             doc={doc}
             editor={editor}
+            history={versionHistory}
             onClose={() => setShowHistory(false)}
           />
         )}
