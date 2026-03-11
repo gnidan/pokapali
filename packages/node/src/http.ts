@@ -282,6 +282,9 @@ export interface HttpsConfig {
   getBlock: (cid: CID) => Promise<Uint8Array | null>;
   /** Blockstore put function — stores raw bytes. */
   putBlock: (cid: CID, bytes: Uint8Array) => Promise<void>;
+  /** History lookup — returns snapshot records for
+   *  an IPNS name, filtered to blocks we still have. */
+  getHistory?: (ipnsName: string) => Promise<{ cid: string; ts: number }[]>;
 }
 
 function parseCorsOrigins(origin: string): string[] | "*" {
@@ -347,7 +350,57 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
         return;
       }
 
-      // Only /block/:cid
+      // GET /history/:ipnsName
+      const histMatch = url.pathname.match(/^\/history\/([a-fA-F0-9]+)$/);
+      if (req.method === "GET" && histMatch && config.getHistory) {
+        const ipnsName = histMatch[1];
+        const limit = Math.min(
+          parseInt(url.searchParams.get("limit") ?? "50", 10) || 50,
+          200,
+        );
+        const before = parseInt(url.searchParams.get("before") ?? "", 10);
+
+        try {
+          const records = await config.getHistory(ipnsName);
+
+          // Sort newest-first, assign seq numbers
+          records.sort((a, b) => b.ts - a.ts);
+          const withSeq = records.map((r, i) => ({
+            cid: r.cid,
+            ts: r.ts,
+            seq: records.length - i,
+          }));
+
+          // Paginate: before=seq filters to
+          // entries with seq < before
+          let page = withSeq;
+          if (!Number.isNaN(before) && before > 0) {
+            page = page.filter((r) => r.seq < before);
+          }
+          page = page.slice(0, limit);
+
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "cache-control": "no-cache",
+            ...cors,
+          });
+          res.end(JSON.stringify(page));
+        } catch (err) {
+          log.warn("history error:", (err as Error).message);
+          res.writeHead(500, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "internal error",
+            }),
+          );
+        }
+        return;
+      }
+
+      // /block/:cid (GET or POST)
       const match = url.pathname.match(/^\/block\/(.+)$/);
       if (!match || (req.method !== "GET" && req.method !== "POST")) {
         res.writeHead(404, {

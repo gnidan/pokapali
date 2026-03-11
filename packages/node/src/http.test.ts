@@ -651,4 +651,72 @@ describe("startBlockServer", () => {
     expect(res.status).toBe(204);
     expect(res.headers["access-control-allow-methods"]).toBe("GET, POST");
   });
+
+  // --- History endpoint tests ---
+
+  it("returns history for an IPNS name", async () => {
+    const now = Date.now();
+    startBlock({
+      getHistory: async () => [
+        { cid: "cid-old", ts: now - 2000 },
+        { cid: "cid-new", ts: now },
+      ],
+    });
+    const name = "aa".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body).toHaveLength(2);
+    // Newest first
+    expect(body[0].cid).toBe("cid-new");
+    expect(body[1].cid).toBe("cid-old");
+    // Has seq numbers
+    expect(body[0].seq).toBe(2);
+    expect(body[1].seq).toBe(1);
+  });
+
+  it("paginates history with limit and before", async () => {
+    const now = Date.now();
+    const records = Array.from({ length: 10 }, (_, i) => ({
+      cid: `cid-${i}`,
+      ts: now - (9 - i) * 1000,
+    }));
+    startBlock({
+      getHistory: async () => records,
+    });
+    const name = "bb".repeat(32);
+
+    // Limit to 3
+    const res1 = await fetchHttps(port, "GET", `/history/${name}?limit=3`);
+    const body1 = JSON.parse(res1.body.toString());
+    expect(body1).toHaveLength(3);
+
+    // before=5 gets entries with seq < 5
+    const res2 = await fetchHttps(
+      port,
+      "GET",
+      `/history/${name}?before=5&limit=2`,
+    );
+    const body2 = JSON.parse(res2.body.toString());
+    expect(body2).toHaveLength(2);
+    expect(body2[0].seq).toBeLessThan(5);
+  });
+
+  it("returns empty array for unknown name", async () => {
+    startBlock({
+      getHistory: async () => [],
+    });
+    const name = "cc".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body).toEqual([]);
+  });
+
+  it("returns 404 when no getHistory configured", async () => {
+    startBlock(); // no getHistory
+    const name = "dd".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(404);
+  });
 });
