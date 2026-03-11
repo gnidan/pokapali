@@ -43,10 +43,10 @@ describe("generateAdminSecret", () => {
 describe("deriveDocKeys", () => {
   const adminSecret = "test-secret-1234";
   const appId = "test-app";
-  const namespaces = ["content", "comments"];
+  const channels = ["content", "comments"];
 
   it("returns correct types and lengths", async () => {
-    const keys = await deriveDocKeys(adminSecret, appId, namespaces);
+    const keys = await deriveDocKeys(adminSecret, appId, channels);
     expect(keys.readKey).toBeInstanceOf(CryptoKey);
     expect(keys.ipnsKeyBytes).toBeInstanceOf(Uint8Array);
     expect(keys.ipnsKeyBytes.length).toBe(32);
@@ -54,18 +54,18 @@ describe("deriveDocKeys", () => {
     expect(keys.rotationKey.length).toBe(32);
     expect(typeof keys.awarenessRoomPassword).toBe("string");
     expect(keys.awarenessRoomPassword).toMatch(/^[0-9a-f]{64}$/);
-    expect(Object.keys(keys.namespaceKeys).sort()).toEqual([
+    expect(Object.keys(keys.channelKeys).sort()).toEqual([
       "comments",
       "content",
     ]);
-    for (const ns of namespaces) {
-      expect(keys.namespaceKeys[ns].length).toBe(32);
+    for (const ch of channels) {
+      expect(keys.channelKeys[ch].length).toBe(32);
     }
   });
 
   it("is deterministic", async () => {
-    const a = await deriveDocKeys(adminSecret, appId, namespaces);
-    const b = await deriveDocKeys(adminSecret, appId, namespaces);
+    const a = await deriveDocKeys(adminSecret, appId, channels);
+    const b = await deriveDocKeys(adminSecret, appId, channels);
     const aRaw = new Uint8Array(
       await crypto.subtle.exportKey("raw", a.readKey),
     );
@@ -76,19 +76,19 @@ describe("deriveDocKeys", () => {
     expect(arraysEqual(a.ipnsKeyBytes, b.ipnsKeyBytes)).toBe(true);
     expect(arraysEqual(a.rotationKey, b.rotationKey)).toBe(true);
     expect(a.awarenessRoomPassword).toBe(b.awarenessRoomPassword);
-    for (const ns of namespaces) {
-      expect(arraysEqual(a.namespaceKeys[ns], b.namespaceKeys[ns])).toBe(true);
+    for (const ch of channels) {
+      expect(arraysEqual(a.channelKeys[ch], b.channelKeys[ch])).toBe(true);
     }
   });
 
   it("works with empty appId", async () => {
-    const keys = await deriveDocKeys(adminSecret, "", namespaces);
+    const keys = await deriveDocKeys(adminSecret, "", channels);
     expect(keys.readKey).toBeInstanceOf(CryptoKey);
     expect(keys.ipnsKeyBytes.length).toBe(32);
   });
 
   it("works with unicode appId", async () => {
-    const keys = await deriveDocKeys(adminSecret, "日本語アプリ", namespaces);
+    const keys = await deriveDocKeys(adminSecret, "日本語アプリ", channels);
     expect(keys.readKey).toBeInstanceOf(CryptoKey);
     expect(keys.ipnsKeyBytes.length).toBe(32);
   });
@@ -99,25 +99,25 @@ describe("deriveMetaRoomPassword", () => {
     const keys = await deriveDocKeys("test-secret-1234", "test-app", [
       "primary",
     ]);
-    const nsKey = keys.namespaceKeys["primary"];
+    const chKey = keys.channelKeys["primary"];
 
-    const a = await deriveMetaRoomPassword(nsKey);
-    const b = await deriveMetaRoomPassword(nsKey);
+    const a = await deriveMetaRoomPassword(chKey);
+    const b = await deriveMetaRoomPassword(chKey);
     expect(a).toBe(b);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("differs from the namespace key hex", async () => {
+  it("differs from the channel key hex", async () => {
     const keys = await deriveDocKeys("test-secret-1234", "test-app", [
       "primary",
     ]);
-    const nsKey = keys.namespaceKeys["primary"];
-    const nsHex = Array.from(nsKey, (b) =>
+    const chKey = keys.channelKeys["primary"];
+    const chHex = Array.from(chKey, (b) =>
       b.toString(16).padStart(2, "0"),
     ).join("");
 
-    const password = await deriveMetaRoomPassword(nsKey);
-    expect(password).not.toBe(nsHex);
+    const password = await deriveMetaRoomPassword(chKey);
+    expect(password).not.toBe(chHex);
   });
 });
 

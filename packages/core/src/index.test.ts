@@ -154,7 +154,7 @@ describe("@pokapali/core", () => {
     const doc = await lib.create();
     expect(doc.capability.isAdmin).toBe(true);
     expect(doc.capability.canPushSnapshots).toBe(true);
-    expect(doc.capability.namespaces).toEqual(new Set(["content", "comments"]));
+    expect(doc.capability.channels).toEqual(new Set(["content", "comments"]));
     doc.destroy();
   });
 
@@ -188,7 +188,7 @@ describe("@pokapali/core", () => {
     const reader = await lib.open(readUrl);
     expect(reader.capability.isAdmin).toBe(false);
     expect(reader.capability.canPushSnapshots).toBe(false);
-    expect(reader.capability.namespaces.size).toBe(0);
+    expect(reader.capability.channels.size).toBe(0);
     expect(reader.urls.admin).toBeNull();
     expect(reader.urls.write).toBeNull();
     reader.destroy();
@@ -232,13 +232,13 @@ describe("@pokapali/core", () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     const url = await doc.invite({
-      namespaces: ["comments"],
+      channels: ["comments"],
     });
     expect(url).toContain("https://example.com/doc/");
 
     const parsed = await parseUrl(url);
     const cap = inferCapability(parsed.keys, OPTS.channels);
-    expect(cap.namespaces).toEqual(new Set(["comments"]));
+    expect(cap.channels).toEqual(new Set(["comments"]));
     expect(cap.canPushSnapshots).toBe(false);
     expect(cap.isAdmin).toBe(false);
     doc.destroy();

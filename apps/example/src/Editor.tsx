@@ -43,7 +43,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const titleBtnRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
 
-  const isReadOnly = !doc.capability.namespaces.has("content");
+  const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
   const role = doc.role;
 

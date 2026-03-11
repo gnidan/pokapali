@@ -184,14 +184,14 @@ function computeSaveState(isDirty: boolean, isSaving: boolean): SaveState {
 export function populateMeta(
   metaDoc: Y.Doc,
   signingPublicKey: Uint8Array,
-  namespaceKeys: Record<string, Uint8Array>,
+  channelKeys: Record<string, Uint8Array>,
 ) {
   const canPush = metaDoc.getArray<Uint8Array>("canPushSnapshots");
   canPush.push([signingPublicKey]);
   const authorized = metaDoc.getMap("authorized");
-  for (const [ns, key] of Object.entries(namespaceKeys)) {
+  for (const [ch, key] of Object.entries(channelKeys)) {
     const arr = new Y.Array<Uint8Array>();
-    authorized.set(ns, arr);
+    authorized.set(ch, arr);
     arr.push([key]);
   }
 }
@@ -544,17 +544,17 @@ export function createDoc(params: DocParams): Doc {
 
     get role(): DocRole {
       if (cap.isAdmin) return "admin";
-      if (cap.namespaces.size > 0) return "writer";
+      if (cap.channels.size > 0) return "writer";
       return "reader";
     },
 
     async invite(grant: CapabilityGrant): Promise<string> {
       assertNotDestroyed();
-      if (grant.namespaces) {
-        for (const ns of grant.namespaces) {
-          if (!cap.namespaces.has(ns)) {
+      if (grant.channels) {
+        for (const ch of grant.channels) {
+          if (!cap.channels.has(ch)) {
             throw new Error(
-              `Cannot grant "${ns}" ` + "— not in own capability",
+              `Cannot grant "${ch}" ` + "— not in own capability",
             );
           }
         }

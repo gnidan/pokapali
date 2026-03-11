@@ -110,7 +110,7 @@ access the document at that level without a server.
 ```ts
 doc.capability.isAdmin; // boolean
 doc.capability.canPushSnapshots; // boolean
-doc.capability.namespaces; // Set<string>
+doc.capability.channels; // Set<string>
 ```
 
 **Generate invite links:**
@@ -118,12 +118,12 @@ doc.capability.namespaces; // Set<string>
 ```ts
 // Write access to the "content" channel
 const writeInvite = await doc.invite({
-  namespaces: ["content"],
+  channels: ["content"],
 });
 
-// Read-only (no namespaces)
+// Read-only (no channels)
 const readInvite = await doc.invite({
-  namespaces: [],
+  channels: [],
 });
 ```
 

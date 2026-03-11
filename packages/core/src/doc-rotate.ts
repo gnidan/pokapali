@@ -61,7 +61,7 @@ export async function rotateDoc(
   populateMetaFn: (
     metaDoc: import("yjs").Doc,
     signingPublicKey: Uint8Array,
-    namespaceKeys: Record<string, Uint8Array>,
+    channelKeys: Record<string, Uint8Array>,
   ) => void,
 ): Promise<RotateResult> {
   if (!ctx.cap.isAdmin || !ctx.keys.rotationKey) {
@@ -93,7 +93,7 @@ export async function rotateDoc(
   const newSyncManager = setupNamespaceRooms(
     newIpnsName,
     newSubdocManager,
-    newDocKeys.namespaceKeys,
+    newDocKeys.channelKeys,
     ctx.signalingUrls,
     rotateSyncOpts,
   );
@@ -110,7 +110,7 @@ export async function rotateDoc(
     ipnsKeyBytes: newDocKeys.ipnsKeyBytes,
     rotationKey: newDocKeys.rotationKey,
     awarenessRoomPassword: newDocKeys.awarenessRoomPassword,
-    namespaceKeys: newDocKeys.namespaceKeys,
+    channelKeys: newDocKeys.channelKeys,
   };
 
   const newAdminUrl = await buildUrl(ctx.origin, newIpnsName, newKeys);
@@ -118,7 +118,7 @@ export async function rotateDoc(
     ctx.origin,
     newIpnsName,
     narrowCapability(newKeys, {
-      namespaces: [...ctx.channels],
+      channels: [...ctx.channels],
       canPushSnapshots: true,
     }),
   );
@@ -126,7 +126,7 @@ export async function rotateDoc(
     ctx.origin,
     newIpnsName,
     narrowCapability(newKeys, {
-      namespaces: [],
+      channels: [],
     }),
   );
 
@@ -135,7 +135,7 @@ export async function rotateDoc(
   populateMetaFn(
     newSubdocManager.metaDoc,
     newSigningKey.publicKey,
-    newDocKeys.namespaceKeys,
+    newDocKeys.channelKeys,
   );
 
   let newRoomDiscovery;
