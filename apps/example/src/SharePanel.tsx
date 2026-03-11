@@ -1,23 +1,6 @@
-import {
-  useState,
-  useCallback,
-  useMemo,
-  useRef,
-  useEffect,
-  forwardRef,
-} from "react";
-import encodeQR from "@paulmillr/qr";
+import { useState, useCallback, useRef, useEffect, forwardRef } from "react";
 import type { Doc } from "@pokapali/core";
 import { truncateUrl } from "@pokapali/core";
-
-function QRCode({ value }: { value: string }) {
-  const svg = useMemo(
-    () => encodeQR(value, "svg", { border: 2, scale: 4 }),
-    [value],
-  );
-
-  return <div className="share-qr" dangerouslySetInnerHTML={{ __html: svg }} />;
-}
 
 function CopyRow({
   label,
@@ -30,7 +13,6 @@ function CopyRow({
 }) {
   const [copied, setCopied] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [showQR, setShowQR] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -63,6 +45,8 @@ function CopyRow({
           title={value}
           onFocus={() => {
             setFocused(true);
+            // Select after React re-renders with
+            // the full URL value
             requestAnimationFrame(() => {
               inputRef.current?.select();
             });
@@ -72,17 +56,7 @@ function CopyRow({
         <button className="copy-btn" onClick={copy}>
           {copied ? "Copied!" : "Copy link"}
         </button>
-        <button
-          className="qr-btn"
-          onClick={() => setShowQR((s) => !s)}
-          aria-label={showQR ? "Hide QR code" : "Show QR code"}
-          aria-expanded={showQR}
-          title={showQR ? "Hide QR code" : "Show QR code"}
-        >
-          {showQR ? "Hide QR" : "QR"}
-        </button>
       </div>
-      {showQR && <QRCode value={value} />}
     </div>
   );
 }

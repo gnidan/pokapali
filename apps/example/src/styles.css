@@ -481,35 +481,6 @@ body {
   background: #1d4ed8;
 }
 
-.qr-btn {
-  padding: 0.35rem 0.6rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: white;
-  color: #475569;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.qr-btn:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-}
-
-.share-qr {
-  display: flex;
-  justify-content: center;
-  padding: 0.5rem 0;
-}
-
-.share-qr svg {
-  width: 160px;
-  height: 160px;
-  border-radius: 4px;
-}
-
 .generate-btn {
   padding: 0.4rem 0.75rem;
   font-size: 0.8rem;
@@ -1730,7 +1701,6 @@ body {
   }
 
   .copy-btn,
-  .qr-btn,
   .generate-btn {
     width: 100%;
     text-align: center;
