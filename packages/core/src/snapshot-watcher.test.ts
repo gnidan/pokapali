@@ -816,6 +816,103 @@ describe("createSnapshotWatcher", () => {
     });
   });
 
+  describe("pinner re-announce", () => {
+    function makePubsub() {
+      return {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    function getMessageHandler(pubsub: ReturnType<typeof makePubsub>) {
+      const call = pubsub.addEventListener.mock.calls.find(
+        (c: any) => c[0] === "message",
+      );
+      return call?.[1] as (evt: any) => void;
+    }
+
+    it(
+      "triggers onSnapshot for pinner re-announce" +
+        " with ack but no seq/block",
+      async () => {
+        const hash = await sha256.digest(new Uint8Array([99]));
+        const tipCid = CID.createV1(0x71, hash);
+
+        const pubsub = makePubsub();
+        const onSnapshot = vi.fn().mockResolvedValue(undefined);
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc",
+          pubsub: pubsub as any,
+          getHelia: () => ({}) as any,
+          isWriter: false,
+          onSnapshot,
+        });
+
+        const handler = getMessageHandler(pubsub);
+        const topic = "/pokapali/app/test/announce";
+
+        // Pinner re-announce: has CID, ack, fromPinner
+        // but no seq and no block.
+        vi.mocked(parseAnnouncement).mockReturnValueOnce({
+          ipnsName: "abc",
+          cid: tipCid.toString(),
+          fromPinner: true,
+          ack: {
+            peerId: "pinner-A",
+            guaranteeUntil: 1700000000000,
+          },
+        });
+
+        handler({
+          detail: { topic, data: new Uint8Array() },
+        });
+
+        expect(onSnapshot).toHaveBeenCalledTimes(1);
+
+        watcher.destroy();
+      },
+    );
+
+    it(
+      "does NOT trigger onSnapshot for" + " standalone ack (no fromPinner)",
+      () => {
+        const pubsub = makePubsub();
+        const onSnapshot = vi.fn();
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc",
+          pubsub: pubsub as any,
+          getHelia: () => ({}) as any,
+          isWriter: false,
+          onSnapshot,
+        });
+
+        watcher.trackCidForAcks("cid-1");
+        const handler = getMessageHandler(pubsub);
+        const topic = "/pokapali/app/test/announce";
+
+        // Standalone ack: has CID and ack, but no
+        // fromPinner, no seq, no block.
+        vi.mocked(parseAnnouncement).mockReturnValueOnce({
+          ipnsName: "abc",
+          cid: "cid-1",
+          ack: { peerId: "pinner-A" },
+        });
+
+        handler({
+          detail: { topic, data: new Uint8Array() },
+        });
+
+        expect(onSnapshot).not.toHaveBeenCalled();
+
+        watcher.destroy();
+      },
+    );
+  });
+
   describe("guarantee query", () => {
     function makePubsub() {
       return {

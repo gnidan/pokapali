@@ -1195,6 +1195,86 @@ breaking changes in either direction.
 | `--trust-proxy`       | false   | Trust X-Forwarded-For     |
 | `--delegated-routing` | (none)  | Delegated routing URL     |
 
+### Pinner history endpoint
+
+Pinners expose a version history index on the same
+HTTPS port (4443) as the block endpoint. The pinner's
+`HistoryTracker` records every snapshot CID it has seen
+for each document — this flat list is more reliable than
+chain walking because it doesn't depend on intermediate
+blocks being available.
+
+**Endpoint:**
+
+- `GET /history/:ipnsName` — returns the pinner's known
+  snapshot list for the given IPNS name, newest-first.
+
+**Query parameters:**
+
+| Param    | Default | Description                                |
+| -------- | ------- | ------------------------------------------ |
+| `limit`  | 50      | Max entries to return (capped at 200)      |
+| `before` | —       | Pagination: only entries with seq < before |
+
+**Response (200):**
+
+```json
+[
+  { "cid": "bafyrei...", "ts": 1710123456789, "seq": 42 },
+  { "cid": "bafyrei...", "ts": 1710123400000, "seq": 41 }
+]
+```
+
+Seq numbers are assigned by the pinner (newest =
+highest). The `before` parameter enables cursor-based
+pagination — pass the lowest `seq` from the current
+page to fetch older entries.
+
+**Security:** Same CORS, rate limiting, and TLS as the
+block endpoint. No auth needed — the response only
+contains CIDs and timestamps; actual block content
+requires fetching via `GET /block/:cid` and is
+encrypted with the document's read key.
+
+**Trust model:** A malicious pinner could omit entries
+but cannot fabricate valid ones — CIDs that don't
+resolve to properly signed snapshot blocks are rejected
+by clients. Omitted entries are no worse than the
+current chain-walking behavior where missing blocks
+truncate history.
+
+**Client-side integration:** `doc.versionHistory()`
+queries connected pinners' history endpoints
+automatically, falling back to local chain walking
+if no pinners are reachable. The `fetchVersionHistory()`
+function in core handles pinner URL discovery (from
+node-registry), timeout (10s), and response validation.
+
+### Version history chain walk
+
+`doc.history()` walks the snapshot `prev` chain locally
+using a three-tier block resolution strategy:
+
+1. **In-memory cache** — blocks from locally-pushed
+   snapshots (always available, zero latency)
+2. **Helia blockstore** — blocks received via GossipSub
+   or prior fetches (5s timeout to avoid blocking on
+   slow DHT lookups)
+3. **HTTP block endpoints** — fetches from pinner/relay
+   `httpUrl` endpoints discovered via node-registry.
+   The response is verified by hashing with sha256 and
+   comparing against the requested CID's multihash.
+
+If a block is missing after all three tiers, the walk
+stops gracefully — the returned list is partial rather
+than throwing an error. This makes `history()` safe to
+call even when the network is degraded.
+
+`doc.versionHistory()` is the recommended API for
+applications — it queries the pinner history endpoint
+first (complete, gap-tolerant) and falls back to
+`history()` (local chain walk) if no pinners respond.
+
 ### Document lifetime metrics (designed)
 
 Pinners track cumulative document lifetime data to

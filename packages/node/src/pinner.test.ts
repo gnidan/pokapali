@@ -36,7 +36,7 @@ import { createPinner } from "./pinner.js";
 async function makeSnapshot(opts?: {
   seq?: number;
   ts?: number;
-  prev?: null;
+  prev?: CID | null;
 }): Promise<Uint8Array> {
   const secret = generateAdminSecret();
   const keys = await deriveDocKeys(secret, "test-app", ["content"]);
@@ -65,6 +65,9 @@ function createMockHelia(blocks: Map<string, Uint8Array> = new Map()) {
           throw new Error("block not found");
         }
         return data;
+      }),
+      has: vi.fn(async (cid: CID) => {
+        return blocks.has(cid.toString());
       }),
       put: vi.fn(async () => {}),
     },
@@ -358,8 +361,11 @@ describe("pinner with mock helia", () => {
       await pinner2.start();
       await pinner2.flush();
 
-      // No blocks fetched (resolve failed)
-      expect(mockHelia.blockstore.get).not.toHaveBeenCalled();
+      // Backfill may call blockstore.get once per tip
+      // for chain walking (fails gracefully since
+      // block isn't in the mock). Resolve failure
+      // should not trigger additional block fetches.
+      expect(mockHelia.blockstore.get.mock.calls.length).toBeLessThanOrEqual(1);
 
       await pinner2.stop();
     });
@@ -738,6 +744,145 @@ describe("pinner with mock helia", () => {
 
       await pinner.stop();
       vi.useRealTimers();
+    });
+  });
+
+  describe("backfillHistory", () => {
+    it("walks chain from tip to populate history", async () => {
+      // Build a 3-block chain: genesis → mid → tip
+      const genesis = await makeSnapshot({
+        seq: 1,
+        ts: 1000,
+        prev: null,
+      });
+      const genesisCid = await blockToCid(genesis);
+
+      const mid = await makeSnapshot({
+        seq: 2,
+        ts: 2000,
+        prev: genesisCid,
+      });
+      const midCid = await blockToCid(mid);
+
+      const tip = await makeSnapshot({
+        seq: 3,
+        ts: 3000,
+        prev: midCid,
+      });
+      const tipCid = await blockToCid(tip);
+
+      // First pinner: ingest the tip (state.json
+      // will record tip CID)
+      const pinner1 = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner1.start();
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      await pinner1.ingest(name, tip);
+      await pinner1.stop();
+
+      // Verify: only 1 entry (the tip) after
+      // first pinner
+      expect(pinner1.history.getHistory(name)).toHaveLength(1);
+
+      // Second pinner with mock helia that has
+      // all 3 blocks in blockstore
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(tipCid.toString(), tip);
+      blocks.set(midCid.toString(), mid);
+      blocks.set(genesisCid.toString(), genesis);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner2 = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner2.start();
+      await pinner2.flush();
+
+      // Backfill should have walked the chain and
+      // found all 3 blocks
+      const history = pinner2.history.getHistory(name);
+      expect(history).toHaveLength(3);
+
+      // Verify all CIDs present
+      const cids = history.map((h) => h.cid);
+      expect(cids).toContain(tipCid.toString());
+      expect(cids).toContain(midCid.toString());
+      expect(cids).toContain(genesisCid.toString());
+
+      // Verify timestamps
+      const tsBySeq = history.sort((a, b) => a.ts - b.ts);
+      expect(tsBySeq[0].ts).toBe(1000);
+      expect(tsBySeq[1].ts).toBe(2000);
+      expect(tsBySeq[2].ts).toBe(3000);
+
+      await pinner2.stop();
+    });
+
+    it("skips backfill when history index exists", async () => {
+      // Build a 2-block chain
+      const genesis = await makeSnapshot({
+        seq: 1,
+        ts: 1000,
+        prev: null,
+      });
+      const genesisCid = await blockToCid(genesis);
+      const tip = await makeSnapshot({
+        seq: 2,
+        ts: 2000,
+        prev: genesisCid,
+      });
+      const tipCid = await blockToCid(tip);
+
+      const name =
+        "bb22cc33dd44ee55ff660011" +
+        "2233aa11bb22cc33dd44ee55" +
+        "ff6600112233bb22";
+
+      // First pinner: ingest tip + genesis via
+      // history.add so persistState saves the index
+      const pinner1 = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner1.start();
+      await pinner1.ingest(name, tip);
+      // Manually add genesis to history so index
+      // has 2 entries
+      pinner1.history.add(name, genesisCid, 1000);
+      await pinner1.stop();
+
+      // Second pinner with mock helia — blockstore
+      // should NOT be called for chain walking since
+      // history index already has >1 entries
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(tipCid.toString(), tip);
+      blocks.set(genesisCid.toString(), genesis);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner2 = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner2.start();
+      await pinner2.flush();
+
+      // History should have 2 entries from index
+      const history = pinner2.history.getHistory(name);
+      expect(history).toHaveLength(2);
+
+      // blockstore.get should not have been called
+      // (index had full history, no backfill needed)
+      expect(mockHelia.blockstore.get).not.toHaveBeenCalled();
+
+      await pinner2.stop();
     });
   });
 });
