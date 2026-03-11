@@ -171,9 +171,14 @@ export function createSnapshotWatcher(
   // Fire initial guarantee query after subscribing
   // so pinners respond with their current state.
   function fireGuaranteeQuery() {
-    publishGuaranteeQuery(pubsub, appId, ipnsName).catch((err) => {
-      log.warn("guarantee query failed:", err);
-    });
+    log.info("firing guarantee query");
+    publishGuaranteeQuery(pubsub, appId, ipnsName)
+      .then(() => {
+        log.debug("guarantee query published");
+      })
+      .catch((err) => {
+        log.warn("guarantee query failed:", err);
+      });
   }
 
   // Delay initial query so GossipSub mesh can form
@@ -245,6 +250,12 @@ export function createSnapshotWatcher(
     const gResp = parseGuaranteeResponse(detail.data);
     if (gResp && gResp.ipnsName === ipnsName) {
       if (destroyed) return;
+      log.info(
+        "guarantee response received from",
+        gResp.peerId.slice(-8),
+        "guarantee:", gResp.guaranteeUntil,
+        "retain:", gResp.retainUntil,
+      );
       touchGossip();
       // Update guarantees for the responding pinner
       // (same monotonic logic as ack handling).
