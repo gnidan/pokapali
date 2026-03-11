@@ -124,7 +124,14 @@ export function createNodeRegistry(
 
   function notifyChange() {
     for (const cb of changeListeners) {
-      try { cb(); } catch {}
+      try {
+        cb();
+      } catch (err) {
+        log.warn(
+          "change listener error:",
+          (err as Error)?.message ?? err,
+        );
+      }
     }
   }
 

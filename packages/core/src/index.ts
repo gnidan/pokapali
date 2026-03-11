@@ -558,8 +558,11 @@ function createDoc(
       });
       registry.onNodeChange(nodeChangeHandler);
     }
-  } catch {
-    // Helia not ready yet — skip topology sharing
+  } catch (err) {
+    log.warn(
+      "topology sharing init skipped:",
+      (err as Error)?.message ?? err,
+    );
   }
 
   // Snapshot watching: announce subscription, IPNS
@@ -670,7 +673,12 @@ function createDoc(
     try {
       getNodeRegistry()
         ?.offNodeChange(nodeChangeHandler);
-    } catch {}
+    } catch (err) {
+      log.warn(
+        "offNodeChange cleanup error:",
+        (err as Error)?.message ?? err,
+      );
+    }
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();
     syncManager.destroy();
