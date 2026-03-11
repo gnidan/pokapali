@@ -49,6 +49,13 @@ export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
 
 export type DocRole = "admin" | "writer" | "reader";
 
+export interface SnapshotEvent {
+  cid: CID;
+  seq: number;
+  ts: number;
+  isLocal: boolean;
+}
+
 export interface DocUrls {
   readonly admin: string | null;
   readonly write: string | null;
@@ -91,6 +98,9 @@ export interface Doc {
   /** Latest retain-until timestamp across all
    *  pinners for the current CID, or null if none. */
   readonly retainUntil: number | null;
+  /** CID of the current chain tip, or null if no
+   *  snapshot has been created/applied yet. */
+  readonly tipCid: CID | null;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -102,14 +112,14 @@ export interface Doc {
   rotate(): Promise<RotateResult>;
   on(event: "status", cb: (status: DocStatus) => void): void;
   on(event: "publish-needed", cb: () => void): void;
-  on(event: "snapshot", cb: () => void): void;
+  on(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
   on(event: "loading", cb: (state: LoadingState) => void): void;
   on(event: "ack", cb: (peerId: string) => void): void;
   on(event: "save", cb: (state: SaveState) => void): void;
   on(event: "node-change", cb: () => void): void;
   off(event: "status", cb: (status: DocStatus) => void): void;
   off(event: "publish-needed", cb: () => void): void;
-  off(event: "snapshot", cb: () => void): void;
+  off(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
   off(event: "loading", cb: (state: LoadingState) => void): void;
   off(event: "ack", cb: (peerId: string) => void): void;
   off(event: "save", cb: (state: SaveState) => void): void;
@@ -414,7 +424,12 @@ export function createDoc(params: DocParams): Doc {
           // already hold this snapshot set
           // ackedCurrentCid.
           snapshotWatcher?.trackCidForAcks(cid.toString());
-          emit("snapshot");
+          emit("snapshot", {
+            cid,
+            seq: snapshotLC.seq - 1,
+            ts: Date.now(),
+            isLocal: false,
+          } satisfies SnapshotEvent);
           markReady();
         }
       },
@@ -620,6 +635,10 @@ export function createDoc(params: DocParams): Doc {
       return snapshotWatcher?.retainUntil ?? null;
     },
 
+    get tipCid(): CID | null {
+      return snapshotLC.prev;
+    },
+
     ready(): Promise<void> {
       return readyPromise;
     },
@@ -634,16 +653,22 @@ export function createDoc(params: DocParams): Doc {
 
       const plaintext = subdocManager.encodeAll();
       const clockSum = this.clockSum;
-      const { cid, block } = await snapshotLC.push(
+      const pushResult = await snapshotLC.push(
         plaintext,
         readKey,
         signingKey,
         clockSum,
       );
+      const { cid, block } = pushResult;
 
       isSaving = false;
       checkSaveState();
-      emit("snapshot");
+      emit("snapshot", {
+        cid,
+        seq: pushResult.seq,
+        ts: Date.now(),
+        isLocal: true,
+      } satisfies SnapshotEvent);
 
       // Reset ack tracking synchronously so the UI
       // clears immediately and early acks aren't
