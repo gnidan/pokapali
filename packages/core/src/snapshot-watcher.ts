@@ -378,8 +378,10 @@ export function createSnapshotWatcher(
           ackedCid?.slice(0, 16),
         );
       }
-      // Ack-only message: no snapshot data to process
-      if (!ann.block && ann.seq === undefined) return;
+      // Ack-only message: no snapshot data to process.
+      // Pinner re-announces carry fromPinner + ack but
+      // no seq/block — those still need onSnapshot.
+      if (!ann.fromPinner && !ann.block && ann.seq === undefined) return;
     }
 
     log.debug("announce received:", ann.cid.slice(0, 16) + "...");
