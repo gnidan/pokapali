@@ -1,9 +1,8 @@
-import { describe, it, expect, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { request } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { Server } from "node:http";
 import type { Server as HttpsServer } from "node:https";
-import { execSync } from "node:child_process";
 import { startHttpServer, startBlockServer } from "./http.js";
 import type { HttpConfig, HttpsConfig } from "./http.js";
 import { CID } from "multiformats/cid";
@@ -352,28 +351,27 @@ describe("startHttpServer", () => {
 
 // --- Block server tests ---
 
-// Generate self-signed cert for testing
-let testKey: string;
-let testCert: string;
+// Pre-generated EC P-256 self-signed cert for
+// localhost. Test-only, expires 2036, no secrets.
+// Avoids shelling out to openssl (not available
+// on all CI runners).
+const testKey = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgLDwIQJlQOGL+Cvfa
+2n1FOHB44GBk9B6Y5Y7bNoETaa+hRANCAAS06IJtYpYiseas9vLZQulMBwAbrvOc
+AZ0JgManZxPo82/oaz2dpwSEFF2mveCNx01fsLEx0KTaDoSOCtqwcgoO
+-----END PRIVATE KEY-----`;
 
-beforeAll(() => {
-  const out = execSync(
-    "openssl req -x509 -newkey ec -pkeyopt" +
-      " ec_paramgen_curve:prime256v1 -keyout /dev/stdout" +
-      " -out /dev/stdout -days 1 -nodes" +
-      ' -subj "/CN=localhost" 2>/dev/null',
-    { encoding: "utf-8" },
-  );
-  // openssl outputs key then cert, both PEM
-  const keyMatch = out.match(
-    /-----BEGIN PRIVATE KEY-----[\s\S]+?-----END PRIVATE KEY-----/,
-  );
-  const certMatch = out.match(
-    /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/,
-  );
-  testKey = keyMatch![0];
-  testCert = certMatch![0];
-});
+const testCert = `-----BEGIN CERTIFICATE-----
+MIIBfTCCASOgAwIBAgIUClFHl+Mfu0LohA2kkWE1cm1dDi8wCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDMxMTAzNTEyOFoXDTM2MDMwODAz
+NTEyOFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0D
+AQcDQgAEtOiCbWKWIrHmrPby2ULpTAcAG67znAGdCYDGp2cT6PNv6Gs9nacEhBRd
+pr3gjcdNX7CxMdCk2g6EjgrasHIKDqNTMFEwHQYDVR0OBBYEFJ7pp9k7fCgmoj3f
+og+myBluoevZMB8GA1UdIwQYMBaAFJ7pp9k7fCgmoj3fog+myBluoevZMA8GA1Ud
+EwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhALXKFyE4MRiTAtFJfwi8kRiQ
+gjZvwQ9mCQgywml0+I0YAiBt9NvU8duWx1XGmTqpbXhRwWvdYL7CjvMjUYqgR4m5
+1Q==
+-----END CERTIFICATE-----`;
 
 function fetchHttps(
   port: number,
