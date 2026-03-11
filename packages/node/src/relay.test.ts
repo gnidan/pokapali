@@ -191,15 +191,17 @@ describe("deriveHttpUrl", () => {
 });
 
 describe("deriveHttpUrlFromCert", () => {
-  // Minimal PEM-like string with SAN embedded
-  const certPem =
-    "-----BEGIN CERTIFICATE-----\n" +
-    "DNS:*.k51qzi5uqu5dm7cjrpbk5wfo0src7j41ed0e" +
-    "2x7njwmjy8equ05i1w0p9lqs9p.libp2p.direct\n" +
-    "-----END CERTIFICATE-----";
+  // Build a fake PEM whose base64-decoded DER bytes
+  // contain the SAN domain as raw ASCII (matching
+  // real autoTLS cert structure).
   const domain =
     "k51qzi5uqu5dm7cjrpbk5wfo0src7j41ed0e" +
     "2x7njwmjy8equ05i1w0p9lqs9p.libp2p.direct";
+  const sanBytes = `*.${domain}`;
+  const certPem =
+    "-----BEGIN CERTIFICATE-----\n" +
+    Buffer.from(sanBytes).toString("base64") +
+    "\n-----END CERTIFICATE-----";
 
   it("derives URL from cert SAN and public IP", () => {
     const addrs = ["/ip4/144.202.54.236/tcp/4001/p2p/12D3KooWTest"];

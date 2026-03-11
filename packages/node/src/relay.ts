@@ -87,13 +87,21 @@ export function deriveHttpUrlFromCert(
   httpsPort: number,
 ): string | undefined {
   // Extract wildcard domain from cert SAN.
-  // PEM certs from autoTLS have SAN like:
-  //   DNS:*.k51qzi...libp2p.direct
-  // The base64-encoded cert contains the domain in
-  // plain text — search for .libp2p.direct pattern.
-  const sanMatch = certPem.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
-  if (!sanMatch) return undefined;
-  const domain = sanMatch[1];
+  // PEM is base64-encoded — decode to DER bytes
+  // where the domain appears as raw ASCII text.
+  let domain: string | undefined;
+  try {
+    const lines = certPem.split("\n").filter((l) => !l.startsWith("-----"));
+    const der = Buffer.from(lines.join(""), "base64");
+    const text = der.toString("latin1");
+    const m = text.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
+    if (m) domain = m[1];
+  } catch {
+    // Not a valid PEM — try raw match as fallback
+    const m = certPem.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
+    if (m) domain = m[1];
+  }
+  if (!domain) return undefined;
 
   // Find our public IPv4 from non-circuit multiaddrs
   const ipMatch = multiaddrs
