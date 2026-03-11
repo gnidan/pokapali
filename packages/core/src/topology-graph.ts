@@ -130,6 +130,7 @@ export function buildTopologyGraph(
 
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const topo = (state as any)?.topology as AwarenessTopology | undefined;
     if (!topo?.knownNodes) continue;
     for (const kn of topo.knownNodes) {
@@ -153,12 +154,14 @@ export function buildTopologyGraph(
   //    from awareness topology state.
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const topo = (state as any)?.topology as AwarenessTopology | undefined;
 
     const peerId = `awareness:${clientId}`;
     graphNodes.push({
       id: peerId,
       kind: "browser",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       label: (state as any)?.user?.name ?? `Peer ${clientId}`,
       connected: true,
       roles: [],

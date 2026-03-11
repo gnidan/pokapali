@@ -11,7 +11,6 @@ import { sha256 } from "multiformats/hashes/sha2";
 import { encodeSnapshot as realEncodeSnapshot } from "@pokapali/snapshot";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
 
-
 describe("createSnapshotLifecycle", () => {
   const mockHelia = {
     blockstore: {

@@ -108,6 +108,7 @@ export async function publishIPNS(
       );
       const privateKey = await generateKeyPairFromSeed("Ed25519", ipnsKeyBytes);
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const delegated = (helia.libp2p.services as any).delegatedRouting;
       if (!delegated?.putIPNS) {
         log.warn("no delegatedRouting.putIPNS" + " — skipping");
@@ -177,6 +178,7 @@ export async function resolveIPNS(
   const publicKey = publicKeyFromRaw(publicKeyBytes);
 
   // Try delegated HTTP first (fast, reliable).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const delegated = (helia.libp2p.services as any).delegatedRouting;
   if (delegated?.getIPNS) {
     const keyCid = CIDClass.createV1(LIBP2P_KEY_CODEC, publicKey.toMultihash());

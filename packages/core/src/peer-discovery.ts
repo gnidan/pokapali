@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Helia } from "helia";
 import { multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";

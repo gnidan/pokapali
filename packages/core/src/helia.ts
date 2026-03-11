@@ -85,6 +85,7 @@ export async function acquireHelia(
       ? {
           connectionGater: {
             ...defaults.connectionGater,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             denyDialMultiaddr: (ma: any) => {
               const s = ma.toString();
               if (s.includes("/ws/") || s.endsWith("/ws")) {

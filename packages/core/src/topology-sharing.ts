@@ -26,7 +26,9 @@ export interface TopologySharingOptions {
   registry: NodeRegistry;
   /** libp2p instance for peer events. */
   libp2p: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     addEventListener(type: string, fn: (evt: any) => void): void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     removeEventListener(type: string, fn: (evt: any) => void): void;
   };
 }

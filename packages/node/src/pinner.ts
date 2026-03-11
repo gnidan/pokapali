@@ -411,6 +411,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   async function republishOne(ipnsName: string): Promise<boolean> {
     if (!helia) return false;
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const name = ipns(helia as any);
       const keyBytes = hexToBytes(ipnsName);
       const pubKey = publicKeyFromRaw(keyBytes);

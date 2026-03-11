@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type {
@@ -862,22 +863,14 @@ function createDoc(params: DocParams): Doc {
       };
     },
 
-    on(
-      event: string,
-      // eslint-disable-next-line
-      cb: (...args: any[]) => void,
-    ) {
+    on(event: string, cb: (...args: any[]) => void) {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
       }
       listeners.get(event)!.add(cb);
     },
 
-    off(
-      event: string,
-      // eslint-disable-next-line
-      cb: (...args: any[]) => void,
-    ) {
+    off(event: string, cb: (...args: any[]) => void) {
       listeners.get(event)?.delete(cb);
     },
 

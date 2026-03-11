@@ -113,7 +113,8 @@ async function main() {
 
   // Extract pubsub from relay for pinner ack support
   const pubsub = relayHandle
-    ? (relayHandle.helia.libp2p.services as any).pubsub
+    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (relayHandle.helia.libp2p.services as any).pubsub
     : undefined;
   const peerId = relayHandle
     ? relayHandle.helia.libp2p.peerId.toString()
@@ -136,6 +137,7 @@ async function main() {
       for (const app of pinApps) {
         topicToApp.set(announceTopic(app), app);
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pubsub.addEventListener("message", (evt: any) => {
         const appId = topicToApp.get(evt.detail.topic);
         if (!appId) return;

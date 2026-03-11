@@ -49,6 +49,7 @@ function parseArgs(argv: string[]): Config {
     } else if (arg === "--app-id" && argv[i + 1]) {
       config.appId = argv[++i];
     } else if (arg === "--log-level" && argv[i + 1]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setLogLevel(argv[++i] as any);
     } else {
       console.error(`unknown arg: ${arg}`);
