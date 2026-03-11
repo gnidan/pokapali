@@ -247,10 +247,7 @@ export function VersionHistory({
                 Older versions have been archived
               </div>
             )}
-        </div>
 
-        {/* Loading / error status for version load */}
-        <div className="vh-status-section">
           {loadState.status === "loading" && (
             <Spinner label="Loading version…" />
           )}

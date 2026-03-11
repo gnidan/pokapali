@@ -57,20 +57,33 @@ function getTextWithPositions(doc: PMNode): TextWithPositions {
 
 // ── Diff decoration extension ────────────────────
 
-const DiffHighlight = Extension.create({
+/**
+ * Computes diff decorations in the plugin init so
+ * they're ready as soon as the editor mounts.
+ * Pass `currentText` via `.configure()`.
+ */
+const DiffHighlight = Extension.create<{
+  currentText: string;
+}>({
   name: "diffHighlight",
 
+  addOptions() {
+    return { currentText: "" };
+  },
+
   addProseMirrorPlugins() {
+    const currentText = this.options.currentText;
     return [
       new Plugin({
         key: diffHighlightKey,
         state: {
-          init() {
-            return DecorationSet.empty;
+          init(_, state) {
+            if (state.doc.content.size <= 2) {
+              return DecorationSet.empty;
+            }
+            return buildDiffDecorations(state.doc, currentText);
           },
           apply(tr, set) {
-            const next = tr.getMeta(diffHighlightKey);
-            if (next !== undefined) return next;
             return set.map(tr.mapping, tr.doc);
           },
         },
@@ -266,24 +279,14 @@ export function VersionPreviewOverlay({
   const previewEditor = useEditor(
     {
       editable: false,
-      extensions: [StarterKit.configure({ history: false }), DiffHighlight],
+      extensions: [
+        StarterKit.configure({ history: false }),
+        DiffHighlight.configure({ currentText }),
+      ],
       content: versionJson,
     },
-    [ydoc],
+    [ydoc, currentText],
   );
-
-  // Apply diff decorations once the preview editor
-  // has mounted and has content.
-  useEffect(() => {
-    if (!previewEditor) return;
-    const pmDoc = previewEditor.state.doc;
-    if (pmDoc.content.size <= 2) return;
-
-    const decoSet = buildDiffDecorations(pmDoc, currentText);
-    previewEditor.view.dispatch(
-      previewEditor.state.tr.setMeta(diffHighlightKey, decoSet),
-    );
-  }, [previewEditor, currentText]);
 
   const handleRestore = useCallback(async () => {
     if (!confirmEntry || !liveEditor) return;
