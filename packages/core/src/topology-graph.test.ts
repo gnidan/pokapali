@@ -200,13 +200,13 @@ describe("buildTopologyGraph", () => {
     expect(relay).toBeDefined();
     expect(relay!.kind).toBe("relay");
 
-    // Edges: self→browser, browser→relay
+    // Browser→relay edge (no self→browser edge)
     const selfToBrowser = graph.edges.find(
       (e) =>
         e.source === "_self" &&
         e.target === "awareness:42",
     );
-    expect(selfToBrowser).toBeDefined();
+    expect(selfToBrowser).toBeUndefined();
 
     const browserToRelay = graph.edges.find(
       (e) =>
