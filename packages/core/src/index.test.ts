@@ -559,6 +559,7 @@ describe("@pokapali/core", () => {
             neighbors: { peerId: string; role?: string }[];
             browserCount: number;
             addrs: string[];
+            httpUrl: string | undefined;
           }
         >();
         const mockRegistry = {
@@ -593,6 +594,7 @@ describe("@pokapali/core", () => {
           neighbors: [],
           browserCount: 0,
           addrs: [],
+          httpUrl: undefined,
         });
         nodeChangeCb!();
 
@@ -615,6 +617,7 @@ describe("@pokapali/core", () => {
           neighbors: [],
           browserCount: 0,
           addrs: [],
+          httpUrl: undefined,
         });
         nodeChangeCb!();
         expect(publishGuaranteeQuery).toHaveBeenCalled();

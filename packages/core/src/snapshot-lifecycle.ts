@@ -16,6 +16,10 @@ const DAG_CBOR_CODE = 0x71;
 
 export interface SnapshotLifecycleOptions {
   getHelia: () => BlockGetter;
+  /** Dynamic getter for HTTP block endpoint URLs
+   *  (from node registry caps). Used as fallback
+   *  when blockstore retries fail. */
+  httpUrls?: () => string[];
 }
 
 export interface PushResult {
@@ -98,7 +102,9 @@ export function createSnapshotLifecycle(
       if (cidStr === lastAppliedCid) return false;
 
       const helia = options.getHelia();
-      const block = await fetchBlock(helia, cid);
+      const block = await fetchBlock(helia, cid, {
+        httpUrls: options.httpUrls?.(),
+      });
 
       const node = decodeSnapshot(block);
       const plaintext = await decryptSnapshot(node, readKey);

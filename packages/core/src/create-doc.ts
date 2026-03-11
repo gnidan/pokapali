@@ -230,6 +230,16 @@ export function createDoc(params: DocParams): Doc {
 
   const snapshotLC = createSnapshotLifecycle({
     getHelia: () => getHelia(),
+    httpUrls: () => {
+      const urls: string[] = [];
+      const reg = getNodeRegistry();
+      if (reg) {
+        for (const node of reg.nodes.values()) {
+          if (node.httpUrl) urls.push(node.httpUrl);
+        }
+      }
+      return urls;
+    },
   });
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 

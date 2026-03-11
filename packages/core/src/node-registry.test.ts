@@ -47,6 +47,7 @@ function capsMessageV2(
   neighbors: { peerId: string; role?: string }[],
   browserCount?: number,
   addrs?: string[],
+  httpUrl?: string,
 ): Uint8Array {
   return new TextEncoder().encode(
     JSON.stringify({
@@ -56,6 +57,7 @@ function capsMessageV2(
       neighbors,
       browserCount,
       addrs,
+      ...(httpUrl !== undefined ? { httpUrl } : {}),
     }),
   );
 }
@@ -262,6 +264,61 @@ describe("createNodeRegistry", () => {
 
     const node = reg.nodes.get("peer-V1")!;
     expect(node.addrs).toEqual([]);
+
+    reg.destroy();
+  });
+
+  it("parses v2 message with httpUrl", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-A",
+        ["relay", "pinner"],
+        [],
+        0,
+        [],
+        "https://1-2-3-4.abc.libp2p.direct:4443",
+      ),
+    });
+
+    const node = reg.nodes.get("relay-A")!;
+    expect(node.httpUrl).toBe("https://1-2-3-4.abc.libp2p.direct:4443");
+
+    reg.destroy();
+  });
+
+  it("v2 message without httpUrl has" + " undefined httpUrl", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 0),
+    });
+
+    const node = reg.nodes.get("relay-A")!;
+    expect(node.httpUrl).toBeUndefined();
+
+    reg.destroy();
+  });
+
+  it("v1 messages have undefined httpUrl", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-V1", ["relay"]),
+    });
+
+    const node = reg.nodes.get("peer-V1")!;
+    expect(node.httpUrl).toBeUndefined();
 
     reg.destroy();
   });
