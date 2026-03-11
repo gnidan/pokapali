@@ -10,11 +10,20 @@ export interface HistoryEntry {
   snapshots: SnapshotRecord[];
 }
 
+export interface RetentionConfig {
+  fullResolutionMs: number;
+  hourlyRetentionMs: number;
+  dailyRetentionMs: number;
+}
+
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+const MS_PER_HOUR = 60 * 60 * 1000;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 export interface HistoryTracker {
   add(ipnsName: string, cid: CID, ts: number): void;
   prune(now?: number): CID[];
+  thinSnapshots(ipnsName: string, config: RetentionConfig, now?: number): CID[];
   getTip(ipnsName: string): string | null;
   getHistory(ipnsName: string): SnapshotRecord[];
   getEntry(ipnsName: string): HistoryEntry | undefined;
@@ -73,6 +82,96 @@ export function createHistoryTracker(): HistoryTracker {
         entry.snapshots = kept;
       }
 
+      return removed;
+    },
+
+    thinSnapshots(
+      ipnsName: string,
+      config: RetentionConfig,
+      now: number = Date.now(),
+    ): CID[] {
+      const entry = entries.get(ipnsName);
+      if (!entry) return [];
+
+      const tipCid = entry.tip?.cid;
+      const removed: CID[] = [];
+
+      // Collect which snapshots to keep per bucket.
+      // For hourly/daily tiers, keep the latest ts
+      // in each bucket.
+      const hourlyBest = new Map<number, SnapshotRecord>();
+      const dailyBest = new Map<number, SnapshotRecord>();
+
+      // Classify each snapshot into a tier
+      const fullTier: SnapshotRecord[] = [];
+      const hourlyTier: SnapshotRecord[] = [];
+      const dailyTier: SnapshotRecord[] = [];
+      const pruneTier: SnapshotRecord[] = [];
+
+      for (const snap of entry.snapshots) {
+        // Tip is always kept
+        if (snap.cid === tipCid) {
+          fullTier.push(snap);
+          continue;
+        }
+
+        const age = now - snap.ts;
+        if (age < config.fullResolutionMs) {
+          fullTier.push(snap);
+        } else if (age < config.hourlyRetentionMs) {
+          hourlyTier.push(snap);
+        } else if (age < config.dailyRetentionMs) {
+          dailyTier.push(snap);
+        } else {
+          pruneTier.push(snap);
+        }
+      }
+
+      // Find best (latest ts) per hour bucket
+      for (const snap of hourlyTier) {
+        const bucket = Math.floor(snap.ts / MS_PER_HOUR);
+        const best = hourlyBest.get(bucket);
+        if (!best || snap.ts > best.ts) {
+          hourlyBest.set(bucket, snap);
+        }
+      }
+
+      // Find best (latest ts) per day bucket
+      for (const snap of dailyTier) {
+        const bucket = Math.floor(snap.ts / MS_PER_DAY);
+        const best = dailyBest.get(bucket);
+        if (!best || snap.ts > best.ts) {
+          dailyBest.set(bucket, snap);
+        }
+      }
+
+      const kept: SnapshotRecord[] = [...fullTier];
+      const hourlyKeptCids = new Set(
+        [...hourlyBest.values()].map((s) => s.cid),
+      );
+      const dailyKeptCids = new Set([...dailyBest.values()].map((s) => s.cid));
+
+      for (const snap of hourlyTier) {
+        if (hourlyKeptCids.has(snap.cid)) {
+          kept.push(snap);
+        } else {
+          removed.push(CID.parse(snap.cid));
+        }
+      }
+
+      for (const snap of dailyTier) {
+        if (dailyKeptCids.has(snap.cid)) {
+          kept.push(snap);
+        } else {
+          removed.push(CID.parse(snap.cid));
+        }
+      }
+
+      for (const snap of pruneTier) {
+        removed.push(CID.parse(snap.cid));
+      }
+
+      entry.snapshots = kept;
       return removed;
     },
 
