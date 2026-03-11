@@ -1,7 +1,7 @@
 # P2P Collaborative Text Editor — Architecture Reference
 
 A serverless, encrypted, peer-to-peer collaborative
-document sync library using Yjs subdocuments, WebRTC,
+document sync library using Yjs channels, WebRTC,
 IndexedDB, and Helia/IPFS for offline persistence.
 Designed to be dropped into any Yjs-aware editor (TipTap,
 ProseMirror, CodeMirror, etc.) with minimal integration
@@ -38,7 +38,7 @@ snapshot updates.
   read latency equals snapshot interval
 - **The library has no opinion on content** — it
   enforces which channel access key gates which
-  subdocument; what lives in those subdocuments is
+  channel; what lives in those channels is
   entirely the application's business
 - **The library has no opinion on snapshot timing** —
   it exposes `publish()` and emits `"publish-needed"`;
@@ -51,10 +51,10 @@ snapshot updates.
 These guarantees hold regardless of which peers are online, which capability levels are in play, or how many snapshots exist in the chain.
 
 **Each snapshot is a full `Y.encodeStateAsUpdate` per
-subdocument** — a complete Yjs state for every channel,
+channel** — a complete Yjs state for every channel,
 not a delta. Any single snapshot CID is independently
 sufficient to reconstruct the entire document (all
-subdocuments) at that point in time. The `prev` chain
+channels) at that point in time. The `prev` chain
 is for version history traversal only — losing any node
 (or all but one) does not affect recoverability.
 
@@ -77,7 +77,7 @@ import { pokapali } from "your-collab-lib";
 
 // Initialize once. appId is a public string — not a
 // secret.
-// channels: the set of subdocuments the library manages.
+// channels: the set of channels the library manages.
 // Each channel becomes its own Y.Doc. Writable channels
 // are synced in real-time via y-webrtc; read-only
 // channels are updated via GossipSub-announced and
@@ -388,10 +388,10 @@ keys are present on `open()`.
 
 ---
 
-## Channel Enforcement via Subdocuments and Room Isolation
+## Channel Enforcement via Room Isolation
 
-Each channel is a separate Yjs subdocument (`Y.Doc`)
-with its own y-webrtc room. Write enforcement is
+Each channel is a separate `Y.Doc` with its own
+y-webrtc room. Write enforcement is
 structural: a peer only joins the y-webrtc room for
 channels it has access keys for. Read access to all
 channels is delivered via IPNS-resolved and
@@ -482,7 +482,7 @@ for live updates via two transport paths:
 
 For channels the peer can only read (not in its
 capability set), the library does **not** connect to
-the WebRTC room. The peer receives all subdoc content
+the WebRTC room. The peer receives all channel content
 from snapshot updates (announced or polled). Block
 fetches use exponential backoff retry (6 retries, 2s
 base, 15s timeout per attempt) to handle IPFS
@@ -561,14 +561,14 @@ entirely and propagate unsigned mutations. That approach
 is cooperative — it works as long as every peer runs
 honest code, but a single malicious client (or a
 malicious fork of the library) could break enforcement
-for every deployment. The subdocument + room isolation
-design avoids this entirely.
+for every deployment. The channel + room isolation design avoids this
+entirely.
 
 ### Read-only peers
 
 A peer with only `readKey` (no channel access keys)
 joins no content rooms — only the awareness room. It
-receives all subdoc content from IPFS snapshots, updated
+receives all channel content from IPFS snapshots, updated
 via GossipSub announcements (instant) and IPNS polling
 (30s fallback) whenever a trusted peer pushes. The
 application should set the editor to read-only mode
@@ -595,13 +595,13 @@ changes) reference positions in the content channel
 using Yjs `Y.RelativePosition`. Creating a
 RelativePosition reads from the content subdoc
 (available to all peers) and stores it in the annotation
-subdoc (writable by the annotator). This requires no
-content write access — it's a read from one subdoc and a
-write to another.
+channel (writable by the annotator). This requires no
+content write access — it's a read from one channel and
+a write to another.
 
-### `_meta` as a subdocument
+### `_meta` as a channel
 
-`_meta` is itself a subdocument with its own y-webrtc
+`_meta` is itself a channel with its own y-webrtc
 room. The room password is derived from the primary
 channel's access key (e.g., hex of
 `HKDF(primaryAccessKey, info: '_meta_room')`), so only
@@ -615,7 +615,7 @@ it.
 
 ## `_meta` Structure and CRDT Merge Semantics
 
-`_meta` is a dedicated subdocument that holds access
+`_meta` is a dedicated channel that holds access
 allowlists and configuration. It has its own y-webrtc
 room, accessible only to peers with the primary
 channel's access key.
@@ -650,7 +650,7 @@ meta.getArray("canPushSnapshots"); // Y.Array<Uint8Array> — ipnsKey public key
 ## IPFS Persistence: Linked-List Snapshot DAG
 
 Each snapshot contains the full state of every
-subdocument, encoded independently.
+channel, encoded independently.
 
 ```ts
 interface SnapshotNode {
@@ -673,7 +673,7 @@ interface SnapshotNode {
 IPNS name
   └─> CID_n (latest) ──prev──> CID_n-1 ──prev──> ... ──prev──> CID_1 (null)
 
-Any single CID = complete document recovery (all subdocs)
+Any single CID = complete document recovery (all channels)
 prev chain = version history only, not load-bearing for recoverability
 ```
 
@@ -690,7 +690,7 @@ environments. The publish is fire-and-forget from
 `publish()`'s perspective: the UI updates immediately
 while IPNS propagation continues in the background.
 
-The IPNS sequence number is the **Y.Doc clockSum** — the sum of all state vector clocks across all subdocuments. This is deterministic: the same document state always produces the same seq, so multiple browsers publishing the same snapshot produce identical IPNS records (no race). A browser with more edits naturally gets a higher seq. On publish, the library guards against stale seq after page reload: `effectiveSeq = max(existingSeq + 1, clockSum)`, fetching the existing record from delegated routing to compare.
+The IPNS sequence number is the **Y.Doc clockSum** — the sum of all state vector clocks across all channels. This is deterministic: the same document state always produces the same seq, so multiple browsers publishing the same snapshot produce identical IPNS records (no race). A browser with more edits naturally gets a higher seq. On publish, the library guards against stale seq after page reload: `effectiveSeq = max(existingSeq + 1, clockSum)`, fetching the existing record from delegated routing to compare.
 
 Publishes are serialized per key within a tab via a publish queue. If a publish is in-flight and a newer CID is queued, the stale CID is skipped.
 
@@ -1257,7 +1257,7 @@ Bandwidth at steady state is low. Suitable for a VPS or homelab behind standard 
 ## Local Persistence and Encryption-at-Rest
 
 `y-indexeddb` stores raw Yjs updates in the browser's
-IndexedDB — one store per subdocument. **This data is
+IndexedDB — one store per channel. **This data is
 unencrypted at rest.** The encrypted IPFS snapshots
 protect data in transit and at rest on pinners, but a
 compromised device (physical access, malicious
@@ -1338,7 +1338,7 @@ y-webrtc syncs in a mesh — every peer in a room receives every sync message ov
 
 ### Threat 3: Peer escalates by modifying `_meta`
 
-`_meta` is a subdocument in its own password-protected
+`_meta` is a channel in its own password-protected
 y-webrtc room, accessible only to peers with the
 primary channel's access key. A limited-channel peer
 cannot join the `_meta` room. **Structurally
@@ -1455,9 +1455,9 @@ The library should document expected bundle sizes for each configuration tier.
 
 | Package                         | Purpose                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `yjs`                           | CRDT engine; subdocument support for channel isolation                                                 |
+| `yjs`                           | CRDT engine; channel isolation via Yjs subdocuments                                                    |
 | `y-webrtc`                      | P2P real-time sync — one room per writable channel, plus a shared awareness room                       |
-| `y-indexeddb`                   | Local persistence in browser (per-subdoc)                                                              |
+| `y-indexeddb`                   | Local persistence in browser (per-channel)                                                             |
 | `helia`                         | IPFS in browser and relay/pinner; delivers snapshot updates via delegated routing                      |
 | `@ipld/dag-cbor`                | IPFS block encoding for snapshots (IPLD-native CID handling)                                           |
 | `@helia/ipns`                   | IPNS publish (delegated HTTP) / resolve (delegated + DHT fallback)                                     |

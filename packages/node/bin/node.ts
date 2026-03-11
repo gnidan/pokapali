@@ -15,25 +15,54 @@ const log = createLogger("node");
 
 const VALID_LOG_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
-function parseArgs(argv: string[]): {
+function printHelp(): void {
+  console.log(`\
+Usage: pokapali-node [options]
+
+Options:
+  --storage-path <path>       Storage directory (required)
+  --relay                     Run as relay node
+  --pin <app1,app2,...>       Pin snapshots for app IDs
+  --port <number>             HTTP port (default: 3000)
+  --announce <addr1,addr2>    Public multiaddrs to announce
+  --delegated-routing <url>   Delegated routing endpoint
+                              (default: delegated-ipfs.dev)
+  --log-level <level>         debug, info, warn, error
+  --help                      Show this help message
+
+At least one of --relay or --pin is required.`);
+}
+
+interface ParsedArgs {
   port: number;
   storagePath: string;
   relay: boolean;
   pinApps: string[];
   announceAddrs: string[];
+  delegatedRoutingUrl: string | null;
   logLevel: LogLevel | null;
-} {
+}
+
+function parseArgs(argv: string[]): ParsedArgs {
   let port = 3000;
   let storagePath = "";
   let relay = false;
   let pinApps: string[] = [];
   let announceAddrs: string[] = [];
+  let delegatedRoutingUrl: string | null = null;
   let logLevel: LogLevel | null = null;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--port" && argv[i + 1]) {
+    if (arg === "--help") {
+      printHelp();
+      process.exit(0);
+    } else if (arg === "--port" && argv[i + 1]) {
       port = parseInt(argv[++i], 10);
+      if (Number.isNaN(port)) {
+        console.error(`invalid --port value: "${argv[i]}"`);
+        process.exit(1);
+      }
     } else if (arg === "--storage-path" && argv[i + 1]) {
       storagePath = argv[++i];
     } else if (arg === "--relay") {
@@ -42,6 +71,8 @@ function parseArgs(argv: string[]): {
       pinApps = argv[++i].split(",").map((s) => s.trim());
     } else if (arg === "--announce" && argv[i + 1]) {
       announceAddrs = argv[++i].split(",").map((s) => s.trim());
+    } else if (arg === "--delegated-routing" && argv[i + 1]) {
+      delegatedRoutingUrl = argv[++i];
     } else if (arg === "--log-level" && argv[i + 1]) {
       const val = argv[++i];
       if (!VALID_LOG_LEVELS.includes(val as LogLevel)) {
@@ -60,7 +91,7 @@ function parseArgs(argv: string[]): {
     process.exit(1);
   }
   if (!relay && pinApps.length === 0) {
-    console.error("at least one of --relay or --pin is required");
+    console.error("at least one of --relay or --pin" + " is required");
     process.exit(1);
   }
 
@@ -70,6 +101,7 @@ function parseArgs(argv: string[]): {
     relay,
     pinApps,
     announceAddrs,
+    delegatedRoutingUrl,
     logLevel,
   };
 }
@@ -82,8 +114,15 @@ async function main() {
     log.error("uncaught exception:", err.message);
   });
 
-  const { port, storagePath, relay, pinApps, announceAddrs, logLevel } =
-    parseArgs(process.argv);
+  const {
+    port,
+    storagePath,
+    relay,
+    pinApps,
+    announceAddrs,
+    delegatedRoutingUrl,
+    logLevel,
+  } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
   if (logLevel) {
@@ -104,6 +143,7 @@ async function main() {
       storagePath,
       announceAddrs,
       pinAppIds: pinApps.length > 0 ? pinApps : undefined,
+      delegatedRoutingUrl: delegatedRoutingUrl ?? undefined,
     });
     log.info("relay started");
     for (const ma of relayHandle.multiaddrs()) {
@@ -137,38 +177,40 @@ async function main() {
       for (const app of pinApps) {
         topicToApp.set(announceTopic(app), app);
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      pubsub.addEventListener("message", (evt: any) => {
-        const appId = topicToApp.get(evt.detail.topic);
-        if (!appId) return;
-        // Try parsing as announcement first
-        const msg = parseAnnouncement(evt.detail.data);
-        if (msg && !msg.ack) {
-          const blockData = msg.block ? base64ToUint8(msg.block) : undefined;
-          pinner!.onAnnouncement(
-            msg.ipnsName,
-            msg.cid,
-            appId,
-            blockData,
-            msg.fromPinner,
-          );
-          return;
-        }
-
-        // Check for guarantee query
-        try {
-          const text = new TextDecoder().decode(evt.detail.data);
-          const obj = JSON.parse(text);
-          if (
-            obj?.type === "guarantee-query" &&
-            typeof obj.ipnsName === "string"
-          ) {
-            pinner!.onGuaranteeQuery(obj.ipnsName, appId);
+      pubsub.addEventListener(
+        "message",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (evt: any) => {
+          const appId = topicToApp.get(evt.detail.topic);
+          if (!appId) return;
+          const msg = parseAnnouncement(evt.detail.data);
+          if (msg && !msg.ack) {
+            const blockData = msg.block ? base64ToUint8(msg.block) : undefined;
+            pinner!.onAnnouncement(
+              msg.ipnsName,
+              msg.cid,
+              appId,
+              blockData,
+              msg.fromPinner,
+            );
+            return;
           }
-        } catch {
-          // Not valid JSON — ignore
-        }
-      });
+
+          // Check for guarantee query
+          try {
+            const text = new TextDecoder().decode(evt.detail.data);
+            const obj = JSON.parse(text);
+            if (
+              obj?.type === "guarantee-query" &&
+              typeof obj.ipnsName === "string"
+            ) {
+              pinner!.onGuaranteeQuery(obj.ipnsName, appId);
+            }
+          } catch {
+            // Not valid JSON — ignore
+          }
+        },
+      );
       log.info("wired GossipSub announcements to pinner");
     }
   }

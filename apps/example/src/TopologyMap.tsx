@@ -52,7 +52,9 @@ function graphFp(graph: TopologyGraph): string {
     graph.nodes
       .map(
         (n) =>
-          `${n.id}:${n.kind}:${n.connected}` + `:${n.ackedCurrentCid ?? ""}`,
+          `${n.id}:${n.kind}:${n.connected}` +
+          `:${n.ackedCurrentCid ?? ""}` +
+          `:${n.label}`,
       )
       .sort()
       .join("|") +
@@ -82,7 +84,7 @@ function linkDistanceFn(l: { source: SimNode; target: SimNode }): number {
   const s = l.source;
   const t = l.target;
   if (isInfra(s.kind) && isInfra(t.kind)) {
-    return 40;
+    return 55; // slightly more spacing for thick links
   }
   // Browser/self → relay: long leash so
   // browsers orbit outside the infra cluster
@@ -333,6 +335,93 @@ function browserAbbrev(label: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+// ── Diamond helpers ──────────────────────────────
+
+function diamondPoints(r: number): string {
+  return `0,${-r} ${r},0 0,${r} ${-r},0`;
+}
+
+// ── Role pill tags ──────────────────────────────
+
+function RelayIcon() {
+  // Two small opposing arrows (⇋-style)
+  return (
+    <g>
+      <path
+        d="M-3,-1.5 L1,-1.5 M-1,-3.5 L-3,-1.5 L-1,0.5"
+        fill="none"
+        stroke="#fff"
+        strokeWidth={1.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3,1.5 L-1,1.5 M1,-0.5 L3,1.5 L1,3.5"
+        fill="none"
+        stroke="#fff"
+        strokeWidth={1.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </g>
+  );
+}
+
+function PinnerIcon() {
+  // Tiny database cylinder (3 stacked ellipses)
+  return (
+    <g>
+      <ellipse
+        cx={0}
+        cy={-2.5}
+        rx={3.5}
+        ry={1.5}
+        fill="none"
+        stroke="#fff"
+        strokeWidth={1}
+      />
+      <path d="M-3.5,-2.5 L-3.5,2.5" stroke="#fff" strokeWidth={1} />
+      <path d="M3.5,-2.5 L3.5,2.5" stroke="#fff" strokeWidth={1} />
+      <ellipse
+        cx={0}
+        cy={2.5}
+        rx={3.5}
+        ry={1.5}
+        fill="none"
+        stroke="#fff"
+        strokeWidth={1}
+      />
+    </g>
+  );
+}
+
+function RolePill({
+  role,
+  dx,
+  dy,
+}: {
+  role: "relay" | "pinner";
+  dx: number;
+  dy: number;
+}) {
+  const bg = role === "relay" ? C.relay : C.pinner;
+  return (
+    <g transform={`translate(${dx},${dy})`}>
+      <rect
+        x={-9}
+        y={-7}
+        width={18}
+        height={14}
+        rx={7}
+        fill={bg}
+        stroke="#fff"
+        strokeWidth={0.8}
+      />
+      {role === "relay" ? <RelayIcon /> : <PinnerIcon />}
+    </g>
+  );
+}
+
 // ── Node rendering ───────────────────────────────
 
 function NodeShape({
@@ -352,6 +441,7 @@ function NodeShape({
 }) {
   const isSelf = node.kind === "self";
   const isBrowser = node.kind === "browser" || isSelf;
+  const isDiamond = isInfra(node.kind);
   const r = NODE_R;
   const off = !node.connected && !isSelf;
 
@@ -363,6 +453,7 @@ function NodeShape({
 
   // Determine roles
   const isPinner = node.kind === "pinner" || node.kind === "relay+pinner";
+  const isRelay = node.kind === "relay" || node.kind === "relay+pinner";
 
   // Guarantee state
   const now = Date.now();
@@ -370,69 +461,68 @@ function NodeShape({
     isPinner && node.ackedCurrentCid && guaranteeUntil != null;
   const guaranteeActive = showGuarantee ? guaranteeUntil > now : false;
 
-  // Role ring color (primary visual identifier)
-  let roleStroke: string;
-  let roleStrokeW: number;
-  if (off) {
-    roleStroke = C.disconnectedStroke;
-    roleStrokeW = 1.5;
-  } else if (node.kind === "relay") {
-    roleStroke = C.relay;
-    roleStrokeW = 2.5;
-  } else if (node.kind === "pinner") {
-    roleStroke = C.pinner;
-    roleStrokeW = 2.5;
-  } else if (node.kind === "relay+pinner") {
-    roleStroke = C.dual;
-    roleStrokeW = 3;
-  } else if (isBrowser) {
-    // Browsers: white border on solid fill
-    roleStroke = "#fff";
-    roleStrokeW = 2;
-  } else {
-    roleStroke = C.nodeStroke;
-    roleStrokeW = 2;
-  }
-
-  // Circle fill: browsers use awareness color,
-  // infra nodes get light/empty fill
+  // Fill and stroke
   let fill: string;
+  let stroke: string;
+  let strokeW: number;
   if (off) {
     fill = C.disconnected;
+    stroke = C.disconnectedStroke;
+    strokeW = 1.5;
+  } else if (isDiamond) {
+    // Infra diamonds: solid role color fill
+    fill =
+      node.kind === "relay"
+        ? C.relay
+        : node.kind === "pinner"
+          ? C.pinner
+          : C.dual;
+    stroke = "#fff";
+    strokeW = 1.5;
   } else if (isBrowser) {
     fill = awarenessColor ?? C.browser;
+    stroke = "#fff";
+    strokeW = 2;
   } else {
     fill = C.nodeFill;
+    stroke = C.nodeStroke;
+    strokeW = 2;
   }
 
-  // Inner label
+  // Inner label (infra nodes don't show text
+  // labels — role pills handle identification)
   let label = "";
   if (isSelf) {
     label = "You";
   } else if (isBrowser) {
     label = browserAbbrev(node.label);
-  } else if (node.kind === "relay") {
-    label = "R";
-  } else if (node.kind === "pinner") {
-    label = "P";
-  } else if (node.kind === "relay+pinner") {
-    label = "RP";
   }
+
+  // Peer ID: short abbreviation, no dots prefix
+  const shortId = !isSelf && !isBrowser ? node.id.slice(-8) : node.label;
 
   // Build tooltip
   const tip = [node.label];
   if (!isSelf && !isBrowser) {
-    tip.push(`(${node.kind})`);
+    const roles: string[] = [];
+    if (isRelay) roles.push("relay");
+    if (isPinner) roles.push("pinner");
+    tip.push(`(${roles.join(", ")})`);
   }
   if (node.ackedCurrentCid) tip.push("— acked");
   if (showGuarantee) {
     tip.push(
       guaranteeActive
-        ? `— retained ${formatRelativeTime(guaranteeUntil)}+`
+        ? `— retained ` + `${formatRelativeTime(guaranteeUntil)}+`
         : "— guarantee expired",
     );
   }
   if (off) tip.push("— disconnected");
+
+  // Role pills: positioned at bottom-left
+  const pills: Array<"relay" | "pinner"> = [];
+  if (isRelay) pills.push("relay");
+  if (isPinner) pills.push("pinner");
 
   return (
     <g
@@ -444,79 +534,90 @@ function NodeShape({
       <title>{tip.join(" ")}</title>
 
       {/* Pulsing guarantee halo */}
-      {showGuarantee && (
+      {showGuarantee &&
+        (isDiamond ? (
+          <polygon
+            points={diamondPoints(r + 6)}
+            fill="none"
+            stroke={guaranteeActive ? C.guaranteeActive : C.guaranteeExpired}
+            strokeWidth={guaranteeActive ? 2.5 : 1.5}
+            strokeDasharray={guaranteeActive ? "none" : "3 2"}
+            className={
+              guaranteeActive ? "topo-guarantee-pulse" : "topo-guarantee-fade"
+            }
+          />
+        ) : (
+          <circle
+            cx={0}
+            cy={0}
+            r={r + 6}
+            fill="none"
+            stroke={guaranteeActive ? C.guaranteeActive : C.guaranteeExpired}
+            strokeWidth={guaranteeActive ? 2.5 : 1.5}
+            strokeDasharray={guaranteeActive ? "none" : "3 2"}
+            className={
+              guaranteeActive ? "topo-guarantee-pulse" : "topo-guarantee-fade"
+            }
+          />
+        ))}
+
+      {/* Main shape */}
+      {isDiamond ? (
+        <polygon
+          points={diamondPoints(r)}
+          fill={fill}
+          stroke={stroke}
+          strokeWidth={strokeW}
+          strokeDasharray={off ? "3 2" : "none"}
+          opacity={off ? 0.5 : 1}
+          strokeLinejoin="round"
+        />
+      ) : (
         <circle
           cx={0}
           cy={0}
-          r={r + 6}
-          fill="none"
-          stroke={guaranteeActive ? C.guaranteeActive : C.guaranteeExpired}
-          strokeWidth={guaranteeActive ? 2.5 : 1.5}
-          strokeDasharray={guaranteeActive ? "none" : "3 2"}
-          className={
-            guaranteeActive ? "topo-guarantee-pulse" : "topo-guarantee-fade"
-          }
+          r={r}
+          fill={fill}
+          stroke={stroke}
+          strokeWidth={strokeW}
+          strokeDasharray={off ? "3 2" : "none"}
+          opacity={off ? 0.5 : 1}
         />
       )}
-
-      {/* Main circle — colored ring = role */}
-      <circle
-        cx={0}
-        cy={0}
-        r={r}
-        fill={fill}
-        stroke={roleStroke}
-        strokeWidth={roleStrokeW}
-        strokeDasharray={off ? "3 2" : "none"}
-        opacity={off ? 0.5 : 1}
-      />
 
       {/* Inner label or person icon */}
       {isBrowser && !label ? (
         <PersonIcon />
-      ) : (
+      ) : label ? (
         <text
           x={0}
           y={1}
           textAnchor="middle"
           dominantBaseline="central"
-          className={isBrowser ? "topo-label-self" : "topo-label-infra"}
+          className="topo-label-self"
         >
           {label}
         </text>
-      )}
+      ) : null}
 
-      {/* Peer ID / name below circle */}
+      {/* Peer ID below shape */}
       {!isSelf && (
         <text x={0} y={r + 11} textAnchor="middle" className="topo-peer-id">
-          {node.label}
+          {shortId}
         </text>
       )}
 
-      {/* Browser count badge */}
-      {!isSelf &&
-        !isBrowser &&
-        node.browserCount != null &&
-        node.browserCount > 0 && (
-          <g transform={`translate(${-(r - 1)},${r - 1})`}>
-            <circle r={6} fill="#059669" stroke="#fff" strokeWidth={1} />
-            <text
-              x={0}
-              y={0.5}
-              textAnchor="middle"
-              dominantBaseline="central"
-              className="topo-badge-text"
-            >
-              {node.browserCount}
-            </text>
-          </g>
-        )}
+      {/* Role pill tags at bottom-left */}
+      {!off &&
+        pills.map((role, i) => (
+          <RolePill key={role} role={role} dx={-(r - 1)} dy={r - 1 + i * 16} />
+        ))}
 
       {/* Guarantee label below */}
       {showGuarantee && (
         <text
           x={0}
-          y={r + 20}
+          y={r + 22 + pills.length * 2}
           textAnchor="middle"
           className={
             guaranteeActive
@@ -525,7 +626,7 @@ function NodeShape({
           }
         >
           {guaranteeActive
-            ? `retained ${formatRelativeTime(guaranteeUntil)}+`
+            ? `retained ` + `${formatRelativeTime(guaranteeUntil)}+`
             : "expired"}
         </text>
       )}
@@ -541,12 +642,14 @@ function EdgeLine({
   x2,
   y2,
   connected,
+  thick,
 }: {
   x1: number;
   y1: number;
   x2: number;
   y2: number;
   connected: boolean;
+  thick: boolean;
 }) {
   return (
     <line
@@ -555,9 +658,9 @@ function EdgeLine({
       x2={x2}
       y2={y2}
       stroke={connected ? C.edge : C.edgeDash}
-      strokeWidth={connected ? 1.2 : 0.8}
+      strokeWidth={connected ? (thick ? 2.5 : 1.2) : 0.8}
       strokeDasharray={connected ? "none" : "4 3"}
-      strokeOpacity={connected ? 0.5 : 0.25}
+      strokeOpacity={connected ? (thick ? 0.7 : 0.5) : 0.25}
     />
   );
 }
@@ -593,6 +696,14 @@ function Tooltip({
     guaranteeUntil != null &&
     guaranteeUntil <= now;
 
+  const isRelayNode = node.kind === "relay" || node.kind === "relay+pinner";
+  const isPinnerNode = node.kind === "pinner" || node.kind === "relay+pinner";
+
+  // Build role tag list
+  const roleTags: string[] = [];
+  if (isRelayNode) roleTags.push("relay");
+  if (isPinnerNode) roleTags.push("pinner");
+
   return (
     <div className="topo-tooltip" style={{ left, top }}>
       <div className="topo-tooltip-kind">
@@ -600,10 +711,12 @@ function Tooltip({
           ? "You (this browser)"
           : node.kind === "browser"
             ? "Browser peer"
-            : node.kind}
+            : roleTags.join(" + ")}
       </div>
       {node.kind !== "self" && (
-        <div className="topo-tooltip-id">{node.label}</div>
+        <div className="topo-tooltip-id">
+          {node.id.startsWith("awareness:") ? node.label : node.id}
+        </div>
       )}
       {node.kind !== "self" && node.kind !== "browser" && (
         <div className="topo-tooltip-status">
@@ -793,6 +906,9 @@ export function TopologyMap({
     return order(a.kind) - order(b.kind);
   });
 
+  // Node kind lookup for edge thickness
+  const nodeKindMap = new Map(graph.nodes.map((n) => [n.id, n.kind]));
+
   return (
     <div className="topo-wrap">
       <svg
@@ -806,6 +922,9 @@ export function TopologyMap({
           const s = posMap.get(e.source);
           const t = posMap.get(e.target);
           if (!s || !t) return null;
+          const sk = nodeKindMap.get(e.source);
+          const tk = nodeKindMap.get(e.target);
+          const thick = sk != null && tk != null && isInfra(sk) && isInfra(tk);
           return (
             <EdgeLine
               key={`${e.source}-${e.target}`}
@@ -814,6 +933,7 @@ export function TopologyMap({
               x2={t.x}
               y2={t.y}
               connected={e.connected}
+              thick={thick}
             />
           );
         })}
