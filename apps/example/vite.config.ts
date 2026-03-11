@@ -12,10 +12,7 @@ export default defineConfig(({ command }) => ({
     alias: Object.fromEntries(
       pkgs.map((p) => [
         `@pokapali/${p}`,
-        path.resolve(
-          __dirname,
-          `../../packages/${p}/src/index.ts`,
-        ),
+        path.resolve(__dirname, `../../packages/${p}/src/index.ts`),
       ]),
     ),
   },

@@ -1,29 +1,18 @@
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
-import {
-  validateStructure,
-  decodeSnapshot,
-} from "@pokapali/snapshot";
+import { validateStructure, decodeSnapshot } from "@pokapali/snapshot";
 import { hexToBytes } from "@pokapali/crypto";
 import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";
-import {
-  resolveIPNS,
-} from "@pokapali/core/ipns-helpers";
+import { resolveIPNS } from "@pokapali/core/ipns-helpers";
 import {
   announceAck,
   announceSnapshot,
   announceTopic,
 } from "@pokapali/core/announce";
-import type {
-  AnnouncePubSub,
-  AnnouncementAck,
-} from "@pokapali/core/announce";
-import {
-  createRateLimiter,
-  DEFAULT_RATE_LIMITS,
-} from "./rate-limiter.js";
+import type { AnnouncePubSub, AnnouncementAck } from "@pokapali/core/announce";
+import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker } from "./history.js";
@@ -90,10 +79,7 @@ export interface Pinner {
   stop(): Promise<void>;
   /** Await all pending background work. */
   flush(): Promise<void>;
-  ingest(
-    ipnsName: string,
-    block: Uint8Array,
-  ): Promise<boolean>;
+  ingest(ipnsName: string, block: Uint8Array): Promise<boolean>;
   onAnnouncement(
     ipnsName: string,
     cidStr: string,
@@ -101,29 +87,21 @@ export interface Pinner {
     blockData?: Uint8Array,
     fromPinner?: boolean,
   ): void;
-  onGuaranteeQuery(
-    ipnsName: string,
-    appId: string,
-  ): void;
+  onGuaranteeQuery(ipnsName: string, appId: string): void;
   metrics(): PinnerMetrics;
   history: HistoryTracker;
 }
 
-export async function createPinner(
-  config: PinnerConfig,
-): Promise<Pinner> {
+export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   const rateLimits: RateLimiterConfig = {
     maxSnapshotsPerHour:
-      config.rateLimits?.maxPerHour ??
-      DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
+      config.rateLimits?.maxPerHour ?? DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
     maxBlockSizeBytes:
-      config.rateLimits?.maxSizeBytes ??
-      DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
+      config.rateLimits?.maxSizeBytes ?? DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
   };
   const rateLimiter = createRateLimiter(rateLimits);
   const history = createHistoryTracker();
-  const statePath =
-    config.storagePath + "/state.json";
+  const statePath = config.storagePath + "/state.json";
   const helia = config.helia;
 
   // In-memory block store as fallback when no Helia
@@ -142,9 +120,7 @@ export async function createPinner(
   const guaranteedUntil = new Map<string, number>();
   // Rate-limit guarantee query responses:
   // max 1 response per ipnsName per 10s.
-  const lastQueryResponse = new Map<
-    string, number
-  >();
+  const lastQueryResponse = new Map<string, number>();
   const QUERY_RESPONSE_COOLDOWN_MS = 10_000;
 
   // Self-tuning capacity measurement
@@ -181,17 +157,12 @@ export async function createPinner(
         let smallest = i;
         const l = 2 * i + 1;
         const r = 2 * i + 2;
-        if (
-          l < heap.length
-          && heap[l].nextAt < heap[smallest].nextAt
-        ) smallest = l;
-        if (
-          r < heap.length
-          && heap[r].nextAt < heap[smallest].nextAt
-        ) smallest = r;
+        if (l < heap.length && heap[l].nextAt < heap[smallest].nextAt)
+          smallest = l;
+        if (r < heap.length && heap[r].nextAt < heap[smallest].nextAt)
+          smallest = r;
         if (smallest === i) break;
-        [heap[i], heap[smallest]] =
-          [heap[smallest], heap[i]];
+        [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
         i = smallest;
       }
     }
@@ -205,10 +176,7 @@ export async function createPinner(
   // Track which docs are in the heap to avoid dupes
   const inHeap = new Set<string>();
 
-  function scheduleDoc(
-    ipnsName: string,
-    nextAt: number,
-  ): void {
+  function scheduleDoc(ipnsName: string, nextAt: number): void {
     // Remove existing entry by marking stale
     // (lazy deletion — checked on pop)
     heapPush({ ipnsName, nextAt });
@@ -219,20 +187,12 @@ export async function createPinner(
 
   function loadFactor(): number {
     const capacity = maxActiveDocs();
-    const utilization = capacity > 0
-      ? scheduledDocCount / capacity
-      : 1;
+    const utilization = capacity > 0 ? scheduledDocCount / capacity : 1;
     if (utilization <= 0.5) return 1;
-    return 1 + 9 * Math.pow(
-      (utilization - 0.5) / 0.5,
-      2,
-    );
+    return 1 + 9 * Math.pow((utilization - 0.5) / 0.5, 2);
   }
 
-  function reannounceInterval(
-    ipnsName: string,
-    now: number,
-  ): number {
+  function reannounceInterval(ipnsName: string, now: number): number {
     const seen = lastSeenAt.get(ipnsName) ?? 0;
     const age = now - seen;
 
@@ -241,32 +201,22 @@ export async function createPinner(
       return MAX_INTERVAL_MS;
     }
 
-    const recencyFactor = Math.pow(
-      2,
-      age / HALF_LIFE_MS,
-    );
-    const interval =
-      BASE_INTERVAL_MS * recencyFactor * loadFactor();
+    const recencyFactor = Math.pow(2, age / HALF_LIFE_MS);
+    const interval = BASE_INTERVAL_MS * recencyFactor * loadFactor();
     return Math.min(interval, MAX_INTERVAL_MS);
   }
 
   function maxActiveDocs(): number {
-    return Math.max(
-      1,
-      Math.floor(
-        (BASE_INTERVAL_MS * 0.8) / perDocEma,
-      ),
-    );
+    return Math.max(1, Math.floor((BASE_INTERVAL_MS * 0.8) / perDocEma));
   }
 
-  function issueGuarantee(
-    ipnsName: string,
-  ): { guaranteeUntil: number; retainUntil: number } {
-    const seen =
-      lastSeenAt.get(ipnsName) ?? Date.now();
+  function issueGuarantee(ipnsName: string): {
+    guaranteeUntil: number;
+    retainUntil: number;
+  } {
+    const seen = lastSeenAt.get(ipnsName) ?? Date.now();
     const calculated = seen + GUARANTEE_DURATION_MS;
-    const existing =
-      guaranteedUntil.get(ipnsName) ?? 0;
+    const existing = guaranteedUntil.get(ipnsName) ?? 0;
     // Monotonic: never shorten a promise
     const guarantee = Math.max(calculated, existing);
     guaranteedUntil.set(ipnsName, guarantee);
@@ -284,24 +234,12 @@ export async function createPinner(
     p.finally(() => pending.delete(p));
   }
   let stopped = false;
-  let resolveInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let republishInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let initialRepublishTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
-  let scheduleInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let persistInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let persistDebounceTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
+  let resolveInterval: ReturnType<typeof setInterval> | null = null;
+  let republishInterval: ReturnType<typeof setInterval> | null = null;
+  let initialRepublishTimer: ReturnType<typeof setTimeout> | null = null;
+  let scheduleInterval: ReturnType<typeof setInterval> | null = null;
+  let persistInterval: ReturnType<typeof setInterval> | null = null;
+  let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let dirty = false;
 
   // Counters for /metrics endpoint
@@ -329,10 +267,7 @@ export async function createPinner(
     }, PERSIST_DEBOUNCE_MS);
   }
 
-  async function storeBlock(
-    cid: CID,
-    block: Uint8Array,
-  ): Promise<void> {
+  async function storeBlock(cid: CID, block: Uint8Array): Promise<void> {
     if (helia) {
       await helia.blockstore.put(cid, block);
     } else {
@@ -378,16 +313,16 @@ export async function createPinner(
         try {
           decodeSnapshot(block);
           log.warn(
-            `block decode OK but validate failed`
-            + ` ${ipnsName.slice(0, 12)}...`
-            + ` blockSize=${block.length}`,
+            `block decode OK but validate failed` +
+              ` ${ipnsName.slice(0, 12)}...` +
+              ` blockSize=${block.length}`,
           );
         } catch (decodeErr) {
           log.warn(
-            `block decode failed`
-            + ` ${ipnsName.slice(0, 12)}...`
-            + ` blockSize=${block.length}`
-            + ` err=${(decodeErr as Error).message}`,
+            `block decode failed` +
+              ` ${ipnsName.slice(0, 12)}...` +
+              ` blockSize=${block.length}` +
+              ` err=${(decodeErr as Error).message}`,
           );
         }
         return false;
@@ -398,17 +333,17 @@ export async function createPinner(
       history.add(ipnsName, cid, node.ts);
       markDirty();
       log.debug(
-        `fetched block for`
-        + ` ${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...`,
+        `fetched block for` +
+          ` ${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...`,
       );
       return true;
     } catch (err) {
       const msg = (err as Error).message ?? "";
       log.error(
-        `fetch failed for`
-        + ` ${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...: ${msg}`,
+        `fetch failed for` +
+          ` ${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...: ${msg}`,
       );
       return false;
     }
@@ -421,39 +356,25 @@ export async function createPinner(
    * Uses delegated HTTP routing first (fast), then
    * falls back to DHT — same path browsers use.
    */
-  async function resolveAndFetch(
-    ipnsName: string,
-  ): Promise<boolean> {
+  async function resolveAndFetch(ipnsName: string): Promise<boolean> {
     if (!helia) return false;
 
     try {
       const keyBytes = hexToBytes(ipnsName);
-      const cid = await resolveIPNS(
-        helia,
-        keyBytes,
-      );
+      const cid = await resolveIPNS(helia, keyBytes);
       if (!cid) {
-        log.error(
-          `resolve returned null for`
-          + ` ${ipnsName.slice(0, 12)}...`,
-        );
+        log.error(`resolve returned null for` + ` ${ipnsName.slice(0, 12)}...`);
         return false;
       }
       log.debug(
-        `resolved ${ipnsName.slice(0, 12)}...`
-        + ` -> ${cid.toString().slice(0, 12)}...`,
+        `resolved ${ipnsName.slice(0, 12)}...` +
+          ` -> ${cid.toString().slice(0, 12)}...`,
       );
 
-      return fetchByCid(
-        ipnsName,
-        cid.toString(),
-      );
+      return fetchByCid(ipnsName, cid.toString());
     } catch (err) {
       const msg = (err as Error).message ?? "";
-      log.error(
-        `resolve failed for`
-        + ` ${ipnsName.slice(0, 12)}...: ${msg}`,
-      );
+      log.error(`resolve failed for` + ` ${ipnsName.slice(0, 12)}...: ${msg}`);
       return false;
     }
   }
@@ -461,26 +382,18 @@ export async function createPinner(
   async function resolveAll(): Promise<void> {
     const now = Date.now();
     const names = [...knownNames].filter(
-      (n) =>
-        reannounceInterval(n, now) < MAX_INTERVAL_MS,
+      (n) => reannounceInterval(n, now) < MAX_INTERVAL_MS,
     );
     if (names.length === 0) return;
     log.debug(
-      `re-resolving ${names.length}/${knownNames.size}`
-      + ` scheduled names`,
+      `re-resolving ${names.length}/${knownNames.size}` + ` scheduled names`,
     );
     // Batch to avoid OOM from unbounded concurrency
     const BATCH_SIZE = 10;
-    for (
-      let i = 0;
-      i < names.length;
-      i += BATCH_SIZE
-    ) {
+    for (let i = 0; i < names.length; i += BATCH_SIZE) {
       if (stopped) break;
       const batch = names.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(
-        batch.map((n) => resolveAndFetch(n)),
-      );
+      await Promise.allSettled(batch.map((n) => resolveAndFetch(n)));
     }
   }
 
@@ -495,9 +408,7 @@ export async function createPinner(
    * Republish a single IPNS record. Extracted so it
    * can be called in parallel batches.
    */
-  async function republishOne(
-    ipnsName: string,
-  ): Promise<boolean> {
+  async function republishOne(ipnsName: string): Promise<boolean> {
     if (!helia) return false;
     try {
       const name = ipns(helia as any);
@@ -505,31 +416,20 @@ export async function createPinner(
       const pubKey = publicKeyFromRaw(keyBytes);
 
       const result = await name.resolve(pubKey, {
-        signal: AbortSignal.timeout(
-          REPUBLISH_TIMEOUT_MS,
-        ),
+        signal: AbortSignal.timeout(REPUBLISH_TIMEOUT_MS),
       });
 
-      await name.republishRecord(
-        pubKey.toMultihash(),
-        result.record,
-        {
-          signal: AbortSignal.timeout(
-            REPUBLISH_TIMEOUT_MS,
-          ),
-        },
-      );
-      log.debug(
-        `republished IPNS for`
-          + ` ${ipnsName.slice(0, 12)}...`,
-      );
+      await name.republishRecord(pubKey.toMultihash(), result.record, {
+        signal: AbortSignal.timeout(REPUBLISH_TIMEOUT_MS),
+      });
+      log.debug(`republished IPNS for` + ` ${ipnsName.slice(0, 12)}...`);
       return true;
     } catch (err) {
       const msg = (err as Error).message ?? "";
       log.error(
-        `IPNS republish failed for`
-          + ` ${ipnsName.slice(0, 12)}...:`
-          + ` ${msg}`,
+        `IPNS republish failed for` +
+          ` ${ipnsName.slice(0, 12)}...:` +
+          ` ${msg}`,
       );
       return false;
     }
@@ -548,31 +448,22 @@ export async function createPinner(
 
     const start = Date.now();
     log.info(
-      `republishing IPNS for`
-      + ` ${names.length}/${knownNames.size}`
-      + ` retained names`
-      + ` (batch=${REPUBLISH_BATCH_SIZE})`,
+      `republishing IPNS for` +
+        ` ${names.length}/${knownNames.size}` +
+        ` retained names` +
+        ` (batch=${REPUBLISH_BATCH_SIZE})`,
     );
 
     let ok = 0;
     let fail = 0;
-    for (
-      let i = 0;
-      i < names.length;
-      i += REPUBLISH_BATCH_SIZE
-    ) {
+    for (let i = 0; i < names.length; i += REPUBLISH_BATCH_SIZE) {
       if (stopped) break;
-      const batch = names.slice(
-        i,
-        i + REPUBLISH_BATCH_SIZE,
-      );
+      const batch = names.slice(i, i + REPUBLISH_BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map((n) => republishOne(n)),
       );
       for (const r of results) {
-        if (
-          r.status === "fulfilled" && r.value
-        ) {
+        if (r.status === "fulfilled" && r.value) {
           ok++;
         } else {
           fail++;
@@ -582,12 +473,12 @@ export async function createPinner(
 
     const elapsed = Date.now() - start;
     log.info(
-      `IPNS republish done:`
-      + ` ${ok} ok, ${fail} failed`
-      + ` in ${elapsed}ms`
-      + ` (${names.length > 0
-          ? (elapsed / names.length).toFixed(0)
-          : 0}ms/name)`,
+      `IPNS republish done:` +
+        ` ${ok} ok, ${fail} failed` +
+        ` in ${elapsed}ms` +
+        ` (${
+          names.length > 0 ? (elapsed / names.length).toFixed(0) : 0
+        }ms/name)`,
     );
   }
 
@@ -597,8 +488,7 @@ export async function createPinner(
    * passed, re-announces them, and reschedules with
    * a new interval based on recency and load.
    */
-  async function processScheduleQueue():
-    Promise<void> {
+  async function processScheduleQueue(): Promise<void> {
     if (!helia || !config.pubsub) return;
     const start = Date.now();
     let count = 0;
@@ -628,13 +518,12 @@ export async function createPinner(
         // loop between pinners).
         // Embed ack with guarantee so browsers see
         // retention info on first message.
-        const ack: AnnouncementAck | undefined =
-          config.peerId
-            ? {
-                peerId: config.peerId,
-                ...issueGuarantee(ipnsName),
-              }
-            : undefined;
+        const ack: AnnouncementAck | undefined = config.peerId
+          ? {
+              peerId: config.peerId,
+              ...issueGuarantee(ipnsName),
+            }
+          : undefined;
         await announceSnapshot(
           config.pubsub,
           appId,
@@ -647,29 +536,19 @@ export async function createPinner(
         );
         count++;
         log.debug(
-          `re-announced`
-          + ` ${ipnsName.slice(0, 12)}...`
-          + ` cid=${cidStr.slice(0, 12)}...`,
+          `re-announced` +
+            ` ${ipnsName.slice(0, 12)}...` +
+            ` cid=${cidStr.slice(0, 12)}...`,
         );
       } catch (err) {
-        log.warn(
-          `re-announce failed`
-          + ` ${ipnsName.slice(0, 12)}...:`,
-          err,
-        );
+        log.warn(`re-announce failed` + ` ${ipnsName.slice(0, 12)}...:`, err);
       }
 
       // Reschedule with new interval
       const now = Date.now();
-      const interval = reannounceInterval(
-        ipnsName,
-        now,
-      );
+      const interval = reannounceInterval(ipnsName, now);
       if (interval < MAX_INTERVAL_MS) {
-        scheduleDoc(
-          ipnsName,
-          now + interval,
-        );
+        scheduleDoc(ipnsName, now + interval);
       } else {
         inHeap.delete(ipnsName);
       }
@@ -683,15 +562,13 @@ export async function createPinner(
 
       // Update capacity EMA
       const measured = elapsed / count;
-      perDocEma =
-        EMA_ALPHA * measured
-        + (1 - EMA_ALPHA) * perDocEma;
+      perDocEma = EMA_ALPHA * measured + (1 - EMA_ALPHA) * perDocEma;
 
       log.debug(
-        `reannounce: ${count} docs in ${elapsed}ms`
-        + ` (${measured.toFixed(1)}ms/doc,`
-        + ` capacity=${maxActiveDocs()},`
-        + ` scheduled=${inHeap.size})`,
+        `reannounce: ${count} docs in ${elapsed}ms` +
+          ` (${measured.toFixed(1)}ms/doc,` +
+          ` capacity=${maxActiveDocs()},` +
+          ` scheduled=${inHeap.size})`,
       );
     }
   }
@@ -715,10 +592,8 @@ export async function createPinner(
 
     // Capacity backstop: if still over limit after
     // time-based pruning, prune oldest
-    const remaining =
-      knownNames.size - toPrune.length;
-    const maxTracked =
-      maxActiveDocs() * PRUNE_HEADROOM;
+    const remaining = knownNames.size - toPrune.length;
+    const maxTracked = maxActiveDocs() * PRUNE_HEADROOM;
     if (remaining > maxTracked) {
       const pruneSet = new Set(toPrune);
       const sorted = [...knownNames]
@@ -728,10 +603,7 @@ export async function createPinner(
           seen: lastSeenAt.get(n) ?? 0,
         }))
         .sort((a, b) => a.seen - b.seen);
-      const extra = sorted.slice(
-        0,
-        remaining - maxTracked,
-      );
+      const extra = sorted.slice(0, remaining - maxTracked);
       for (const { name } of extra) {
         toPrune.push(name);
       }
@@ -746,8 +618,7 @@ export async function createPinner(
           await helia.blockstore.delete(cid);
         } catch (err) {
           log.warn(
-            "blockstore delete failed for"
-            + ` ${name.slice(0, 12)}...:`,
+            "blockstore delete failed for" + ` ${name.slice(0, 12)}...:`,
             (err as Error).message,
           );
         }
@@ -764,8 +635,7 @@ export async function createPinner(
     if (toPrune.length > 0) {
       markDirty();
       log.info(
-        `pruned ${toPrune.length} docs,`
-        + ` ${knownNames.size} remaining`,
+        `pruned ${toPrune.length} docs,` + ` ${knownNames.size} remaining`,
       );
     }
   }
@@ -776,27 +646,17 @@ export async function createPinner(
       knownNames.add(n);
     }
     if (state.tips) {
-      for (const [name, cidStr] of
-        Object.entries(state.tips)
-      ) {
-        history.add(
-          name,
-          CID.parse(cidStr),
-          Date.now(),
-        );
+      for (const [name, cidStr] of Object.entries(state.tips)) {
+        history.add(name, CID.parse(cidStr), Date.now());
       }
     }
     if (state.nameToAppId) {
-      for (const [name, appId] of
-        Object.entries(state.nameToAppId)
-      ) {
+      for (const [name, appId] of Object.entries(state.nameToAppId)) {
         nameToAppId.set(name, appId);
       }
     }
     if (state.lastSeenAt) {
-      for (const [name, ts] of
-        Object.entries(state.lastSeenAt)
-      ) {
+      for (const [name, ts] of Object.entries(state.lastSeenAt)) {
         lastSeenAt.set(name, ts);
       }
     }
@@ -828,9 +688,7 @@ export async function createPinner(
     await saveState(statePath, {
       knownNames: [...knownNames],
       tips,
-      nameToAppId: Object.fromEntries(
-        nameToAppId,
-      ),
+      nameToAppId: Object.fromEntries(nameToAppId),
       lastSeenAt: Object.fromEntries(lastSeenAt),
     });
     lastPersistMs = Date.now() - start;
@@ -864,20 +722,14 @@ export async function createPinner(
 
       // Resolve all persisted names on startup
       if (helia && knownNames.size > 0) {
-        log.info(
-          `startup: resolving`
-          + ` ${knownNames.size} persisted names`,
-        );
+        log.info(`startup: resolving` + ` ${knownNames.size} persisted names`);
         // Fire and forget — don't block startup
         track(resolveAll());
       }
 
       // Periodic re-resolve
       if (helia) {
-        resolveInterval = setInterval(
-          resolveAll,
-          RESOLVE_INTERVAL_MS,
-        );
+        resolveInterval = setInterval(resolveAll, RESOLVE_INTERVAL_MS);
         // Periodic IPNS republish (keeps records
         // alive when writers are offline)
         republishInterval = setInterval(
@@ -902,10 +754,9 @@ export async function createPinner(
 
       // Schedule queue processor
       if (config.pubsub) {
-        scheduleInterval = setInterval(
-          () => { track(processScheduleQueue()); },
-          SCHEDULE_TICK_MS,
-        );
+        scheduleInterval = setInterval(() => {
+          track(processScheduleQueue());
+        }, SCHEDULE_TICK_MS);
       }
     },
 
@@ -956,15 +807,8 @@ export async function createPinner(
       // Dedup: if we already fetched+acked this CID,
       // just re-ack (cheap) so new browsers see it.
       if (lastAckedCid.get(ipnsName) === cidStr) {
-        log.debug(
-          `duplicate: ${cidStr.slice(0, 12)}...`
-          + ` re-acking`,
-        );
-        if (
-          appId &&
-          config.pubsub &&
-          config.peerId
-        ) {
+        log.debug(`duplicate: ${cidStr.slice(0, 12)}...` + ` re-acking`);
+        if (appId && config.pubsub && config.peerId) {
           const g = issueGuarantee(ipnsName);
           track(
             announceAck(
@@ -984,8 +828,8 @@ export async function createPinner(
       }
 
       log.debug(
-        `announcement: name=${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...`,
+        `announcement: name=${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...`,
       );
       // New CID supersedes old guarantee
       guaranteedUntil.delete(ipnsName);
@@ -995,16 +839,10 @@ export async function createPinner(
       // latest CID, IPNS may lag behind).
       if (helia) {
         track(
-          fetchByCid(ipnsName, cidStr, blockData).then(
-            async (ok) => {
-              if (
-                ok &&
-                appId &&
-                config.pubsub &&
-                config.peerId
-              ) {
-                const g =
-                  issueGuarantee(ipnsName);
+          fetchByCid(ipnsName, cidStr, blockData)
+            .then(async (ok) => {
+              if (ok && appId && config.pubsub && config.peerId) {
+                const g = issueGuarantee(ipnsName);
                 await announceAck(
                   config.pubsub,
                   appId,
@@ -1014,56 +852,49 @@ export async function createPinner(
                   g.guaranteeUntil,
                   g.retainUntil,
                 );
-                lastAckedCid.set(
-                  ipnsName, cidStr,
-                );
+                lastAckedCid.set(ipnsName, cidStr);
                 markDirty();
                 log.debug(
-                  `acked`
-                  + ` ${ipnsName.slice(0, 12)}...`
-                  + ` cid=${cidStr.slice(0, 12)}...`,
+                  `acked` +
+                    ` ${ipnsName.slice(0, 12)}...` +
+                    ` cid=${cidStr.slice(0, 12)}...`,
                 );
               } else {
                 log.debug(
-                  `ack skipped:`
-                  + ` ok=${ok}`
-                  + ` appId=${appId}`
-                  + ` pubsub=${!!config.pubsub}`
-                  + ` peerId=${!!config.peerId}`,
+                  `ack skipped:` +
+                    ` ok=${ok}` +
+                    ` appId=${appId}` +
+                    ` pubsub=${!!config.pubsub}` +
+                    ` peerId=${!!config.peerId}`,
                 );
               }
-            },
-          ).catch((err) => {
-            log.warn(
-              `ack failed:`
-              + ` ${ipnsName.slice(0, 12)}...`
-              + ` cid=${cidStr.slice(0, 12)}...:`,
-              err,
-            );
-          }),
+            })
+            .catch((err) => {
+              log.warn(
+                `ack failed:` +
+                  ` ${ipnsName.slice(0, 12)}...` +
+                  ` cid=${cidStr.slice(0, 12)}...:`,
+                err,
+              );
+            }),
         );
       }
 
       // Schedule for re-announce
       const now = Date.now();
-      const interval =
-        reannounceInterval(ipnsName, now);
+      const interval = reannounceInterval(ipnsName, now);
       if (interval < MAX_INTERVAL_MS) {
         scheduleDoc(ipnsName, now + interval);
       }
     },
 
-    onGuaranteeQuery(
-      ipnsName: string,
-      appId: string,
-    ): void {
+    onGuaranteeQuery(ipnsName: string, appId: string): void {
       if (!knownNames.has(ipnsName)) return;
       if (!config.pubsub || !config.peerId) return;
 
       // Rate-limit: max 1 response per name per 10s
       const now = Date.now();
-      const last =
-        lastQueryResponse.get(ipnsName) ?? 0;
+      const last = lastQueryResponse.get(ipnsName) ?? 0;
       if (now - last < QUERY_RESPONSE_COOLDOWN_MS) {
         return;
       }
@@ -1081,36 +912,23 @@ export async function createPinner(
         guaranteeUntil: g.guaranteeUntil,
         retainUntil: g.retainUntil,
       };
-      const data = new TextEncoder().encode(
-        JSON.stringify(response),
-      );
+      const data = new TextEncoder().encode(JSON.stringify(response));
       const topic = announceTopic(appId);
       track(
-        config.pubsub
-          .publish(topic, data)
-          .catch((err) => {
-            log.warn(
-              "guarantee response failed:",
-              err,
-            );
-          }),
+        config.pubsub.publish(topic, data).catch((err) => {
+          log.warn("guarantee response failed:", err);
+        }),
       );
       log.debug(
-        `guarantee response:`
-        + ` ${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...`,
+        `guarantee response:` +
+          ` ${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...`,
       );
     },
 
-    async ingest(
-      ipnsName: string,
-      block: Uint8Array,
-    ): Promise<boolean> {
+    async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {
       // Rate limit: block size
-      const check = rateLimiter.check(
-        ipnsName,
-        block.byteLength,
-      );
+      const check = rateLimiter.check(ipnsName, block.byteLength);
       if (!check.allowed) {
         rateLimitRejects++;
         return false;

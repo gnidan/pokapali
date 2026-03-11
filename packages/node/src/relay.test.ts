@@ -1,8 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-} from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   encodeNodeCaps,
   decodeNodeCaps,
@@ -13,9 +9,7 @@ import {
 
 describe("NODE_CAPS_TOPIC", () => {
   it("is the expected topic string", () => {
-    expect(NODE_CAPS_TOPIC).toBe(
-      "pokapali._node-caps._p2p._pubsub",
-    );
+    expect(NODE_CAPS_TOPIC).toBe("pokapali._node-caps._p2p._pubsub");
   });
 });
 
@@ -25,31 +19,25 @@ describe("encodeNodeCaps / decodeNodeCaps", () => {
       version: 2,
       peerId: "12D3KooWTest",
       roles: ["relay", "pinner"],
-      neighbors: [
-        { peerId: "12D3KooWOther", role: "relay" },
-      ],
+      neighbors: [{ peerId: "12D3KooWOther", role: "relay" }],
       browserCount: 5,
-      addrs: [
-        "/ip4/1.2.3.4/tcp/4003/tls/ws",
-      ],
+      addrs: ["/ip4/1.2.3.4/tcp/4003/tls/ws"],
     };
     const encoded = encodeNodeCaps(caps);
     const decoded = decodeNodeCaps(encoded);
     expect(decoded).toEqual(caps);
   });
 
-  it("roundtrips v2 caps without optional fields",
-    () => {
-      const caps: NodeCapabilities = {
-        version: 2,
-        peerId: "12D3KooWMinimal",
-        roles: ["relay"],
-      };
-      const encoded = encodeNodeCaps(caps);
-      const decoded = decodeNodeCaps(encoded);
-      expect(decoded).toEqual(caps);
-    },
-  );
+  it("roundtrips v2 caps without optional fields", () => {
+    const caps: NodeCapabilities = {
+      version: 2,
+      peerId: "12D3KooWMinimal",
+      roles: ["relay"],
+    };
+    const encoded = encodeNodeCaps(caps);
+    const decoded = decodeNodeCaps(encoded);
+    expect(decoded).toEqual(caps);
+  });
 
   it("roundtrips empty roles array", () => {
     const caps: NodeCapabilities = {
@@ -152,9 +140,7 @@ describe("decodeNodeCaps", () => {
   });
 
   it("returns null for invalid JSON", () => {
-    const data = new TextEncoder().encode(
-      "not json at all",
-    );
+    const data = new TextEncoder().encode("not json at all");
     expect(decodeNodeCaps(data)).toBeNull();
   });
 
@@ -182,13 +168,11 @@ describe("appIdToCID", () => {
     expect(a.toString()).toBe(b.toString());
   });
 
-  it("produces different CIDs for different appIds",
-    async () => {
-      const a = await appIdToCID("app-one");
-      const b = await appIdToCID("app-two");
-      expect(a.toString()).not.toBe(b.toString());
-    },
-  );
+  it("produces different CIDs for different appIds", async () => {
+    const a = await appIdToCID("app-one");
+    const b = await appIdToCID("app-two");
+    expect(a.toString()).not.toBe(b.toString());
+  });
 
   it("uses RAW codec (0x55)", async () => {
     const cid = await appIdToCID("test");

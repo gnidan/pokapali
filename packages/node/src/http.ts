@@ -2,10 +2,7 @@ import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { Relay } from "./relay.js";
 import type { Pinner } from "./pinner.js";
-import {
-  createLogger,
-  getLogLevel,
-} from "@pokapali/log";
+import { createLogger, getLogLevel } from "@pokapali/log";
 
 const startedAt = Date.now();
 const log = createLogger("http");
@@ -25,18 +22,12 @@ export interface HttpConfig {
 
 function getHealthData(config: HttpConfig) {
   const { relay } = config;
-  const conns = relay
-    ? relay.helia.libp2p.getConnections().length
-    : 0;
-  const peers = relay
-    ? relay.helia.libp2p.getPeers().length
-    : 0;
+  const conns = relay ? relay.helia.libp2p.getConnections().length : 0;
+  const peers = relay ? relay.helia.libp2p.getPeers().length : 0;
 
   return {
     ok: true,
-    uptime: Math.floor(
-      (Date.now() - startedAt) / 1000,
-    ),
+    uptime: Math.floor((Date.now() - startedAt) / 1000),
     peerId: relay?.peerId() ?? null,
     peers,
     connections: conns,
@@ -47,33 +38,28 @@ function getStatusData(config: HttpConfig) {
   const { relay, pinner, pinAppIds } = config;
   const health = getHealthData(config);
 
-  const mode = [
-    relay ? "relay" : "",
-    pinner ? "pin" : "",
-  ].filter(Boolean).join("+") || "none";
+  const mode =
+    [relay ? "relay" : "", pinner ? "pin" : ""].filter(Boolean).join("+") ||
+    "none";
 
   const multiaddrs = relay?.multiaddrs() ?? [];
-  const wss = multiaddrs.some(
-    (a) => a.includes("/tls/"),
-  );
+  const wss = multiaddrs.some((a) => a.includes("/tls/"));
 
   // GossipSub diagnostics
-  let gossipsub:
-    Record<string, unknown> | null = null;
+  let gossipsub: Record<string, unknown> | null = null;
   if (relay) {
-    const pubsub =
-      (relay.helia.libp2p.services as any).pubsub;
-    const gsTopics: string[] =
-      pubsub.getTopics?.() ?? [];
+    const pubsub = (relay.helia.libp2p.services as any).pubsub;
+    const gsTopics: string[] = pubsub.getTopics?.() ?? [];
     const gsPeers = pubsub.getPeers?.() ?? [];
-    const mesh = (pubsub as any).mesh as
-      | Map<string, Set<string>>
-      | undefined;
+    const mesh = (pubsub as any).mesh as Map<string, Set<string>> | undefined;
 
-    const topics: Record<string, {
-      subscribers: number;
-      mesh: number;
-    }> = {};
+    const topics: Record<
+      string,
+      {
+        subscribers: number;
+        mesh: number;
+      }
+    > = {};
     for (const t of gsTopics) {
       const subs = pubsub.getSubscribers(t);
       const topicMesh = mesh?.get(t);
@@ -100,21 +86,13 @@ function getStatusData(config: HttpConfig) {
   };
 }
 
-export function startHttpServer(
-  config: HttpConfig,
-): Server {
+export function startHttpServer(config: HttpConfig): Server {
   const { pinner, port } = config;
 
   const server = createServer(async (req, res) => {
-    const url = new URL(
-      req.url ?? "/",
-      `http://localhost:${port}`,
-    );
+    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
 
-    if (
-      req.method === "GET"
-      && url.pathname === "/health"
-    ) {
+    if (req.method === "GET" && url.pathname === "/health") {
       const data = getHealthData(config);
       res.writeHead(200, {
         "content-type": "application/json",
@@ -123,10 +101,7 @@ export function startHttpServer(
       return;
     }
 
-    if (
-      req.method === "GET"
-      && url.pathname === "/status"
-    ) {
+    if (req.method === "GET" && url.pathname === "/status") {
       const data = getStatusData(config);
       res.writeHead(200, {
         "content-type": "application/json",
@@ -135,10 +110,7 @@ export function startHttpServer(
       return;
     }
 
-    if (
-      req.method === "GET"
-      && url.pathname === "/metrics"
-    ) {
+    if (req.method === "GET" && url.pathname === "/metrics") {
       const mem = process.memoryUsage();
       const data: Record<string, unknown> = {
         memory: {
@@ -147,12 +119,8 @@ export function startHttpServer(
           heapTotal: mem.heapTotal,
           external: mem.external,
         },
-        uptime: Math.floor(
-          (Date.now() - startedAt) / 1000,
-        ),
-        pinner: config.pinner
-          ? config.pinner.metrics()
-          : null,
+        uptime: Math.floor((Date.now() - startedAt) / 1000),
+        pinner: config.pinner ? config.pinner.metrics() : null,
       };
       res.writeHead(200, {
         "content-type": "application/json",
@@ -162,9 +130,7 @@ export function startHttpServer(
     }
 
     if (pinner) {
-      const ingestMatch = url.pathname.match(
-        /^\/ingest\/([a-zA-Z0-9._-]+)$/,
-      );
+      const ingestMatch = url.pathname.match(/^\/ingest\/([a-zA-Z0-9._-]+)$/);
       if (req.method === "POST" && ingestMatch) {
         const ipnsName = ingestMatch[1];
         const chunks: Buffer[] = [];
@@ -191,41 +157,29 @@ export function startHttpServer(
           );
           return;
         }
-        const body = new Uint8Array(
-          Buffer.concat(chunks),
-        );
+        const body = new Uint8Array(Buffer.concat(chunks));
 
         if (body.length === 0) {
           res.writeHead(400, {
             "content-type": "application/json",
           });
-          res.end(
-            JSON.stringify({ error: "empty body" }),
-          );
+          res.end(JSON.stringify({ error: "empty body" }));
           return;
         }
 
-        const accepted = await pinner.ingest(
-          ipnsName, body,
-        );
+        const accepted = await pinner.ingest(ipnsName, body);
         if (accepted) {
-          log.debug(
-            `ingested block for ${ipnsName}`,
-          );
+          log.debug(`ingested block for ${ipnsName}`);
           res.writeHead(200, {
             "content-type": "application/json",
           });
           res.end(JSON.stringify({ ok: true }));
         } else {
-          log.warn(
-            `rejected block for ${ipnsName}`,
-          );
+          log.warn(`rejected block for ${ipnsName}`);
           res.writeHead(429, {
             "content-type": "application/json",
           });
-          res.end(
-            JSON.stringify({ error: "rejected" }),
-          );
+          res.end(JSON.stringify({ error: "rejected" }));
         }
         return;
       }
@@ -234,9 +188,7 @@ export function startHttpServer(
     res.writeHead(404, {
       "content-type": "application/json",
     });
-    res.end(
-      JSON.stringify({ error: "not found" }),
-    );
+    res.end(JSON.stringify({ error: "not found" }));
   });
 
   server.listen(port);

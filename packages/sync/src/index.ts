@@ -7,10 +7,8 @@ import {
   type PubSubLike,
 } from "./gossipsub-signaling.js";
 
-export { createGossipSubSignaling } from
-  "./gossipsub-signaling.js";
-export type { PubSubLike } from
-  "./gossipsub-signaling.js";
+export { createGossipSubSignaling } from "./gossipsub-signaling.js";
+export type { PubSubLike } from "./gossipsub-signaling.js";
 
 export interface SyncManager {
   readonly status: SyncStatus;
@@ -18,10 +16,7 @@ export interface SyncManager {
   destroy(): void;
 }
 
-export type SyncStatus =
-  | "connecting"
-  | "connected"
-  | "disconnected";
+export type SyncStatus = "connecting" | "connected" | "disconnected";
 
 export interface SyncOptions {
   peerOpts?: { config?: RTCConfiguration };
@@ -45,9 +40,7 @@ export function setupNamespaceRooms(
     ? [...signalingUrls, "libp2p:gossipsub"]
     : signalingUrls;
 
-  const statusListeners: Array<
-    (s: SyncStatus) => void
-  > = [];
+  const statusListeners: Array<(s: SyncStatus) => void> = [];
 
   function notifyStatus() {
     const s = aggregateStatus(providers);
@@ -147,9 +140,7 @@ export function setupAwarenessRoom(
   };
 }
 
-function aggregateStatus(
-  providers: WebrtcProvider[],
-): SyncStatus {
+function aggregateStatus(providers: WebrtcProvider[]): SyncStatus {
   if (providers.length === 0) {
     return "disconnected";
   }

@@ -217,7 +217,6 @@ body {
   font-weight: 600;
 }
 
-
 /* Encryption info */
 
 .encryption-wrap {
@@ -262,7 +261,6 @@ body {
   align-items: center;
   gap: 0.4rem;
 }
-
 
 .encryption-popover p {
   margin: 0.4rem 0;
@@ -511,7 +509,6 @@ body {
 
 /* Save indicator */
 
-
 .save-state {
   font-size: 0.75rem;
   font-weight: 500;
@@ -543,7 +540,6 @@ body {
   text-decoration-style: solid;
 }
 
-
 .last-updated {
   font-size: 0.75rem;
   color: #64748b;
@@ -555,7 +551,6 @@ body {
   font-weight: 600;
   transition: none;
 }
-
 
 .loading-doc {
   display: flex;
@@ -844,7 +839,8 @@ body {
 }
 
 @keyframes guarantee-glow {
-  0%, 100% {
+  0%,
+  100% {
     stroke-width: 2;
     stroke-opacity: 0.5;
   }
@@ -866,7 +862,7 @@ body {
   pointer-events: none;
   z-index: 10;
   white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .topo-tooltip-kind {
@@ -1137,4 +1133,3 @@ body {
     padding: 0.5rem;
   }
 }
-

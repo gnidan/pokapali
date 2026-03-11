@@ -9,8 +9,7 @@ import {
   announceSnapshot,
   base64ToUint8,
 } from "./announce.js";
-import { resolveIPNS, watchIPNS } from
-  "./ipns-helpers.js";
+import { resolveIPNS, watchIPNS } from "./ipns-helpers.js";
 import type { BlockGetter } from "./fetch-block.js";
 import { createLogger } from "@pokapali/log";
 
@@ -25,17 +24,11 @@ const GUARANTEE_REQUERY_MS = 5 * 60_000;
 export type LoadingState =
   | { status: "idle" }
   | { status: "resolving"; startedAt: number }
-  | { status: "fetching"; cid: string;
-      startedAt: number }
-  | { status: "retrying"; cid: string;
-      attempt: number; nextRetryAt: number }
-  | { status: "failed"; cid: string;
-      error: string };
+  | { status: "fetching"; cid: string; startedAt: number }
+  | { status: "retrying"; cid: string; attempt: number; nextRetryAt: number }
+  | { status: "failed"; cid: string; error: string };
 
-export type GossipActivity =
-  | "inactive"
-  | "subscribed"
-  | "receiving";
+export type GossipActivity = "inactive" | "subscribed" | "receiving";
 
 const GOSSIP_RECENCY_MS = 60_000;
 const GOSSIP_DECAY_MS = 30_000;
@@ -48,22 +41,16 @@ export interface SnapshotWatcherOptions {
   isWriter: boolean;
   ipnsPublicKeyBytes?: Uint8Array;
   onSnapshot: (cid: CID) => Promise<void>;
-  onFetchStateChange?: (
-    state: LoadingState,
-  ) => void;
+  onFetchStateChange?: (state: LoadingState) => void;
   onAck?: (peerId: string) => void;
-  onGossipActivityChange?: (
-    activity: GossipActivity,
-  ) => void;
+  onGossipActivityChange?: (activity: GossipActivity) => void;
   performInitialResolve?: boolean;
 }
 
 export interface SnapshotWatcher {
   startReannounce(
     getCid: () => CID | null,
-    getBlock: (
-      cidStr: string,
-    ) => Uint8Array | undefined,
+    getBlock: (cidStr: string) => Uint8Array | undefined,
     getSeq?: () => number | null,
   ): void;
   /** Trigger an immediate re-announce (e.g. on new
@@ -107,8 +94,7 @@ export function createSnapshotWatcher(
   let pendingCid: string | null = null;
   let latestAnnouncedSeq = 0;
   let retryAttempt = 0;
-  let fetchState: LoadingState =
-    { status: "idle" };
+  let fetchState: LoadingState = { status: "idle" };
   let hasAppliedSnapshot = false;
   /** Tracks which CID the acks are for. */
   let ackedCid: string | null = null;
@@ -121,24 +107,18 @@ export function createSnapshotWatcher(
     string,
     { guarantee: number; retain: number }
   >();
-  let retryTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // --- GossipSub liveness tracking ---
   let lastGossipMessageAt = 0;
   let gossipSubscribed = false;
-  let gossipDecayTimer: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let lastReportedGossipActivity:
-    GossipActivity = "inactive";
+  let gossipDecayTimer: ReturnType<typeof setInterval> | null = null;
+  let lastReportedGossipActivity: GossipActivity = "inactive";
 
   function currentGossipActivity(): GossipActivity {
     if (
       lastGossipMessageAt > 0 &&
-      Date.now() - lastGossipMessageAt
-        < GOSSIP_RECENCY_MS
+      Date.now() - lastGossipMessageAt < GOSSIP_RECENCY_MS
     ) {
       return "receiving";
     }
@@ -166,10 +146,7 @@ export function createSnapshotWatcher(
 
   // Decay timer: check every 30s whether
   // "receiving" has expired.
-  gossipDecayTimer = setInterval(
-    checkGossipActivity,
-    GOSSIP_DECAY_MS,
-  );
+  gossipDecayTimer = setInterval(checkGossipActivity, GOSSIP_DECAY_MS);
 
   function setFetchState(s: LoadingState) {
     fetchState = s;
@@ -189,9 +166,7 @@ export function createSnapshotWatcher(
   // Fire initial guarantee query after subscribing
   // so pinners respond with their current state.
   function fireGuaranteeQuery() {
-    publishGuaranteeQuery(
-      pubsub, appId, ipnsName,
-    ).catch((err) => {
+    publishGuaranteeQuery(pubsub, appId, ipnsName).catch((err) => {
       log.warn("guarantee query failed:", err);
     });
   }
@@ -211,10 +186,7 @@ export function createSnapshotWatcher(
     if (retryTimer || !pendingCid) return;
     retryAttempt++;
     if (retryAttempt > MAX_OUTER_RETRIES) {
-      log.warn(
-        "max retries exceeded for",
-        pendingCid.slice(0, 16) + "...",
-      );
+      log.warn("max retries exceeded for", pendingCid.slice(0, 16) + "...");
       setFetchState({
         status: "failed",
         cid: pendingCid,
@@ -233,10 +205,7 @@ export function createSnapshotWatcher(
       retryTimer = null;
       if (!pendingCid || destroyed) return;
       const cidStr = pendingCid;
-      log.debug(
-        "retrying fetch for",
-        cidStr.slice(0, 16) + "...",
-      );
+      log.debug("retrying fetch for", cidStr.slice(0, 16) + "...");
       setFetchState({
         status: "fetching",
         cid: cidStr,
@@ -260,36 +229,26 @@ export function createSnapshotWatcher(
     if (detail?.topic !== topic) return;
 
     // Check for guarantee response first
-    const gResp =
-      parseGuaranteeResponse(detail.data);
+    const gResp = parseGuaranteeResponse(detail.data);
     if (gResp && gResp.ipnsName === ipnsName) {
       if (destroyed) return;
       touchGossip();
       // Update guarantees for the responding pinner
       // (same monotonic logic as ack handling).
-      const prev =
-        pinnerGuarantees.get(gResp.peerId) ??
-        { guarantee: 0, retain: 0 };
+      const prev = pinnerGuarantees.get(gResp.peerId) ?? {
+        guarantee: 0,
+        retain: 0,
+      };
       pinnerGuarantees.set(gResp.peerId, {
-        guarantee: Math.max(
-          prev.guarantee,
-          gResp.guaranteeUntil ?? 0,
-        ),
-        retain: Math.max(
-          prev.retain,
-          gResp.retainUntil ?? 0,
-        ),
+        guarantee: Math.max(prev.guarantee, gResp.guaranteeUntil ?? 0),
+        retain: Math.max(prev.retain, gResp.retainUntil ?? 0),
       });
       // Also track as acked if CID matches
       if (gResp.cid === ackedCid) {
-        const isNew =
-          !ackedBy.has(gResp.peerId);
+        const isNew = !ackedBy.has(gResp.peerId);
         ackedBy.add(gResp.peerId);
         if (isNew) {
-          log.debug(
-            "guarantee-response from",
-            gResp.peerId.slice(-8),
-          );
+          log.debug("guarantee-response from", gResp.peerId.slice(-8));
           options.onAck?.(gResp.peerId);
         }
       }
@@ -312,28 +271,21 @@ export function createSnapshotWatcher(
           ann.ack.guaranteeUntil !== undefined ||
           ann.ack.retainUntil !== undefined
         ) {
-          const prev =
-            pinnerGuarantees.get(
-              ann.ack.peerId,
-            ) ?? { guarantee: 0, retain: 0 };
-          pinnerGuarantees.set(
-            ann.ack.peerId,
-            {
-              guarantee: Math.max(
-                prev.guarantee,
-                ann.ack.guaranteeUntil ?? 0,
-              ),
-              retain: Math.max(
-                prev.retain,
-                ann.ack.retainUntil ?? 0,
-              ),
-            },
-          );
+          const prev = pinnerGuarantees.get(ann.ack.peerId) ?? {
+            guarantee: 0,
+            retain: 0,
+          };
+          pinnerGuarantees.set(ann.ack.peerId, {
+            guarantee: Math.max(prev.guarantee, ann.ack.guaranteeUntil ?? 0),
+            retain: Math.max(prev.retain, ann.ack.retainUntil ?? 0),
+          });
         }
         if (isNew) {
           log.debug(
-            "ack from", ann.ack.peerId.slice(-8),
-            "for", ann.cid.slice(0, 16) + "...",
+            "ack from",
+            ann.ack.peerId.slice(-8),
+            "for",
+            ann.cid.slice(0, 16) + "...",
           );
           options.onAck?.(ann.ack.peerId);
         }
@@ -349,14 +301,9 @@ export function createSnapshotWatcher(
       if (!ann.block && ann.seq === undefined) return;
     }
 
-    log.debug(
-      "announce received:",
-      ann.cid.slice(0, 16) + "...",
-    );
+    log.debug("announce received:", ann.cid.slice(0, 16) + "...");
     if (ann.seq !== undefined) {
-      latestAnnouncedSeq = Math.max(
-        latestAnnouncedSeq, ann.seq,
-      );
+      latestAnnouncedSeq = Math.max(latestAnnouncedSeq, ann.seq);
     }
     pendingCid = ann.cid;
     retryAttempt = 0;
@@ -373,41 +320,32 @@ export function createSnapshotWatcher(
       try {
         const blockBytes = base64ToUint8(ann.block);
         const helia = getHelia();
-        Promise.resolve(
-          helia.blockstore.put(cid, blockBytes),
-        ).catch((err) => {
-          log.warn(
-            "blockstore.put from announce failed:",
-            err,
-          );
+        Promise.resolve(helia.blockstore.put(cid, blockBytes)).catch((err) => {
+          log.warn("blockstore.put from announce failed:", err);
         });
       } catch (err) {
         log.warn("block decode failed:", err);
       }
     }
 
-    onSnapshot(cid).then(() => {
-      if (destroyed) return;
-      hasAppliedSnapshot = true;
-      setFetchState({ status: "idle" });
-      if (ann.cid !== lastAnnouncedCid) {
-        lastAnnouncedCid = ann.cid;
-        announceSnapshot(
-          pubsub, appId, ipnsName, ann.cid,
-          ann.seq,
-        );
-      }
-    }).catch((err) => {
-      if (destroyed) return;
-      log.warn("announce apply failed:", err);
-      scheduleRetry();
-    });
+    onSnapshot(cid)
+      .then(() => {
+        if (destroyed) return;
+        hasAppliedSnapshot = true;
+        setFetchState({ status: "idle" });
+        if (ann.cid !== lastAnnouncedCid) {
+          lastAnnouncedCid = ann.cid;
+          announceSnapshot(pubsub, appId, ipnsName, ann.cid, ann.seq);
+        }
+      })
+      .catch((err) => {
+        if (destroyed) return;
+        log.warn("announce apply failed:", err);
+        scheduleRetry();
+      });
   };
 
-  pubsub.addEventListener(
-    "message",
-    announceHandler,
-  );
+  pubsub.addEventListener("message", announceHandler);
 
   // --- IPNS polling fallback ---
 
@@ -435,7 +373,10 @@ export function createSnapshotWatcher(
           if (cidStr !== lastAnnouncedCid) {
             lastAnnouncedCid = cidStr;
             announceSnapshot(
-              pubsub, appId, ipnsName, cidStr,
+              pubsub,
+              appId,
+              ipnsName,
+              cidStr,
               latestAnnouncedSeq || undefined,
             );
           }
@@ -461,9 +402,7 @@ export function createSnapshotWatcher(
 
   // --- Initial IPNS resolve ---
 
-  if (options.performInitialResolve &&
-    ipnsPublicKeyBytes
-  ) {
+  if (options.performInitialResolve && ipnsPublicKeyBytes) {
     const pubKeyBytes = ipnsPublicKeyBytes;
     setFetchState({
       status: "resolving",
@@ -472,15 +411,9 @@ export function createSnapshotWatcher(
     (async () => {
       try {
         const helia = getHelia();
-        const tipCid = await resolveIPNS(
-          helia,
-          pubKeyBytes,
-        );
+        const tipCid = await resolveIPNS(helia, pubKeyBytes);
         if (tipCid && !destroyed) {
-          log.info(
-            "IPNS resolved:",
-            tipCid.toString(),
-          );
+          log.info("IPNS resolved:", tipCid.toString());
           const cidStr = tipCid.toString();
           pendingCid = cidStr;
           retryAttempt = 0;
@@ -497,7 +430,10 @@ export function createSnapshotWatcher(
           if (cidStr !== lastAnnouncedCid) {
             lastAnnouncedCid = cidStr;
             announceSnapshot(
-              pubsub, appId, ipnsName, cidStr,
+              pubsub,
+              appId,
+              ipnsName,
+              cidStr,
               latestAnnouncedSeq || undefined,
             );
           }
@@ -505,9 +441,7 @@ export function createSnapshotWatcher(
         } else if (isWriter) {
           // Writer on a new doc — nothing published yet.
           // Go idle so the editor mounts immediately.
-          log.debug(
-            "IPNS resolve null (writer, new doc)",
-          );
+          log.debug("IPNS resolve null (writer, new doc)");
           setFetchState({ status: "idle" });
         } else {
           log.debug("IPNS resolve returned null");
@@ -516,14 +450,11 @@ export function createSnapshotWatcher(
             status: "retrying",
             cid: "",
             attempt: retryAttempt,
-            nextRetryAt: Date.now() +
-              RETRY_INTERVAL_MS,
+            nextRetryAt: Date.now() + RETRY_INTERVAL_MS,
           });
         }
       } catch (err) {
-        log.warn(
-          "initial snapshot load failed:", err,
-        );
+        log.warn("initial snapshot load failed:", err);
         scheduleRetry();
       }
     })();
@@ -531,17 +462,11 @@ export function createSnapshotWatcher(
 
   // --- Re-announce timer (writers only) ---
 
-  let announceTimer: ReturnType<
-    typeof setInterval
-  > | null = null;
+  let announceTimer: ReturnType<typeof setInterval> | null = null;
 
-  let reannounceGetCid:
-    (() => CID | null) | null = null;
-  let reannounceGetBlock:
-    ((s: string) => Uint8Array | undefined) | null
-    = null;
-  let reannounceGetSeq:
-    (() => number | null) | null = null;
+  let reannounceGetCid: (() => CID | null) | null = null;
+  let reannounceGetBlock: ((s: string) => Uint8Array | undefined) | null = null;
+  let reannounceGetSeq: (() => number | null) | null = null;
 
   function doReannounce() {
     if (!reannounceGetCid) return;
@@ -551,26 +476,14 @@ export function createSnapshotWatcher(
     const block = reannounceGetBlock?.(cidStr);
     if (block) {
       const helia = getHelia();
-      Promise.resolve(
-        helia.blockstore.put(cid, block),
-      ).catch((err) => {
+      Promise.resolve(helia.blockstore.put(cid, block)).catch((err) => {
         log.warn("blockstore.put failed:", err);
       });
     }
-    const seq =
-      reannounceGetSeq?.() ?? undefined;
-    log.debug(
-      "re-announce:", cidStr.slice(0, 16),
-    );
+    const seq = reannounceGetSeq?.() ?? undefined;
+    log.debug("re-announce:", cidStr.slice(0, 16));
     try {
-      announceSnapshot(
-        pubsub,
-        appId,
-        ipnsName,
-        cidStr,
-        seq,
-        block,
-      );
+      announceSnapshot(pubsub, appId, ipnsName, cidStr, seq, block);
     } catch (err) {
       log.warn("re-announce failed:", err);
     }
@@ -589,9 +502,7 @@ export function createSnapshotWatcher(
       reannounceGetBlock = getBlock;
       reannounceGetSeq = getSeq ?? null;
 
-      announceTimer = setInterval(
-        doReannounce, REANNOUNCE_MS,
-      );
+      announceTimer = setInterval(doReannounce, REANNOUNCE_MS);
     },
 
     reannounceNow() {
@@ -663,10 +574,7 @@ export function createSnapshotWatcher(
         clearTimeout(retryTimer);
         retryTimer = null;
       }
-      pubsub.removeEventListener(
-        "message",
-        announceHandler,
-      );
+      pubsub.removeEventListener("message", announceHandler);
     },
   };
 }

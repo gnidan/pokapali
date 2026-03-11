@@ -152,13 +152,9 @@ describe("setupNamespaceRooms", () => {
       content: makeKey(1),
       comments: makeKey(2),
     };
-    const mgr = createSubdocManager(
-      IPNS, ["content", "comments"],
-    );
+    const mgr = createSubdocManager(IPNS, ["content", "comments"]);
 
-    const sync = setupNamespaceRooms(
-      IPNS, mgr, keys, SIGNALING,
-    );
+    const sync = setupNamespaceRooms(IPNS, mgr, keys, SIGNALING);
 
     // One still connecting, one connected
     instances[0].connected = false;
@@ -168,29 +164,28 @@ describe("setupNamespaceRooms", () => {
     mgr.destroy();
   });
 
-  it("aggregates status: connecting when none"
-    + " connected but some shouldConnect", () => {
-    const keys: Record<string, Uint8Array> = {
-      content: makeKey(1),
-      comments: makeKey(2),
-    };
-    const mgr = createSubdocManager(
-      IPNS, ["content", "comments"],
-    );
+  it(
+    "aggregates status: connecting when none" +
+      " connected but some shouldConnect",
+    () => {
+      const keys: Record<string, Uint8Array> = {
+        content: makeKey(1),
+        comments: makeKey(2),
+      };
+      const mgr = createSubdocManager(IPNS, ["content", "comments"]);
 
-    const sync = setupNamespaceRooms(
-      IPNS, mgr, keys, SIGNALING,
-    );
+      const sync = setupNamespaceRooms(IPNS, mgr, keys, SIGNALING);
 
-    // None connected, all shouldConnect
-    for (const p of instances) {
-      p.connected = false;
-      p.shouldConnect = true;
-    }
-    expect(sync.status).toBe("connecting");
+      // None connected, all shouldConnect
+      for (const p of instances) {
+        p.connected = false;
+        p.shouldConnect = true;
+      }
+      expect(sync.status).toBe("connecting");
 
-    mgr.destroy();
-  });
+      mgr.destroy();
+    },
+  );
 
   it("aggregates status: disconnected when all are", () => {
     const keys: Record<string, Uint8Array> = {
@@ -280,9 +275,7 @@ describe("setupAwarenessRoom", () => {
   });
 
   it("exposes connected state", () => {
-    const room = setupAwarenessRoom(
-      IPNS, "abcdef01", SIGNALING,
-    );
+    const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
 
     expect(room.connected).toBe(true);
 
@@ -293,9 +286,7 @@ describe("setupAwarenessRoom", () => {
   });
 
   it("onStatusChange fires callback", () => {
-    const room = setupAwarenessRoom(
-      IPNS, "abcdef01", SIGNALING,
-    );
+    const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
     const p = instances[0];
 
     // Capture the "status" event handler registered
@@ -316,9 +307,7 @@ describe("setupAwarenessRoom", () => {
   });
 
   it("destroy cleans up provider and dummy doc", () => {
-    const room = setupAwarenessRoom(
-      IPNS, "abcdef01", SIGNALING,
-    );
+    const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
     const p = instances[0];
 
     room.destroy();

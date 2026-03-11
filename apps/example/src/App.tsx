@@ -1,8 +1,4 @@
-import {
-  useState,
-  useCallback,
-  useEffect,
-} from "react";
+import { useState, useCallback, useEffect } from "react";
 import { pokapali } from "@pokapali/core";
 import type { Doc } from "@pokapali/core";
 import { EditorView } from "./Editor";
@@ -22,8 +18,7 @@ function abbreviateId(id: string): string {
 const app = pokapali({
   appId: "pokapali-example",
   channels: ["content"],
-  origin: window.location.origin +
-    import.meta.env.BASE_URL.replace(/\/$/, ""),
+  origin: window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
 });
 
 function recordDoc(doc: Doc) {
@@ -37,17 +32,12 @@ function RecentDocsList({
   onOpen: (url: string) => void;
   loading: boolean;
 }) {
-  const [docs, setDocs] = useState<RecentDoc[]>(
-    loadRecent,
-  );
+  const [docs, setDocs] = useState<RecentDoc[]>(loadRecent);
   const [, tick] = useState(0);
 
   // Re-render periodically so relative ages stay fresh
   useEffect(() => {
-    const id = setInterval(
-      () => tick((n) => n + 1),
-      30_000,
-    );
+    const id = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -65,23 +55,12 @@ function RecentDocsList({
               onClick={() => onOpen(d.url)}
               aria-label={`Open ${d.title || "Untitled"}, ${d.role}, ${formatAge(d.lastOpened)}`}
             >
-              <span
-                className="recent-title"
-                title={d.title || "Untitled"}
-              >
+              <span className="recent-title" title={d.title || "Untitled"}>
                 {d.title || "Untitled"}
               </span>
-              <span className="recent-id-pill">
-                {abbreviateId(d.docId)}
-              </span>
-              <span className={
-                "badge " + d.role.toLowerCase()
-              }>
-                {d.role}
-              </span>
-              <span className="recent-age">
-                {formatAge(d.lastOpened)}
-              </span>
+              <span className="recent-id-pill">{abbreviateId(d.docId)}</span>
+              <span className={"badge " + d.role.toLowerCase()}>{d.role}</span>
+              <span className="recent-age">{formatAge(d.lastOpened)}</span>
             </button>
             <button
               className="recent-remove"
@@ -90,9 +69,7 @@ function RecentDocsList({
               onClick={() =>
                 setDocs((prev) => {
                   removeRecent(d.docId);
-                  return prev.filter(
-                    (e) => e.docId !== d.docId,
-                  );
+                  return prev.filter((e) => e.docId !== d.docId);
                 })
               }
             >
@@ -130,9 +107,7 @@ function Landing({ onDoc }: { onDoc: (doc: Doc) => void }) {
         const doc = await app.open(rawUrl);
         onDoc(doc);
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : String(e),
-        );
+        setError(e instanceof Error ? e.message : String(e));
         setLoading(false);
       }
     },
@@ -182,10 +157,7 @@ function Landing({ onDoc }: { onDoc: (doc: Doc) => void }) {
           </div>
         )}
       </div>
-      <RecentDocsList
-        onOpen={openByUrl}
-        loading={loading}
-      />
+      <RecentDocsList onOpen={openByUrl} loading={loading} />
     </div>
   );
 }
@@ -194,19 +166,16 @@ export function App() {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [autoOpening, setAutoOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const openDoc = useCallback(
-    (d: Doc, replace = false) => {
-      recordDoc(d);
-      setDoc(d);
-      const url = d.urls.best;
-      if (replace) {
-        window.history.replaceState(null, "", url);
-      } else {
-        window.history.pushState(null, "", url);
-      }
-    },
-    [],
-  );
+  const openDoc = useCallback((d: Doc, replace = false) => {
+    recordDoc(d);
+    setDoc(d);
+    const url = d.urls.best;
+    if (replace) {
+      window.history.replaceState(null, "", url);
+    } else {
+      window.history.pushState(null, "", url);
+    }
+  }, []);
 
   const goToLanding = useCallback(() => {
     setDoc(null);
@@ -234,15 +203,13 @@ export function App() {
       },
       (e) => {
         if (cancelled) return;
-        setError(
-          e instanceof Error
-            ? e.message
-            : String(e),
-        );
+        setError(e instanceof Error ? e.message : String(e));
         setAutoOpening(false);
       },
     );
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [openDoc]);
 
   // Handle browser back/forward — only go to landing
@@ -255,20 +222,13 @@ export function App() {
     };
     window.addEventListener("popstate", onPopState);
     return () => {
-      window.removeEventListener(
-        "popstate",
-        onPopState,
-      );
+      window.removeEventListener("popstate", onPopState);
     };
   }, [goToLanding]);
 
   const handleBack = useCallback(() => {
     goToLanding();
-    window.history.pushState(
-      null,
-      "",
-      import.meta.env.BASE_URL,
-    );
+    window.history.pushState(null, "", import.meta.env.BASE_URL);
   }, [goToLanding]);
 
   if (doc) {
@@ -284,9 +244,7 @@ export function App() {
         {error && (
           <div className="landing-error" role="alert">
             <p>{error}</p>
-            <button onClick={goToLanding}>
-              Back to home
-            </button>
+            <button onClick={goToLanding}>Back to home</button>
           </div>
         )}
       </div>

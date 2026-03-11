@@ -1,8 +1,7 @@
 // --- Relay cache (localStorage) ---
 
 function hasLocalStorage(): boolean {
-  return typeof globalThis.localStorage
-    !== "undefined";
+  return typeof globalThis.localStorage !== "undefined";
 }
 
 export interface CachedRelay {
@@ -12,8 +11,7 @@ export interface CachedRelay {
 }
 
 export const CACHE_KEY = "pokapali:relays";
-export const RELAY_CACHE_MAX_AGE_MS =
-  48 * 60 * 60_000; // 48h
+export const RELAY_CACHE_MAX_AGE_MS = 48 * 60 * 60_000; // 48h
 
 // Migrate old per-app cache entries to the new
 // network-wide key. Runs once on first load.
@@ -27,9 +25,7 @@ export function migrateOldCache(): void {
     // Scan for old per-app keys
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (
-        !key?.startsWith("pokapali:relays:")
-      ) continue;
+      if (!key?.startsWith("pokapali:relays:")) continue;
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       // Copy first match to new key, remove old
@@ -58,49 +54,32 @@ export function loadCachedRelays(): CachedRelay[] {
     const entries: CachedRelay[] = JSON.parse(raw);
     const now = Date.now();
     // Drop entries older than max age
-    return entries.filter(
-      (e) =>
-        now - e.lastSeen < RELAY_CACHE_MAX_AGE_MS,
-    );
+    return entries.filter((e) => now - e.lastSeen < RELAY_CACHE_MAX_AGE_MS);
   } catch {
     return [];
   }
 }
 
-function saveCachedRelays(
-  relays: CachedRelay[],
-): void {
+function saveCachedRelays(relays: CachedRelay[]): void {
   if (!hasLocalStorage()) return;
   try {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify(relays),
-    );
+    localStorage.setItem(CACHE_KEY, JSON.stringify(relays));
   } catch {
     // quota exceeded, etc.
   }
 }
 
-export function removeCachedRelay(
-  peerId: string,
-): void {
+export function removeCachedRelay(peerId: string): void {
   const relays = loadCachedRelays();
-  const filtered = relays.filter(
-    (r) => r.peerId !== peerId,
-  );
+  const filtered = relays.filter((r) => r.peerId !== peerId);
   if (filtered.length !== relays.length) {
     saveCachedRelays(filtered);
   }
 }
 
-export function upsertCachedRelay(
-  peerId: string,
-  addrs: string[],
-): void {
+export function upsertCachedRelay(peerId: string, addrs: string[]): void {
   const relays = loadCachedRelays();
-  const existing = relays.find(
-    (r) => r.peerId === peerId,
-  );
+  const existing = relays.find((r) => r.peerId === peerId);
   if (existing) {
     existing.addrs = addrs;
     existing.lastSeen = Date.now();

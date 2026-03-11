@@ -1,11 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createNodeRegistry,
   acquireNodeRegistry,
@@ -15,33 +8,22 @@ import {
 } from "./node-registry.js";
 
 function makePubsub() {
-  const handlers = new Map<
-    string,
-    Set<(evt: any) => void>
-  >();
+  const handlers = new Map<string, Set<(evt: any) => void>>();
   return {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
     publish: vi.fn().mockResolvedValue(undefined),
-    addEventListener(
-      type: string,
-      fn: (evt: any) => void,
-    ) {
+    addEventListener(type: string, fn: (evt: any) => void) {
       if (!handlers.has(type)) {
         handlers.set(type, new Set());
       }
       handlers.get(type)!.add(fn);
     },
-    removeEventListener(
-      type: string,
-      fn: (evt: any) => void,
-    ) {
+    removeEventListener(type: string, fn: (evt: any) => void) {
       handlers.get(type)?.delete(fn);
     },
     _emit(type: string, detail: any) {
-      for (const fn of
-        handlers.get(type) ?? []
-      ) {
+      for (const fn of handlers.get(type) ?? []) {
         fn({ detail } as any);
       }
     },
@@ -49,10 +31,7 @@ function makePubsub() {
   };
 }
 
-function capsMessage(
-  peerId: string,
-  roles: string[],
-): Uint8Array {
+function capsMessage(peerId: string, roles: string[]): Uint8Array {
   return new TextEncoder().encode(
     JSON.stringify({
       version: 1,
@@ -81,9 +60,7 @@ function capsMessageV2(
   );
 }
 
-function makeHelia(
-  connectedPeerIds: string[] = [],
-) {
+function makeHelia(connectedPeerIds: string[] = []) {
   return {
     libp2p: {
       getConnections: () =>
@@ -106,14 +83,9 @@ describe("createNodeRegistry", () => {
   it("subscribes to caps topic", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
-    expect(pubsub.subscribe).toHaveBeenCalledWith(
-      NODE_CAPS_TOPIC,
-    );
+    expect(pubsub.subscribe).toHaveBeenCalledWith(NODE_CAPS_TOPIC);
 
     reg.destroy();
   });
@@ -121,25 +93,17 @@ describe("createNodeRegistry", () => {
   it("tracks nodes from caps messages", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-A"]);
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
-      data: capsMessage(
-        "peer-A",
-        ["relay", "pinner"],
-      ),
+      data: capsMessage("peer-A", ["relay", "pinner"]),
     });
 
     expect(reg.nodes.size).toBe(1);
     const node = reg.nodes.get("peer-A")!;
     expect(node.peerId).toBe("peer-A");
-    expect(node.roles).toEqual(
-      ["relay", "pinner"],
-    );
+    expect(node.roles).toEqual(["relay", "pinner"]);
     expect(node.connected).toBe(true);
     expect(node.lastSeenAt).toBeGreaterThan(0);
 
@@ -149,10 +113,7 @@ describe("createNodeRegistry", () => {
   it("marks disconnected nodes correctly", () => {
     const pubsub = makePubsub();
     const helia = makeHelia([]); // no connections
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
@@ -168,10 +129,7 @@ describe("createNodeRegistry", () => {
   it("ignores messages on other topics", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: "other-topic",
@@ -186,10 +144,7 @@ describe("createNodeRegistry", () => {
   it("ignores malformed messages", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
@@ -198,9 +153,7 @@ describe("createNodeRegistry", () => {
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
-      data: new TextEncoder().encode(
-        JSON.stringify({ version: 99 }),
-      ),
+      data: new TextEncoder().encode(JSON.stringify({ version: 99 })),
     });
 
     expect(reg.nodes.size).toBe(0);
@@ -211,10 +164,7 @@ describe("createNodeRegistry", () => {
   it("prunes stale entries after 90s", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
@@ -234,58 +184,40 @@ describe("createNodeRegistry", () => {
   it("updates existing node on re-announce", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-E"]);
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
       data: capsMessage("peer-E", ["relay"]),
     });
 
-    const firstSeen =
-      reg.nodes.get("peer-E")!.lastSeenAt;
+    const firstSeen = reg.nodes.get("peer-E")!.lastSeenAt;
 
     vi.advanceTimersByTime(30_000);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
-      data: capsMessage(
-        "peer-E",
-        ["relay", "pinner"],
-      ),
+      data: capsMessage("peer-E", ["relay", "pinner"]),
     });
 
     const node = reg.nodes.get("peer-E")!;
-    expect(node.roles).toEqual(
-      ["relay", "pinner"],
-    );
-    expect(node.lastSeenAt).toBeGreaterThan(
-      firstSeen,
-    );
+    expect(node.roles).toEqual(["relay", "pinner"]);
+    expect(node.lastSeenAt).toBeGreaterThan(firstSeen);
 
     reg.destroy();
   });
 
-  it("parses v2 message with neighbors and"
-    + " browserCount", () => {
+  it("parses v2 message with neighbors and" + " browserCount", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["relay-A"]);
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
       data: capsMessageV2(
         "relay-A",
         ["relay"],
-        [
-          { peerId: "browser-1", role: "browser" },
-          { peerId: "browser-2" },
-        ],
+        [{ peerId: "browser-1", role: "browser" }, { peerId: "browser-2" }],
         3,
       ),
     });
@@ -303,28 +235,17 @@ describe("createNodeRegistry", () => {
   it("parses v2 message with addrs", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["relay-A"]);
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
-      data: capsMessageV2(
-        "relay-A",
-        ["relay"],
-        [],
-        0,
-        [
-          "/ip4/1.2.3.4/tcp/4003/tls/ws/p2p/relay-A",
-        ],
-      ),
+      data: capsMessageV2("relay-A", ["relay"], [], 0, [
+        "/ip4/1.2.3.4/tcp/4003/tls/ws/p2p/relay-A",
+      ]),
     });
 
     const node = reg.nodes.get("relay-A")!;
-    expect(node.addrs).toEqual([
-      "/ip4/1.2.3.4/tcp/4003/tls/ws/p2p/relay-A",
-    ]);
+    expect(node.addrs).toEqual(["/ip4/1.2.3.4/tcp/4003/tls/ws/p2p/relay-A"]);
 
     reg.destroy();
   });
@@ -332,10 +253,7 @@ describe("createNodeRegistry", () => {
   it("v1 messages have empty addrs", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
@@ -351,10 +269,7 @@ describe("createNodeRegistry", () => {
   it("v1 messages have empty neighbors", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
@@ -368,28 +283,17 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("prunes stale node and its topology"
-    + " edges", () => {
+  it("prunes stale node and its topology" + " edges", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
-      data: capsMessageV2(
-        "relay-X",
-        ["relay"],
-        [{ peerId: "browser-99" }],
-        1,
-      ),
+      data: capsMessageV2("relay-X", ["relay"], [{ peerId: "browser-99" }], 1),
     });
     expect(reg.nodes.size).toBe(1);
-    expect(
-      reg.nodes.get("relay-X")!.neighbors,
-    ).toHaveLength(1);
+    expect(reg.nodes.get("relay-X")!.neighbors).toHaveLength(1);
 
     // Advance past stale threshold + prune interval
     vi.advanceTimersByTime(120_000);
@@ -402,10 +306,7 @@ describe("createNodeRegistry", () => {
   it("fires onNodeChange for new node", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-A"]);
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
     reg.onNodeChange(cb);
 
@@ -422,10 +323,7 @@ describe("createNodeRegistry", () => {
   it("fires onNodeChange when roles change", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-A"]);
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
 
     pubsub._emit("message", {
@@ -445,17 +343,14 @@ describe("createNodeRegistry", () => {
     // Different roles — fires
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
-      data: capsMessage(
-        "peer-A", ["relay", "pinner"],
-      ),
+      data: capsMessage("peer-A", ["relay", "pinner"]),
     });
     expect(cb).toHaveBeenCalledTimes(1);
 
     reg.destroy();
   });
 
-  it("fires onNodeChange when connected state"
-    + " changes", () => {
+  it("fires onNodeChange when connected state" + " changes", () => {
     const pubsub = makePubsub();
     let connectedPeers: string[] = [];
     const helia = {
@@ -466,10 +361,7 @@ describe("createNodeRegistry", () => {
           })),
       },
     };
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
 
     // First message: disconnected
@@ -498,14 +390,10 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("does not fire onNodeChange for unchanged"
-    + " re-announce", () => {
+  it("does not fire onNodeChange for unchanged" + " re-announce", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-A"]);
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
 
     pubsub._emit("message", {
@@ -529,10 +417,7 @@ describe("createNodeRegistry", () => {
   it("fires onNodeChange on stale prune", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
 
     pubsub._emit("message", {
@@ -551,10 +436,7 @@ describe("createNodeRegistry", () => {
   it("offNodeChange unregisters callback", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
     reg.onNodeChange(cb);
     reg.offNodeChange(cb);
@@ -572,10 +454,7 @@ describe("createNodeRegistry", () => {
   it("destroy clears change listeners", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
     reg.onNodeChange(cb);
     reg.destroy();
@@ -586,14 +465,10 @@ describe("createNodeRegistry", () => {
     reg.offNodeChange(cb);
   });
 
-  it("destroy removes listener and stops"
-    + " prune timer", () => {
+  it("destroy removes listener and stops" + " prune timer", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const reg = createNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
 
     // Add a node, then destroy
     pubsub._emit("message", {
@@ -606,9 +481,7 @@ describe("createNodeRegistry", () => {
 
     // After destroy, new messages should not
     // be processed (listener removed)
-    expect(
-      pubsub._handlers.get("message")?.size ?? 0,
-    ).toBe(0);
+    expect(pubsub._handlers.get("message")?.size ?? 0).toBe(0);
   });
 });
 
@@ -617,44 +490,29 @@ describe("singleton management", () => {
     _resetNodeRegistry();
   });
 
-  it("acquireNodeRegistry returns same"
-    + " instance", () => {
+  it("acquireNodeRegistry returns same" + " instance", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const r1 = acquireNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
-    const r2 = acquireNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    const r1 = acquireNodeRegistry(pubsub as any, () => helia as any);
+    const r2 = acquireNodeRegistry(pubsub as any, () => helia as any);
     expect(r1).toBe(r2);
   });
 
-  it("getNodeRegistry returns null before"
-    + " acquire", () => {
+  it("getNodeRegistry returns null before" + " acquire", () => {
     expect(getNodeRegistry()).toBeNull();
   });
 
-  it("getNodeRegistry returns instance after"
-    + " acquire", () => {
+  it("getNodeRegistry returns instance after" + " acquire", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    acquireNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    acquireNodeRegistry(pubsub as any, () => helia as any);
     expect(getNodeRegistry()).not.toBeNull();
   });
 
   it("_resetNodeRegistry clears singleton", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    acquireNodeRegistry(
-      pubsub as any,
-      () => helia as any,
-    );
+    acquireNodeRegistry(pubsub as any, () => helia as any);
     _resetNodeRegistry();
     expect(getNodeRegistry()).toBeNull();
   });

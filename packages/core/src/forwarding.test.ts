@@ -5,21 +5,14 @@ import {
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
-import {
-  generateAdminSecret,
-  deriveDocKeys,
-} from "@pokapali/crypto";
+import { generateAdminSecret, deriveDocKeys } from "@pokapali/crypto";
 
 describe("forwarding records", () => {
   let rotationKey: Uint8Array;
 
   beforeEach(async () => {
     const secret = generateAdminSecret();
-    const keys = await deriveDocKeys(
-      secret,
-      "test",
-      ["content"],
-    );
+    const keys = await deriveDocKeys(secret, "test", ["content"]);
     rotationKey = keys.rotationKey;
   });
 
@@ -35,12 +28,8 @@ describe("forwarding records", () => {
 
     expect(decoded.oldIpnsName).toBe("oldName");
     expect(decoded.newIpnsName).toBe("newName");
-    expect(decoded.newUrl).toBe(
-      "https://example.com/doc/newName#frag",
-    );
-    expect(decoded.signature).toBeInstanceOf(
-      Uint8Array,
-    );
+    expect(decoded.newUrl).toBe("https://example.com/doc/newName#frag");
+    expect(decoded.signature).toBeInstanceOf(Uint8Array);
   });
 
   it("verify valid signature", async () => {
@@ -50,10 +39,7 @@ describe("forwarding records", () => {
       "https://example.com/doc/newName#frag",
       rotationKey,
     );
-    const valid = await verifyForwardingRecord(
-      record,
-      rotationKey,
-    );
+    const valid = await verifyForwardingRecord(record, rotationKey);
     expect(valid).toBe(true);
   });
 
@@ -65,12 +51,8 @@ describe("forwarding records", () => {
       rotationKey,
     );
     // Tamper with the new URL
-    record.newUrl =
-      "https://evil.com/doc/newName#frag";
-    const valid = await verifyForwardingRecord(
-      record,
-      rotationKey,
-    );
+    record.newUrl = "https://evil.com/doc/newName#frag";
+    const valid = await verifyForwardingRecord(record, rotationKey);
     expect(valid).toBe(false);
   });
 
@@ -83,15 +65,8 @@ describe("forwarding records", () => {
     );
     // Use a different rotation key
     const otherSecret = generateAdminSecret();
-    const otherKeys = await deriveDocKeys(
-      otherSecret,
-      "test",
-      ["content"],
-    );
-    const valid = await verifyForwardingRecord(
-      record,
-      otherKeys.rotationKey,
-    );
+    const otherKeys = await deriveDocKeys(otherSecret, "test", ["content"]);
+    const valid = await verifyForwardingRecord(record, otherKeys.rotationKey);
     expect(valid).toBe(false);
   });
 });

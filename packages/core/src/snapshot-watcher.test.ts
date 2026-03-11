@@ -1,11 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("./ipns-helpers.js", () => ({
   resolveIPNS: vi.fn().mockResolvedValue(null),
@@ -13,26 +6,15 @@ vi.mock("./ipns-helpers.js", () => ({
 }));
 
 vi.mock("./announce.js", () => ({
-  announceTopic: vi.fn(
-    (appId: string) =>
-      `/pokapali/app/${appId}/announce`,
-  ),
+  announceTopic: vi.fn((appId: string) => `/pokapali/app/${appId}/announce`),
   parseAnnouncement: vi.fn().mockReturnValue(null),
-  parseGuaranteeResponse:
-    vi.fn().mockReturnValue(null),
-  publishGuaranteeQuery:
-    vi.fn().mockResolvedValue(undefined),
-  announceSnapshot:
-    vi.fn().mockResolvedValue(undefined),
+  parseGuaranteeResponse: vi.fn().mockReturnValue(null),
+  publishGuaranteeQuery: vi.fn().mockResolvedValue(undefined),
+  announceSnapshot: vi.fn().mockResolvedValue(undefined),
 }));
 
-import {
-  createSnapshotWatcher,
-} from "./snapshot-watcher.js";
-import {
-  resolveIPNS,
-  watchIPNS,
-} from "./ipns-helpers.js";
+import { createSnapshotWatcher } from "./snapshot-watcher.js";
+import { resolveIPNS, watchIPNS } from "./ipns-helpers.js";
 import {
   announceTopic,
   parseAnnouncement,
@@ -96,9 +78,7 @@ describe("createSnapshotWatcher", () => {
       onSnapshot: vi.fn(),
     });
 
-    expect(
-      pubsub.subscribe,
-    ).not.toHaveBeenCalled();
+    expect(pubsub.subscribe).not.toHaveBeenCalled();
 
     watcher.destroy();
   });
@@ -129,9 +109,7 @@ describe("createSnapshotWatcher", () => {
 
   it("destroy cleans up", () => {
     const stopWatch = vi.fn();
-    vi.mocked(watchIPNS).mockReturnValue(
-      stopWatch,
-    );
+    vi.mocked(watchIPNS).mockReturnValue(stopWatch);
     const pubsub = {
       subscribe: vi.fn(),
       addEventListener: vi.fn(),
@@ -153,9 +131,7 @@ describe("createSnapshotWatcher", () => {
     watcher.destroy();
 
     expect(stopWatch).toHaveBeenCalled();
-    expect(
-      pubsub.removeEventListener,
-    ).toHaveBeenCalled();
+    expect(pubsub.removeEventListener).toHaveBeenCalled();
   });
 
   describe("guaranteeUntil", () => {
@@ -164,18 +140,14 @@ describe("createSnapshotWatcher", () => {
         subscribe: vi.fn(),
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
-        publish:
-          vi.fn().mockResolvedValue(undefined),
+        publish: vi.fn().mockResolvedValue(undefined),
       };
     }
 
-    function getMessageHandler(
-      pubsub: ReturnType<typeof makePubsub>,
-    ) {
-      const call =
-        pubsub.addEventListener.mock.calls.find(
-          (c: any) => c[0] === "message",
-        );
+    function getMessageHandler(pubsub: ReturnType<typeof makePubsub>) {
+      const call = pubsub.addEventListener.mock.calls.find(
+        (c: any) => c[0] === "message",
+      );
       return call?.[1] as (evt: any) => void;
     }
 
@@ -194,12 +166,11 @@ describe("createSnapshotWatcher", () => {
       if (retainUntil !== undefined) {
         ack.retainUntil = retainUntil;
       }
-      vi.mocked(parseAnnouncement)
-        .mockReturnValueOnce({
-          ipnsName,
-          cid,
-          ack,
-        });
+      vi.mocked(parseAnnouncement).mockReturnValueOnce({
+        ipnsName,
+        cid,
+        ack,
+      });
       return {
         detail: {
           topic,
@@ -214,7 +185,7 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
@@ -229,24 +200,18 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", 1700000000000,
-      ));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A", 1700000000000));
 
-      expect(
-        watcher.guaranteeUntil,
-      ).toBe(1700000000000);
+      expect(watcher.guaranteeUntil).toBe(1700000000000);
       watcher.destroy();
     });
 
@@ -256,28 +221,19 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", 1700000000000,
-      ));
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-B", 1800000000000,
-      ));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A", 1700000000000));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-B", 1800000000000));
 
-      expect(
-        watcher.guaranteeUntil,
-      ).toBe(1800000000000);
+      expect(watcher.guaranteeUntil).toBe(1800000000000);
       watcher.destroy();
     });
 
@@ -287,29 +243,20 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", 1800000000000,
-      ));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A", 1800000000000));
       // Lower value should not override
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", 1700000000000,
-      ));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A", 1700000000000));
 
-      expect(
-        watcher.guaranteeUntil,
-      ).toBe(1800000000000);
+      expect(watcher.guaranteeUntil).toBe(1800000000000);
       watcher.destroy();
     });
 
@@ -319,23 +266,17 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", 1700000000000,
-      ));
-      expect(
-        watcher.guaranteeUntil,
-      ).toBe(1700000000000);
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A", 1700000000000));
+      expect(watcher.guaranteeUntil).toBe(1700000000000);
 
       // New CID clears guarantees
       watcher.trackCidForAcks("cid-2");
@@ -350,20 +291,17 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
       // Ack without guaranteeUntil
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1", "pinner-A",
-      ));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A"));
 
       expect(watcher.guaranteeUntil).toBeNull();
       watcher.destroy();
@@ -375,24 +313,27 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", undefined, 1700000000000,
-      ));
+      handler(
+        fakeAckEvent(
+          topic,
+          "abc",
+          "cid-1",
+          "pinner-A",
+          undefined,
+          1700000000000,
+        ),
+      );
 
-      expect(
-        watcher.retainUntil,
-      ).toBe(1700000000000);
+      expect(watcher.retainUntil).toBe(1700000000000);
       expect(watcher.guaranteeUntil).toBeNull();
       watcher.destroy();
     });
@@ -403,28 +344,37 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", undefined, 1700000000000,
-      ));
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-B", undefined, 1800000000000,
-      ));
+      handler(
+        fakeAckEvent(
+          topic,
+          "abc",
+          "cid-1",
+          "pinner-A",
+          undefined,
+          1700000000000,
+        ),
+      );
+      handler(
+        fakeAckEvent(
+          topic,
+          "abc",
+          "cid-1",
+          "pinner-B",
+          undefined,
+          1800000000000,
+        ),
+      );
 
-      expect(
-        watcher.retainUntil,
-      ).toBe(1800000000000);
+      expect(watcher.retainUntil).toBe(1800000000000);
       watcher.destroy();
     });
 
@@ -434,27 +384,28 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", 1700000000000, 1600000000000,
-      ));
+      handler(
+        fakeAckEvent(
+          topic,
+          "abc",
+          "cid-1",
+          "pinner-A",
+          1700000000000,
+          1600000000000,
+        ),
+      );
 
-      expect(
-        watcher.guaranteeUntil,
-      ).toBe(1700000000000);
-      expect(
-        watcher.retainUntil,
-      ).toBe(1600000000000);
+      expect(watcher.guaranteeUntil).toBe(1700000000000);
+      expect(watcher.retainUntil).toBe(1600000000000);
       watcher.destroy();
     });
 
@@ -464,23 +415,26 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      handler(fakeAckEvent(
-        topic, "abc", "cid-1",
-        "pinner-A", undefined, 1700000000000,
-      ));
-      expect(
-        watcher.retainUntil,
-      ).toBe(1700000000000);
+      handler(
+        fakeAckEvent(
+          topic,
+          "abc",
+          "cid-1",
+          "pinner-A",
+          undefined,
+          1700000000000,
+        ),
+      );
+      expect(watcher.retainUntil).toBe(1700000000000);
 
       watcher.trackCidForAcks("cid-2");
       expect(watcher.retainUntil).toBeNull();
@@ -489,119 +443,92 @@ describe("createSnapshotWatcher", () => {
   });
 
   describe("performInitialResolve", () => {
-    async function fakeCid(
-      seed: number,
-    ): Promise<CID> {
-      const hash = await sha256.digest(
-        new Uint8Array([seed]),
-      );
+    async function fakeCid(seed: number): Promise<CID> {
+      const hash = await sha256.digest(new Uint8Array([seed]));
       return CID.createV1(0x71, hash);
     }
 
-    it(
-      "resolves IPNS and calls onSnapshot",
-      async () => {
-        const tipCid = await fakeCid(42);
-        vi.mocked(resolveIPNS)
-          .mockResolvedValue(tipCid);
+    it("resolves IPNS and calls onSnapshot", async () => {
+      const tipCid = await fakeCid(42);
+      vi.mocked(resolveIPNS).mockResolvedValue(tipCid);
 
-        const onSnapshot =
-          vi.fn().mockResolvedValue(undefined);
-        const pubsub = {
-          subscribe: vi.fn(),
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-          publish:
-            vi.fn().mockResolvedValue(undefined),
-        };
-        const helia = {
-          blockstore: { get: vi.fn() },
-        };
+      const onSnapshot = vi.fn().mockResolvedValue(undefined);
+      const pubsub = {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const helia = {
+        blockstore: { get: vi.fn() },
+      };
 
-        const watcher = createSnapshotWatcher({
-          appId: "test",
-          ipnsName: "abc123",
-          pubsub: pubsub as any,
-          getHelia: () => helia as any,
-          isWriter: false,
-          ipnsPublicKeyBytes: new Uint8Array(32),
-          performInitialResolve: true,
-          onSnapshot,
-        });
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => helia as any,
+        isWriter: false,
+        ipnsPublicKeyBytes: new Uint8Array(32),
+        performInitialResolve: true,
+        onSnapshot,
+      });
 
-        // Let the async IIFE run
-        await vi.advanceTimersByTimeAsync(0);
+      // Let the async IIFE run
+      await vi.advanceTimersByTimeAsync(0);
 
-        expect(resolveIPNS).toHaveBeenCalledWith(
-          helia,
-          new Uint8Array(32),
-        );
-        expect(onSnapshot).toHaveBeenCalledWith(
-          tipCid,
-        );
-        expect(
-          announceSnapshot,
-        ).toHaveBeenCalledWith(
-          pubsub,
-          "test",
-          "abc123",
-          tipCid.toString(),
-          undefined,
-        );
+      expect(resolveIPNS).toHaveBeenCalledWith(helia, new Uint8Array(32));
+      expect(onSnapshot).toHaveBeenCalledWith(tipCid);
+      expect(announceSnapshot).toHaveBeenCalledWith(
+        pubsub,
+        "test",
+        "abc123",
+        tipCid.toString(),
+        undefined,
+      );
 
-        watcher.destroy();
-      },
-    );
+      watcher.destroy();
+    });
 
-    it(
-      "skips onSnapshot when resolve returns null",
-      async () => {
-        vi.mocked(resolveIPNS)
-          .mockResolvedValue(null);
+    it("skips onSnapshot when resolve returns null", async () => {
+      vi.mocked(resolveIPNS).mockResolvedValue(null);
 
-        const onSnapshot = vi.fn();
-        const pubsub = {
-          subscribe: vi.fn(),
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-          publish:
-            vi.fn().mockResolvedValue(undefined),
-        };
-        const helia = {
-          blockstore: { get: vi.fn() },
-        };
+      const onSnapshot = vi.fn();
+      const pubsub = {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const helia = {
+        blockstore: { get: vi.fn() },
+      };
 
-        const watcher = createSnapshotWatcher({
-          appId: "test",
-          ipnsName: "abc123",
-          pubsub: pubsub as any,
-          getHelia: () => helia as any,
-          isWriter: false,
-          ipnsPublicKeyBytes: new Uint8Array(32),
-          performInitialResolve: true,
-          onSnapshot,
-        });
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => helia as any,
+        isWriter: false,
+        ipnsPublicKeyBytes: new Uint8Array(32),
+        performInitialResolve: true,
+        onSnapshot,
+      });
 
-        await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
 
-        expect(
-          onSnapshot,
-        ).not.toHaveBeenCalled();
+      expect(onSnapshot).not.toHaveBeenCalled();
 
-        watcher.destroy();
-      },
-    );
+      watcher.destroy();
+    });
 
     it(
-      "skips onSnapshot if destroyed before " +
-        "resolve completes",
+      "skips onSnapshot if destroyed before " + "resolve completes",
       async () => {
         const tipCid = await fakeCid(42);
         // Resolve that never settles until we
         // advance timers
-        let resolvePromise!: (
-          v: CID | null,
-        ) => void;
+        let resolvePromise!: (v: CID | null) => void;
         vi.mocked(resolveIPNS).mockReturnValue(
           new Promise((r) => {
             resolvePromise = r;
@@ -613,8 +540,7 @@ describe("createSnapshotWatcher", () => {
           subscribe: vi.fn(),
           addEventListener: vi.fn(),
           removeEventListener: vi.fn(),
-          publish:
-            vi.fn().mockResolvedValue(undefined),
+          publish: vi.fn().mockResolvedValue(undefined),
         };
         const helia = {
           blockstore: { get: vi.fn() },
@@ -638,93 +564,78 @@ describe("createSnapshotWatcher", () => {
         resolvePromise(tipCid);
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(
-          onSnapshot,
-        ).not.toHaveBeenCalled();
+        expect(onSnapshot).not.toHaveBeenCalled();
       },
     );
 
-    it(
-      "schedules retry when onSnapshot fails",
-      async () => {
-        const tipCid = await fakeCid(42);
-        vi.mocked(resolveIPNS)
-          .mockResolvedValue(tipCid);
+    it("schedules retry when onSnapshot fails", async () => {
+      const tipCid = await fakeCid(42);
+      vi.mocked(resolveIPNS).mockResolvedValue(tipCid);
 
-        const onSnapshot = vi.fn()
-          .mockRejectedValueOnce(
-            new Error("fetch failed"),
-          )
-          .mockResolvedValue(undefined);
-        const pubsub = {
-          subscribe: vi.fn(),
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-          publish:
-            vi.fn().mockResolvedValue(undefined),
-        };
-        const helia = {
-          blockstore: { get: vi.fn() },
-        };
+      const onSnapshot = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("fetch failed"))
+        .mockResolvedValue(undefined);
+      const pubsub = {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const helia = {
+        blockstore: { get: vi.fn() },
+      };
 
-        const watcher = createSnapshotWatcher({
-          appId: "test",
-          ipnsName: "abc123",
-          pubsub: pubsub as any,
-          getHelia: () => helia as any,
-          isWriter: false,
-          ipnsPublicKeyBytes: new Uint8Array(32),
-          performInitialResolve: true,
-          onSnapshot,
-        });
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => helia as any,
+        isWriter: false,
+        ipnsPublicKeyBytes: new Uint8Array(32),
+        performInitialResolve: true,
+        onSnapshot,
+      });
 
-        // Let initial resolve run and fail
-        await vi.advanceTimersByTimeAsync(0);
-        expect(onSnapshot).toHaveBeenCalledTimes(1);
+      // Let initial resolve run and fail
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onSnapshot).toHaveBeenCalledTimes(1);
 
-        // Advance past RETRY_INTERVAL_MS (30s)
-        await vi.advanceTimersByTimeAsync(30_000);
-        expect(onSnapshot).toHaveBeenCalledTimes(2);
+      // Advance past RETRY_INTERVAL_MS (30s)
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(onSnapshot).toHaveBeenCalledTimes(2);
 
-        watcher.destroy();
-      },
-    );
+      watcher.destroy();
+    });
 
-    it(
-      "does not resolve without " +
-        "ipnsPublicKeyBytes",
-      async () => {
-        const onSnapshot = vi.fn();
-        const pubsub = {
-          subscribe: vi.fn(),
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-          publish:
-            vi.fn().mockResolvedValue(undefined),
-        };
-        const helia = {
-          blockstore: { get: vi.fn() },
-        };
+    it("does not resolve without " + "ipnsPublicKeyBytes", async () => {
+      const onSnapshot = vi.fn();
+      const pubsub = {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+      const helia = {
+        blockstore: { get: vi.fn() },
+      };
 
-        const watcher = createSnapshotWatcher({
-          appId: "test",
-          ipnsName: "abc123",
-          pubsub: pubsub as any,
-          getHelia: () => helia as any,
-          isWriter: false,
-          performInitialResolve: true,
-          onSnapshot,
-        });
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc123",
+        pubsub: pubsub as any,
+        getHelia: () => helia as any,
+        isWriter: false,
+        performInitialResolve: true,
+        onSnapshot,
+      });
 
-        await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
 
-        expect(
-          resolveIPNS,
-        ).not.toHaveBeenCalled();
+      expect(resolveIPNS).not.toHaveBeenCalled();
 
-        watcher.destroy();
-      },
-    );
+      watcher.destroy();
+    });
   });
 
   describe("guarantee query", () => {
@@ -733,63 +644,57 @@ describe("createSnapshotWatcher", () => {
         subscribe: vi.fn(),
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
-        publish:
-          vi.fn().mockResolvedValue(undefined),
+        publish: vi.fn().mockResolvedValue(undefined),
       };
     }
 
-    function getMessageHandler(
-      pubsub: ReturnType<typeof makePubsub>,
-    ) {
-      const call =
-        pubsub.addEventListener.mock.calls.find(
-          (c: any) => c[0] === "message",
-        );
+    function getMessageHandler(pubsub: ReturnType<typeof makePubsub>) {
+      const call = pubsub.addEventListener.mock.calls.find(
+        (c: any) => c[0] === "message",
+      );
       return call?.[1] as (evt: any) => void;
     }
 
-    it("fires guarantee query on reader"
-      + " startup", () => {
+    it("fires guarantee query on reader" + " startup", () => {
       const pubsub = makePubsub();
       const watcher = createSnapshotWatcher({
         appId: "test",
         ipnsName: "abc123",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
-      expect(
-        publishGuaranteeQuery,
-      ).toHaveBeenCalledWith(
-        pubsub, "test", "abc123",
+      expect(publishGuaranteeQuery).toHaveBeenCalledWith(
+        pubsub,
+        "test",
+        "abc123",
       );
 
       watcher.destroy();
     });
 
-    it("does not fire query on writer startup"
-      + " (fires on startReannounce)", () => {
-      const pubsub = makePubsub();
-      const watcher = createSnapshotWatcher({
-        appId: "test",
-        ipnsName: "abc123",
-        pubsub: pubsub as any,
-        getHelia: () => ({} as any),
-        isWriter: true,
-        onSnapshot: vi.fn(),
-      });
+    it(
+      "does not fire query on writer startup" + " (fires on startReannounce)",
+      () => {
+        const pubsub = makePubsub();
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc123",
+          pubsub: pubsub as any,
+          getHelia: () => ({}) as any,
+          isWriter: true,
+          onSnapshot: vi.fn(),
+        });
 
-      expect(
-        publishGuaranteeQuery,
-      ).not.toHaveBeenCalled();
+        expect(publishGuaranteeQuery).not.toHaveBeenCalled();
 
-      watcher.destroy();
-    });
+        watcher.destroy();
+      },
+    );
 
-    it("fires query on startReannounce for"
-      + " writers", () => {
+    it("fires query on startReannounce for" + " writers", () => {
       const pubsub = makePubsub();
       const helia = {
         blockstore: { get: vi.fn() },
@@ -804,13 +709,14 @@ describe("createSnapshotWatcher", () => {
       });
 
       watcher.startReannounce(
-        () => null, () => undefined,
+        () => null,
+        () => undefined,
       );
 
-      expect(
-        publishGuaranteeQuery,
-      ).toHaveBeenCalledWith(
-        pubsub, "test", "abc123",
+      expect(publishGuaranteeQuery).toHaveBeenCalledWith(
+        pubsub,
+        "test",
+        "abc123",
       );
 
       watcher.destroy();
@@ -822,40 +728,33 @@ describe("createSnapshotWatcher", () => {
         appId: "test",
         ipnsName: "abc123",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       // Initial query on startup
-      expect(
-        publishGuaranteeQuery,
-      ).toHaveBeenCalledTimes(1);
+      expect(publishGuaranteeQuery).toHaveBeenCalledTimes(1);
 
       // Advance 5 minutes
       vi.advanceTimersByTime(5 * 60_000);
-      expect(
-        publishGuaranteeQuery,
-      ).toHaveBeenCalledTimes(2);
+      expect(publishGuaranteeQuery).toHaveBeenCalledTimes(2);
 
       // Another 5 minutes
       vi.advanceTimersByTime(5 * 60_000);
-      expect(
-        publishGuaranteeQuery,
-      ).toHaveBeenCalledTimes(3);
+      expect(publishGuaranteeQuery).toHaveBeenCalledTimes(3);
 
       watcher.destroy();
     });
 
-    it("handles guarantee response and updates"
-      + " pinnerGuarantees", () => {
+    it("handles guarantee response and updates" + " pinnerGuarantees", () => {
       const pubsub = makePubsub();
       const onAck = vi.fn();
       const watcher = createSnapshotWatcher({
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
         onAck,
@@ -863,18 +762,16 @@ describe("createSnapshotWatcher", () => {
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      vi.mocked(parseGuaranteeResponse)
-        .mockReturnValueOnce({
-          type: "guarantee-response",
-          ipnsName: "abc",
-          peerId: "pinner-A",
-          cid: "cid-1",
-          guaranteeUntil: 1700000000000,
-          retainUntil: 1600000000000,
-        });
+      vi.mocked(parseGuaranteeResponse).mockReturnValueOnce({
+        type: "guarantee-response",
+        ipnsName: "abc",
+        peerId: "pinner-A",
+        cid: "cid-1",
+        guaranteeUntil: 1700000000000,
+        retainUntil: 1600000000000,
+      });
 
       handler({
         detail: {
@@ -883,44 +780,35 @@ describe("createSnapshotWatcher", () => {
         },
       });
 
-      expect(
-        watcher.guaranteeUntil,
-      ).toBe(1700000000000);
-      expect(
-        watcher.retainUntil,
-      ).toBe(1600000000000);
-      expect(onAck).toHaveBeenCalledWith(
-        "pinner-A",
-      );
+      expect(watcher.guaranteeUntil).toBe(1700000000000);
+      expect(watcher.retainUntil).toBe(1600000000000);
+      expect(onAck).toHaveBeenCalledWith("pinner-A");
 
       watcher.destroy();
     });
 
-    it("ignores guarantee response for wrong"
-      + " ipnsName", () => {
+    it("ignores guarantee response for wrong" + " ipnsName", () => {
       const pubsub = makePubsub();
       const watcher = createSnapshotWatcher({
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      vi.mocked(parseGuaranteeResponse)
-        .mockReturnValueOnce({
-          type: "guarantee-response",
-          ipnsName: "different-name",
-          peerId: "pinner-A",
-          cid: "cid-1",
-          guaranteeUntil: 1700000000000,
-        });
+      vi.mocked(parseGuaranteeResponse).mockReturnValueOnce({
+        type: "guarantee-response",
+        ipnsName: "different-name",
+        peerId: "pinner-A",
+        cid: "cid-1",
+        guaranteeUntil: 1700000000000,
+      });
 
       handler({
         detail: {
@@ -934,31 +822,28 @@ describe("createSnapshotWatcher", () => {
       watcher.destroy();
     });
 
-    it("monotonic guarantee from responses"
-      + " (never decreases)", () => {
+    it("monotonic guarantee from responses" + " (never decreases)", () => {
       const pubsub = makePubsub();
       const watcher = createSnapshotWatcher({
         appId: "test",
         ipnsName: "abc",
         pubsub: pubsub as any,
-        getHelia: () => ({} as any),
+        getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
       });
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);
-      const topic =
-        "/pokapali/app/test/announce";
+      const topic = "/pokapali/app/test/announce";
 
-      vi.mocked(parseGuaranteeResponse)
-        .mockReturnValueOnce({
-          type: "guarantee-response",
-          ipnsName: "abc",
-          peerId: "pinner-A",
-          cid: "cid-1",
-          guaranteeUntil: 1800000000000,
-        });
+      vi.mocked(parseGuaranteeResponse).mockReturnValueOnce({
+        type: "guarantee-response",
+        ipnsName: "abc",
+        peerId: "pinner-A",
+        cid: "cid-1",
+        guaranteeUntil: 1800000000000,
+      });
       handler({
         detail: {
           topic,
@@ -967,14 +852,13 @@ describe("createSnapshotWatcher", () => {
       });
 
       // Lower value should not override
-      vi.mocked(parseGuaranteeResponse)
-        .mockReturnValueOnce({
-          type: "guarantee-response",
-          ipnsName: "abc",
-          peerId: "pinner-A",
-          cid: "cid-1",
-          guaranteeUntil: 1700000000000,
-        });
+      vi.mocked(parseGuaranteeResponse).mockReturnValueOnce({
+        type: "guarantee-response",
+        ipnsName: "abc",
+        peerId: "pinner-A",
+        cid: "cid-1",
+        guaranteeUntil: 1700000000000,
+      });
       handler({
         detail: {
           topic,
@@ -982,9 +866,7 @@ describe("createSnapshotWatcher", () => {
         },
       });
 
-      expect(
-        watcher.guaranteeUntil,
-      ).toBe(1800000000000);
+      expect(watcher.guaranteeUntil).toBe(1800000000000);
 
       watcher.destroy();
     });

@@ -12,11 +12,7 @@
         if (p) {
           q.delete("p");
           var qs = q.toString();
-          history.replaceState(
-            null,
-            "",
-            p + (qs ? "?" + qs : "")
-          );
+          history.replaceState(null, "", p + (qs ? "?" + qs : ""));
         }
       })();
     </script>

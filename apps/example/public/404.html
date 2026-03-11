@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -8,14 +8,9 @@
       // Preserves the path + hash so /pokapali/doc/abc#frag
       // loads correctly via index.html.
       var seg = location.pathname.split("/").length - 1;
-      var path =
-        location.pathname +
-        location.search +
-        location.hash;
+      var path = location.pathname + location.search + location.hash;
       location.replace(
-        location.origin +
-          "/pokapali/?p=" +
-          encodeURIComponent(path)
+        location.origin + "/pokapali/?p=" + encodeURIComponent(path),
       );
     </script>
   </head>

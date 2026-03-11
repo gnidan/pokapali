@@ -22,40 +22,24 @@ const FALLBACK: PinnerState = {
  * Validate that parsed JSON has the expected shape.
  * Returns a valid PinnerState or null if malformed.
  */
-function validateState(
-  obj: unknown,
-): PinnerState | null {
-  if (
-    obj == null
-    || typeof obj !== "object"
-    || Array.isArray(obj)
-  ) {
+function validateState(obj: unknown): PinnerState | null {
+  if (obj == null || typeof obj !== "object" || Array.isArray(obj)) {
     return null;
   }
   const o = obj as Record<string, unknown>;
   if (!Array.isArray(o.knownNames)) return null;
-  if (
-    typeof o.tips !== "object"
-    || o.tips == null
-    || Array.isArray(o.tips)
-  ) {
+  if (typeof o.tips !== "object" || o.tips == null || Array.isArray(o.tips)) {
     return null;
   }
   return o as unknown as PinnerState;
 }
 
-export async function loadState(
-  path: string,
-): Promise<PinnerState> {
+export async function loadState(path: string): Promise<PinnerState> {
   let raw: string;
   try {
     raw = await readFile(path, "utf-8");
   } catch (err) {
-    log.info(
-      "no state file at",
-      path,
-      "— starting fresh",
-    );
+    log.info("no state file at", path, "— starting fresh");
     return { ...FALLBACK };
   }
 
