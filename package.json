@@ -14,13 +14,23 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "dev:node": "npx pokapali --storage-path /tmp/pokapali-node --relay --pin pokapali-example --port 3001"
+    "dev:node": "npx pokapali --storage-path /tmp/pokapali-node --relay --pin pokapali-example --port 3001",
+    "prepare": "husky"
   },
   "license": "MIT",
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,yml,yaml,css}": "prettier --write"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.3",
     "patch-package": "^8.0.1",
     "prettier": "^3.8.1",
     "typescript": "^5.7.0",
