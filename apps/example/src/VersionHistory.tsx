@@ -240,8 +240,27 @@ export function VersionHistory({
         });
       });
 
+    // Optimistic prepend on new snapshot events
+    const onSnapshot = (e: { cid: unknown; seq: number; ts: number }) => {
+      if (cancelRef.current) return;
+      setVersions((prev) => {
+        // Deduplicate by seq
+        if (prev.some((v) => v.seq === e.seq)) return prev;
+        const entry: VersionEntry = {
+          cid: e.cid as VersionEntry["cid"],
+          seq: e.seq,
+          ts: e.ts,
+        };
+        return [entry, ...prev];
+      });
+      // Ensure list shows as loaded if it was empty
+      setListState((s) => (s.status === "idle" ? s : { status: "idle" }));
+    };
+    doc.on("snapshot", onSnapshot);
+
     return () => {
       cancelRef.current = true;
+      doc.off("snapshot", onSnapshot);
     };
   }, [doc]);
 
