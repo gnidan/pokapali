@@ -18,6 +18,10 @@ function mockRelay(opts?: {
   multiaddrs?: string[];
   topics?: string[];
   gsPeers?: number;
+  /** Map of topic → subscriber peer IDs. */
+  subscribers?: Record<string, string[]>;
+  /** Map of topic → mesh peer IDs. */
+  meshPeers?: Record<string, string[]>;
 }) {
   const pid = opts?.peerId ?? "12D3KooWTestPeer";
   const conns = Array.from({ length: opts?.connections ?? 2 }, () => ({}));
@@ -25,6 +29,11 @@ function mockRelay(opts?: {
   const addrs = (opts?.multiaddrs ?? []).map((a) => ({ toString: () => a }));
   const topics = opts?.topics ?? [];
   const gsPeers = Array.from({ length: opts?.gsPeers ?? 0 }, () => ({}));
+  const subs = opts?.subscribers ?? {};
+  const mesh = new Map<string, Set<string>>();
+  for (const [t, pids] of Object.entries(opts?.meshPeers ?? {})) {
+    mesh.set(t, new Set(pids));
+  }
 
   return {
     peerId: () => pid,
@@ -38,8 +47,9 @@ function mockRelay(opts?: {
           pubsub: {
             getTopics: () => topics,
             getPeers: () => gsPeers,
-            getSubscribers: () => [],
-            mesh: new Map(),
+            getSubscribers: (topic: string) =>
+              (subs[topic] ?? []).map((p: string) => ({ toString: () => p })),
+            mesh,
           },
         },
       },
@@ -201,15 +211,30 @@ describe("startHttpServer", () => {
     it("includes gossipsub diagnostics", async () => {
       start({
         relay: mockRelay({
-          topics: ["topic-a"],
-          gsPeers: 2,
+          topics: ["topic-a", "topic-b"],
+          gsPeers: 3,
+          subscribers: {
+            "topic-a": ["peer-1", "peer-2"],
+            "topic-b": ["peer-3"],
+          },
+          meshPeers: {
+            "topic-a": ["peer-1"],
+            "topic-b": ["peer-3"],
+          },
         }),
       });
       const res = await fetch(port, "GET", "/status");
       const data = JSON.parse(res.body);
       expect(data.gossipsub).not.toBeNull();
-      expect(data.gossipsub.peers).toBe(2);
-      expect(data.gossipsub.topics).toHaveProperty("topic-a");
+      expect(data.gossipsub.peers).toBe(3);
+      expect(data.gossipsub.topics["topic-a"]).toEqual({
+        subscribers: 2,
+        mesh: 1,
+      });
+      expect(data.gossipsub.topics["topic-b"]).toEqual({
+        subscribers: 1,
+        mesh: 1,
+      });
     });
   });
 

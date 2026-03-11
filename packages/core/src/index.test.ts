@@ -96,6 +96,8 @@ import {
   type SaveState,
   type Diagnostics,
 } from "./index.js";
+import { acquireNodeRegistry, getNodeRegistry } from "./node-registry.js";
+import { publishGuaranteeQuery } from "./announce.js";
 
 const OPTS = {
   appId: "test-app",
@@ -537,5 +539,88 @@ describe("@pokapali/core", () => {
       followed.destroy();
       newDoc.destroy();
     });
+  });
+
+  describe("pinner discovery triggers guarantee query", () => {
+    it(
+      "fires queryGuarantees when new pinner" + " appears in node-registry",
+      async () => {
+        // Set up a mock registry that captures
+        // the onNodeChange callback so we can
+        // fire it manually.
+        let nodeChangeCb: (() => void) | null = null;
+        const mockNodes = new Map<
+          string,
+          {
+            peerId: string;
+            roles: string[];
+            lastSeenAt: number;
+          }
+        >();
+        const mockRegistry = {
+          nodes: mockNodes,
+          onNodeChange: vi.fn((cb: () => void) => {
+            nodeChangeCb = cb;
+          }),
+          offNodeChange: vi.fn(),
+          destroy: vi.fn(),
+        };
+
+        vi.mocked(acquireNodeRegistry).mockReturnValue(mockRegistry as any);
+        vi.mocked(getNodeRegistry).mockReturnValue(mockRegistry as any);
+
+        const lib = pokapali(OPTS);
+        const doc = await lib.create();
+
+        // nodeChangeHandler should have been
+        // registered
+        expect(nodeChangeCb).not.toBeNull();
+
+        // Clear any calls from setup
+        vi.mocked(publishGuaranteeQuery).mockClear();
+
+        // Simulate a pinner appearing in the
+        // registry
+        mockNodes.set("pinner-1", {
+          peerId: "pinner-1",
+          roles: ["pinner"],
+          lastSeenAt: Date.now(),
+          connected: true,
+          neighbors: [],
+          browserCount: 0,
+          addrs: [],
+        });
+        nodeChangeCb!();
+
+        // publishGuaranteeQuery should fire
+        // (called by snapshotWatcher.queryGuarantees)
+        expect(publishGuaranteeQuery).toHaveBeenCalled();
+
+        // Firing again with same pinner should
+        // NOT re-query (already known)
+        vi.mocked(publishGuaranteeQuery).mockClear();
+        nodeChangeCb!();
+        expect(publishGuaranteeQuery).not.toHaveBeenCalled();
+
+        // New pinner should trigger again
+        mockNodes.set("pinner-2", {
+          peerId: "pinner-2",
+          roles: ["pinner"],
+          lastSeenAt: Date.now(),
+          connected: true,
+          neighbors: [],
+          browserCount: 0,
+          addrs: [],
+        });
+        nodeChangeCb!();
+        expect(publishGuaranteeQuery).toHaveBeenCalled();
+
+        doc.destroy();
+
+        // Restore default mock behavior
+        vi.mocked(acquireNodeRegistry).mockReset();
+        vi.mocked(getNodeRegistry).mockReturnValue(null);
+      },
+    );
   });
 });
