@@ -234,7 +234,11 @@ export function createSnapshotWatcher(
         pendingCid = null;
         retryAttempt = 0;
         setFetchState({ status: "idle" });
-      } catch {
+      } catch (err) {
+        log.warn(
+          "snapshot fetch/apply failed:",
+          (err as Error)?.message ?? err,
+        );
         if (!destroyed) scheduleRetry();
       }
     }, RETRY_INTERVAL_MS);
@@ -411,7 +415,11 @@ export function createSnapshotWatcher(
               latestAnnouncedSeq || undefined,
             );
           }
-        } catch {
+        } catch (err) {
+          log.warn(
+            "IPNS snapshot apply failed:",
+            (err as Error)?.message ?? err,
+          );
           if (!destroyed) scheduleRetry();
         }
       },
