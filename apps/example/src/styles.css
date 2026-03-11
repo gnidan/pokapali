@@ -749,9 +749,50 @@ body {
   font-weight: 600;
 }
 
+.vh-item-delta {
+  font-family: monospace;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.vh-item-delta.added {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.vh-item-delta.removed {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.vh-item-delta.unchanged {
+  color: #6b7280;
+  background: #f3f4f6;
+}
+
+.vh-item.selected .vh-item-delta.added {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.vh-item.selected .vh-item-delta.removed {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.vh-item.selected .vh-item-delta.unchanged {
+  color: #93c5fd;
+  background: rgba(147, 197, 253, 0.15);
+}
+
 .vh-item-ts {
   font-size: 0.7rem;
   color: #94a3b8;
+  flex-shrink: 0;
+  text-align: right;
 }
 
 .vh-item.selected .vh-item-ts {
