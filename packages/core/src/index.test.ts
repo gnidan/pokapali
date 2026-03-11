@@ -556,6 +556,7 @@ describe("@pokapali/core", () => {
             roles: string[];
             lastSeenAt: number;
             connected: boolean;
+            stale: boolean;
             neighbors: { peerId: string; role?: string }[];
             browserCount: number;
             addrs: string[];
