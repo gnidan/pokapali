@@ -228,8 +228,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     const seen = lastSeenAt.get(ipnsName) ?? 0;
     const age = now - seen;
 
-    // Past guarantee window — don't re-announce
-    if (age >= GUARANTEE_DURATION_MS) {
+    // Past retention window — don't re-announce
+    if (age >= RETENTION_DURATION_MS) {
       return MAX_INTERVAL_MS;
     }
 
