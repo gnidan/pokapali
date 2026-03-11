@@ -31,11 +31,9 @@ const H = 300;
 const CX = W / 2;
 const CY = H / 2;
 const NODE_R = 15;
-const SELF_R = 20;
 
 const C = {
   self: "#10b981",
-  selfGlow: "rgba(16,185,129,0.25)",
   node: "#475569",
   nodeFill: "#f8fafc",
   nodeStroke: "#94a3b8",
@@ -103,9 +101,8 @@ function linkDistanceFn(
   if (isInfra(s.kind) && isInfra(t.kind)) {
     return 40;
   }
-  if (s.kind === "self" || t.kind === "self") {
-    return 60;
-  }
+  // Browser/self → relay: long leash so
+  // browsers orbit outside the infra cluster
   return 110;
 }
 
@@ -117,21 +114,16 @@ function linkStrengthFn(
   if (isInfra(s.kind) && isInfra(t.kind)) {
     return 0.9;
   }
-  if (
-    s.kind === "browser" ||
-    t.kind === "browser"
-  ) {
-    return 0.15;
-  }
-  return 0.7;
+  // Browser/self → relay: weak pull so relays
+  // aren't dragged outward
+  return 0.15;
 }
 
 function chargeFn(d: SimNode): number {
-  switch (d.kind) {
-    case "self": return -350;
-    case "browser": return -150;
-    default: return -120;
-  }
+  if (isInfra(d.kind)) return -120;
+  // Browsers (including self) repel each other
+  // to spread around the relay cluster
+  return -150;
 }
 
 function centerStrength(d: SimNode): number {
@@ -189,10 +181,7 @@ function useForceLayout(
       .force(
         "collide",
         forceCollide<SimNode>()
-          .radius((d) =>
-            (d.kind === "self"
-              ? SELF_R : NODE_R) + 12,
-          )
+          .radius(() => NODE_R + 12)
           .strength(0.8),
       )
       .force(
@@ -229,12 +218,7 @@ function useForceLayout(
       (n) => {
         const existing = prev.get(n.id);
         if (existing) {
-          // Update mutable properties in place
           existing.kind = n.kind;
-          existing.fx =
-            n.kind === "self" ? CX : undefined;
-          existing.fy =
-            n.kind === "self" ? CY : undefined;
           return existing;
         }
         // New node — position near center
@@ -245,10 +229,6 @@ function useForceLayout(
           y: CY + (Math.random() - 0.5) * 60,
           vx: 0,
           vy: 0,
-          fx:
-            n.kind === "self" ? CX : undefined,
-          fy:
-            n.kind === "self" ? CY : undefined,
         };
       },
     );
@@ -447,7 +427,9 @@ function NodeShape({
   ) => void;
 }) {
   const isSelf = node.kind === "self";
-  const r = isSelf ? SELF_R : NODE_R;
+  const isBrowser =
+    node.kind === "browser" || isSelf;
+  const r = NODE_R;
   const off = !node.connected && !isSelf;
 
   const handleEnter = useCallback(
@@ -466,7 +448,6 @@ function NodeShape({
   const isPinner =
     node.kind === "pinner" ||
     node.kind === "relay+pinner";
-  const isBrowser = node.kind === "browser";
 
   // Guarantee state
   const now = Date.now();
@@ -481,10 +462,7 @@ function NodeShape({
   // Role ring color (primary visual identifier)
   let roleStroke: string;
   let roleStrokeW: number;
-  if (isSelf) {
-    roleStroke = "#fff";
-    roleStrokeW = 2.5;
-  } else if (off) {
+  if (off) {
     roleStroke = C.disconnectedStroke;
     roleStrokeW = 1.5;
   } else if (node.kind === "relay") {
@@ -497,19 +475,23 @@ function NodeShape({
     roleStroke = C.dual;
     roleStrokeW = 3;
   } else if (isBrowser) {
-    roleStroke = C.browser;
+    // Self and other browsers: subtle border
+    // on colored fill
+    roleStroke = isSelf
+      ? "#059669" : C.browser;
     roleStrokeW = 1.5;
   } else {
     roleStroke = C.nodeStroke;
     roleStrokeW = 2;
   }
 
-  // Circle fill
+  // Circle fill: browsers get colored fill,
+  // infra nodes get light/empty fill
   let fill: string;
-  if (isSelf) {
-    fill = C.self;
-  } else if (off) {
+  if (off) {
     fill = C.disconnected;
+  } else if (isSelf) {
+    fill = "#d1fae5"; // green-100 tint
   } else if (isBrowser) {
     fill = C.browserFill;
   } else {
@@ -579,14 +561,6 @@ function NodeShape({
         />
       )}
 
-      {/* Self glow */}
-      {isSelf && (
-        <circle
-          cx={0} cy={0} r={r + 8}
-          fill={C.selfGlow}
-        />
-      )}
-
       {/* Main circle — colored ring = role */}
       <circle
         cx={0} cy={0} r={r}
@@ -608,11 +582,9 @@ function NodeShape({
           textAnchor="middle"
           dominantBaseline="central"
           className={
-            isSelf
-              ? "topo-label-self"
-              : isBrowser
-                ? "topo-label-browser"
-                : "topo-label-infra"
+            isBrowser
+              ? "topo-label-browser"
+              : "topo-label-infra"
           }
         >
           {label}
@@ -919,18 +891,18 @@ export function TopologyMap({
     [],
   );
 
-  // Render order: browsers, infra, self on top
+  // Render order: browsers/self behind infra
   const sorted = graph.nodes.slice().sort(
     (a, b) => {
       const order = (
         k: TopologyNode["kind"],
       ) => {
         switch (k) {
-          case "browser": return 0;
+          case "browser":
+          case "self": return 0;
           case "relay":
           case "pinner":
           case "relay+pinner": return 1;
-          case "self": return 2;
         }
       };
       return order(a.kind) - order(b.kind);
