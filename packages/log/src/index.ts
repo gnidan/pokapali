@@ -2,7 +2,8 @@ export type LogLevel =
   | "debug"
   | "info"
   | "warn"
-  | "error";
+  | "error"
+  | "silent";
 
 export interface Logger {
   debug(...args: unknown[]): void;
@@ -16,6 +17,7 @@ const LEVELS: LogLevel[] = [
   "info",
   "warn",
   "error",
+  "silent",
 ];
 
 function levelIndex(level: LogLevel): number {
@@ -33,6 +35,7 @@ function readEnvLevel(): LogLevel | undefined {
       || val === "info"
       || val === "warn"
       || val === "error"
+      || val === "silent"
     ) {
       return val;
     }
