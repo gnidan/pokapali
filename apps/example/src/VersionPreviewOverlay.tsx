@@ -99,6 +99,28 @@ const DiffHighlight = Extension.create<{
 
 // ── Build decorations from diff ──────────────────
 
+/** Scan forward from `start` to find the first
+ *  non-negative PM position in the map. */
+function firstValidPos(
+  positions: number[],
+  start: number,
+  end: number,
+): number {
+  for (let i = start; i <= end; i++) {
+    if (positions[i] >= 0) return positions[i];
+  }
+  return -1;
+}
+
+/** Scan backward from `end` to find the last
+ *  non-negative PM position in the map. */
+function lastValidPos(positions: number[], start: number, end: number): number {
+  for (let i = end; i >= start; i--) {
+    if (positions[i] >= 0) return positions[i];
+  }
+  return -1;
+}
+
 function buildDiffDecorations(
   previewDoc: PMNode,
   currentText: string,
@@ -115,12 +137,10 @@ function buildDiffDecorations(
       previewOffset += text.length;
     } else if (op === DiffMatchPatch.DIFF_INSERT) {
       // Text in preview version, not in current → green
-      const from = preview.positions[previewOffset];
-      const endIdx = previewOffset + text.length - 1;
-      const to =
-        endIdx < preview.positions.length
-          ? preview.positions[endIdx] + 1
-          : from + 1;
+      const segEnd = previewOffset + text.length - 1;
+      const from = firstValidPos(preview.positions, previewOffset, segEnd);
+      const last = lastValidPos(preview.positions, previewOffset, segEnd);
+      const to = last >= 0 ? last + 1 : -1;
       if (from >= 0 && to > from) {
         decorations.push(
           Decoration.inline(from, to, {
@@ -130,22 +150,32 @@ function buildDiffDecorations(
       }
       previewOffset += text.length;
     } else if (op === DiffMatchPatch.DIFF_DELETE) {
-      // Text in current, not in preview → red widget
+      // Text in current, not in preview → red widget.
+      // Strip synthetic '\n' block separators — they
+      // are not real content.
+      const cleaned = text.replace(/\n/g, " ").trim();
+      if (!cleaned) {
+        // Pure whitespace/newline diff — skip
+        continue;
+      }
       const insertPos =
         previewOffset < preview.positions.length
-          ? preview.positions[previewOffset]
+          ? firstValidPos(
+              preview.positions,
+              previewOffset,
+              preview.positions.length - 1,
+            )
           : previewOffset > 0
-            ? preview.positions[previewOffset - 1] + 1
+            ? lastValidPos(preview.positions, 0, previewOffset - 1) + 1
             : 1;
       if (insertPos >= 0) {
-        const deletedText = text;
         decorations.push(
           Decoration.widget(
             insertPos,
             () => {
               const span = document.createElement("span");
               span.className = "vh-diff-del";
-              span.textContent = deletedText;
+              span.textContent = cleaned;
               return span;
             },
             { side: -1 },
