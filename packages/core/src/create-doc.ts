@@ -40,6 +40,8 @@ import { buildDiagnostics } from "./doc-diagnostics.js";
 import type { Diagnostics } from "./doc-diagnostics.js";
 import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
+import { fetchVersionHistory } from "./fetch-version-history.js";
+import type { VersionEntry } from "./fetch-version-history.js";
 
 const log = createLogger("core");
 
@@ -136,6 +138,9 @@ export interface Doc {
       ts: number;
     }>
   >;
+  /** Fetch version history from pinners (via HTTP),
+   *  falling back to local chain walking. */
+  versionHistory(): Promise<VersionEntry[]>;
   loadVersion(cid: CID): Promise<Record<string, Y.Doc>>;
   destroy(): void;
 }
@@ -775,6 +780,13 @@ export function createDoc(params: DocParams): Doc {
     async history() {
       assertNotDestroyed();
       return snapshotLC.history();
+    },
+
+    async versionHistory(): Promise<VersionEntry[]> {
+      assertNotDestroyed();
+      return fetchVersionHistory(getHttpUrls(), ipnsName, () =>
+        snapshotLC.history(),
+      );
     },
 
     async loadVersion(cid: CID) {
