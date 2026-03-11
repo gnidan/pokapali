@@ -215,6 +215,9 @@ async function main() {
             return null;
           }
         },
+        putBlock: async (cid, bytes) => {
+          await blockstore.put(cid, bytes);
+        },
       });
 
       // Derive httpUrl from WSS multiaddr

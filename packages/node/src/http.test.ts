@@ -378,6 +378,7 @@ function fetchHttps(
   method: string,
   path: string,
   headers?: Record<string, string>,
+  body?: Buffer,
 ): Promise<{
   status: number;
   body: Buffer;
@@ -391,7 +392,10 @@ function fetchHttps(
         method,
         path,
         rejectUnauthorized: false,
-        headers,
+        headers: {
+          ...headers,
+          ...(body ? { "content-length": body.length } : {}),
+        },
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -410,6 +414,7 @@ function fetchHttps(
       },
     );
     req.on("error", reject);
+    if (body) req.write(body);
     req.end();
   });
 }
@@ -438,6 +443,9 @@ describe("startBlockServer", () => {
       trustProxy: false,
       getBlock: async (cid) => {
         return blocks.get(cid.toString()) ?? null;
+      },
+      putBlock: async (cid, bytes) => {
+        blocks.set(cid.toString(), bytes);
       },
       ...overrides,
     };
@@ -501,7 +509,7 @@ describe("startBlockServer", () => {
     startBlock();
     const res = await fetchHttps(port, "OPTIONS", "/block/anything");
     expect(res.status).toBe(204);
-    expect(res.headers["access-control-allow-methods"]).toBe("GET");
+    expect(res.headers["access-control-allow-methods"]).toBe("GET, POST");
     expect(res.headers["access-control-allow-origin"]).toBe("*");
   });
 
@@ -541,5 +549,106 @@ describe("startBlockServer", () => {
     startBlock();
     const res = await fetchHttps(port, "GET", "/health");
     expect(res.status).toBe(404);
+  });
+
+  // --- POST /block/:cid tests ---
+
+  it("stores a block via POST", async () => {
+    startBlock();
+    const data = new Uint8Array([10, 20, 30]);
+    const hash = await sha256.digest(data);
+    const cid = CID.createV1(0x55, hash);
+    const path = `/block/${cid.toString()}`;
+
+    const res = await fetchHttps(port, "POST", path, {}, Buffer.from(data));
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body.ok).toBe(true);
+
+    // Verify it's now readable via GET
+    const get = await fetchHttps(port, "GET", path);
+    expect(get.status).toBe(200);
+    expect([...get.body]).toEqual([10, 20, 30]);
+  });
+
+  it("rejects POST with CID mismatch", async () => {
+    startBlock();
+    const data = new Uint8Array([1, 2, 3]);
+    // Use wrong data to compute CID
+    const wrongHash = await sha256.digest(new Uint8Array([99]));
+    const wrongCid = CID.createV1(0x55, wrongHash);
+
+    const res = await fetchHttps(
+      port,
+      "POST",
+      `/block/${wrongCid.toString()}`,
+      {},
+      Buffer.from(data),
+    );
+    expect(res.status).toBe(400);
+    const body = JSON.parse(res.body.toString());
+    expect(body.error).toBe("CID mismatch");
+  });
+
+  it("rejects POST with empty body", async () => {
+    startBlock();
+    const hash = await sha256.digest(new Uint8Array([1]));
+    const cid = CID.createV1(0x55, hash);
+
+    const res = await fetchHttps(
+      port,
+      "POST",
+      `/block/${cid.toString()}`,
+      {},
+      Buffer.alloc(0),
+    );
+    expect(res.status).toBe(400);
+    const body = JSON.parse(res.body.toString());
+    expect(body.error).toBe("empty body");
+  });
+
+  it("rejects POST exceeding 6MB", async () => {
+    startBlock();
+    const hash = await sha256.digest(new Uint8Array([1]));
+    const cid = CID.createV1(0x55, hash);
+
+    try {
+      const res = await fetchHttps(
+        port,
+        "POST",
+        `/block/${cid.toString()}`,
+        {},
+        Buffer.alloc(6_000_001),
+      );
+      expect(res.status).toBe(413);
+    } catch (err: any) {
+      // Socket may reset before response
+      expect(
+        err.message === "socket hang up" || err.code === "ECONNRESET",
+      ).toBe(true);
+    }
+  });
+
+  it("rate limits POST requests", async () => {
+    startBlock({ rateLimitRpm: 2 });
+    const data = new Uint8Array([5]);
+    const hash = await sha256.digest(data);
+    const cid = CID.createV1(0x55, hash);
+    const path = `/block/${cid.toString()}`;
+    const buf = Buffer.from(data);
+
+    // Use up the limit
+    await fetchHttps(port, "POST", path, {}, buf);
+    await fetchHttps(port, "POST", path, {}, buf);
+
+    const res = await fetchHttps(port, "POST", path, {}, buf);
+    expect(res.status).toBe(429);
+  });
+
+  it("OPTIONS preflight allows POST", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "OPTIONS", "/block/anything");
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toBe("GET, POST");
   });
 });

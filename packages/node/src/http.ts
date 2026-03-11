@@ -6,6 +6,7 @@ import type { Relay } from "./relay.js";
 import type { Pinner } from "./pinner.js";
 import { createLogger, getLogLevel } from "@pokapali/log";
 import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 import { createIpRateLimiter, type IpRateLimiter } from "./rate-limiter.js";
 
 const startedAt = Date.now();
@@ -212,6 +213,8 @@ export interface HttpsConfig {
   trustProxy: boolean;
   /** Blockstore get function — serves raw bytes. */
   getBlock: (cid: CID) => Promise<Uint8Array | null>;
+  /** Blockstore put function — stores raw bytes. */
+  putBlock: (cid: CID, bytes: Uint8Array) => Promise<void>;
 }
 
 function parseCorsOrigins(origin: string): string[] | "*" {
@@ -270,16 +273,16 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
           ...cors,
-          "access-control-allow-methods": "GET",
+          "access-control-allow-methods": "GET, POST",
           "access-control-max-age": "86400",
         });
         res.end();
         return;
       }
 
-      // Only GET /block/:cid
+      // Only /block/:cid
       const match = url.pathname.match(/^\/block\/(.+)$/);
-      if (req.method !== "GET" || !match) {
+      if (!match || (req.method !== "GET" && req.method !== "POST")) {
         res.writeHead(404, {
           "content-type": "application/json",
           ...cors,
@@ -296,7 +299,11 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
           "retry-after": "60",
           ...cors,
         });
-        res.end(JSON.stringify({ error: "too many requests" }));
+        res.end(
+          JSON.stringify({
+            error: "too many requests",
+          }),
+        );
         return;
       }
       limiter.record(ip);
@@ -314,7 +321,97 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
         return;
       }
 
-      // Fetch block
+      // --- POST /block/:cid ---
+      if (req.method === "POST") {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let aborted = false;
+        for await (const chunk of req) {
+          const buf = chunk as Buffer;
+          size += buf.length;
+          if (size > MAX_BODY_BYTES) {
+            aborted = true;
+            req.destroy();
+            break;
+          }
+          chunks.push(buf);
+        }
+        if (aborted) {
+          res.writeHead(413, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "body too large",
+            }),
+          );
+          return;
+        }
+        const body = new Uint8Array(Buffer.concat(chunks));
+        if (body.length === 0) {
+          res.writeHead(400, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(JSON.stringify({ error: "empty body" }));
+          return;
+        }
+
+        // Verify CID matches body content
+        try {
+          const hash = await sha256.digest(body);
+          const computed = CID.createV1(cid.code, hash);
+          if (!computed.equals(cid)) {
+            res.writeHead(400, {
+              "content-type": "application/json",
+              ...cors,
+            });
+            res.end(
+              JSON.stringify({
+                error: "CID mismatch",
+              }),
+            );
+            return;
+          }
+        } catch {
+          res.writeHead(400, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "CID verification failed",
+            }),
+          );
+          return;
+        }
+
+        // Store block
+        try {
+          await config.putBlock(cid, body);
+          log.debug(`stored block ${cid.toString().slice(0, 16)}...`);
+          res.writeHead(200, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          log.warn("block put error:", (err as Error).message);
+          res.writeHead(500, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "internal error",
+            }),
+          );
+        }
+        return;
+      }
+
+      // --- GET /block/:cid ---
       try {
         const block = await config.getBlock(cid);
         if (!block) {
@@ -322,7 +419,11 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
             "content-type": "application/json",
             ...cors,
           });
-          res.end(JSON.stringify({ error: "block not found" }));
+          res.end(
+            JSON.stringify({
+              error: "block not found",
+            }),
+          );
           return;
         }
 
@@ -339,7 +440,11 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
           "content-type": "application/json",
           ...cors,
         });
-        res.end(JSON.stringify({ error: "internal error" }));
+        res.end(
+          JSON.stringify({
+            error: "internal error",
+          }),
+        );
       }
     },
   );
