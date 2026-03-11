@@ -169,7 +169,16 @@ describe("deriveHttpUrl", () => {
     expect(deriveHttpUrl(ma, 9443)).toBe("https://host.example.com:9443");
   });
 
-  it("returns undefined for non-dns multiaddr", () => {
+  it("extracts hostname from SNI multiaddr", () => {
+    const ma =
+      "/ip4/144.202.54.236/tcp/4003/tls/sni/" +
+      "144-202-54-236.k51qzi.libp2p.direct/ws";
+    expect(deriveHttpUrl(ma, 4443)).toBe(
+      "https://144-202-54-236.k51qzi.libp2p.direct:4443",
+    );
+  });
+
+  it("returns undefined for non-tls multiaddr", () => {
     const ma = "/ip4/1.2.3.4/tcp/4003/ws";
     expect(deriveHttpUrl(ma, 4443)).toBeUndefined();
   });

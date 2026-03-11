@@ -289,10 +289,12 @@ async function main() {
             : undefined,
       });
 
-      // Derive httpUrl from WSS multiaddr
+      // Derive httpUrl from our own TLS multiaddr
+      // (exclude circuit relay addrs which have
+      // someone else's hostname).
       const wssAddr = relayHandle!
         .multiaddrs()
-        .find((a) => a.includes("/tls/"));
+        .find((a) => a.includes("/tls/") && !a.includes("/p2p-circuit/"));
       if (wssAddr) {
         const url = deriveHttpUrl(wssAddr, httpsPort);
         if (url) {
