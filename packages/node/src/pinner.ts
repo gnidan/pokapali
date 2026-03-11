@@ -9,6 +9,9 @@ import { hexToBytes } from "@pokapali/crypto";
 import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";
 import {
+  resolveIPNS,
+} from "@pokapali/core/ipns-helpers";
+import {
   announceAck,
   announceSnapshot,
   announceTopic,
@@ -32,7 +35,7 @@ const log = createLogger("pinner");
 
 const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
-const REPUBLISH_PER_NAME_DELAY_MS = 5_000;
+const REPUBLISH_BATCH_SIZE = 5;
 const REPUBLISH_TIMEOUT_MS = 15_000;
 const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
@@ -414,6 +417,9 @@ export async function createPinner(
   /**
    * Resolve IPNS name and fetch the block. Used for
    * periodic re-resolution and startup recovery.
+   *
+   * Uses delegated HTTP routing first (fast), then
+   * falls back to DHT — same path browsers use.
    */
   async function resolveAndFetch(
     ipnsName: string,
@@ -421,20 +427,27 @@ export async function createPinner(
     if (!helia) return false;
 
     try {
-      const name = ipns(helia as any);
       const keyBytes = hexToBytes(ipnsName);
-      const pubKey = publicKeyFromRaw(keyBytes);
-
-      const result = await name.resolve(pubKey, {
-        signal: AbortSignal.timeout(30_000),
-      });
-      const cid = result.cid;
+      const cid = await resolveIPNS(
+        helia,
+        keyBytes,
+      );
+      if (!cid) {
+        log.error(
+          `resolve returned null for`
+          + ` ${ipnsName.slice(0, 12)}...`,
+        );
+        return false;
+      }
       log.debug(
         `resolved ${ipnsName.slice(0, 12)}...`
         + ` -> ${cid.toString().slice(0, 12)}...`,
       );
 
-      return fetchByCid(ipnsName, cid.toString());
+      return fetchByCid(
+        ipnsName,
+        cid.toString(),
+      );
     } catch (err) {
       const msg = (err as Error).message ?? "";
       log.error(
@@ -478,10 +491,53 @@ export async function createPinner(
    * republishRecord which goes through Helia's
    * composed routing (DHT on node side).
    */
+  /**
+   * Republish a single IPNS record. Extracted so it
+   * can be called in parallel batches.
+   */
+  async function republishOne(
+    ipnsName: string,
+  ): Promise<boolean> {
+    if (!helia) return false;
+    try {
+      const name = ipns(helia as any);
+      const keyBytes = hexToBytes(ipnsName);
+      const pubKey = publicKeyFromRaw(keyBytes);
+
+      const result = await name.resolve(pubKey, {
+        signal: AbortSignal.timeout(
+          REPUBLISH_TIMEOUT_MS,
+        ),
+      });
+
+      await name.republishRecord(
+        pubKey.toMultihash(),
+        result.record,
+        {
+          signal: AbortSignal.timeout(
+            REPUBLISH_TIMEOUT_MS,
+          ),
+        },
+      );
+      log.debug(
+        `republished IPNS for`
+          + ` ${ipnsName.slice(0, 12)}...`,
+      );
+      return true;
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      log.error(
+        `IPNS republish failed for`
+          + ` ${ipnsName.slice(0, 12)}...:`
+          + ` ${msg}`,
+      );
+      return false;
+    }
+  }
+
   async function republishAllIPNS(): Promise<void> {
     if (!helia) return;
 
-    const name = ipns(helia as any);
     const now = Date.now();
     // Only republish docs still within retention
     const names = [...knownNames].filter((n) => {
@@ -489,55 +545,50 @@ export async function createPinner(
       return seen + RETENTION_DURATION_MS > now;
     });
     if (names.length === 0) return;
-    log.debug(
+
+    const start = Date.now();
+    log.info(
       `republishing IPNS for`
       + ` ${names.length}/${knownNames.size}`
-      + ` retained names`,
+      + ` retained names`
+      + ` (batch=${REPUBLISH_BATCH_SIZE})`,
     );
 
-    for (const ipnsName of names) {
+    let ok = 0;
+    let fail = 0;
+    for (
+      let i = 0;
+      i < names.length;
+      i += REPUBLISH_BATCH_SIZE
+    ) {
       if (stopped) break;
-      try {
-        const keyBytes = hexToBytes(ipnsName);
-        const pubKey = publicKeyFromRaw(keyBytes);
-
-        // Resolve to get the current record
-        const result = await name.resolve(pubKey, {
-          signal: AbortSignal.timeout(
-            REPUBLISH_TIMEOUT_MS,
-          ),
-        });
-
-        // Republish without private key
-        await name.republishRecord(
-          pubKey.toMultihash(),
-          result.record,
-          {
-            signal: AbortSignal.timeout(
-              REPUBLISH_TIMEOUT_MS,
-            ),
-          },
-        );
-        log.debug(
-          `republished IPNS for`
-            + ` ${ipnsName.slice(0, 12)}...`,
-        );
-      } catch (err) {
-        const msg = (err as Error).message ?? "";
-        log.error(
-          `IPNS republish failed for`
-            + ` ${ipnsName.slice(0, 12)}...:`
-            + ` ${msg}`,
-        );
-      }
-      // Spread out DHT work so it doesn't compete
-      // with relay coordination.
-      if (!stopped) {
-        await new Promise((r) =>
-          setTimeout(r, REPUBLISH_PER_NAME_DELAY_MS),
-        );
+      const batch = names.slice(
+        i,
+        i + REPUBLISH_BATCH_SIZE,
+      );
+      const results = await Promise.allSettled(
+        batch.map((n) => republishOne(n)),
+      );
+      for (const r of results) {
+        if (
+          r.status === "fulfilled" && r.value
+        ) {
+          ok++;
+        } else {
+          fail++;
+        }
       }
     }
+
+    const elapsed = Date.now() - start;
+    log.info(
+      `IPNS republish done:`
+      + ` ${ok} ok, ${fail} failed`
+      + ` in ${elapsed}ms`
+      + ` (${names.length > 0
+          ? (elapsed / names.length).toFixed(0)
+          : 0}ms/name)`,
+    );
   }
 
   /**
