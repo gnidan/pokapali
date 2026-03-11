@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Helia } from "helia";
 import { multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
@@ -137,6 +136,7 @@ export function startRoomDiscovery(
     pid: string,
     wssAddrs: ReturnType<typeof multiaddr>[],
     rawAddrs: string[],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     peerId?: any,
   ): Promise<boolean> {
     const short = pid.slice(-8);
@@ -162,6 +162,7 @@ export function startRoomDiscovery(
       log.info(`relay ...${short} OK`);
       return true;
     } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const e = err as any;
       log.debug(`relay ...${short} FAIL:`, e.message ?? err);
       if (e.errors) {
@@ -215,6 +216,7 @@ export function startRoomDiscovery(
     pid: string;
     filtered: ReturnType<typeof multiaddr>[];
     addrs: string[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     peerId: any;
   }
 
@@ -248,8 +250,9 @@ export function startRoomDiscovery(
           .some((c) => c.remotePeer.toString() === pid);
 
         if (already) {
-          const addrs = (provider.multiaddrs ?? []).map((ma: any) =>
-            ma.toString(),
+          const addrs = (provider.multiaddrs ?? []).map(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (ma: any) => ma.toString(),
           );
           trackRelay(pid, addrs);
           upsertCachedRelay(pid, addrs);
@@ -258,6 +261,7 @@ export function startRoomDiscovery(
         }
 
         const addrs =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           provider.multiaddrs?.map((ma: any) => ma.toString()) ?? [];
 
         // Only try providers with browser-dialable

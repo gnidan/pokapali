@@ -92,7 +92,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         const syncManager = setupNamespaceRooms(
           ipnsName,
           subdocManager,
-          docKeys.namespaceKeys,
+          docKeys.channelKeys,
           signalingUrls,
           syncOpts,
         );
@@ -111,7 +111,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           ipnsKeyBytes: docKeys.ipnsKeyBytes,
           rotationKey: docKeys.rotationKey,
           awarenessRoomPassword: docKeys.awarenessRoomPassword,
-          namespaceKeys: docKeys.namespaceKeys,
+          channelKeys: docKeys.channelKeys,
         };
 
         const adminUrl = await buildUrl(origin, ipnsName, fullKeys);
@@ -119,7 +119,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           origin,
           ipnsName,
           narrowCapability(fullKeys, {
-            namespaces: [...channels],
+            channels: [...channels],
             canPushSnapshots: true,
           }),
         );
@@ -127,7 +127,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           origin,
           ipnsName,
           narrowCapability(fullKeys, {
-            namespaces: [],
+            channels: [],
           }),
         );
 
@@ -136,7 +136,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         populateMeta(
           subdocManager.metaDoc,
           signingKey.publicKey,
-          docKeys.namespaceKeys,
+          docKeys.channelKeys,
         );
 
         return createDoc({
@@ -204,11 +204,11 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           primaryNamespace: primaryChannel,
         });
 
-        const nsKeys = keys.namespaceKeys ?? {};
+        const chKeys = keys.channelKeys ?? {};
         const syncManager = setupNamespaceRooms(
           ipnsName,
           subdocManager,
-          nsKeys,
+          chKeys,
           signalingUrls,
           syncOpts,
         );
@@ -230,7 +230,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
               origin,
               ipnsName,
               narrowCapability(keys, {
-                namespaces: [...cap.namespaces],
+                channels: [...cap.channels],
                 canPushSnapshots: true,
               }),
             )
@@ -239,7 +239,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           origin,
           ipnsName,
           narrowCapability(keys, {
-            namespaces: [],
+            channels: [],
           }),
         );
 
@@ -306,11 +306,15 @@ export type {
   DocRole,
   DocStatus,
   SaveState,
+  SnapshotEvent,
 } from "./create-doc.js";
 
 export type { RotateResult } from "./doc-rotate.js";
 
 export type { GossipActivity, LoadingState } from "./snapshot-watcher.js";
+
+export { fetchVersionHistory } from "./fetch-version-history.js";
+export type { VersionEntry } from "./fetch-version-history.js";
 
 export type {
   NodeInfo,
@@ -329,14 +333,18 @@ export {
   encodeForwardingRecord,
   decodeForwardingRecord,
   verifyForwardingRecord,
-  clearForwardingStore,
 } from "./forwarding.js";
 export type { ForwardingRecord } from "./forwarding.js";
 export { createAutoSaver } from "./auto-save.js";
 export type { AutoSaveOptions } from "./auto-save.js";
 export { truncateUrl, docIdFromUrl } from "./url-utils.js";
 export { NODE_CAPS_TOPIC, _resetNodeRegistry } from "./node-registry.js";
-export type { KnownNode, Neighbor, NodeRegistry } from "./node-registry.js";
+export type {
+  KnownNode,
+  Neighbor,
+  NodeRegistry,
+  NodeRegistryEvents,
+} from "./node-registry.js";
 export type {
   AwarenessTopology,
   AwarenessKnownNode,

@@ -24,8 +24,11 @@ const log = createLogger("pinner");
 
 const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
-const REPUBLISH_BATCH_SIZE = 5;
+const REPUBLISH_CONCURRENCY = 10;
 const REPUBLISH_TIMEOUT_MS = 15_000;
+// Skip republish if record is <20h old and CID
+// unchanged. 24h IPNS TTL minus 4h buffer.
+const REPUBLISH_STALE_MS = 20 * 60 * 60_000;
 const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
 
@@ -432,14 +435,18 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
    * republishRecord which goes through Helia's
    * composed routing (DHT on node side).
    */
+  // Track last successful republish time per name
+  const lastRepublished = new Map<string, number>();
+  // Track CID at last successful republish
+  const lastRepublishedCid = new Map<string, string>();
+
   /**
-   * Republish a single IPNS record. Extracted so it
-   * can be called in parallel batches. Uses combined
+   * Republish a single IPNS record. Uses combined
    * signal: per-call timeout + shutdown abort so the
    * process doesn't hang on stop().
    */
-  async function republishOne(ipnsName: string): Promise<boolean> {
-    if (!helia) return false;
+  async function republishOne(ipnsName: string): Promise<"ok" | "fail"> {
+    if (!helia) return "fail";
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const name = ipns(helia as any);
@@ -456,8 +463,15 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       await name.republishRecord(pubKey.toMultihash(), result.record, {
         signal,
       });
+
+      // Track successful republish
+      const now = Date.now();
+      lastRepublished.set(ipnsName, now);
+      const tip = history.getTip(ipnsName);
+      if (tip) lastRepublishedCid.set(ipnsName, tip);
+
       log.debug(`republished IPNS for` + ` ${ipnsName.slice(0, 12)}...`);
-      return true;
+      return "ok";
     } catch (err) {
       const msg = (err as Error).message ?? "";
       log.error(
@@ -465,53 +479,118 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
           ` ${ipnsName.slice(0, 12)}...:` +
           ` ${msg}`,
       );
-      return false;
+      return "fail";
     }
+  }
+
+  /**
+   * Select names that need republishing this cycle.
+   * Skips names whose record is <20h old with
+   * unchanged CID (5x fewer DHT ops for stable docs).
+   */
+  function getRepublishCandidates(): string[] {
+    const now = Date.now();
+    const candidates: string[] = [];
+
+    for (const ipnsName of knownNames) {
+      const seen = lastSeenAt.get(ipnsName) ?? 0;
+      // Skip names past retention
+      if (seen + RETENTION_DURATION_MS <= now) continue;
+
+      const lastPub = lastRepublished.get(ipnsName) ?? 0;
+      const tip = history.getTip(ipnsName);
+      const lastPubCid = lastRepublishedCid.get(ipnsName);
+
+      // Always republish if CID changed
+      if (tip && tip !== lastPubCid) {
+        candidates.push(ipnsName);
+        continue;
+      }
+
+      // Republish if record is stale (>20h since
+      // last publish, approaching 24h TTL expiry)
+      if (now - lastPub > REPUBLISH_STALE_MS) {
+        candidates.push(ipnsName);
+        continue;
+      }
+
+      // Otherwise skip — record is fresh enough
+    }
+
+    return candidates;
   }
 
   async function republishAllIPNS(): Promise<void> {
     if (!helia) return;
 
-    const now = Date.now();
-    // Only republish docs still within retention
-    const names = [...knownNames].filter((n) => {
+    const candidates = getRepublishCandidates();
+    const retained = [...knownNames].filter((n) => {
       const seen = lastSeenAt.get(n) ?? 0;
-      return seen + RETENTION_DURATION_MS > now;
-    });
-    if (names.length === 0) return;
+      return seen + RETENTION_DURATION_MS > Date.now();
+    }).length;
+    const skip = retained - candidates.length;
+
+    if (candidates.length === 0) {
+      log.info(
+        `IPNS republish: 0 candidates` +
+          ` (${skip} skipped, ${retained} retained)`,
+      );
+      return;
+    }
 
     const start = Date.now();
     log.info(
       `republishing IPNS for` +
-        ` ${names.length}/${knownNames.size}` +
+        ` ${candidates.length}/${retained}` +
         ` retained names` +
-        ` (batch=${REPUBLISH_BATCH_SIZE})`,
+        ` (${skip} skipped,` +
+        ` concurrency=${REPUBLISH_CONCURRENCY})`,
     );
 
+    let idx = 0;
     let ok = 0;
     let fail = 0;
-    for (let i = 0; i < names.length; i += REPUBLISH_BATCH_SIZE) {
-      if (stopped) break;
-      const batch = names.slice(i, i + REPUBLISH_BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map((n) => republishOne(n)),
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value) {
-          ok++;
-        } else {
-          fail++;
+    let abortCycle = false;
+
+    async function worker(): Promise<void> {
+      while (!stopped && !abortCycle) {
+        const i = idx++;
+        if (i >= candidates.length) return;
+        const result = await republishOne(candidates[i]);
+        if (result === "ok") ok++;
+        else fail++;
+
+        // Circuit breaker: abort if >50% failure
+        // rate after 20+ attempts
+        const total = ok + fail;
+        if (total >= 20 && fail / total > 0.5) {
+          log.warn(
+            `IPNS republish: >50% failure rate` +
+              ` (${fail}/${total}),` +
+              ` aborting cycle`,
+          );
+          abortCycle = true;
+          return;
         }
       }
     }
 
+    const workers = Array.from(
+      {
+        length: Math.min(REPUBLISH_CONCURRENCY, candidates.length),
+      },
+      () => worker(),
+    );
+    await Promise.allSettled(workers);
+
     const elapsed = Date.now() - start;
     log.info(
       `IPNS republish done:` +
-        ` ${ok} ok, ${fail} failed` +
+        ` ${ok} ok, ${fail} failed,` +
+        ` ${skip} skipped` +
         ` in ${elapsed}ms` +
         ` (${
-          names.length > 0 ? (elapsed / names.length).toFixed(0) : 0
+          candidates.length > 0 ? (elapsed / candidates.length).toFixed(0) : 0
         }ms/name)`,
     );
   }
@@ -686,7 +765,11 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
     if (state.tips) {
       for (const [name, cidStr] of Object.entries(state.tips)) {
-        history.add(name, CID.parse(cidStr), Date.now());
+        // Use persisted lastSeenAt if available,
+        // otherwise 0 so restored tips don't
+        // inflate prune timestamps.
+        const ts = state.lastSeenAt?.[name] ?? 0;
+        history.add(name, CID.parse(cidStr), ts);
       }
     }
     if (state.nameToAppId) {
@@ -1000,8 +1083,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       lastSeenAt.set(ipnsName, Date.now());
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
-      markDirty();
       snapshotsIngested++;
+
+      // Persist immediately — HTTP ingest is rare
+      // and the caller needs crash safety (no 5s
+      // debounce window where state could be lost).
+      await persistState();
 
       return true;
     },

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type {
@@ -50,6 +49,13 @@ export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
 
 export type DocRole = "admin" | "writer" | "reader";
 
+export interface SnapshotEvent {
+  cid: CID;
+  seq: number;
+  ts: number;
+  isLocal: boolean;
+}
+
 export interface DocUrls {
   readonly admin: string | null;
   readonly write: string | null;
@@ -92,6 +98,9 @@ export interface Doc {
   /** Latest retain-until timestamp across all
    *  pinners for the current CID, or null if none. */
   readonly retainUntil: number | null;
+  /** CID of the current chain tip, or null if no
+   *  snapshot has been created/applied yet. */
+  readonly tipCid: CID | null;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -103,14 +112,14 @@ export interface Doc {
   rotate(): Promise<RotateResult>;
   on(event: "status", cb: (status: DocStatus) => void): void;
   on(event: "publish-needed", cb: () => void): void;
-  on(event: "snapshot", cb: () => void): void;
+  on(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
   on(event: "loading", cb: (state: LoadingState) => void): void;
   on(event: "ack", cb: (peerId: string) => void): void;
   on(event: "save", cb: (state: SaveState) => void): void;
   on(event: "node-change", cb: () => void): void;
   off(event: "status", cb: (status: DocStatus) => void): void;
   off(event: "publish-needed", cb: () => void): void;
-  off(event: "snapshot", cb: () => void): void;
+  off(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
   off(event: "loading", cb: (state: LoadingState) => void): void;
   off(event: "ack", cb: (peerId: string) => void): void;
   off(event: "save", cb: (state: SaveState) => void): void;
@@ -185,14 +194,14 @@ function computeSaveState(isDirty: boolean, isSaving: boolean): SaveState {
 export function populateMeta(
   metaDoc: Y.Doc,
   signingPublicKey: Uint8Array,
-  namespaceKeys: Record<string, Uint8Array>,
+  channelKeys: Record<string, Uint8Array>,
 ) {
   const canPush = metaDoc.getArray<Uint8Array>("canPushSnapshots");
   canPush.push([signingPublicKey]);
   const authorized = metaDoc.getMap("authorized");
-  for (const [ns, key] of Object.entries(namespaceKeys)) {
+  for (const [ch, key] of Object.entries(channelKeys)) {
     const arr = new Y.Array<Uint8Array>();
-    authorized.set(ns, arr);
+    authorized.set(ch, arr);
     arr.push([key]);
   }
 }
@@ -378,9 +387,10 @@ export function createDoc(params: DocParams): Doc {
       topSharing = createTopologySharing({
         awareness: awarenessRoom.awareness,
         registry,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         libp2p: (helia as any).libp2p,
       });
-      registry.onNodeChange(nodeChangeHandler);
+      registry.on("change", nodeChangeHandler);
     }
   } catch (err) {
     log.warn("topology sharing init skipped:", (err as Error)?.message ?? err);
@@ -403,33 +413,6 @@ export function createDoc(params: DocParams): Doc {
       ipnsPublicKeyBytes: hexToBytes(ipnsName),
       performInitialResolve: params.performInitialResolve,
       httpUrls: getHttpUrls,
-      onGuaranteeQuery: () => {
-        emit("guarantee-query");
-      },
-      onAck: (peerId) => {
-        emit("ack", peerId);
-      },
-      onGossipActivityChange: (activity) => {
-        gossipActivity = activity;
-        checkStatus();
-        emit("gossip-activity", activity);
-      },
-      onFetchStateChange: (state) => {
-        emit("loading", state);
-        // If we return to idle or hit permanent
-        // failure without ever applying a snapshot,
-        // the document is as ready as it gets —
-        // mount the editor so the user sees status
-        // indicators instead of a blank loading
-        // screen.
-        if (
-          (state.status === "idle" || state.status === "failed") &&
-          !readyResolved &&
-          !snapshotWatcher?.hasAppliedSnapshot
-        ) {
-          markReady();
-        }
-      },
       onSnapshot: async (cid) => {
         const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) =>
           subdocManager.applySnapshot(plaintext),
@@ -441,10 +424,43 @@ export function createDoc(params: DocParams): Doc {
           // already hold this snapshot set
           // ackedCurrentCid.
           snapshotWatcher?.trackCidForAcks(cid.toString());
-          emit("snapshot");
+          emit("snapshot", {
+            cid,
+            seq: snapshotLC.seq - 1,
+            ts: Date.now(),
+            isLocal: false,
+          } satisfies SnapshotEvent);
           markReady();
         }
       },
+    });
+
+    snapshotWatcher.on("guarantee-query", () => {
+      emit("guarantee-query");
+    });
+    snapshotWatcher.on("ack", (peerId) => {
+      emit("ack", peerId);
+    });
+    snapshotWatcher.on("gossip-activity", (activity) => {
+      gossipActivity = activity;
+      checkStatus();
+      emit("gossip-activity", activity);
+    });
+    snapshotWatcher.on("fetch-state", (state) => {
+      emit("loading", state);
+      // If we return to idle or hit permanent
+      // failure without ever applying a snapshot,
+      // the document is as ready as it gets —
+      // mount the editor so the user sees status
+      // indicators instead of a blank loading
+      // screen.
+      if (
+        (state.status === "idle" || state.status === "failed") &&
+        !readyResolved &&
+        !snapshotWatcher?.hasAppliedSnapshot
+      ) {
+        markReady();
+      }
     });
 
     // Periodically re-announce the latest snapshot
@@ -482,9 +498,9 @@ export function createDoc(params: DocParams): Doc {
     relaySharing?.destroy();
     topSharing?.destroy();
     try {
-      getNodeRegistry()?.offNodeChange(nodeChangeHandler);
+      getNodeRegistry()?.off("change", nodeChangeHandler);
     } catch (err) {
-      log.warn("offNodeChange cleanup error:", (err as Error)?.message ?? err);
+      log.warn("off('change') cleanup error:", (err as Error)?.message ?? err);
     }
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();
@@ -543,17 +559,17 @@ export function createDoc(params: DocParams): Doc {
 
     get role(): DocRole {
       if (cap.isAdmin) return "admin";
-      if (cap.namespaces.size > 0) return "writer";
+      if (cap.channels.size > 0) return "writer";
       return "reader";
     },
 
     async invite(grant: CapabilityGrant): Promise<string> {
       assertNotDestroyed();
-      if (grant.namespaces) {
-        for (const ns of grant.namespaces) {
-          if (!cap.namespaces.has(ns)) {
+      if (grant.channels) {
+        for (const ch of grant.channels) {
+          if (!cap.channels.has(ch)) {
             throw new Error(
-              `Cannot grant "${ns}" ` + "— not in own capability",
+              `Cannot grant "${ch}" ` + "— not in own capability",
             );
           }
         }
@@ -619,6 +635,10 @@ export function createDoc(params: DocParams): Doc {
       return snapshotWatcher?.retainUntil ?? null;
     },
 
+    get tipCid(): CID | null {
+      return snapshotLC.prev;
+    },
+
     ready(): Promise<void> {
       return readyPromise;
     },
@@ -633,16 +653,22 @@ export function createDoc(params: DocParams): Doc {
 
       const plaintext = subdocManager.encodeAll();
       const clockSum = this.clockSum;
-      const { cid, block } = await snapshotLC.push(
+      const pushResult = await snapshotLC.push(
         plaintext,
         readKey,
         signingKey,
         clockSum,
       );
+      const { cid, block } = pushResult;
 
       isSaving = false;
       checkSaveState();
-      emit("snapshot");
+      emit("snapshot", {
+        cid,
+        seq: pushResult.seq,
+        ts: Date.now(),
+        isLocal: true,
+      } satisfies SnapshotEvent);
 
       // Reset ack tracking synchronously so the UI
       // clears immediately and early acks aren't
@@ -717,6 +743,7 @@ export function createDoc(params: DocParams): Doc {
       return result as RotateResult;
     },
 
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     on(event: string, cb: (...args: any[]) => void) {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
@@ -727,6 +754,7 @@ export function createDoc(params: DocParams): Doc {
     off(event: string, cb: (...args: any[]) => void) {
       listeners.get(event)?.delete(cb);
     },
+    /* eslint-enable @typescript-eslint/no-explicit-any */
 
     diagnostics(): Diagnostics {
       assertNotDestroyed();

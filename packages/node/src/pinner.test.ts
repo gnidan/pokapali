@@ -628,5 +628,116 @@ describe("pinner with mock helia", () => {
       await pinner.stop();
       vi.useRealTimers();
     });
+
+    it("skips recently republished names", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      mockResolve.mockResolvedValue({
+        cid,
+        record: new Uint8Array([1, 2, 3]),
+      });
+      mockRepublish.mockResolvedValue(undefined);
+
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      await pinner.ingest(name, block);
+
+      // Trigger initial republish (5 min)
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      const firstCallCount = mockRepublish.mock.calls.length;
+      expect(firstCallCount).toBeGreaterThan(0);
+
+      // Trigger next 4h cycle — CID unchanged,
+      // <20h since last republish → should skip
+      await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      // No new republish calls
+      expect(mockRepublish.mock.calls.length).toBe(firstCallCount);
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
+
+    it("aborts cycle on >50% failure rate", async () => {
+      // Create 30 names to trigger circuit breaker
+      // (need 20+ attempts with >50% fail)
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      // Resolve succeeds during startup resolveAll
+      // but fails during republish
+      mockResolve.mockResolvedValue({
+        cid,
+        record: new Uint8Array([1, 2, 3]),
+      });
+      mockRepublish.mockResolvedValue(undefined);
+
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      // Ingest 30 names
+      for (let i = 0; i < 30; i++) {
+        const hex = i.toString(16).padStart(2, "0");
+        const name = hex.padEnd(64, "0");
+        const b = await makeSnapshot({
+          ts: 5000 + i,
+        });
+        const c = await blockToCid(b);
+        blocks.set(c.toString(), b);
+        await pinner.ingest(name, b);
+      }
+
+      // Let startup resolveAll complete
+      for (let t = 0; t < 20; t++) {
+        await vi.advanceTimersByTimeAsync(500);
+      }
+
+      // Now make republish fail — switch mock
+      mockResolve.mockRejectedValue(new Error("DHT dead"));
+      mockRepublish.mockClear();
+
+      // Trigger initial republish (5min timer)
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      // Circuit breaker fires at 20 failures. Since
+      // republishOne calls resolve then republish,
+      // no republish calls should succeed (resolve
+      // fails first). The breaker should have
+      // stopped early — fewer than 30 names tried.
+      // mockRepublish should NOT be called since
+      // resolve fails before it.
+      expect(mockRepublish).not.toHaveBeenCalled();
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
   });
 });

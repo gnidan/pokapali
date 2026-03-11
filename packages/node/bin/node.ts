@@ -8,6 +8,7 @@ import {
   parseAnnouncement,
   base64ToUint8,
 } from "@pokapali/core/announce";
+import { CID } from "multiformats/cid";
 import { createLogger, setLogLevel } from "@pokapali/log";
 import type { LogLevel } from "@pokapali/log";
 import type { Server as HttpsServer } from "node:https";
@@ -218,6 +219,24 @@ async function main() {
         putBlock: async (cid, bytes) => {
           await blockstore.put(cid, bytes);
         },
+        getHistory: pinner
+          ? async (ipnsName) => {
+              const records = pinner!.history.getHistory(ipnsName);
+              // Filter to blocks we still have
+              const verified = [];
+              for (const r of records) {
+                try {
+                  const cid = CID.parse(r.cid);
+                  if (await blockstore.has(cid)) {
+                    verified.push(r);
+                  }
+                } catch {
+                  // Skip unparseable CIDs
+                }
+              }
+              return verified;
+            }
+          : undefined,
       });
 
       // Derive httpUrl from WSS multiaddr

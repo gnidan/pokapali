@@ -45,14 +45,17 @@ export interface SnapshotWatcherOptions {
   isWriter: boolean;
   ipnsPublicKeyBytes?: Uint8Array;
   onSnapshot: (cid: CID) => Promise<void>;
-  onFetchStateChange?: (state: LoadingState) => void;
-  onAck?: (peerId: string) => void;
-  onGossipActivityChange?: (activity: GossipActivity) => void;
-  onGuaranteeQuery?: () => void;
   performInitialResolve?: boolean;
   /** Dynamic getter for relay HTTP URLs (for large
    *  block uploads during re-announce). */
   httpUrls?: () => string[];
+}
+
+export interface SnapshotWatcherEvents {
+  "fetch-state": [LoadingState];
+  ack: [string];
+  "gossip-activity": [GossipActivity];
+  "guarantee-query": [];
 }
 
 export interface SnapshotWatcher {
@@ -84,6 +87,14 @@ export interface SnapshotWatcher {
   /** GossipSub liveness: inactive → subscribed →
    *  receiving. Decays after 60s without messages. */
   readonly gossipActivity: GossipActivity;
+  on<E extends keyof SnapshotWatcherEvents>(
+    event: E,
+    cb: (...args: SnapshotWatcherEvents[E]) => void,
+  ): void;
+  off<E extends keyof SnapshotWatcherEvents>(
+    event: E,
+    cb: (...args: SnapshotWatcherEvents[E]) => void,
+  ): void;
   destroy(): void;
 }
 
@@ -100,9 +111,22 @@ export function createSnapshotWatcher(
     onSnapshot,
   } = options;
 
+  // --- Typed event emitter ---
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const listeners = new Map<string, Set<(...a: any[]) => void>>();
+  function emit<E extends keyof SnapshotWatcherEvents>(
+    event: E,
+    ...args: SnapshotWatcherEvents[E]
+  ) {
+    const cbs = listeners.get(event as string);
+    if (cbs) {
+      for (const cb of cbs) cb(...args);
+    }
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
   let destroyed = false;
   const topic = announceTopic(appId);
-  let pendingCid: string | null = null;
   let latestAnnouncedSeq = 0;
   let retryAttempt = 0;
   let fetchState: LoadingState = { status: "idle" };
@@ -141,7 +165,7 @@ export function createSnapshotWatcher(
     const next = currentGossipActivity();
     if (next !== lastReportedGossipActivity) {
       lastReportedGossipActivity = next;
-      options.onGossipActivityChange?.(next);
+      emit("gossip-activity", next);
     }
   }
 
@@ -161,7 +185,20 @@ export function createSnapshotWatcher(
 
   function setFetchState(s: LoadingState) {
     fetchState = s;
-    options.onFetchStateChange?.(s);
+    emit("fetch-state", s);
+  }
+
+  /** Extract CID from current fetch state, or null
+   *  when idle/resolving (no active CID). */
+  function fetchCid(): string | null {
+    if (
+      fetchState.status === "fetching" ||
+      fetchState.status === "retrying" ||
+      fetchState.status === "failed"
+    ) {
+      return fetchState.cid;
+    }
+    return null;
   }
 
   // --- Announce subscription ---
@@ -178,7 +215,7 @@ export function createSnapshotWatcher(
   // so pinners respond with their current state.
   function fireGuaranteeQuery() {
     log.info("firing guarantee query");
-    options.onGuaranteeQuery?.();
+    emit("guarantee-query");
     publishGuaranteeQuery(pubsub, appId, ipnsName)
       .then(() => {
         log.debug("guarantee query published");
@@ -206,13 +243,15 @@ export function createSnapshotWatcher(
   }, GUARANTEE_REQUERY_MS);
 
   function scheduleRetry() {
-    if (retryTimer || !pendingCid) return;
+    if (retryTimer) return;
+    const cid = fetchCid();
+    if (!cid) return;
     retryAttempt++;
     if (retryAttempt > MAX_OUTER_RETRIES) {
-      log.warn("max retries exceeded for", pendingCid.slice(0, 16) + "...");
+      log.warn("max retries exceeded for", cid.slice(0, 16) + "...");
       setFetchState({
         status: "failed",
-        cid: pendingCid,
+        cid,
         error: "max retries exceeded",
       });
       return;
@@ -220,25 +259,25 @@ export function createSnapshotWatcher(
     const nextRetryAt = Date.now() + RETRY_INTERVAL_MS;
     setFetchState({
       status: "retrying",
-      cid: pendingCid,
+      cid,
       attempt: retryAttempt,
       nextRetryAt,
     });
     retryTimer = setTimeout(async () => {
       retryTimer = null;
-      if (!pendingCid || destroyed) return;
-      const cidStr = pendingCid;
-      log.debug("retrying fetch for", cidStr.slice(0, 16) + "...");
+      if (destroyed) return;
+      const retryCid = fetchCid();
+      if (!retryCid) return;
+      log.debug("retrying fetch for", retryCid.slice(0, 16) + "...");
       setFetchState({
         status: "fetching",
-        cid: cidStr,
+        cid: retryCid,
         startedAt: Date.now(),
       });
       try {
-        await onSnapshot(CIDClass.parse(cidStr));
+        await onSnapshot(CIDClass.parse(retryCid));
         if (destroyed) return;
         hasAppliedSnapshot = true;
-        pendingCid = null;
         retryAttempt = 0;
         setFetchState({ status: "idle" });
       } catch (err) {
@@ -292,7 +331,7 @@ export function createSnapshotWatcher(
       // Notify on any guarantee change so the UI
       // can update even without a CID match.
       if (changed) {
-        options.onAck?.(gResp.peerId);
+        emit("ack", gResp.peerId);
       }
       return;
     }
@@ -329,7 +368,7 @@ export function createSnapshotWatcher(
             "for",
             ann.cid.slice(0, 16) + "...",
           );
-          options.onAck?.(ann.ack.peerId);
+          emit("ack", ann.ack.peerId);
         }
       } else {
         log.debug(
@@ -347,7 +386,11 @@ export function createSnapshotWatcher(
     if (ann.seq !== undefined) {
       latestAnnouncedSeq = Math.max(latestAnnouncedSeq, ann.seq);
     }
-    pendingCid = ann.cid;
+    // Clear any pending retry for a previous CID.
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     retryAttempt = 0;
     setFetchState({
       status: "fetching",
@@ -399,6 +442,11 @@ export function createSnapshotWatcher(
       async (cid) => {
         if (destroyed) return;
         const cidStr = cid.toString();
+        // Clear any pending retry for a previous CID.
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+          retryTimer = null;
+        }
         retryAttempt = 0;
         setFetchState({
           status: "fetching",
@@ -406,11 +454,9 @@ export function createSnapshotWatcher(
           startedAt: Date.now(),
         });
         try {
-          pendingCid = cidStr;
           await onSnapshot(cid);
           if (destroyed) return;
           hasAppliedSnapshot = true;
-          pendingCid = null;
           setFetchState({ status: "idle" });
           if (cidStr !== lastAnnouncedCid) {
             lastAnnouncedCid = cidStr;
@@ -461,7 +507,6 @@ export function createSnapshotWatcher(
         if (tipCid && !destroyed) {
           log.info("IPNS resolved:", tipCid.toString());
           const cidStr = tipCid.toString();
-          pendingCid = cidStr;
           retryAttempt = 0;
           setFetchState({
             status: "fetching",
@@ -471,7 +516,6 @@ export function createSnapshotWatcher(
           await onSnapshot(tipCid);
           if (destroyed) return;
           hasAppliedSnapshot = true;
-          pendingCid = null;
           setFetchState({ status: "idle" });
           if (cidStr !== lastAnnouncedCid) {
             lastAnnouncedCid = cidStr;
@@ -623,7 +667,21 @@ export function createSnapshotWatcher(
       return currentGossipActivity();
     },
 
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    on(event: string, cb: (...a: any[]) => void) {
+      if (!listeners.has(event)) {
+        listeners.set(event, new Set());
+      }
+      listeners.get(event)!.add(cb);
+    },
+
+    off(event: string, cb: (...a: any[]) => void) {
+      listeners.get(event)?.delete(cb);
+    },
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
     destroy() {
+      listeners.clear();
       destroyed = true;
       if (announceTimer) {
         clearInterval(announceTimer);

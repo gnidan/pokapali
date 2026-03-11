@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Awareness } from "y-protocols/awareness";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { SnapshotWatcher } from "./snapshot-watcher.js";
@@ -75,6 +74,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
 
   try {
     const helia = getHelia();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const libp2p = (helia as any).libp2p;
     ipfsPeers = libp2p.getPeers().length;
 
@@ -114,6 +114,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
         if (seenPids.has(pid)) continue;
         const conns = libp2p.getConnections();
         const connected = conns.some(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (c: any) => c.remotePeer.toString() === pid,
         );
         const acked = ackedSet.has(pid);
@@ -135,6 +136,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
       const pubsub = libp2p.services.pubsub;
       const topics: string[] = pubsub.getTopics?.() ?? [];
       const gsPeers = pubsub.getPeers?.() ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mesh = (pubsub as any).mesh as Map<string, Set<string>> | undefined;
       let meshPeers = 0;
       if (mesh) {
@@ -147,8 +149,11 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
         topics: topics.length,
         meshPeers,
       };
-    } catch {
-      // GossipSub internals unavailable
+    } catch (err) {
+      log.debug(
+        "GossipSub internals unavailable:",
+        (err as Error)?.message ?? err,
+      );
     }
   } catch (err) {
     log.warn("diagnostics error:", (err as Error)?.message ?? err);
@@ -160,13 +165,14 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
     const states = ctx.awareness.getStates();
     editors = Math.max(1, states.size);
     for (const [, state] of states) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cs = (state as any)?.clockSum;
       if (typeof cs === "number" && cs > maxPeerClockSum) {
         maxPeerClockSum = cs;
       }
     }
-  } catch {
-    // awareness unavailable
+  } catch (err) {
+    log.debug("awareness unavailable:", (err as Error)?.message ?? err);
   }
 
   // Build topology edges from node neighbors

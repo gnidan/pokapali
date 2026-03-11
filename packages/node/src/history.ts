@@ -10,7 +10,7 @@ export interface HistoryEntry {
   snapshots: SnapshotRecord[];
 }
 
-const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+const DEFAULT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 export interface HistoryTracker {
   add(ipnsName: string, cid: CID, ts: number): void;
@@ -23,7 +23,9 @@ export interface HistoryTracker {
   loadJSON(data: Record<string, HistoryEntry>): void;
 }
 
-export function createHistoryTracker(): HistoryTracker {
+export function createHistoryTracker(
+  retentionMs: number = DEFAULT_RETENTION_MS,
+): HistoryTracker {
   const entries = new Map<string, HistoryEntry>();
 
   return {
@@ -55,7 +57,7 @@ export function createHistoryTracker(): HistoryTracker {
     },
 
     prune(now: number = Date.now()): CID[] {
-      const cutoff = now - TWENTY_FOUR_HOURS;
+      const cutoff = now - retentionMs;
       const removed: CID[] = [];
 
       for (const [, entry] of entries) {
