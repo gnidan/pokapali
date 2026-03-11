@@ -556,6 +556,7 @@ describe("@pokapali/core", () => {
             roles: string[];
             lastSeenAt: number;
             connected: boolean;
+            stale: boolean;
             neighbors: { peerId: string; role?: string }[];
             browserCount: number;
             addrs: string[];
@@ -591,6 +592,7 @@ describe("@pokapali/core", () => {
           roles: ["pinner"],
           lastSeenAt: Date.now(),
           connected: true,
+          stale: false,
           neighbors: [],
           browserCount: 0,
           addrs: [],
@@ -614,6 +616,7 @@ describe("@pokapali/core", () => {
           roles: ["pinner"],
           lastSeenAt: Date.now(),
           connected: true,
+          stale: false,
           neighbors: [],
           browserCount: 0,
           addrs: [],

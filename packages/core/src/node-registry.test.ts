@@ -163,7 +163,30 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("prunes stale entries after 90s", () => {
+  it("marks node stale after 150s", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-D", ["relay"]),
+    });
+    expect(reg.nodes.size).toBe(1);
+    expect(reg.nodes.get("peer-D")!.stale).toBe(false);
+
+    // Advance past stale threshold (150s) +
+    // prune interval (30s)
+    vi.advanceTimersByTime(180_000);
+
+    // Still in registry but marked stale
+    expect(reg.nodes.size).toBe(1);
+    expect(reg.nodes.get("peer-D")!.stale).toBe(true);
+
+    reg.destroy();
+  });
+
+  it("removes node after 300s", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
@@ -174,9 +197,9 @@ describe("createNodeRegistry", () => {
     });
     expect(reg.nodes.size).toBe(1);
 
-    // Advance past stale threshold (90s) +
+    // Advance past remove threshold (300s) +
     // prune interval (30s)
-    vi.advanceTimersByTime(120_000);
+    vi.advanceTimersByTime(330_000);
 
     expect(reg.nodes.size).toBe(0);
 
@@ -340,7 +363,7 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("prunes stale node and its topology" + " edges", () => {
+  it("removes stale node and its topology" + " edges after 300s", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
@@ -352,8 +375,9 @@ describe("createNodeRegistry", () => {
     expect(reg.nodes.size).toBe(1);
     expect(reg.nodes.get("relay-X")!.neighbors).toHaveLength(1);
 
-    // Advance past stale threshold + prune interval
-    vi.advanceTimersByTime(120_000);
+    // Advance past remove threshold (300s) +
+    // prune interval (30s)
+    vi.advanceTimersByTime(330_000);
 
     expect(reg.nodes.size).toBe(0);
 
@@ -471,7 +495,110 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("fires onNodeChange on stale prune", () => {
+  it(
+    "requires 2 consecutive disconnected checks" + " before flipping connected",
+    () => {
+      const pubsub = makePubsub();
+      let connectedPeers = ["peer-A"];
+      const helia = {
+        libp2p: {
+          getConnections: () =>
+            connectedPeers.map((pid) => ({
+              remotePeer: { toString: () => pid },
+            })),
+        },
+      };
+      const reg = createNodeRegistry(pubsub as any, () => helia as any);
+      const cb = vi.fn();
+
+      pubsub._emit("message", {
+        topic: NODE_CAPS_TOPIC,
+        data: capsMessage("peer-A", ["relay"]),
+      });
+      expect(reg.nodes.get("peer-A")!.connected).toBe(true);
+
+      reg.onNodeChange(cb);
+
+      // Disconnect the peer
+      connectedPeers = [];
+
+      // First prune check — hysteresis, stays connected
+      vi.advanceTimersByTime(30_000);
+      expect(reg.nodes.get("peer-A")!.connected).toBe(true);
+      expect(cb).not.toHaveBeenCalled();
+
+      // Second prune check — now flips to disconnected
+      vi.advanceTimersByTime(30_000);
+      expect(reg.nodes.get("peer-A")!.connected).toBe(false);
+      expect(cb).toHaveBeenCalledTimes(1);
+
+      reg.destroy();
+    },
+  );
+
+  it("resets disconnect hysteresis on reconnect", () => {
+    const pubsub = makePubsub();
+    let connectedPeers = ["peer-A"];
+    const helia = {
+      libp2p: {
+        getConnections: () =>
+          connectedPeers.map((pid) => ({
+            remotePeer: { toString: () => pid },
+          })),
+      },
+    };
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    // Disconnect — one prune check
+    connectedPeers = [];
+    vi.advanceTimersByTime(30_000);
+    expect(reg.nodes.get("peer-A")!.connected).toBe(true);
+
+    // Reconnect before second check
+    connectedPeers = ["peer-A"];
+    vi.advanceTimersByTime(30_000);
+    expect(reg.nodes.get("peer-A")!.connected).toBe(true);
+
+    // Disconnect again — counter reset, needs 2 more
+    connectedPeers = [];
+    vi.advanceTimersByTime(30_000);
+    expect(reg.nodes.get("peer-A")!.connected).toBe(true);
+    vi.advanceTimersByTime(30_000);
+    expect(reg.nodes.get("peer-A")!.connected).toBe(false);
+
+    reg.destroy();
+  });
+
+  it("clears stale flag on fresh caps broadcast", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia();
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+
+    // Become stale
+    vi.advanceTimersByTime(180_000);
+    expect(reg.nodes.get("peer-A")!.stale).toBe(true);
+
+    // Fresh caps — clears stale
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessage("peer-A", ["relay"]),
+    });
+    expect(reg.nodes.get("peer-A")!.stale).toBe(false);
+
+    reg.destroy();
+  });
+
+  it("fires onNodeChange on stale and remove", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
@@ -483,9 +610,14 @@ describe("createNodeRegistry", () => {
     });
     reg.onNodeChange(cb);
 
-    // Advance past stale + prune interval
-    vi.advanceTimersByTime(120_000);
+    // Advance past stale threshold (150s) +
+    // prune interval (30s)
+    vi.advanceTimersByTime(180_000);
     expect(cb).toHaveBeenCalledTimes(1);
+
+    // Advance to removal (300s total)
+    vi.advanceTimersByTime(150_000);
+    expect(cb).toHaveBeenCalledTimes(2);
 
     reg.destroy();
   });

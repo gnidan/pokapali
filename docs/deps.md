@@ -124,17 +124,27 @@ DHT walkers. Configured with IPNS validator/selector.
 ## @ipshipyard/libp2p-auto-tls
 
 Automatic TLS certificate provisioning for relay WSS
-endpoints. On startup, the relay obtains a certificate
-from the libp2p certificate authority, enabling browsers
-on HTTPS pages to connect directly via secure WebSocket.
+endpoints and the HTTPS block endpoint. On startup, the
+relay obtains a wildcard certificate for
+`*.<base36-peerid>.libp2p.direct` from the libp2p
+certificate authority, enabling browsers on HTTPS pages
+to connect directly via secure WebSocket. The same
+certificate is reused by the HTTPS block endpoint server
+(port 4443) — accessed via the `certificate:provision`
+event or `autoTLS.certificate` property, providing
+zero-config TLS for block uploads and downloads.
 
 ## blockstore-fs
 
 Persistent file-based blockstore for relay/pinner. Stores
 snapshot blocks at `storagePath/blockstore/` so they
-survive restarts. Note: v3 `get()` returns an
-`AsyncGenerator`, not a `Uint8Array` — wrapped with a
-safe type-check adapter in relay code.
+survive restarts. Shared between the pinner (read/write)
+and the HTTP block endpoint (read for GET, write for
+POST) — blocks uploaded via HTTP POST are immediately
+available to the co-located pinner without any protocol
+changes. Note: v3 `get()` returns an `AsyncGenerator`,
+not a `Uint8Array` — wrapped with a safe type-check
+adapter in relay code.
 
 ## datastore-level
 

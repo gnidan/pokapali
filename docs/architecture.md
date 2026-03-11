@@ -721,14 +721,33 @@ interface Announcement {
 }
 ```
 
-**Inline block distribution.** Bitswap does not work for
-browser→relay block fetching (NAT/WebRTC prevents inbound
-connections). Instead, snapshot blocks are embedded directly
-in GossipSub announcements as base64-encoded `blockData`.
-A 256KB size guard prevents oversized messages. This
-eliminates the need for a separate block fetch path for
-typical documents. Pinners validate inline blocks directly
-from the announcement without a blockstore round-trip.
+**Three-tier block distribution.** Bitswap does not work
+for browser→relay block fetching (NAT/WebRTC prevents
+inbound connections). Blocks are distributed via three
+tiers based on size:
+
+| Size  | Transport            | Writer path                                              | Reader path                         |
+| ----- | -------------------- | -------------------------------------------------------- | ----------------------------------- |
+| <1MB  | GossipSub inline     | base64 `blockData` in announcement                       | announcement handler                |
+| 1–6MB | HTTP POST + announce | POST to relay's `/block/:cid`, then announce (no inline) | HTTP GET from relay's `/block/:cid` |
+| >6MB  | Rejected             | Error at publish time                                    | N/A                                 |
+
+The GossipSub wire limit is 4MB per RPC frame (set by
+`it-length-prefixed`); exceeding it disconnects the peer.
+The 1MB inline guard (`MAX_INLINE_BLOCK_BYTES` in
+`announce.ts`) keeps base64-encoded blocks (~1.33MB)
+well within this limit. For blocks between 1–6MB, the
+writer uploads via HTTP POST to a relay's block endpoint
+(see HTTP Block Endpoint below), then publishes a
+GossipSub announcement without `blockData`. Readers
+fetch the block via HTTP GET as a fallback when it is
+not inline.
+
+Pinners validate inline blocks directly from the
+announcement without a blockstore round-trip. For
+HTTP-uploaded blocks, the block lands in the relay's
+shared `FsBlockstore` — the pinner reads it locally
+(no additional protocol needed).
 
 Writers re-announce every 15 seconds (and re-put the block
 to the blockstore so late-joining pinners can fetch it).
@@ -895,6 +914,18 @@ The model is self-rate-limiting: at high load, intervals
 stretch, fewer docs due per cycle. GossipSub's
 `seenCache` (2-minute TTL) provides a natural floor on
 re-announce frequency.
+
+**Fan-in: demand-driven priority boost.** When a pinner
+receives a `guarantee-query` for a document, it bumps
+the document's re-announce priority (resets the decay
+interval to `BASE`). This means a reader opening a
+stale document doesn't have to wait up to 24 hours for
+the next scheduled re-announce — the query itself
+triggers a near-immediate re-announce with inline
+block. Combined with the 3-second mesh formation delay
+before the query is sent, this gives readers fast
+block availability even for documents that have been
+idle for days.
 
 **Reader activity as demand signal.** When a non-pinner
 peer (reader or writer) re-announces a CID, the pinner
@@ -1082,9 +1113,87 @@ process — GossipSub mesh formation is automatic.
 
 The HTTP server exposes:
 
-- `GET /health` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
-- `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, pinner state, and lifetime metrics (see below)
+- `GET /health` — returns `200 OK` when the node is
+  running (used for deployment health checks; the relay
+  takes ~25s to start due to autoTLS cert provisioning)
+- `GET /status` — returns JSON diagnostics: peer count,
+  connection details, GossipSub mesh/topic stats, pinned
+  document count, pinner state, and lifetime metrics
+  (see below)
 - `GET /metrics` — returns Prometheus-formatted metrics
+
+### HTTP block endpoint
+
+Relays expose a separate HTTPS server on port 4443
+(configurable via `--https-port`) for large block
+transfer. The HTTPS certificate is reused from
+`@ipshipyard/libp2p-auto-tls` — the relay obtains a
+wildcard cert for `*.<base36-peerid>.libp2p.direct`
+during startup, and the block endpoint server uses
+the same PEM key/cert. Zero additional TLS config.
+
+**Endpoints:**
+
+- `GET /block/:cid` — readers fetch blocks by CID.
+  Returns raw bytes with `Content-Type:
+application/octet-stream`. The client verifies the
+  block by hashing the response and comparing against
+  the requested CID's multihash (using `cid.code` to
+  select the correct hasher). Returns 404 if the block
+  is not in the blockstore.
+
+- `POST /block/:cid` — writers upload blocks. The
+  server hashes the request body and verifies it matches
+  the CID in the URL path. Returns 200 on success, 400
+  if the hash doesn't match. No auth needed — CIDs are
+  content-addressed, so a valid block for a given CID
+  is self-authenticating. The block is stored in the
+  relay's `FsBlockstore`, making it immediately
+  available to the co-located pinner (no protocol
+  changes needed).
+
+**Security:**
+
+- CORS: `Access-Control-Allow-Origin: *` by default,
+  configurable per-operator via `--cors-origin`
+- Per-IP rate limiting: 60 requests/minute (separate
+  from the per-IPNS-name pinner rate limiter)
+- Body size cap: 6MB (matches the >6MB rejection tier)
+- No auth for GET (public, content-addressed) or POST
+  (CID verification replaces auth)
+
+**Discovery:** The relay advertises `httpUrl` in its
+v2 node caps message (see Node capability broadcasting
+below). Browsers discover relay HTTP endpoints via the
+node registry.
+
+**Client-side integration:**
+
+- `fetch-block.ts` — after exhausting blockstore retries
+  (6 attempts, exponential backoff), falls back to HTTP
+  GET from any relay advertising `httpUrl` in caps.
+  Verifies the response by hashing with the CID's own
+  codec.
+- `block-upload.ts` — for blocks >1MB, uploads via
+  HTTP POST to a relay before publishing the GossipSub
+  announcement (without `blockData`). Tries each known
+  relay with `httpUrl` until one succeeds.
+
+**Backward compatibility:** Old relays without the
+block endpoint return 404; browsers fall back to
+blockstore retry. Old browsers without HTTP fallback
+continue using inline blocks for <1MB documents. No
+breaking changes in either direction.
+
+**CLI flags:**
+
+| Flag                  | Default | Purpose                   |
+| --------------------- | ------- | ------------------------- |
+| `--https-port`        | 4443    | Block endpoint HTTPS port |
+| `--cors-origin`       | `*`     | CORS allowed origin       |
+| `--rate-limit-rpm`    | 60      | Per-IP requests/minute    |
+| `--trust-proxy`       | false   | Trust X-Forwarded-For     |
+| `--delegated-routing` | (none)  | Delegated routing URL     |
 
 ### Document lifetime metrics (designed)
 
@@ -1204,13 +1313,17 @@ interface NodeCapsMessage {
   neighbors?: Neighbor[]; // connected relay/pinner peers
   browserCount?: number; // connected browser count
   addrs?: string[]; // WSS multiaddrs for dialing
+  httpUrl?: string; // HTTPS block endpoint URL
 }
 ```
 
 Version 2 caps enable topology map construction: relays
 report their neighbors and browser count so peers can
 build a full relay mesh graph. The `addrs` field lets
-browsers dial caps-discovered relays directly.
+browsers dial caps-discovered relays directly. The
+`httpUrl` field advertises the relay's HTTPS block
+endpoint (derived from the WSS hostname + HTTPS port)
+so browsers can upload and fetch large blocks.
 
 Roles are configured at startup — a relay-only node
 advertises `["relay"]`, a pinner-only node `["pinner"]`,
@@ -1466,7 +1579,8 @@ The library should document expected bundle sizes for each configuration tier.
 | `@libp2p/crypto/keys`           | IPNS keypair derivation from seed                                                                      |
 | `@libp2p/pubsub-peer-discovery` | Browser peer discovery via GossipSub                                                                   |
 | `@libp2p/kad-dht`               | DHT for relay (client-mode) — record providing and IPNS republish                                      |
-| `@ipshipyard/libp2p-auto-tls`   | Automatic TLS certificates for relay WSS                                                               |
+| `@ipshipyard/libp2p-auto-tls`   | Automatic TLS certificates for relay WSS and HTTPS block endpoint                                      |
+| `blockstore-fs`                 | Persistent file-based blockstore for relay/pinner (shared between pinner and HTTP block endpoint)      |
 | `datastore-level`               | Persistent LevelDB datastore for relay                                                                 |
 | `@pokapali/log`                 | Zero-dependency structured logging (`createLogger(module)`) — leaf package used by all other packages  |
 | `@tiptap/*`                     | Example editor integration (app-side, not in library)                                                  |

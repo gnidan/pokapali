@@ -66,6 +66,73 @@ function graphFp(graph: TopologyGraph): string {
   );
 }
 
+// ── Node removal grace period ────────────────────
+//
+// When a node disappears from the live graph, keep
+// it visible for GRACE_MS with fading opacity to
+// prevent flicker from transient disconnects.
+
+const GRACE_MS = 12_000;
+
+interface DepartingNode {
+  node: TopologyNode;
+  edges: TopologyGraphEdge[];
+  departedAt: number;
+}
+
+function buildStableGraph(
+  live: TopologyGraph,
+  departing: Map<string, DepartingNode>,
+): TopologyGraph {
+  const now = Date.now();
+  const liveIds = new Set(live.nodes.map((n) => n.id));
+
+  // Mark newly departed nodes
+  for (const [id, dn] of departing) {
+    if (liveIds.has(id)) {
+      // Node came back — remove from departing
+      departing.delete(id);
+    } else if (now - dn.departedAt > GRACE_MS) {
+      // Grace period expired
+      departing.delete(id);
+    }
+  }
+
+  // Collect departing nodes still within grace
+  const extraNodes: TopologyNode[] = [];
+  const extraEdges: TopologyGraphEdge[] = [];
+  for (const dn of departing.values()) {
+    // Mark as disconnected so it renders faded
+    extraNodes.push({
+      ...dn.node,
+      connected: false,
+    });
+    for (const e of dn.edges) {
+      // Only include edge if the other endpoint
+      // is still in the live or departing set
+      const other = e.source === dn.node.id ? e.target : e.source;
+      if (liveIds.has(other) || departing.has(other)) {
+        extraEdges.push({ ...e, connected: false });
+      }
+    }
+  }
+
+  return {
+    nodes: [...live.nodes, ...extraNodes],
+    edges: [...live.edges, ...extraEdges],
+  };
+}
+
+/** Opacity for a departing node (1 → 0 over grace) */
+function departingOpacity(departedAt: number): number {
+  const elapsed = Date.now() - departedAt;
+  if (elapsed >= GRACE_MS) return 0;
+  // Hold full opacity for first 4s, then fade
+  const fadeStart = 4_000;
+  if (elapsed < fadeStart) return 1;
+  return 1 - (elapsed - fadeStart) / (GRACE_MS - fadeStart);
+}
+
 // ── Force layout hook ────────────────────────────
 
 interface SimNode extends SimulationNodeDatum {
@@ -462,6 +529,7 @@ function NodeShape({
   guaranteeUntil,
   onHover,
   awarenessColor,
+  groupOpacity,
 }: {
   node: TopologyNode;
   x: number;
@@ -469,6 +537,7 @@ function NodeShape({
   guaranteeUntil: number | null;
   onHover: (n: TopologyNode | null, e?: React.MouseEvent) => void;
   awarenessColor?: string;
+  groupOpacity?: number;
 }) {
   const isSelf = node.kind === "self";
   const isBrowser = node.kind === "browser" || isSelf;
@@ -561,6 +630,7 @@ function NodeShape({
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       style={{ cursor: "default" }}
+      opacity={groupOpacity ?? 1}
     >
       <title>{tip.join(" ")}</title>
 
@@ -674,6 +744,7 @@ function EdgeLine({
   y2,
   connected,
   thick,
+  opacity,
 }: {
   x1: number;
   y1: number;
@@ -681,7 +752,9 @@ function EdgeLine({
   y2: number;
   connected: boolean;
   thick: boolean;
+  opacity?: number;
 }) {
+  const baseOpacity = connected ? (thick ? 0.7 : 0.5) : 0.25;
   return (
     <line
       x1={x1}
@@ -691,7 +764,7 @@ function EdgeLine({
       stroke={connected ? C.edge : C.edgeDash}
       strokeWidth={connected ? (thick ? 2.5 : 1.2) : 0.8}
       strokeDasharray={connected ? "none" : "4 3"}
-      strokeOpacity={connected ? (thick ? 0.7 : 0.5) : 0.25}
+      strokeOpacity={opacity != null ? baseOpacity * opacity : baseOpacity}
     />
   );
 }
@@ -807,34 +880,57 @@ export function TopologyMap({
   );
   const prevFpRef = useRef("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const departingRef = useRef<Map<string, DepartingNode>>(new Map());
+  const prevLiveIdsRef = useRef<Set<string>>(new Set());
+  const prevGraphRef = useRef<TopologyGraph>(graph);
+  prevGraphRef.current = graph;
 
   // Refresh graph data, deduping by fingerprint
   const refreshGraph = useCallback(() => {
-    let g: TopologyGraph;
+    let live: TopologyGraph;
     let gu: number | null;
     try {
-      g = doc.topologyGraph();
+      live = doc.topologyGraph();
       gu = doc.diagnostics().guaranteeUntil;
     } catch {
       return; // doc destroyed
     }
-    // Always update guarantee immediately — it's
-    // cheap (no d3 simulation restart needed)
     setGuaranteeUntil(gu);
 
-    const fp = graphFp(g);
+    const liveIds = new Set(live.nodes.map((n) => n.id));
+    const prev = prevGraphRef.current;
+
+    // Detect newly departed nodes
+    for (const id of prevLiveIdsRef.current) {
+      if (!liveIds.has(id) && !departingRef.current.has(id)) {
+        const node = prev.nodes.find((n) => n.id === id);
+        if (node) {
+          departingRef.current.set(id, {
+            node,
+            edges: prev.edges.filter((e) => e.source === id || e.target === id),
+            departedAt: Date.now(),
+          });
+        }
+      }
+    }
+    prevLiveIdsRef.current = liveIds;
+
+    // Build stable graph (live + departing)
+    const stable = buildStableGraph(live, departingRef.current);
+
+    const fp = graphFp(stable);
     if (fp !== prevFpRef.current) {
       prevFpRef.current = fp;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
-      setGraph(g);
+      setGraph(stable);
     } else {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
-        setGraph(g);
+        setGraph(stable);
       }, 8_000);
     }
   }, [doc]);
@@ -849,11 +945,20 @@ export function TopologyMap({
     doc.on("ack", refreshGraph);
     doc.awareness.on("change", refreshGraph);
 
+    // Periodic refresh to animate departing node
+    // fade-out and clean up expired entries
+    const fadeTimer = setInterval(() => {
+      if (departingRef.current.size > 0) {
+        refreshGraph();
+      }
+    }, 2_000);
+
     return () => {
       doc.off("node-change", refreshGraph);
       doc.off("snapshot", refreshGraph);
       doc.off("ack", refreshGraph);
       doc.awareness.off("change", refreshGraph);
+      clearInterval(fadeTimer);
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
@@ -1098,6 +1203,14 @@ export function TopologyMap({
           const sk = nodeKindMap.get(e.source);
           const tk = nodeKindMap.get(e.target);
           const thick = sk != null && tk != null && isInfra(sk) && isInfra(tk);
+          // Fade edges connected to departing nodes
+          const ds = departingRef.current.get(e.source);
+          const dt = departingRef.current.get(e.target);
+          const edgeOpacity = ds
+            ? departingOpacity(ds.departedAt)
+            : dt
+              ? departingOpacity(dt.departedAt)
+              : undefined;
           return (
             <EdgeLine
               key={`${e.source}-${e.target}`}
@@ -1107,6 +1220,7 @@ export function TopologyMap({
               y2={t.y}
               connected={e.connected}
               thick={thick}
+              opacity={edgeOpacity}
             />
           );
         })}
@@ -1118,6 +1232,8 @@ export function TopologyMap({
         {sorted.map((n) => {
           const p = posMap.get(n.id);
           if (!p) return null;
+          const dn = departingRef.current.get(n.id);
+          const opacity = dn ? departingOpacity(dn.departedAt) : undefined;
           return (
             <NodeShape
               key={n.id}
@@ -1127,6 +1243,7 @@ export function TopologyMap({
               guaranteeUntil={guaranteeUntil}
               onHover={onHover}
               awarenessColor={awarenessColors.get(n.id)}
+              groupOpacity={opacity}
             />
           );
         })}
