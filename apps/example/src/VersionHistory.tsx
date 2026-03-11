@@ -9,15 +9,11 @@ import DiffMatchPatch from "diff-match-patch";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type { Doc as YDoc } from "yjs";
 import type { Doc, VersionEntry } from "@pokapali/core";
+import type { VersionHistoryData } from "./useVersionHistory";
 
 const dmp = new DiffMatchPatch();
 
 // ── Types ────────────────────────────────────────
-
-type LoadState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "error"; message: string };
 
 type PreviewState =
   | { status: "idle" }
@@ -39,22 +35,7 @@ function relativeAge(ts: number): string {
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
-/** Extract plain text from ProseMirror JSON. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractText(node: any): string {
-  if (typeof node.text === "string") return node.text;
-  if (Array.isArray(node.content)) {
-    return node.content.map(extractText).join("");
-  }
-  return "";
-}
-
 // ── Restore helper ───────────────────────────────
-//
-// Restore = new version with old content (DC-1).
-// App-layer pattern, not a core method (DC-2):
-//   loadVersion(cid) → yXmlFragmentToProsemirrorJSON
-//     → editor.commands.setContent(json) → publish()
 
 async function restoreVersion(
   doc: Doc,
@@ -88,7 +69,6 @@ function VersionListItem({
   selected: boolean;
   current: boolean;
   unavailable: boolean;
-  /** Net char delta vs previous version. */
   delta: number | undefined;
   onSelect: () => void;
 }) {
@@ -253,17 +233,18 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 export function VersionHistory({
   doc,
   editor,
+  history,
   onClose,
 }: {
   doc: Doc;
-  /** Live Tiptap editor for restore operations. */
   editor: Editor | null;
+  /** Preloaded version history data from useVersionHistory. */
+  history: VersionHistoryData;
   onClose: () => void;
 }) {
-  const [versions, setVersions] = useState<VersionEntry[]>([]);
-  const [listState, setListState] = useState<LoadState>({
-    status: "loading",
-  });
+  const { versions, listState, versionTexts, deltas, visibleVersions } =
+    history;
+
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewState>({
     status: "idle",
@@ -273,138 +254,15 @@ export function VersionHistory({
   const [restoring, setRestoring] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const cancelRef = useRef(false);
-  const [versionTexts, setVersionTexts] = useState<Map<number, string>>(
-    new Map(),
-  );
-  const loadedSeqsRef = useRef<Set<number>>(new Set());
 
-  // Current tip CID for marking "current" version
-  const tipCidStr = doc.tipCid?.toString() ?? null;
-
-  // Fetch version list via pinner HTTP index,
-  // falling back to local chain walk
   useEffect(() => {
     cancelRef.current = false;
-    setListState({ status: "loading" });
-
-    doc
-      .versionHistory()
-      .then((entries) => {
-        if (cancelRef.current) return;
-        setVersions(entries);
-        setListState({ status: "idle" });
-      })
-      .catch((err) => {
-        if (cancelRef.current) return;
-        setListState({
-          status: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
-      });
-
-    // Optimistic prepend on new snapshot events
-    const onSnapshot = (e: { cid: unknown; seq: number; ts: number }) => {
-      if (cancelRef.current) return;
-      setVersions((prev) => {
-        // Deduplicate by seq
-        if (prev.some((v) => v.seq === e.seq)) return prev;
-        const entry: VersionEntry = {
-          cid: e.cid as VersionEntry["cid"],
-          seq: e.seq,
-          ts: e.ts,
-        };
-        return [entry, ...prev];
-      });
-      // Ensure list shows as loaded if it was empty
-      setListState((s) => (s.status === "idle" ? s : { status: "idle" }));
-    };
-    doc.on("snapshot", onSnapshot);
-
     return () => {
       cancelRef.current = true;
-      doc.off("snapshot", onSnapshot);
     };
-  }, [doc]);
+  }, []);
 
-  // Background-preload versions for diff indicators
-  // and inline diff highlighting. Loads one version at
-  // a time, extracting text for delta + diff computation.
-  useEffect(() => {
-    if (listState.status !== "idle" || versions.length === 0) {
-      return;
-    }
-    let cancelled = false;
-
-    (async () => {
-      for (const entry of versions) {
-        if (cancelled) break;
-        if (loadedSeqsRef.current.has(entry.seq)) continue;
-        try {
-          const channels = await doc.loadVersion(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            entry.cid as any,
-          );
-          if (cancelled) break;
-          const ydoc = channels["content"] ?? Object.values(channels)[0];
-          if (!ydoc) {
-            loadedSeqsRef.current.add(entry.seq);
-            continue;
-          }
-          const frag = ydoc.getXmlFragment("default");
-          const json = yXmlFragmentToProsemirrorJSON(frag);
-          const text = extractText(json);
-          loadedSeqsRef.current.add(entry.seq);
-          setVersionTexts((prev) => {
-            const next = new Map(prev);
-            next.set(entry.seq, text);
-            return next;
-          });
-        } catch {
-          // Skip unavailable versions
-          loadedSeqsRef.current.add(entry.seq);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [doc, listState.status, versions]);
-
-  // Compute net char delta between adjacent versions
-  const deltas = useMemo(() => {
-    const result = new Map<number, number>();
-    for (let i = 0; i < versions.length; i++) {
-      const text = versionTexts.get(versions[i].seq);
-      if (text === undefined) continue;
-      // Oldest version (last in array): delta = total len
-      const next = versions[i + 1];
-      if (!next) {
-        result.set(versions[i].seq, text.length);
-        continue;
-      }
-      const prevText = versionTexts.get(next.seq);
-      if (prevText === undefined) continue;
-      result.set(versions[i].seq, text.length - prevText.length);
-    }
-    return result;
-  }, [versions, versionTexts]);
-
-  // Filter out ±0 versions from the displayed list.
-  // Keep versions whose delta is unknown (not yet loaded),
-  // non-zero, or that are the current tip.
-  const visibleVersions = useMemo(() => {
-    return versions.filter((entry) => {
-      const delta = deltas.get(entry.seq);
-      if (delta === undefined) return true; // not loaded yet
-      if (delta !== 0) return true;
-      // Keep current version even if ±0
-      if (tipCidStr != null && entry.cid.toString() === tipCidStr) {
-        return true;
-      }
-      return false;
-    });
-  }, [versions, deltas, tipCidStr]);
+  const tipCidStr = doc.tipCid?.toString() ?? null;
 
   // Load a specific version for preview
   const selectVersion = useCallback(
@@ -464,7 +322,6 @@ export function VersionHistory({
       setToast(`Restored to version #${confirmEntry.seq}`);
       setConfirmEntry(null);
       setRestoring(false);
-      // Close drawer after short delay for toast
       setTimeout(() => onClose(), 1_500);
     } catch (err) {
       setRestoring(false);
@@ -479,7 +336,6 @@ export function VersionHistory({
 
   const unavailableCount = unavailable.size;
 
-  // Is the selected version the current tip?
   const selectedEntry =
     selectedSeq != null ? versions.find((v) => v.seq === selectedSeq) : null;
   const selectedIsCurrent =
@@ -495,18 +351,15 @@ export function VersionHistory({
     if (preview.status !== "loaded") return null;
     const newText = versionTexts.get(preview.seq);
     if (newText === undefined) return null;
-    // Find predecessor seq in the full versions list
     const idx = versions.findIndex((v) => v.seq === preview.seq);
     if (idx < 0) return null;
-    const prev = versions[idx + 1]; // next in array = older
-    if (!prev) return { oldText: "", newText }; // genesis
+    const prev = versions[idx + 1];
+    if (!prev) return { oldText: "", newText };
     const oldText = versionTexts.get(prev.seq);
     if (oldText === undefined) return null;
     return { oldText, newText };
   }, [preview, versions, versionTexts]);
 
-  // Can restore? Need editor, selected non-current
-  // version loaded, and write capability
   const canRestore =
     editor != null &&
     doc.capability.canPushSnapshots &&
@@ -627,7 +480,6 @@ export function VersionHistory({
         </div>
       </div>
 
-      {/* Confirmation dialog */}
       {confirmEntry && (
         <RestoreConfirm
           seq={confirmEntry.seq}
@@ -637,7 +489,6 @@ export function VersionHistory({
         />
       )}
 
-      {/* Toast notification */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
