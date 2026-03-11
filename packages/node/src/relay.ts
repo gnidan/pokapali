@@ -19,6 +19,8 @@ import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { announceTopic } from "@pokapali/core/announce";
+import { createDelegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
+import { delegatedHTTPRoutingDefaults } from "@helia/routers";
 import { createLogger } from "@pokapali/log";
 
 // Even with client-mode DHT, peers accumulate via
@@ -120,6 +122,10 @@ export interface RelayConfig {
   // If omitted, inferred: "pinner" if pinAppIds
   // is non-empty, otherwise empty.
   roles?: string[];
+  // Custom delegated routing endpoint URL. When set,
+  // overrides the default (delegated-ipfs.dev) for
+  // IPNS resolve/publish via HTTP.
+  delegatedRoutingUrl?: string;
 }
 
 export interface Relay {
@@ -277,6 +283,15 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         // relay for the IPFS network, it floods us with
         // connections.
         delete (svc as any).relay;
+        // Override delegated routing URL if specified.
+        if (config.delegatedRoutingUrl) {
+          (svc as any).delegatedRouting = () =>
+            createDelegatedRoutingV1HttpApiClient(
+              config.delegatedRoutingUrl!,
+              delegatedHTTPRoutingDefaults(),
+            );
+          log.info("delegated routing:", config.delegatedRoutingUrl);
+        }
         return svc;
       })(),
     },
