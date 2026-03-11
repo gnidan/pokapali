@@ -34,8 +34,8 @@ const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
 
 // Two-phase guarantee model:
-// Phase 1: active re-announcing (7 days from last activity)
-const GUARANTEE_DURATION_MS = 7 * 24 * 60 * 60_000;
+// Phase 1: active re-announcing (load-sensitive, see
+//   guaranteeDuration() below)
 // Phase 2: block retention (14 days from last activity)
 const RETENTION_DURATION_MS = 14 * 24 * 60 * 60_000;
 
@@ -254,12 +254,22 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     return Math.max(1, Math.floor((BASE_INTERVAL_MS * 0.8) / perDocEma));
   }
 
+  const DAY = 24 * 60 * 60_000;
+
+  function guaranteeDuration(): number {
+    const util = scheduledDocCount / maxActiveDocs();
+    if (util <= 0.5) return 7 * DAY;
+    if (util <= 0.7) return 5 * DAY;
+    if (util <= 0.9) return 3 * DAY;
+    return 1 * DAY;
+  }
+
   function issueGuarantee(ipnsName: string): {
     guaranteeUntil: number;
     retainUntil: number;
   } {
     const seen = lastSeenAt.get(ipnsName) ?? Date.now();
-    const calculated = seen + GUARANTEE_DURATION_MS;
+    const calculated = seen + guaranteeDuration();
     const existing = guaranteedUntil.get(ipnsName) ?? 0;
     // Monotonic: never shorten a promise
     const guarantee = Math.max(calculated, existing);
