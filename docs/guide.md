@@ -25,12 +25,15 @@ const app = pokapali({
 
 **Options:**
 
-- `appId` — identifier for your app (used for relay
-  discovery and room names)
-- `channels` — named data channels for your doc
-  (e.g. `["content"]`, `["text", "canvas"]`)
-- `origin` — origin + path prefix for generating
-  shareable URLs
+| Option           | Type       | Required | Default         | Description                                                                                                                                                                                        |
+| ---------------- | ---------- | -------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `appId`          | `string`   | No       | `""`            | App identifier used for relay discovery, GossipSub topic namespacing, and HKDF key derivation. Public — not a secret. Different apps with the same `appId` share pinners and relay infrastructure. |
+| `channels`       | `string[]` | **Yes**  | —               | Named data channels. Each becomes its own `Y.Doc` with independent write access. E.g. `["content"]`, `["text", "comments"]`.                                                                       |
+| `primaryChannel` | `string`   | No       | `channels[0]`   | Which channel gates `_meta` room access. Peers who can write to the primary channel can modify access allowlists. Usually the main content channel.                                                |
+| `origin`         | `string`   | **Yes**  | —               | Origin + path prefix for generating shareable URLs (e.g. `window.location.origin` or `"https://example.com/app"`).                                                                                 |
+| `rtc`            | `object`   | No       | —               | WebRTC peer connection options passed to `simple-peer` (e.g. custom ICE servers).                                                                                                                  |
+| `signalingUrls`  | `string[]` | No       | `[]`            | Additional WebSocket signaling server URLs. Empty by default — signaling uses GossipSub via libp2p, not WebSocket servers.                                                                         |
+| `bootstrapPeers` | `string[]` | No       | libp2p defaults | Override libp2p bootstrap peer multiaddrs. Rarely needed — the defaults connect to the public libp2p network.                                                                                      |
 
 ### 2. Create or open a document
 
@@ -387,6 +390,79 @@ if (isDocUrl(window.location.href)) {
   const doc = await app.open(window.location.href);
 }
 ```
+
+## Document Rotation
+
+Admins can rotate a document's identity — generating
+new keys, a new IPNS name, and new URLs while
+preserving the current content:
+
+```ts
+const result = await doc.rotate();
+// result.doc — new Doc with fresh keys
+// result.forwardingRecord — signed redirect from
+//   old IPNS name to new one
+```
+
+**What `rotate()` does:**
+
+1. Generates a new `adminSecret` and derives all new
+   keys (IPNS keypair, read key, channel access keys)
+2. Copies current document state to the new identity
+3. Creates new admin/write/read URLs
+4. Stores a `rotationKey`-signed forwarding record so
+   peers following the old IPNS name discover the new
+   location
+
+**When to use it:**
+
+- **Revoking access** — after removing a collaborator,
+  rotate so the old URLs stop working
+- **Recovering from a compromised `ipnsKey`** — if an
+  attacker can publish to the IPNS name, rotating
+  gives you a clean identity
+- **Seq freeze recovery** — if an attacker publishes
+  `seq = 2^64 - 1` to freeze the IPNS pointer,
+  rotation is the only recovery path
+
+**Requirements:** Admin capability (has `rotationKey`).
+The old document continues to exist — rotation creates
+a new identity, it doesn't delete the old one.
+
+## Loading State Machine
+
+`doc.on("loading", ...)` reports the snapshot fetch
+lifecycle as a discriminated union:
+
+```
+  ┌──────────────────────────────────────────┐
+  │                                          │
+  ▼                                          │
+idle ──→ resolving ──→ fetching ──→ idle     │
+                          │                  │
+                          ▼                  │
+                       retrying ─────────────┘
+                          │
+                          ▼ (max 10 attempts)
+                       failed
+```
+
+| State       | Fields                          | Entered when                                                         |
+| ----------- | ------------------------------- | -------------------------------------------------------------------- |
+| `idle`      | —                               | Snapshot applied successfully, or new doc with no remote state       |
+| `resolving` | `startedAt`                     | IPNS poll begins (readers on `open()`)                               |
+| `fetching`  | `cid`, `startedAt`              | CID received from announcement or IPNS resolve                       |
+| `retrying`  | `cid`, `attempt`, `nextRetryAt` | Block fetch or apply failed; retries up to 10 times at 30s intervals |
+| `failed`    | `cid`, `error`                  | All 10 retry attempts exhausted                                      |
+
+Writers skip `resolving` — they receive snapshots via
+GossipSub announcements, which provide the CID
+directly. Readers start with IPNS resolution.
+
+On `failed`, the library calls `markReady()` so the
+editor mounts with whatever state is available (local
+IndexedDB or partial sync) rather than blocking
+forever.
 
 ## Version History
 
