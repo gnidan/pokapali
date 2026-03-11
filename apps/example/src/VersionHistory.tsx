@@ -3,11 +3,14 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
+import DiffMatchPatch from "diff-match-patch";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type { Doc as YDoc } from "yjs";
 import type { Doc, VersionEntry } from "@pokapali/core";
+
+const dmp = new DiffMatchPatch();
 
 // ── Types ────────────────────────────────────────
 
@@ -147,6 +150,38 @@ function VersionPreview({ ydoc }: { ydoc: YDoc }) {
   );
 }
 
+// ── Diff view (inline additions/deletions) ───────
+
+function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
+  const parts = useMemo(() => {
+    const diffs = dmp.diff_main(oldText, newText);
+    dmp.diff_cleanupSemantic(diffs);
+    return diffs;
+  }, [oldText, newText]);
+
+  return (
+    <div className="vh-diff">
+      {parts.map(([op, text], i) => {
+        if (op === DiffMatchPatch.DIFF_INSERT) {
+          return (
+            <span key={i} className="vh-diff-add">
+              {text}
+            </span>
+          );
+        }
+        if (op === DiffMatchPatch.DIFF_DELETE) {
+          return (
+            <span key={i} className="vh-diff-del">
+              {text}
+            </span>
+          );
+        }
+        return <span key={i}>{text}</span>;
+      })}
+    </div>
+  );
+}
+
 // ── Spinner ──────────────────────────────────────
 
 function Spinner({ label }: { label: string }) {
@@ -238,7 +273,7 @@ export function VersionHistory({
   const [restoring, setRestoring] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const cancelRef = useRef(false);
-  const [textLengths, setTextLengths] = useState<Map<number, number>>(
+  const [versionTexts, setVersionTexts] = useState<Map<number, string>>(
     new Map(),
   );
   const loadedSeqsRef = useRef<Set<number>>(new Set());
@@ -291,9 +326,9 @@ export function VersionHistory({
     };
   }, [doc]);
 
-  // Background-preload versions for diff indicators.
-  // Loads one version at a time after the list renders,
-  // extracting text length for char-delta computation.
+  // Background-preload versions for diff indicators
+  // and inline diff highlighting. Loads one version at
+  // a time, extracting text for delta + diff computation.
   useEffect(() => {
     if (listState.status !== "idle" || versions.length === 0) {
       return;
@@ -317,11 +352,11 @@ export function VersionHistory({
           }
           const frag = ydoc.getXmlFragment("default");
           const json = yXmlFragmentToProsemirrorJSON(frag);
-          const len = extractText(json).length;
+          const text = extractText(json);
           loadedSeqsRef.current.add(entry.seq);
-          setTextLengths((prev) => {
+          setVersionTexts((prev) => {
             const next = new Map(prev);
-            next.set(entry.seq, len);
+            next.set(entry.seq, text);
             return next;
           });
         } catch {
@@ -340,20 +375,36 @@ export function VersionHistory({
   const deltas = useMemo(() => {
     const result = new Map<number, number>();
     for (let i = 0; i < versions.length; i++) {
-      const len = textLengths.get(versions[i].seq);
-      if (len === undefined) continue;
+      const text = versionTexts.get(versions[i].seq);
+      if (text === undefined) continue;
       // Oldest version (last in array): delta = total len
       const next = versions[i + 1];
       if (!next) {
-        result.set(versions[i].seq, len);
+        result.set(versions[i].seq, text.length);
         continue;
       }
-      const prevLen = textLengths.get(next.seq);
-      if (prevLen === undefined) continue;
-      result.set(versions[i].seq, len - prevLen);
+      const prevText = versionTexts.get(next.seq);
+      if (prevText === undefined) continue;
+      result.set(versions[i].seq, text.length - prevText.length);
     }
     return result;
-  }, [versions, textLengths]);
+  }, [versions, versionTexts]);
+
+  // Filter out ±0 versions from the displayed list.
+  // Keep versions whose delta is unknown (not yet loaded),
+  // non-zero, or that are the current tip.
+  const visibleVersions = useMemo(() => {
+    return versions.filter((entry) => {
+      const delta = deltas.get(entry.seq);
+      if (delta === undefined) return true; // not loaded yet
+      if (delta !== 0) return true;
+      // Keep current version even if ±0
+      if (tipCidStr != null && entry.cid.toString() === tipCidStr) {
+        return true;
+      }
+      return false;
+    });
+  }, [versions, deltas, tipCidStr]);
 
   // Load a specific version for preview
   const selectVersion = useCallback(
@@ -436,6 +487,24 @@ export function VersionHistory({
     tipCidStr != null &&
     selectedEntry.cid.toString() === tipCidStr;
 
+  // Diff texts for the selected version vs predecessor
+  const diffPair = useMemo<{
+    oldText: string;
+    newText: string;
+  } | null>(() => {
+    if (preview.status !== "loaded") return null;
+    const newText = versionTexts.get(preview.seq);
+    if (newText === undefined) return null;
+    // Find predecessor seq in the full versions list
+    const idx = versions.findIndex((v) => v.seq === preview.seq);
+    if (idx < 0) return null;
+    const prev = versions[idx + 1]; // next in array = older
+    if (!prev) return { oldText: "", newText }; // genesis
+    const oldText = versionTexts.get(prev.seq);
+    if (oldText === undefined) return null;
+    return { oldText, newText };
+  }, [preview, versions, versionTexts]);
+
   // Can restore? Need editor, selected non-current
   // version loaded, and write capability
   const canRestore =
@@ -472,13 +541,13 @@ export function VersionHistory({
             <div className="vh-error">{listState.message}</div>
           )}
 
-          {listState.status === "idle" && versions.length === 0 && (
+          {listState.status === "idle" && visibleVersions.length === 0 && (
             <div className="vh-empty">No versions published yet.</div>
           )}
 
-          {listState.status === "idle" && versions.length > 0 && (
+          {listState.status === "idle" && visibleVersions.length > 0 && (
             <div className="vh-list" role="listbox">
-              {versions.map((entry) => (
+              {visibleVersions.map((entry) => (
                 <VersionListItem
                   key={entry.seq}
                   entry={entry}
@@ -545,7 +614,14 @@ export function VersionHistory({
                   <span className="vh-current-label">Current version</span>
                 )}
               </div>
-              <VersionPreview ydoc={preview.ydoc} />
+              {diffPair ? (
+                <DiffView
+                  oldText={diffPair.oldText}
+                  newText={diffPair.newText}
+                />
+              ) : (
+                <VersionPreview ydoc={preview.ydoc} />
+              )}
             </>
           )}
         </div>

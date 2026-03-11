@@ -646,8 +646,8 @@ body {
   right: 0;
   width: 350px;
   max-width: 100%;
-  max-height: min(100%, 600px);
-  min-height: 300px;
+  max-height: min(100%, 800px);
+  min-height: 400px;
   background: white;
   border: 1px solid #e5e7eb;
   border-radius: 0 8px 8px 0;
@@ -839,11 +839,39 @@ body {
   padding: 0.75rem;
   outline: none;
   font-size: 0.85rem;
-  min-height: 120px;
+  min-height: 200px;
 }
 
 .vh-preview .tiptap p {
   margin: 0.4em 0;
+}
+
+/* Inline diff view */
+
+.vh-diff {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fafbfc;
+  overflow-y: auto;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 200px;
+}
+
+.vh-diff-add {
+  background: #dcfce7;
+  color: #166534;
+  text-decoration: none;
+}
+
+.vh-diff-del {
+  background: #fee2e2;
+  color: #991b1b;
+  text-decoration: line-through;
 }
 
 .vh-preview-placeholder {
