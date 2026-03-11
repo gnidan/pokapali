@@ -119,9 +119,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   // Not persisted — fresh guarantees after restart.
   const guaranteedUntil = new Map<string, number>();
   // Rate-limit guarantee query responses:
-  // max 1 response per ipnsName per 10s.
+  // max 1 response per ipnsName per 3s.
   const lastQueryResponse = new Map<string, number>();
-  const QUERY_RESPONSE_COOLDOWN_MS = 10_000;
+  const QUERY_RESPONSE_COOLDOWN_MS = 3_000;
 
   // Self-tuning capacity measurement
   let perDocEma = INITIAL_PER_DOC_MS;
@@ -964,6 +964,13 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
           ` ${ipnsName.slice(0, 12)}...` +
           ` cid=${cidStr.slice(0, 12)}...`,
       );
+
+      // Bump re-announce priority: query is a demand
+      // signal. Late-arriving browsers will catch the
+      // next re-announce instead of waiting for decay.
+      // Uses lazy deletion — duplicate heap entries
+      // are harmless (stale ones skipped on pop).
+      scheduleDoc(ipnsName, now + BASE_INTERVAL_MS);
     },
 
     async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {
