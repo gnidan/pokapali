@@ -364,7 +364,11 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         </div>
 
         {showHistory && (
-          <VersionHistory doc={doc} onClose={() => setShowHistory(false)} />
+          <VersionHistory
+            doc={doc}
+            editor={editor}
+            onClose={() => setShowHistory(false)}
+          />
         )}
       </div>
 

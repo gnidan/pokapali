@@ -783,13 +783,6 @@ body {
   flex-direction: column;
 }
 
-.vh-preview-header {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #64748b;
-  padding: 0.25rem 0.5rem 0.5rem;
-}
-
 .vh-preview {
   flex: 1;
   border: 1px solid #e5e7eb;
@@ -861,6 +854,156 @@ body {
   text-align: center;
   font-size: 0.8rem;
   color: #94a3b8;
+}
+
+/* Current version badge */
+
+.vh-current-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #22c55e;
+  background: #f0fdf4;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  margin-left: 0.4rem;
+}
+
+.vh-current-label {
+  font-size: 0.7rem;
+  color: #22c55e;
+  font-weight: 500;
+}
+
+/* Restore button */
+
+.vh-restore-btn {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid #2563eb;
+  border-radius: 4px;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vh-restore-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.vh-restore-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vh-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  padding: 0.25rem 0.5rem 0.5rem;
+}
+
+/* Confirm dialog overlay */
+
+.vh-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  border-radius: 0 8px 8px 0;
+}
+
+.vh-confirm {
+  background: white;
+  border-radius: 8px;
+  padding: 1.25rem;
+  max-width: 280px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.vh-confirm-text {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #1e293b;
+  margin-bottom: 0.4rem;
+}
+
+.vh-confirm-note {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 1rem;
+}
+
+.vh-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.vh-confirm-cancel {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.vh-confirm-cancel:hover {
+  background: #f3f4f6;
+}
+
+.vh-confirm-ok {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 4px;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+}
+
+.vh-confirm-ok:hover {
+  background: #1d4ed8;
+}
+
+/* Toast notification */
+
+.vh-toast {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 40;
+  white-space: nowrap;
+  animation: vh-toast-in 0.2s ease-out;
+}
+
+@keyframes vh-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 /* Connection status bar */

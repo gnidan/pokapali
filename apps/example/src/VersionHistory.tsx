@@ -1,19 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — y-prosemirror has no type declarations
+import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type { Doc as YDoc } from "yjs";
-import type { Doc } from "@pokapali/core";
+import type { Doc, VersionEntry } from "@pokapali/core";
 
 // ── Types ────────────────────────────────────────
-
-// Mirror the shape from Doc.history() without
-// importing CID (not exported from @pokapali/core)
-interface VersionEntry {
-  cid: unknown;
-  seq: number;
-  ts: number;
-}
 
 type LoadState =
   | { status: "idle" }
@@ -26,7 +22,7 @@ type PreviewState =
   | { status: "loaded"; seq: number; ydoc: YDoc }
   | { status: "error"; seq: number; message: string };
 
-// ── Time formatting ──────────────────────────────
+// ── Helpers ──────────────────────────────────────
 
 function relativeAge(ts: number): string {
   const sec = Math.round((Date.now() - ts) / 1000);
@@ -40,16 +36,43 @@ function relativeAge(ts: number): string {
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
+// ── Restore helper ───────────────────────────────
+//
+// Restore = new version with old content (DC-1).
+// App-layer pattern, not a core method (DC-2):
+//   loadVersion(cid) → yXmlFragmentToProsemirrorJSON
+//     → editor.commands.setContent(json) → publish()
+
+async function restoreVersion(
+  doc: Doc,
+  editor: Editor,
+  cid: unknown,
+): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const channels = await doc.loadVersion(cid as any);
+  const versionDoc = channels["content"] ?? Object.values(channels)[0];
+  if (!versionDoc) {
+    throw new Error("No content in this version");
+  }
+
+  const frag = versionDoc.getXmlFragment("default");
+  const json = yXmlFragmentToProsemirrorJSON(frag);
+  editor.commands.setContent(json);
+  await doc.publish();
+}
+
 // ── Version list item ────────────────────────────
 
 function VersionListItem({
   entry,
   selected,
+  current,
   unavailable,
   onSelect,
 }: {
   entry: VersionEntry;
   selected: boolean;
+  current: boolean;
   unavailable: boolean;
   onSelect: () => void;
 }) {
@@ -63,9 +86,18 @@ function VersionListItem({
       onClick={unavailable ? undefined : onSelect}
       disabled={unavailable}
       aria-current={selected ? "true" : undefined}
-      title={unavailable ? "Version unavailable" : `Version ${entry.seq}`}
+      title={
+        unavailable
+          ? "Version unavailable"
+          : current
+            ? "Current version"
+            : `Version ${entry.seq}`
+      }
     >
-      <span className="vh-item-seq">#{entry.seq}</span>
+      <span className="vh-item-seq">
+        #{entry.seq}
+        {current && <span className="vh-current-badge">current</span>}
+      </span>
       <span className="vh-item-ts">{relativeAge(entry.ts)}</span>
     </button>
   );
@@ -103,13 +135,71 @@ function Spinner({ label }: { label: string }) {
   );
 }
 
+// ── Confirm dialog ───────────────────────────────
+
+function RestoreConfirm({
+  seq,
+  ts,
+  onConfirm,
+  onCancel,
+}: {
+  seq: number;
+  ts: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="vh-confirm-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Confirm restore"
+    >
+      <div className="vh-confirm">
+        <p className="vh-confirm-text">
+          Restore to version #{seq} from {relativeAge(ts)}?
+        </p>
+        <p className="vh-confirm-note">
+          This creates a new version with the old content.
+        </p>
+        <div className="vh-confirm-actions">
+          <button className="vh-confirm-cancel" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="vh-confirm-ok" onClick={onConfirm}>
+            Restore
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Toast notification ───────────────────────────
+
+function Toast({ message, onDone }: { message: string; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3_000);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <div className="vh-toast" role="status">
+      {message}
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────
 
 export function VersionHistory({
   doc,
+  editor,
   onClose,
 }: {
   doc: Doc;
+  /** Live Tiptap editor for restore operations. */
+  editor: Editor | null;
   onClose: () => void;
 }) {
   const [versions, setVersions] = useState<VersionEntry[]>([]);
@@ -121,15 +211,22 @@ export function VersionHistory({
     status: "idle",
   });
   const [unavailable, setUnavailable] = useState<Set<number>>(new Set());
+  const [confirmEntry, setConfirmEntry] = useState<VersionEntry | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const cancelRef = useRef(false);
 
-  // Fetch version list on mount
+  // Current tip CID for marking "current" version
+  const tipCidStr = doc.tipCid?.toString() ?? null;
+
+  // Fetch version list via pinner HTTP index,
+  // falling back to local chain walk
   useEffect(() => {
     cancelRef.current = false;
     setListState({ status: "loading" });
 
     doc
-      .history()
+      .versionHistory()
       .then((entries) => {
         if (cancelRef.current) return;
         setVersions(entries);
@@ -152,13 +249,15 @@ export function VersionHistory({
   const selectVersion = useCallback(
     (entry: VersionEntry) => {
       setSelectedSeq(entry.seq);
-      setPreview({ status: "loading", seq: entry.seq });
+      setPreview({
+        status: "loading",
+        seq: entry.seq,
+      });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       doc.loadVersion(entry.cid as any).then(
         (channels) => {
           if (cancelRef.current) return;
-          // Use the "content" channel if available
           const ydoc = channels["content"] ?? Object.values(channels)[0];
           if (!ydoc) {
             setPreview({
@@ -177,7 +276,6 @@ export function VersionHistory({
         (err) => {
           if (cancelRef.current) return;
           const msg = err instanceof Error ? err.message : String(err);
-          // Mark as unavailable if block not found
           if (/not found|unknown cid/i.test(msg)) {
             setUnavailable((prev) => {
               const next = new Set(prev);
@@ -196,7 +294,45 @@ export function VersionHistory({
     [doc],
   );
 
+  // Restore flow
+  const handleRestore = useCallback(async () => {
+    if (!confirmEntry || !editor) return;
+    setRestoring(true);
+    try {
+      await restoreVersion(doc, editor, confirmEntry.cid);
+      setToast(`Restored to version #${confirmEntry.seq}`);
+      setConfirmEntry(null);
+      setRestoring(false);
+      // Close drawer after short delay for toast
+      setTimeout(() => onClose(), 1_500);
+    } catch (err) {
+      setRestoring(false);
+      setConfirmEntry(null);
+      setPreview({
+        status: "error",
+        seq: confirmEntry.seq,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [doc, editor, confirmEntry, onClose]);
+
   const unavailableCount = unavailable.size;
+
+  // Is the selected version the current tip?
+  const selectedEntry =
+    selectedSeq != null ? versions.find((v) => v.seq === selectedSeq) : null;
+  const selectedIsCurrent =
+    selectedEntry != null &&
+    tipCidStr != null &&
+    selectedEntry.cid.toString() === tipCidStr;
+
+  // Can restore? Need editor, selected non-current
+  // version loaded, and write capability
+  const canRestore =
+    editor != null &&
+    doc.capability.canPushSnapshots &&
+    preview.status === "loaded" &&
+    !selectedIsCurrent;
 
   return (
     <div
@@ -219,7 +355,7 @@ export function VersionHistory({
         {/* Version list */}
         <div className="vh-list-section">
           {listState.status === "loading" && (
-            <Spinner label="Loading history…" />
+            <Spinner label="Loading history\u2026" />
           )}
 
           {listState.status === "error" && (
@@ -237,6 +373,9 @@ export function VersionHistory({
                   key={entry.seq}
                   entry={entry}
                   selected={selectedSeq === entry.seq}
+                  current={
+                    tipCidStr != null && entry.cid.toString() === tipCidStr
+                  }
                   unavailable={unavailable.has(entry.seq)}
                   onSelect={() => selectVersion(entry)}
                 />
@@ -266,7 +405,9 @@ export function VersionHistory({
             </div>
           )}
 
-          {preview.status === "loading" && <Spinner label="Loading version…" />}
+          {preview.status === "loading" && (
+            <Spinner label="Loading version\u2026" />
+          )}
 
           {preview.status === "error" && (
             <div className="vh-error">
@@ -278,12 +419,39 @@ export function VersionHistory({
 
           {preview.status === "loaded" && (
             <>
-              <div className="vh-preview-header">Version #{preview.seq}</div>
+              <div className="vh-preview-header">
+                <span>Version #{preview.seq}</span>
+                {canRestore && (
+                  <button
+                    className="vh-restore-btn"
+                    onClick={() => setConfirmEntry(selectedEntry!)}
+                    disabled={restoring}
+                  >
+                    {restoring ? "Restoring\u2026" : "Restore"}
+                  </button>
+                )}
+                {selectedIsCurrent && (
+                  <span className="vh-current-label">Current version</span>
+                )}
+              </div>
               <VersionPreview ydoc={preview.ydoc} />
             </>
           )}
         </div>
       </div>
+
+      {/* Confirmation dialog */}
+      {confirmEntry && (
+        <RestoreConfirm
+          seq={confirmEntry.seq}
+          ts={confirmEntry.ts}
+          onConfirm={handleRestore}
+          onCancel={() => setConfirmEntry(null)}
+        />
+      )}
+
+      {/* Toast notification */}
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
 }
