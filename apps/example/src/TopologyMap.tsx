@@ -898,7 +898,6 @@ export function TopologyMap({
     const onAck = (...args: unknown[]) => {
       const peerId = args[0];
       if (typeof peerId !== "string") return;
-      // Find the pinner node in the graph
       const node = graphRef.current.nodes.find((n) => n.id === peerId);
       if (!node) return;
       spawnParticles(
@@ -915,12 +914,44 @@ export function TopologyMap({
       );
     };
 
+    // Loading: inbound particles during block
+    // fetches (resolving/fetching/retrying).
+    // Blue particles from infra → self represent
+    // IPNS resolve + block fetch traffic.
+    const onLoading = (...args: unknown[]) => {
+      const state = args[0] as { status: string } | undefined;
+      if (!state) return;
+      const active =
+        state.status === "resolving" || state.status === "fetching";
+      if (!active) return;
+      const infra = selfInfraEdges();
+      if (infra.length === 0) return;
+      // Pick one random infra node to animate
+      // (we don't know which node the fetch
+      // targets, so single particle is honest)
+      const idx = Math.floor(Math.random() * infra.length);
+      spawnParticles(
+        g,
+        [
+          {
+            srcId: infra[idx],
+            tgtId: "_self",
+            color: C.relay, // blue for fetch
+          },
+        ],
+        posMapRef,
+        rafRef,
+      );
+    };
+
     doc.on("snapshot", onSnapshot);
     doc.on("ack", onAck);
+    doc.on("loading", onLoading);
 
     return () => {
       doc.off("snapshot", onSnapshot);
       doc.off("ack", onAck);
+      doc.off("loading", onLoading);
       cancelAnimationFrame(rafRef.current);
     };
   }, [doc, posMapRef]);
