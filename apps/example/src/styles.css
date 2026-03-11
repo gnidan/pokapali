@@ -643,14 +643,9 @@ body {
   padding: 0.4rem 0.75rem;
   background: #f8fafc;
   border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border-radius: 6px 6px 0 0;
   font-size: 0.75rem;
   color: #64748b;
-  cursor: pointer;
-}
-
-.connection-status:hover {
-  background: #f1f5f9;
 }
 
 .cs-section {
@@ -731,10 +726,7 @@ body {
   opacity: 0.7;
 }
 
-.cs-expand {
-  font-size: 0.7rem;
-  color: #94a3b8;
-}
+
 
 /* Expanded diagnostics panel */
 
