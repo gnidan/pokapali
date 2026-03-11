@@ -62,11 +62,14 @@ export function deriveHttpUrl(
   wssMultiaddr: string,
   httpsPort: number,
 ): string | undefined {
-  // Match /dns4/<host>/tcp/... or /dns6/<host>/tcp/...
-  const m = wssMultiaddr.match(/\/(dns[46])\/([^/]+)\/tcp/);
-  if (!m) return undefined;
-  const host = m[2];
-  return `https://${host}:${httpsPort}`;
+  // Prefer /sni/<host>/ — autoTLS uses this format
+  // on ip4/ip6 addrs with the .libp2p.direct hostname.
+  const sni = wssMultiaddr.match(/\/sni\/([^/]+)\//);
+  if (sni) return `https://${sni[1]}:${httpsPort}`;
+  // Fallback: /dns4/<host>/tcp/... or /dns6/<host>/tcp/...
+  const dns = wssMultiaddr.match(/\/(dns[46])\/([^/]+)\/tcp/);
+  if (dns) return `https://${dns[2]}:${httpsPort}`;
+  return undefined;
 }
 
 async function loadOrCreateKey(storagePath: string): Promise<PrivateKey> {
