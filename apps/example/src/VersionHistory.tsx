@@ -25,6 +25,19 @@ function relativeAge(ts: number): string {
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
+function relativeExpiry(expiresAt: number | null | undefined): string | null {
+  if (expiresAt == null) return null;
+  const ms = expiresAt - Date.now();
+  if (ms <= 0) return "expires soon";
+  const hrs = Math.floor(ms / 3_600_000);
+  if (hrs < 1) return "expires soon";
+  if (hrs < 24) {
+    return hrs === 1 ? "~1 hour left" : `~${hrs} hours left`;
+  }
+  const days = Math.round(hrs / 24);
+  return days === 1 ? "~1 day left" : `~${days} days left`;
+}
+
 // ── Version list item ────────────────────────────
 
 function VersionListItem({
@@ -75,6 +88,15 @@ function VersionListItem({
         </span>
       )}
       <span className="vh-item-ts">{relativeAge(entry.ts)}</span>
+      {entry.tier && entry.tier !== "tip" && (
+        <span className={"vh-item-retention vh-tier-" + entry.tier}>
+          {entry.tier}
+          {(() => {
+            const exp = relativeExpiry(entry.expiresAt);
+            return exp ? ` · ${exp}` : "";
+          })()}
+        </span>
+      )}
     </button>
   );
 }

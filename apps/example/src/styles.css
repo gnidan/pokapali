@@ -895,6 +895,34 @@ body {
   color: #60a5fa;
 }
 
+.vh-item-retention {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.vh-tier-full {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.vh-tier-hourly {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.vh-tier-daily {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.vh-item.selected .vh-item-retention {
+  background: rgba(255, 255, 255, 0.2);
+  color: #e0e7ff;
+}
+
 .vh-unavailable-note {
   font-size: 0.7rem;
   color: #94a3b8;

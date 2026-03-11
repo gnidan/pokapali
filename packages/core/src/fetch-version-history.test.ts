@@ -187,4 +187,82 @@ describe("fetchVersionHistory", () => {
     expect(result).toHaveLength(1);
     expect(local).toHaveBeenCalled();
   });
+
+  it("parses enriched { versions } response with tier/expiresAt", async () => {
+    const cid1 = await fakeCid(1);
+    const cid2 = await fakeCid(2);
+    const exp = Date.now() + 86_400_000;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          versions: [
+            {
+              cid: cid2.toString(),
+              seq: 2,
+              ts: 2000,
+              tier: "tip",
+              expiresAt: null,
+            },
+            {
+              cid: cid1.toString(),
+              seq: 1,
+              ts: 1000,
+              tier: "hourly",
+              expiresAt: exp,
+            },
+          ],
+          totalVersions: 2,
+          oldestSeq: 1,
+        }),
+      }),
+    );
+
+    const result = await fetchVersionHistory(
+      ["https://pinner.example.com"],
+      "abc123",
+      vi.fn(),
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].tier).toBe("tip");
+    expect(result[0].expiresAt).toBeNull();
+    expect(result[1].tier).toBe("hourly");
+    expect(result[1].expiresAt).toBe(exp);
+  });
+
+  it("ignores invalid tier values", async () => {
+    const cid = await fakeCid(1);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          versions: [
+            {
+              cid: cid.toString(),
+              seq: 1,
+              ts: 1000,
+              tier: "bogus",
+              expiresAt: 9999,
+            },
+          ],
+        }),
+      }),
+    );
+
+    const result = await fetchVersionHistory(
+      ["https://pinner.example.com"],
+      "abc123",
+      vi.fn(),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].tier).toBeUndefined();
+    // expiresAt is still parsed even if tier is bad
+    expect(result[0].expiresAt).toBe(9999);
+  });
 });

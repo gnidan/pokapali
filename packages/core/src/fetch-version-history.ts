@@ -5,10 +5,21 @@ const log = createLogger("fetch-version-history");
 
 const HTTP_TIMEOUT_MS = 10_000;
 
+const validTiers = new Set(["tip", "full", "hourly", "daily"]);
+
+export type VersionTier = "tip" | "full" | "hourly" | "daily";
+
 export interface VersionEntry {
   cid: CID;
   seq: number;
   ts: number;
+  /** Retention tier (present when pinner provides
+   *  retention policy metadata). */
+  tier?: VersionTier;
+  /** Epoch ms when this version expires under its
+   *  current tier. `null` for the tip (never
+   *  expires). `undefined` when unknown. */
+  expiresAt?: number | null;
 }
 
 /**
@@ -35,25 +46,41 @@ export async function fetchVersionHistory(
       }
 
       const data = await resp.json();
-      if (!Array.isArray(data)) {
+
+      // Accept both the enriched `{ versions: [...] }`
+      // format and the legacy raw-array format.
+      const items: unknown[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.versions)
+          ? data.versions
+          : [];
+      if (items.length === 0 && !Array.isArray(data)) {
         log.debug("pinner history: unexpected format");
         continue;
       }
 
       const entries: VersionEntry[] = [];
-      for (const item of data) {
-        if (typeof item.cid !== "string" || typeof item.ts !== "number") {
+      for (const item of items) {
+        const rec = item as Record<string, unknown>;
+        if (typeof rec.cid !== "string" || typeof rec.ts !== "number") {
           continue; // skip malformed entries
         }
         try {
-          entries.push({
-            cid: CID.parse(item.cid),
-            seq: typeof item.seq === "number" ? item.seq : 0,
-            ts: item.ts,
-          });
+          const entry: VersionEntry = {
+            cid: CID.parse(rec.cid),
+            seq: typeof rec.seq === "number" ? rec.seq : 0,
+            ts: rec.ts,
+          };
+          if (typeof rec.tier === "string" && validTiers.has(rec.tier)) {
+            entry.tier = rec.tier as VersionTier;
+          }
+          if (rec.expiresAt === null || typeof rec.expiresAt === "number") {
+            entry.expiresAt = rec.expiresAt as number | null;
+          }
+          entries.push(entry);
         } catch {
           // skip unparseable CIDs
-          log.debug("skip unparseable CID:", item.cid);
+          log.debug("skip unparseable CID:", rec.cid);
         }
       }
 
