@@ -52,7 +52,9 @@ function graphFp(graph: TopologyGraph): string {
     graph.nodes
       .map(
         (n) =>
-          `${n.id}:${n.kind}:${n.connected}` + `:${n.ackedCurrentCid ?? ""}`,
+          `${n.id}:${n.kind}:${n.connected}` +
+          `:${n.ackedCurrentCid ?? ""}` +
+          `:${n.label}`,
       )
       .sort()
       .join("|") +

@@ -21,7 +21,14 @@ export function LockIcon({ size = 16 }: { size?: number }) {
 
 export function EncryptionInfo({ onClose }: { onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
+  // Focus the close button on mount
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
+
+  // Click outside to close
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -32,16 +39,42 @@ export function EncryptionInfo({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
+  // Escape to close + focus trap
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      // Focus trap: cycle within the popover
+      if (e.key === "Tab" && ref.current) {
+        const focusable = ref.current.querySelectorAll(
+          'button, [href], [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0] as HTMLElement;
+        const last = focusable[focusable.length - 1] as HTMLElement;
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
   return (
-    <div ref={ref} className="encryption-popover">
+    <div
+      ref={ref}
+      className="encryption-popover"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Encryption information"
+    >
       <div className="encryption-header">
         <LockIcon size={16} />
         End-to-end encrypted
@@ -54,7 +87,12 @@ export function EncryptionInfo({ onClose }: { onClose: () => void }) {
         Only people with the document link can read it. Your link determines
         your access level: admin, writer, or reader.
       </p>
-      <button className="encryption-close" onClick={onClose} aria-label="Close">
+      <button
+        ref={closeRef}
+        className="encryption-close"
+        onClick={onClose}
+        aria-label="Close"
+      >
         &#x2715;
       </button>
     </div>
