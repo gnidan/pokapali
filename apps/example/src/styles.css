@@ -918,9 +918,19 @@ body {
   color: #991b1b;
 }
 
-.vh-item.selected .vh-item-retention {
-  background: rgba(255, 255, 255, 0.2);
-  color: #e0e7ff;
+.vh-item.selected .vh-tier-full {
+  background: rgba(30, 64, 175, 0.2);
+  color: #1e3a8a;
+}
+
+.vh-item.selected .vh-tier-hourly {
+  background: rgba(146, 64, 14, 0.2);
+  color: #78350f;
+}
+
+.vh-item.selected .vh-tier-daily {
+  background: rgba(153, 27, 27, 0.2);
+  color: #7f1d1d;
 }
 
 .vh-unavailable-note {
