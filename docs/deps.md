@@ -145,11 +145,32 @@ the libp2p peer store and DHT records across restarts.
 
 Zero-dependency structured logging package. Provides
 `createLogger(module)` factory with level filtering
-(`LOG_LEVEL` env var or `localStorage` key). Used by all
-other `@pokapali/*` packages. Placed as a separate leaf
-package (not in `@pokapali/core`) to avoid a dependency
-cycle — `@pokapali/sync` does not depend on core, but both
+(`POKAPALI_LOG_LEVEL` env var or `localStorage` key).
+Levels: `debug`, `info`, `warn`, `error`, `silent`.
+The `silent` level suppresses all output — used in the
+test runner (`POKAPALI_LOG_LEVEL=silent vitest run`)
+to eliminate log noise. Used by all other `@pokapali/*`
+packages. Placed as a separate leaf package (not in
+`@pokapali/core`) to avoid a dependency cycle —
+`@pokapali/sync` does not depend on core, but both
 need logging.
+
+## husky ^9.1.7
+
+Git hooks manager. Runs `lint-staged` as a pre-commit
+hook to enforce formatting and lint rules on staged
+files before they enter the repository. v9.x uses a
+simple `.husky/pre-commit` shell script (no JSON
+config). The `prepare` script in root `package.json`
+installs hooks on `npm install`.
+
+## lint-staged ^16.3.3
+
+Runs linters on git-staged files only. Configured in
+root `package.json`: prettier + eslint --fix on
+`*.{ts,tsx,js,jsx}`, prettier-only on
+`*.{json,md,yml,yaml,css}`. Keeps commits clean
+without requiring a full-repo lint pass.
 
 ## react / react-dom ^19.0.0
 

@@ -951,6 +951,51 @@ pinner's 7d/14d windows are based on its own constants
 and utilization, not the relay count. More pinners give
 more redundancy, not longer individual guarantees.
 
+### Guarantee query protocol
+
+When a browser opens a document, it may not receive
+pinner acks for minutes if the pinner's re-announce
+interval has decayed (up to 24 hours for stale docs).
+The guarantee query protocol gives browsers immediate
+visibility into pinner state.
+
+**Protocol flow:**
+
+1. Browser subscribes to the announce topic and waits
+   **3 seconds** for the GossipSub mesh to form (GRAFT
+   requires at least one heartbeat interval).
+2. Browser publishes a `guarantee-query` message on the
+   announce topic containing `{ appId, ipnsName }`.
+3. Each pinner that tracks the document responds with a
+   `guarantee-response`: `{ peerId, cid, guaranteeUntil,
+retainUntil }`.
+4. Browser updates `pinnerGuarantees` (monotonic
+   `Math.max` per pinner).
+
+**Timing:**
+
+- **Initial query:** 3s after subscribe (readers) or
+  3s after `startReannounce` (writers). The delay lets
+  the GossipSub mesh form before publishing.
+- **Periodic re-query:** every 5 minutes for long
+  sessions.
+- **Event-driven:** fires immediately when a pinner is
+  discovered via node caps (`node-change` event with
+  pinner role), since the mesh may already be formed
+  by then.
+
+The 3-second initial delay is critical — without it,
+the query arrives before the pinner has grafted the
+browser into its mesh, and the message is silently
+dropped. This was identified in load testing where
+0% of queries were answered without the delay.
+
+**Why on the announce topic, not caps:** Guarantee
+state is per-document. Putting it in node caps would
+leak which documents a pinner stores to all peers on
+the network. The announce topic is scoped to peers
+who already know the document's `appId`.
+
 ### What pinners can and cannot verify
 
 Pinners **can** verify:
