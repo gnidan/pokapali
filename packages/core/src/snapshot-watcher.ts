@@ -102,7 +102,6 @@ export function createSnapshotWatcher(
 
   let destroyed = false;
   const topic = announceTopic(appId);
-  let pendingCid: string | null = null;
   let latestAnnouncedSeq = 0;
   let retryAttempt = 0;
   let fetchState: LoadingState = { status: "idle" };
@@ -164,6 +163,19 @@ export function createSnapshotWatcher(
     options.onFetchStateChange?.(s);
   }
 
+  /** Extract CID from current fetch state, or null
+   *  when idle/resolving (no active CID). */
+  function fetchCid(): string | null {
+    if (
+      fetchState.status === "fetching" ||
+      fetchState.status === "retrying" ||
+      fetchState.status === "failed"
+    ) {
+      return fetchState.cid;
+    }
+    return null;
+  }
+
   // --- Announce subscription ---
 
   // Writers already subscribe for re-announce mesh
@@ -206,13 +218,15 @@ export function createSnapshotWatcher(
   }, GUARANTEE_REQUERY_MS);
 
   function scheduleRetry() {
-    if (retryTimer || !pendingCid) return;
+    if (retryTimer) return;
+    const cid = fetchCid();
+    if (!cid) return;
     retryAttempt++;
     if (retryAttempt > MAX_OUTER_RETRIES) {
-      log.warn("max retries exceeded for", pendingCid.slice(0, 16) + "...");
+      log.warn("max retries exceeded for", cid.slice(0, 16) + "...");
       setFetchState({
         status: "failed",
-        cid: pendingCid,
+        cid,
         error: "max retries exceeded",
       });
       return;
@@ -220,25 +234,25 @@ export function createSnapshotWatcher(
     const nextRetryAt = Date.now() + RETRY_INTERVAL_MS;
     setFetchState({
       status: "retrying",
-      cid: pendingCid,
+      cid,
       attempt: retryAttempt,
       nextRetryAt,
     });
     retryTimer = setTimeout(async () => {
       retryTimer = null;
-      if (!pendingCid || destroyed) return;
-      const cidStr = pendingCid;
-      log.debug("retrying fetch for", cidStr.slice(0, 16) + "...");
+      if (destroyed) return;
+      const retryCid = fetchCid();
+      if (!retryCid) return;
+      log.debug("retrying fetch for", retryCid.slice(0, 16) + "...");
       setFetchState({
         status: "fetching",
-        cid: cidStr,
+        cid: retryCid,
         startedAt: Date.now(),
       });
       try {
-        await onSnapshot(CIDClass.parse(cidStr));
+        await onSnapshot(CIDClass.parse(retryCid));
         if (destroyed) return;
         hasAppliedSnapshot = true;
-        pendingCid = null;
         retryAttempt = 0;
         setFetchState({ status: "idle" });
       } catch (err) {
@@ -347,7 +361,11 @@ export function createSnapshotWatcher(
     if (ann.seq !== undefined) {
       latestAnnouncedSeq = Math.max(latestAnnouncedSeq, ann.seq);
     }
-    pendingCid = ann.cid;
+    // Clear any pending retry for a previous CID.
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     retryAttempt = 0;
     setFetchState({
       status: "fetching",
@@ -399,6 +417,11 @@ export function createSnapshotWatcher(
       async (cid) => {
         if (destroyed) return;
         const cidStr = cid.toString();
+        // Clear any pending retry for a previous CID.
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+          retryTimer = null;
+        }
         retryAttempt = 0;
         setFetchState({
           status: "fetching",
@@ -406,11 +429,9 @@ export function createSnapshotWatcher(
           startedAt: Date.now(),
         });
         try {
-          pendingCid = cidStr;
           await onSnapshot(cid);
           if (destroyed) return;
           hasAppliedSnapshot = true;
-          pendingCid = null;
           setFetchState({ status: "idle" });
           if (cidStr !== lastAnnouncedCid) {
             lastAnnouncedCid = cidStr;
@@ -461,7 +482,6 @@ export function createSnapshotWatcher(
         if (tipCid && !destroyed) {
           log.info("IPNS resolved:", tipCid.toString());
           const cidStr = tipCid.toString();
-          pendingCid = cidStr;
           retryAttempt = 0;
           setFetchState({
             status: "fetching",
@@ -471,7 +491,6 @@ export function createSnapshotWatcher(
           await onSnapshot(tipCid);
           if (destroyed) return;
           hasAppliedSnapshot = true;
-          pendingCid = null;
           setFetchState({ status: "idle" });
           if (cidStr !== lastAnnouncedCid) {
             lastAnnouncedCid = cidStr;
