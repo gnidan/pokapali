@@ -638,6 +638,103 @@ body {
   position: relative;
 }
 
+/* ── Version preview overlay ─────────────────── */
+
+.version-preview-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.vpo-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+
+.vpo-close {
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  color: #374151;
+}
+.vpo-close:hover {
+  background: #f3f4f6;
+}
+
+.vpo-info {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.vpo-age {
+  font-weight: 400;
+  color: #6b7280;
+  margin-left: 0.5rem;
+}
+
+.vpo-current-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.vpo-restore {
+  margin-left: auto;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.vpo-restore:hover {
+  background: #1d4ed8;
+}
+.vpo-restore:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vpo-editor {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.vpo-editor .tiptap {
+  padding: 1rem;
+  outline: none;
+  min-height: 400px;
+}
+
+.vpo-editor .tiptap p {
+  margin: 0.5em 0;
+}
+
+.vpo-editor .tiptap h1,
+.vpo-editor .tiptap h2,
+.vpo-editor .tiptap h3 {
+  margin: 0.75em 0 0.25em;
+}
+
 /* ── Version history drawer ───────────────────── */
 
 .vh-drawer {
@@ -816,6 +913,10 @@ body {
 }
 
 /* Preview section */
+
+.vh-status-section {
+  padding: 0.5rem;
+}
 
 .vh-preview-section {
   flex: 1;
