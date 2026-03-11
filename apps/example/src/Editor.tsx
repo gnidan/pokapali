@@ -9,6 +9,7 @@ import { StatusIndicator } from "./StatusIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
 import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
 import { SharePanel } from "./SharePanel";
+import { VersionHistory } from "./VersionHistory";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -22,6 +23,7 @@ import { capitalize } from "./utils";
 export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const [status, setStatus] = useState<DocStatus>(doc.status);
   const [showShare, setShowShare] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [showEncryption, setShowEncryption] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>(doc.saveState);
   const [ackCount, setAckCount] = useState(doc.ackedBy.size);
@@ -331,22 +333,42 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         >
           {showShare ? "Hide share" : "Share"}
         </button>
+        <button
+          className="toggle-history"
+          onClick={() => setShowHistory((s) => !s)}
+          aria-expanded={showHistory}
+          aria-label={
+            showHistory ? "Hide version history" : "Open version history"
+          }
+        >
+          {showHistory ? "Hide history" : "History"}
+        </button>
       </div>
 
       {showShare && <SharePanel ref={sharePanelRef} doc={doc} />}
 
-      <div className="editor-container">
-        {showEditor ? (
-          <>
-            {isReadOnly && (
-              <div className="read-only-banner">
-                Read-only — you cannot edit this document.
-              </div>
-            )}
-            <EditorContent editor={editor} />
-          </>
-        ) : (
-          <div className="loading-doc">Loading…</div>
+      <div className="editor-area">
+        <div className="editor-container">
+          {showEditor ? (
+            <>
+              {isReadOnly && (
+                <div className="read-only-banner">
+                  Read-only — you cannot edit this document.
+                </div>
+              )}
+              <EditorContent editor={editor} />
+            </>
+          ) : (
+            <div className="loading-doc">Loading…</div>
+          )}
+        </div>
+
+        {showHistory && (
+          <VersionHistory
+            doc={doc}
+            editor={editor}
+            onClose={() => setShowHistory(false)}
+          />
         )}
       </div>
 
