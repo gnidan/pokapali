@@ -803,6 +803,12 @@ export function TopologyMap({
   doc: {
     topologyGraph(): TopologyGraph;
     diagnostics(): Diagnostics;
+    on(event: string, cb: () => void): void;
+    off(event: string, cb: () => void): void;
+    awareness: {
+      on(event: string, cb: () => void): void;
+      off(event: string, cb: () => void): void;
+    };
   };
   pulseKey: number;
 }) {
@@ -818,10 +824,17 @@ export function TopologyMap({
     typeof setTimeout
   > | null>(null);
 
-  useEffect(() => {
-    const g = doc.topologyGraph();
+  // Refresh graph data, deduping by fingerprint
+  const refreshGraph = useCallback(() => {
+    let g: TopologyGraph;
+    let gu: number | null;
+    try {
+      g = doc.topologyGraph();
+      gu = doc.diagnostics().guaranteeUntil;
+    } catch {
+      return; // doc destroyed
+    }
     const fp = graphFp(g);
-    const gu = doc.diagnostics().guaranteeUntil;
 
     if (fp !== prevFpRef.current) {
       prevFpRef.current = fp;
@@ -839,13 +852,28 @@ export function TopologyMap({
         setGuaranteeUntil(gu);
       }, 8_000);
     }
+  }, [doc]);
+
+  // Subscribe to all events that can change
+  // the topology graph
+  useEffect(() => {
+    refreshGraph();
+
+    doc.on("node-change", refreshGraph);
+    doc.on("snapshot", refreshGraph);
+    doc.on("ack", refreshGraph);
+    doc.awareness.on("change", refreshGraph);
 
     return () => {
+      doc.off("node-change", refreshGraph);
+      doc.off("snapshot", refreshGraph);
+      doc.off("ack", refreshGraph);
+      doc.awareness.off("change", refreshGraph);
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [doc, pulseKey]);
+  }, [doc, refreshGraph]);
 
   const posMap = useForceLayout(graph);
 
