@@ -361,7 +361,6 @@ function NodeShape({
   const handleLeave = useCallback(() => onHover(null), [onHover]);
 
   // Determine roles
-  const isRelay = node.kind === "relay" || node.kind === "relay+pinner";
   const isPinner = node.kind === "pinner" || node.kind === "relay+pinner";
 
   // Guarantee state

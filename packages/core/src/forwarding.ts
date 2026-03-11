@@ -4,7 +4,6 @@ import {
   verifySignature,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
-import type { Ed25519KeyPair } from "@pokapali/crypto";
 
 export interface ForwardingRecord {
   oldIpnsName: string;

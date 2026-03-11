@@ -48,9 +48,11 @@ function getStatusData(config: HttpConfig) {
   // GossipSub diagnostics
   let gossipsub: Record<string, unknown> | null = null;
   if (relay) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pubsub = (relay.helia.libp2p.services as any).pubsub;
     const gsTopics: string[] = pubsub.getTopics?.() ?? [];
     const gsPeers = pubsub.getPeers?.() ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mesh = (pubsub as any).mesh as Map<string, Set<string>> | undefined;
 
     const topics: Record<

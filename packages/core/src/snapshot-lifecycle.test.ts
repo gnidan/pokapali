@@ -11,11 +11,6 @@ import { sha256 } from "multiformats/hashes/sha2";
 import { encodeSnapshot as realEncodeSnapshot } from "@pokapali/snapshot";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
 
-async function fakeCid(seed: number): Promise<CID> {
-  const hash = await sha256.digest(new Uint8Array([seed]));
-  return CID.createV1(0x71, hash);
-}
-
 describe("createSnapshotLifecycle", () => {
   const mockHelia = {
     blockstore: {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { request } from "node:http";
 import type { Server } from "node:http";
 import { startHttpServer } from "./http.js";

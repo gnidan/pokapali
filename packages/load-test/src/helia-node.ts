@@ -78,6 +78,7 @@ export async function createHeliaNode(
           }),
         };
         // Remove browser-only services
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         delete (svc as any).relay;
         return svc;
       })(),

@@ -27,6 +27,7 @@ export function createRelaySharing(options: RelaySharingOptions): RelaySharing {
     const states = awareness.getStates();
     for (const [clientId, state] of states) {
       if (clientId === awareness.clientID) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const relays = (state as any)?.relays;
       if (Array.isArray(relays) && relays.length > 0) {
         roomDiscovery.addExternalRelays(relays);

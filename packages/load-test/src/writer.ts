@@ -99,6 +99,7 @@ export async function startWriter(
   const pubsub = helia.libp2p.services.pubsub;
   pubsub.subscribe(topic);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messageHandler = (evt: any) => {
     if (evt.detail.topic !== topic) return;
     const announcement = parseAnnouncement(evt.detail.data);

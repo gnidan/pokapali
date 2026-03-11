@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
-import type { CapabilityKeys } from "@pokapali/capability";
 import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import {
@@ -94,7 +93,6 @@ vi.mock("@pokapali/snapshot", async () => {
 import {
   pokapali,
   type Doc,
-  type DocStatus,
   type SaveState,
   type Diagnostics,
 } from "./index.js";

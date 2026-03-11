@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { PubSubLike } from "@pokapali/sync";
 import type { Helia } from "helia";
 import { createLogger } from "@pokapali/log";

@@ -32,7 +32,6 @@ import {
 } from "@pokapali/crypto";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import { createPinner } from "./pinner.js";
-import type { Pinner } from "./pinner.js";
 
 async function makeSnapshot(opts?: {
   seq?: number;

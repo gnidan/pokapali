@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type {
@@ -48,7 +49,6 @@ import { announceSnapshot } from "./announce.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
-import type { SnapshotLifecycle } from "./snapshot-lifecycle.js";
 import { createSnapshotWatcher } from "./snapshot-watcher.js";
 import type {
   SnapshotWatcher,
@@ -58,16 +58,11 @@ import type {
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { acquireNodeRegistry, getNodeRegistry } from "./node-registry.js";
-import type { NodeRegistry, Neighbor } from "./node-registry.js";
+import type { Neighbor } from "./node-registry.js";
 import { createTopologySharing } from "./topology-sharing.js";
 import type { TopologySharing } from "./topology-sharing.js";
-import { buildTopologyGraph, nodeKind } from "./topology-graph.js";
-import type {
-  TopologyNode,
-  TopologyGraphEdge,
-  TopologyGraph,
-  TopologyEdge,
-} from "./topology-graph.js";
+import { buildTopologyGraph } from "./topology-graph.js";
+import type { TopologyGraph, TopologyEdge } from "./topology-graph.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 
@@ -345,7 +340,7 @@ function createDoc(params: DocParams): Doc {
   const snapshotLC = createSnapshotLifecycle({
     getHelia: () => getHelia(),
   });
-  const listeners = new Map<string, Set<Function>>();
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
   function emit(event: string, ...args: unknown[]) {
     const cbs = listeners.get(event);
@@ -868,22 +863,14 @@ function createDoc(params: DocParams): Doc {
       };
     },
 
-    on(
-      event: string,
-      // eslint-disable-next-line
-      cb: (...args: any[]) => void,
-    ) {
+    on(event: string, cb: (...args: any[]) => void) {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
       }
       listeners.get(event)!.add(cb);
     },
 
-    off(
-      event: string,
-      // eslint-disable-next-line
-      cb: (...args: any[]) => void,
-    ) {
+    off(event: string, cb: (...args: any[]) => void) {
       listeners.get(event)?.delete(cb);
     },
 
@@ -975,7 +962,9 @@ function createDoc(params: DocParams): Doc {
             topics: topics.length,
             meshPeers,
           };
-        } catch {}
+        } catch {
+          // GossipSub internals unavailable
+        }
       } catch (err) {
         log.warn("diagnostics error:", (err as Error)?.message ?? err);
       }
@@ -991,7 +980,9 @@ function createDoc(params: DocParams): Doc {
             maxPeerClockSum = cs;
           }
         }
-      } catch {}
+      } catch {
+        // awareness unavailable
+      }
 
       // Build topology edges from node neighbors
       const topology: TopologyEdge[] = [];

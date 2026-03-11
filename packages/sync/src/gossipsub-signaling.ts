@@ -89,6 +89,7 @@ export class GossipSubSignaling extends Observable<string> {
               data: message.data,
             }),
           );
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           log.debug(`publish ${message.topic}:`, (message.data as any)?.type);
           this.pubsub.publish(SIGNALING_TOPIC, payload).catch((err) => {
             const msg = (err as Error)?.message ?? "";
@@ -107,11 +108,13 @@ export class GossipSubSignaling extends Observable<string> {
   startAnnounceInterval(): void {
     if (this.announceInterval) return;
     this.announceInterval = setInterval(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ps = this.pubsub as any;
       const gsPeers = ps.getPeers?.() ?? [];
       const topics = ps.getTopics?.() ?? [];
       const subs = topics.flatMap((t: string) =>
         (ps.getSubscribers?.(t) ?? []).map(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (p: any) => `${t}:${p.toString().slice(-8)}`,
         ),
       );

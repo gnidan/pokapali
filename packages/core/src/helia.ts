@@ -10,17 +10,17 @@ export interface HeliaOptions {
   bootstrapPeers?: string[];
 }
 
-interface HeliaWithPubsub extends Helia<
+type HeliaWithPubsub = Helia<
   Libp2p<{
     pubsub: PubSub;
   }>
-> {}
+>;
 
 let sharedHelia: HeliaWithPubsub | null = null;
 let refCount = 0;
 
 export async function acquireHelia(
-  options?: HeliaOptions,
+  _options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
   if (sharedHelia) {
     refCount++;
@@ -85,6 +85,7 @@ export async function acquireHelia(
       ? {
           connectionGater: {
             ...defaults.connectionGater,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             denyDialMultiaddr: (ma: any) => {
               const s = ma.toString();
               if (s.includes("/ws/") || s.endsWith("/ws")) {

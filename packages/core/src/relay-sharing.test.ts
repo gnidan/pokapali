@@ -2,18 +2,18 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { createRelaySharing } from "./relay-sharing.js";
 
 function mockAwareness() {
-  const listeners = new Map<string, Set<Function>>();
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   return {
     clientID: 1,
     setLocalStateField: vi.fn(),
     getStates: vi.fn(() => new Map()),
-    on(event: string, cb: Function) {
+    on(event: string, cb: (...args: unknown[]) => void) {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
       }
       listeners.get(event)!.add(cb);
     },
-    off(event: string, cb: Function) {
+    off(event: string, cb: (...args: unknown[]) => void) {
       listeners.get(event)?.delete(cb);
     },
     _emit(event: string, ...args: unknown[]) {
