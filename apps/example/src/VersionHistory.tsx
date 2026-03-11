@@ -7,8 +7,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 // @ts-ignore — y-prosemirror has no type declarations
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type { Doc as YDoc } from "yjs";
-import type { Doc } from "@pokapali/core";
-import { fetchVersionHistory, type VersionEntry } from "@pokapali/core";
+import type { Doc, VersionEntry } from "@pokapali/core";
 
 // ── Types ────────────────────────────────────────
 
@@ -24,28 +23,6 @@ type PreviewState =
   | { status: "error"; seq: number; message: string };
 
 // ── Helpers ──────────────────────────────────────
-
-/** Extract the full IPNS name from a doc URL path. */
-function ipnsNameFromUrl(url: string): string {
-  try {
-    const parts = new URL(url).pathname.split("/");
-    const idx = parts.indexOf("doc");
-    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
-  } catch {
-    // malformed
-  }
-  return "";
-}
-
-/** Get pinner HTTP URLs from diagnostics nodes. */
-function pinnerHttpUrls(doc: Doc): string[] {
-  // NodeInfo doesn't expose httpUrl yet — once it
-  // does, extract from doc.diagnostics().nodes.
-  // For now, return empty so fetchVersionHistory
-  // falls back to local chain walking.
-  void doc;
-  return [];
-}
 
 function relativeAge(ts: number): string {
   const sec = Math.round((Date.now() - ts) / 1000);
@@ -242,16 +219,14 @@ export function VersionHistory({
   // Current tip CID for marking "current" version
   const tipCidStr = doc.tipCid?.toString() ?? null;
 
-  // Fetch version list via pinner index (falls back
-  // to local chain walk)
+  // Fetch version list via pinner HTTP index,
+  // falling back to local chain walk
   useEffect(() => {
     cancelRef.current = false;
     setListState({ status: "loading" });
 
-    const ipns = ipnsNameFromUrl(doc.urls.best);
-    const urls = pinnerHttpUrls(doc);
-
-    fetchVersionHistory(urls, ipns, () => doc.history())
+    doc
+      .versionHistory()
       .then((entries) => {
         if (cancelRef.current) return;
         setVersions(entries);
