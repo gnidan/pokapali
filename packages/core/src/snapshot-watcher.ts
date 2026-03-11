@@ -70,6 +70,9 @@ export interface SnapshotWatcher {
    *  relay connect). No-op if startReannounce hasn't
    *  been called or no snapshot exists yet. */
   reannounceNow(): void;
+  /** Fire a guarantee query immediately (e.g. on
+   *  pinner discovery via node caps). */
+  queryGuarantees(): void;
   /** Track a newly pushed CID for ack collection. */
   trackCidForAcks(cid: string): void;
   readonly latestAnnouncedSeq: number;
@@ -596,6 +599,10 @@ export function createSnapshotWatcher(
 
     reannounceNow() {
       doReannounce();
+    },
+
+    queryGuarantees() {
+      fireGuaranteeQuery();
     },
 
     trackCidForAcks(cid: string) {

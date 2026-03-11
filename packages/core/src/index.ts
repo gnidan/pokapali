@@ -528,13 +528,32 @@ function createDoc(
   // Also forward node-registry changes as doc events.
   // When caps messages include addresses, feed them
   // to roomDiscovery so we can dial new relays.
+  const knownPinnerPids = new Set<string>();
   const nodeChangeHandler = () => {
     emit("node-change");
-    if (!params.roomDiscovery) return;
     const reg = getNodeRegistry();
+    if (reg) {
+      // Fire guarantee query when a new pinner
+      // appears in node-registry caps.
+      let newPinner = false;
+      for (const node of reg.nodes.values()) {
+        if (
+          node.roles.includes("pinner") &&
+          !knownPinnerPids.has(node.peerId)
+        ) {
+          knownPinnerPids.add(node.peerId);
+          newPinner = true;
+        }
+      }
+      if (newPinner && snapshotWatcher) {
+        snapshotWatcher.queryGuarantees();
+      }
+    }
+    if (!params.roomDiscovery) return;
     if (!reg) return;
-    const entries: { peerId: string; addrs: string[] }[]
-      = [];
+    const entries: {
+      peerId: string; addrs: string[];
+    }[] = [];
     for (const node of reg.nodes.values()) {
       if (node.addrs.length > 0) {
         entries.push({
@@ -544,7 +563,9 @@ function createDoc(
       }
     }
     if (entries.length > 0) {
-      params.roomDiscovery.addExternalRelays(entries);
+      params.roomDiscovery.addExternalRelays(
+        entries,
+      );
     }
   };
   try {
