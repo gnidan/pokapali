@@ -271,6 +271,14 @@ export function startHttpServer(config: HttpConfig): Server {
 
 // --- HTTPS block server ---
 
+export type VersionTier = "tip" | "full" | "hourly" | "daily";
+
+export interface RetentionPolicy {
+  fullResolutionMs: number;
+  hourlyRetentionMs: number;
+  dailyRetentionMs: number;
+}
+
 export interface HttpsConfig {
   port: number;
   key: string;
@@ -285,6 +293,36 @@ export interface HttpsConfig {
   /** History lookup — returns snapshot records for
    *  an IPNS name, filtered to blocks we still have. */
   getHistory?: (ipnsName: string) => Promise<{ cid: string; ts: number }[]>;
+  /** Retention policy for tier classification. */
+  retentionPolicy?: RetentionPolicy;
+}
+
+function classifyTier(
+  ts: number,
+  isTip: boolean,
+  now: number,
+  policy: RetentionPolicy,
+): { tier: VersionTier; expiresAt: number | null } {
+  if (isTip) {
+    return { tier: "tip", expiresAt: null };
+  }
+  const age = now - ts;
+  if (age <= policy.fullResolutionMs) {
+    return {
+      tier: "full",
+      expiresAt: ts + policy.fullResolutionMs,
+    };
+  }
+  if (age <= policy.hourlyRetentionMs) {
+    return {
+      tier: "hourly",
+      expiresAt: ts + policy.hourlyRetentionMs,
+    };
+  }
+  return {
+    tier: "daily",
+    expiresAt: ts + policy.dailyRetentionMs,
+  };
 }
 
 function parseCorsOrigins(origin: string): string[] | "*" {
@@ -365,11 +403,25 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
 
           // Sort newest-first, assign seq numbers
           records.sort((a, b) => b.ts - a.ts);
-          const withSeq = records.map((r, i) => ({
-            cid: r.cid,
-            ts: r.ts,
-            seq: records.length - i,
-          }));
+          const now = Date.now();
+          const policy = config.retentionPolicy;
+          const tipCid = records.length > 0 ? records[0].cid : null;
+
+          const withSeq = records.map((r, i) => {
+            const base = {
+              cid: r.cid,
+              ts: r.ts,
+              seq: records.length - i,
+            };
+            if (!policy) return base;
+            const { tier, expiresAt } = classifyTier(
+              r.ts,
+              r.cid === tipCid,
+              now,
+              policy,
+            );
+            return { ...base, tier, expiresAt };
+          });
 
           // Paginate: before=seq filters to
           // entries with seq < before
@@ -379,12 +431,21 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
           }
           page = page.slice(0, limit);
 
+          const body: Record<string, unknown> = {
+            versions: page,
+            totalVersions: records.length,
+            oldestSeq: records.length > 0 ? 1 : null,
+          };
+          if (policy) {
+            body.retentionPolicy = policy;
+          }
+
           res.writeHead(200, {
             "content-type": "application/json",
             "cache-control": "no-cache",
             ...cors,
           });
-          res.end(JSON.stringify(page));
+          res.end(JSON.stringify(body));
         } catch (err) {
           log.warn("history error:", (err as Error).message);
           res.writeHead(500, {
