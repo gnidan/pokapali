@@ -42,13 +42,23 @@ export interface KnownNode {
   httpUrl: string | undefined;
 }
 
+export interface NodeRegistryEvents {
+  change: [];
+}
+
 export interface NodeRegistry {
   /** All known non-stale nodes. */
   readonly nodes: ReadonlyMap<string, KnownNode>;
   /** Register a callback for meaningful changes. */
-  onNodeChange(cb: () => void): void;
+  on<E extends keyof NodeRegistryEvents>(
+    event: E,
+    cb: (...args: NodeRegistryEvents[E]) => void,
+  ): void;
   /** Unregister a change callback. */
-  offNodeChange(cb: () => void): void;
+  off<E extends keyof NodeRegistryEvents>(
+    event: E,
+    cb: (...args: NodeRegistryEvents[E]) => void,
+  ): void;
   destroy(): void;
 }
 
@@ -124,6 +134,23 @@ function rolesEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
+function neighborsEqual(a: Neighbor[], b: Neighbor[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].peerId !== b[i].peerId) return false;
+    if (a[i].role !== b[i].role) return false;
+  }
+  return true;
+}
+
+function addrsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export function createNodeRegistry(
   pubsub: PubSubLike,
   getHelia: () => Helia,
@@ -171,11 +198,17 @@ export function createNodeRegistry(
 
     const connected = getConnectedPeerIds().has(caps.peerId);
     const prev = nodes.get(caps.peerId);
+    const newNeighbors = caps.neighbors ?? [];
+    const newAddrs = caps.addrs ?? [];
     const changed =
       !prev ||
       prev.connected !== connected ||
       prev.stale ||
-      !rolesEqual(prev.roles, caps.roles);
+      !rolesEqual(prev.roles, caps.roles) ||
+      !neighborsEqual(prev.neighbors, newNeighbors) ||
+      prev.browserCount !== caps.browserCount ||
+      prev.httpUrl !== caps.httpUrl ||
+      !addrsEqual(prev.addrs, newAddrs);
     // Fresh caps broadcast — reset hysteresis and
     // clear stale flag.
     disconnectCounts.delete(caps.peerId);
@@ -260,11 +293,11 @@ export function createNodeRegistry(
       return nodes;
     },
 
-    onNodeChange(cb: () => void) {
+    on(_event: "change", cb: () => void) {
       changeListeners.add(cb);
     },
 
-    offNodeChange(cb: () => void) {
+    off(_event: "change", cb: () => void) {
       changeListeners.delete(cb);
     },
 
