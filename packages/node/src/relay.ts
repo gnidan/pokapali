@@ -468,6 +468,14 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
       connectedPids.add((conn as any).remotePeer.toString());
     }
 
+    // Prune stale entries from knownPeerRoles —
+    // remove peers we're no longer connected to.
+    for (const pid of knownPeerRoles.keys()) {
+      if (!connectedPids.has(pid)) {
+        knownPeerRoles.delete(pid);
+      }
+    }
+
     const neighbors: NodeNeighbor[] = [];
     let browserCount = 0;
     for (const pid of connectedPids) {
@@ -530,7 +538,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   // and let normal GossipSub mesh formation (D=3)
   // naturally GRAFT connected relays.
   const RELAY_PEER_TAG = "pokapali-relay-peer";
-  const RELAY_PEER_TAG_VALUE = 200;
+  const RELAY_PEER_TAG_VALUE = 100;
 
   /**
    * Find other relays providing the network CID and

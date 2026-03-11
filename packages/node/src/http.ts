@@ -93,6 +93,72 @@ function getStatusData(config: HttpConfig) {
   };
 }
 
+function getGossipsubMetrics(
+  config: HttpConfig,
+): Record<string, unknown> | null {
+  const { relay } = config;
+  if (!relay) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gs = (relay.helia.libp2p.services as any).pubsub as any;
+  if (!gs) return null;
+
+  const gsTopics: string[] = gs.getTopics?.() ?? [];
+  const gsPeers: { toString(): string }[] = gs.getPeers?.() ?? [];
+  const mesh = gs.mesh as Map<string, Set<string>> | undefined;
+
+  // Per-topic mesh and subscriber counts
+  const topics: Record<string, { subscribers: number; mesh: number }> = {};
+  for (const t of gsTopics) {
+    const subs = gs.getSubscribers?.(t) ?? [];
+    const topicMesh = mesh?.get(t);
+    topics[t] = {
+      subscribers: subs.length,
+      mesh: topicMesh?.size ?? 0,
+    };
+  }
+
+  // Per-peer scores for mesh members
+  const meshPeerIds = new Set<string>();
+  if (mesh) {
+    for (const peerSet of mesh.values()) {
+      for (const pid of peerSet) {
+        meshPeerIds.add(pid);
+      }
+    }
+  }
+
+  const scores: Record<string, number> = {};
+  for (const pid of meshPeerIds) {
+    const score = gs.score?.score?.(pid);
+    if (typeof score === "number") {
+      scores[pid] = Math.round(score * 100) / 100;
+    }
+  }
+
+  // Score distribution summary
+  const scoreValues = Object.values(scores);
+  const distribution =
+    scoreValues.length > 0
+      ? {
+          min: Math.min(...scoreValues),
+          max: Math.max(...scoreValues),
+          median: scoreValues.sort((a, b) => a - b)[
+            Math.floor(scoreValues.length / 2)
+          ],
+          negative: scoreValues.filter((s) => s < 0).length,
+        }
+      : null;
+
+  return {
+    peers: gsPeers.length,
+    topics,
+    meshPeerCount: meshPeerIds.size,
+    scores,
+    scoreDistribution: distribution,
+  };
+}
+
 export function startHttpServer(config: HttpConfig): Server {
   const { pinner, port } = config;
 
@@ -128,6 +194,7 @@ export function startHttpServer(config: HttpConfig): Server {
         },
         uptime: Math.floor((Date.now() - startedAt) / 1000),
         pinner: config.pinner ? config.pinner.metrics() : null,
+        gossipsub: getGossipsubMetrics(config),
       };
       res.writeHead(200, {
         "content-type": "application/json",
