@@ -143,9 +143,13 @@ doc.on("publish-needed", () => {
   doc.publish();
 });
 
-// Listen for remote snapshots being applied
-doc.on("snapshot", () => {
-  console.log("Received update from IPNS");
+// Listen for snapshots (local publishes + remote)
+doc.on("snapshot", ({ cid, seq, ts, isLocal }) => {
+  if (isLocal) {
+    console.log("Published snapshot:", cid.toString());
+  } else {
+    console.log("Received remote snapshot:", cid);
+  }
 });
 ```
 
@@ -466,14 +470,142 @@ forever.
 
 ## Version History
 
+Pokapali tracks a chain of snapshots — each publish
+creates a new version linked to the previous one. You
+can browse past versions and load any snapshot as an
+independent set of `Y.Doc`s.
+
+### Current tip
+
+```ts
+doc.tipCid; // CID | null
+```
+
+The CID of the most recently published snapshot, or
+`null` if the document has never been published. Useful
+for highlighting "you are here" in a version list.
+
+### Listing versions
+
+**Recommended — `versionHistory()`:**
+
+```ts
+const versions = await doc.versionHistory();
+// Array<{ cid: CID; seq: number; ts: number }>
+```
+
+Returns versions **newest-first**. Automatically queries
+connected pinners' HTTP history endpoints, falling back
+to a local chain walk if no pinners are reachable. This
+is the best way to get a complete version list —
+pinners track every snapshot they've seen, so the list
+isn't truncated by missing intermediate blocks.
+
+**Low-level — `history()`:**
+
 ```ts
 const versions = await doc.history();
-// [{ cid, seq, ts }, ...]
+// Array<{ cid: CID; seq: number; ts: number }>
+```
 
-// Load a specific version
+Walks the local snapshot chain from the current tip.
+Uses a three-tier block resolution strategy:
+
+1. **In-memory cache** — blocks from locally-pushed
+   snapshots
+2. **Helia blockstore** — blocks from GossipSub or
+   prior fetches (5s timeout)
+3. **HTTP fallback** — fetches from pinner/relay
+   `httpUrl` endpoints, verifying the response hash
+   against the requested CID
+
+If a block is still missing after all three tiers,
+the walk stops gracefully — the returned list may be
+shorter than the full chain but never throws.
+
+Each entry contains:
+
+| Field | Type     | Description                       |
+| ----- | -------- | --------------------------------- |
+| `cid` | `CID`    | Content-addressed block ID        |
+| `seq` | `number` | Yjs clock sum at time of snapshot |
+| `ts`  | `number` | Unix timestamp (ms)               |
+
+### Snapshot event
+
+```ts
+doc.on("snapshot", (info) => {
+  // info.cid     — CID of the snapshot
+  // info.seq     — Yjs clock sum
+  // info.ts      — Unix timestamp (ms)
+  // info.isLocal — true if published by this client
+});
+```
+
+Fires on both local publishes and remote snapshot
+application.
+
+### Loading a version
+
+```ts
 const channels = await doc.loadVersion(versions[0].cid);
 // Record<string, Y.Doc> — one Y.Doc per channel
 ```
+
+Returns an independent `Y.Doc` for each channel,
+containing the full state at that snapshot. These are
+copies — modifying them does not affect the live
+document.
+
+### Restoring a version
+
+Restore creates a **new version** — it does not revert
+or discard later versions. The snapshot chain is
+append-only (CIDs are content hashes), so history is
+immutable.
+
+The restore strategy depends on your content type and
+editor. Core provides `loadVersion()` as the primitive;
+your app applies the old content as new CRDT operations.
+
+**Tiptap / ProseMirror (XmlFragment):**
+
+```ts
+import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+
+async function restoreVersion(doc, editor, cid) {
+  const old = await doc.loadVersion(cid);
+  const frag = old["content"].getXmlFragment("default");
+  const json = yXmlFragmentToProsemirrorJSON(frag);
+  editor.commands.setContent(json);
+  await doc.publish();
+}
+```
+
+`setContent()` is a single ProseMirror transaction —
+atomic replace with no intermediate empty state.
+Yjs translates it into new delete+insert operations
+that propagate correctly to all peers.
+
+**Plain Y.Text:**
+
+```ts
+async function restoreVersion(doc, cid) {
+  const old = await doc.loadVersion(cid);
+  const oldText = old["content"].getText("main").toString();
+  const current = doc.channel("content").getText("main");
+  current.delete(0, current.length);
+  current.insert(0, oldText);
+  await doc.publish();
+}
+```
+
+**Why not `Y.applyUpdate()`?** Applying an old Yjs
+state update to the current doc _merges_ rather than
+_replaces_ — the old state is a subset of the current
+state, so it's a no-op or creates merge artifacts.
+You must read old content and write it as new CRDT
+operations.
 
 ## Tips
 
