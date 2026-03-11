@@ -129,6 +129,17 @@ function buildDiffDecorations(
   const diffs = dmp.diff_main(currentText, preview.text);
   dmp.diff_cleanupSemantic(diffs);
 
+  // TODO: remove debug logging
+  console.log("[diff] currentText:", JSON.stringify(currentText));
+  console.log("[diff] previewText:", JSON.stringify(preview.text));
+  console.log(
+    "[diff] segments:",
+    diffs.map(([op, t]) => {
+      const label = op === 0 ? "EQUAL" : op === 1 ? "INSERT" : "DELETE";
+      return `${label}: ${JSON.stringify(t)}`;
+    }),
+  );
+
   const decorations: Decoration[] = [];
   let previewOffset = 0;
 

@@ -85,12 +85,32 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     let fetched = false;
     let hasTierData = false;
 
-    const doFetch = () => {
+    const doFetch = (reason: string) => {
+      // TODO: remove debug logging
+      console.log("[vh] doFetch called, reason:", reason);
       doc
         .versionHistory()
         .then((entries) => {
           if (cancelRef.current) return;
           hasTierData = entries.some((e) => e.tier != null);
+          // TODO: remove debug logging
+          console.log(
+            "[vh] got entries:",
+            entries.length,
+            "hasTierData:",
+            hasTierData,
+          );
+          if (entries.length > 0) {
+            console.log("[vh] first entry keys:", Object.keys(entries[0]));
+            console.log(
+              "[vh] first entry:",
+              JSON.stringify({
+                seq: entries[0].seq,
+                tier: entries[0].tier,
+                expiresAt: entries[0].expiresAt,
+              }),
+            );
+          }
           setVersions(entries);
           setListState({ status: "idle" });
         })
@@ -106,7 +126,7 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     const fetchHistory = () => {
       if (cancelRef.current || fetched) return;
       fetched = true;
-      doFetch();
+      doFetch("initial (doc.ready)");
     };
 
     doc.ready().then(fetchHistory);
@@ -132,8 +152,16 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     // Re-fetch when a new node appears (may now have
     // httpUrl for enriched history with tier data).
     const onNodeChange = () => {
+      // TODO: remove debug logging
+      console.log(
+        "[vh] node-change fired, fetched:",
+        fetched,
+        "hasTierData:",
+        hasTierData,
+      );
       if (cancelRef.current || !fetched || hasTierData) return;
-      doFetch();
+      console.log("[vh] re-fetching due to node-change");
+      doFetch("node-change");
     };
     doc.on("node-change", onNodeChange);
 
