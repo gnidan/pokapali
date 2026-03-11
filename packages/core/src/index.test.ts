@@ -393,6 +393,26 @@ describe("@pokapali/core", () => {
       expect(h[0].cid.toString()).not.toBe(h[1].cid.toString());
       doc.destroy();
     });
+
+    it("versionHistory falls back to local chain", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      await doc.publish();
+      const content = doc.channel("content");
+      content.getMap("test").set("k", "v");
+      await doc.publish();
+      content.getMap("test").set("k", "v2");
+      await doc.publish();
+
+      // No pinner URLs → falls back to local
+      const h = await doc.versionHistory();
+      expect(h).toHaveLength(3);
+      expect(h[0].seq).toBe(3);
+      expect(h[1].seq).toBe(2);
+      expect(h[2].seq).toBe(1);
+      doc.destroy();
+    });
   });
 
   describe("loadVersion()", () => {
