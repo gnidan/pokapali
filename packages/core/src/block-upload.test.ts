@@ -30,7 +30,7 @@ describe("uploadBlock", () => {
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toBe(`https://relay.example.com/block/${cid.toString()}`);
     expect(opts.method).toBe("POST");
-    expect(opts.body).toBe(data);
+    expect(new Uint8Array(opts.body)).toEqual(data);
     expect(opts.headers["Content-Type"]).toBe("application/octet-stream");
   });
 
