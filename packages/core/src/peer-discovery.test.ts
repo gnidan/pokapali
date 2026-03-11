@@ -167,6 +167,7 @@ describe("startRoomDiscovery", () => {
     it("aborts active discovery cycle", async () => {
       // Make findProviders block until aborted
       let abortSignal: AbortSignal | undefined;
+      // eslint-disable-next-line require-yield
       helia.routing.findProviders = vi.fn(async function* (
         _cid: any,
         opts?: { signal?: AbortSignal },
@@ -634,6 +635,7 @@ describe("startRoomDiscovery", () => {
 
     it("aborts after FIND_TIMEOUT_MS", async () => {
       let abortSignal: AbortSignal | undefined;
+      // eslint-disable-next-line require-yield
       helia.routing.findProviders = vi.fn(async function* (
         _cid: any,
         opts?: { signal?: AbortSignal },
@@ -665,6 +667,7 @@ describe("startRoomDiscovery", () => {
       // is entered.
       let firstCallResolve: () => void = () => {};
       let callCount = 0;
+      // eslint-disable-next-line require-yield
       helia.routing.findProviders = vi.fn(async function* () {
         callCount++;
         if (callCount === 1) {
@@ -702,6 +705,7 @@ describe("startRoomDiscovery", () => {
     });
 
     it("handles findProviders errors " + "gracefully", async () => {
+      // eslint-disable-next-line require-yield
       helia.routing.findProviders = vi.fn(async function* () {
         throw new Error("network failure");
       });

@@ -65,7 +65,9 @@ export function saveRecent(url: string, role: string, title?: string): void {
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-  } catch {}
+  } catch {
+    // localStorage unavailable
+  }
 }
 
 export function updateRecentTitle(docId: string, title: string): void {
@@ -75,7 +77,9 @@ export function updateRecentTitle(docId: string, title: string): void {
   entry.title = title;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {}
+  } catch {
+    // localStorage unavailable
+  }
 }
 
 export function removeRecent(docId: string): void {
@@ -83,5 +87,7 @@ export function removeRecent(docId: string): void {
   const filtered = entries.filter((e) => e.docId !== docId);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-  } catch {}
+  } catch {
+    // localStorage unavailable
+  }
 }

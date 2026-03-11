@@ -141,6 +141,7 @@ export async function publishIPNS(
 
       log.debug("publishing with effectiveSeq=" + effectiveSeq);
 
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
       const record = (await (createIPNSRecord as Function)(
         privateKey,
         cidToPublish,

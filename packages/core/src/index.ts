@@ -339,7 +339,7 @@ function createDoc(params: DocParams): Doc {
   const snapshotLC = createSnapshotLifecycle({
     getHelia: () => getHelia(),
   });
-  const listeners = new Map<string, Set<Function>>();
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
   function emit(event: string, ...args: unknown[]) {
     const cbs = listeners.get(event);
@@ -969,7 +969,9 @@ function createDoc(params: DocParams): Doc {
             topics: topics.length,
             meshPeers,
           };
-        } catch {}
+        } catch {
+          // GossipSub internals unavailable
+        }
       } catch (err) {
         log.warn("diagnostics error:", (err as Error)?.message ?? err);
       }
@@ -985,7 +987,9 @@ function createDoc(params: DocParams): Doc {
             maxPeerClockSum = cs;
           }
         }
-      } catch {}
+      } catch {
+        // awareness unavailable
+      }
 
       // Build topology edges from node neighbors
       const topology: TopologyEdge[] = [];

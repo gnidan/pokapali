@@ -23,7 +23,9 @@ export function loadUser(): StoredUser {
       const parsed = JSON.parse(raw);
       if (parsed.name && parsed.color) return parsed;
     }
-  } catch {}
+  } catch {
+    // localStorage unavailable
+  }
   const color = CURSOR_COLORS[Math.floor(Math.random() * CURSOR_COLORS.length)];
   return { name: "", color };
 }
@@ -31,7 +33,9 @@ export function loadUser(): StoredUser {
 export function saveUser(user: StoredUser) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-  } catch {}
+  } catch {
+    // localStorage unavailable
+  }
 }
 
 export function renderCursor(user: { name: string; color: string }) {

@@ -10,11 +10,11 @@ export interface HeliaOptions {
   bootstrapPeers?: string[];
 }
 
-interface HeliaWithPubsub extends Helia<
+type HeliaWithPubsub = Helia<
   Libp2p<{
     pubsub: PubSub;
   }>
-> {}
+>;
 
 let sharedHelia: HeliaWithPubsub | null = null;
 let refCount = 0;
