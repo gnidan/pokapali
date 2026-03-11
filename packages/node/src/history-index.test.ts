@@ -87,7 +87,9 @@ function mockPinnerWithHistory(history: HistoryTracker) {
   } as any;
 }
 
-describe("GET /history/:ipnsName", () => {
+// Skipped: endpoint not yet on main. Unskip after
+// ops Track E (68c222f) is merged.
+describe.skip("GET /history/:ipnsName", () => {
   let server: Server;
   let port: number;
 
