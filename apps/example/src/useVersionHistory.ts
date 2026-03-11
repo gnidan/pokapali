@@ -77,18 +77,20 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
   // Wait for doc.ready() before fetching so the local
   // chain has been loaded (fixes empty-history regression
   // when pinner HTTP index is unavailable).
+  // Also re-fetch on node-change if the initial fetch
+  // fell back to local chain (no tier metadata).
   useEffect(() => {
     cancelRef.current = false;
     setListState({ status: "loading" });
     let fetched = false;
+    let hasTierData = false;
 
-    const fetchHistory = () => {
-      if (cancelRef.current || fetched) return;
-      fetched = true;
+    const doFetch = () => {
       doc
         .versionHistory()
         .then((entries) => {
           if (cancelRef.current) return;
+          hasTierData = entries.some((e) => e.tier != null);
           setVersions(entries);
           setListState({ status: "idle" });
         })
@@ -99,6 +101,12 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
             message: err instanceof Error ? err.message : String(err),
           });
         });
+    };
+
+    const fetchHistory = () => {
+      if (cancelRef.current || fetched) return;
+      fetched = true;
+      doFetch();
     };
 
     doc.ready().then(fetchHistory);
@@ -121,9 +129,18 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     };
     doc.on("snapshot", onSnapshot);
 
+    // Re-fetch when a new node appears (may now have
+    // httpUrl for enriched history with tier data).
+    const onNodeChange = () => {
+      if (cancelRef.current || !fetched || hasTierData) return;
+      doFetch();
+    };
+    doc.on("node-change", onNodeChange);
+
     return () => {
       cancelRef.current = true;
       doc.off("snapshot", onSnapshot);
+      doc.off("node-change", onNodeChange);
     };
   }, [doc]);
 
