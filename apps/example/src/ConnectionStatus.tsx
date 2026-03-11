@@ -493,7 +493,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
                     "No pinners connected \u2014 changes may not persist"
                   }
                 >
-                  No pinners
+                  No connected pinners
                 </span>
               )}
             </>

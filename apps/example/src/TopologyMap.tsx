@@ -341,12 +341,14 @@ function NodeShape({
   y,
   guaranteeUntil,
   onHover,
+  awarenessColor,
 }: {
   node: TopologyNode;
   x: number;
   y: number;
   guaranteeUntil: number | null;
   onHover: (n: TopologyNode | null, e?: React.MouseEvent) => void;
+  awarenessColor?: string;
 }) {
   const isSelf = node.kind === "self";
   const isBrowser =
@@ -394,15 +396,13 @@ function NodeShape({
     roleStrokeW = 2;
   }
 
-  // Circle fill: browsers get solid color,
+  // Circle fill: browsers use awareness color,
   // infra nodes get light/empty fill
   let fill: string;
   if (off) {
     fill = C.disconnected;
-  } else if (isSelf) {
-    fill = C.self;
   } else if (isBrowser) {
-    fill = C.browser;
+    fill = awarenessColor ?? C.browser;
   } else {
     fill = C.nodeFill;
   }
@@ -660,6 +660,11 @@ export function TopologyMap({
     awareness: {
       on(event: string, cb: () => void): void;
       off(event: string, cb: () => void): void;
+      getStates(): Map<
+        number,
+        Record<string, unknown>
+      >;
+      clientID: number;
     };
   };
   pulseKey: number;
@@ -724,6 +729,32 @@ export function TopologyMap({
   }, [doc, refreshGraph]);
 
   const posMap = useForceLayout(graph);
+
+  // Build awareness color map for browser nodes
+  // (clientId → color from awareness user state)
+  const awarenessColors = (() => {
+    const m = new Map<string, string>();
+    const states = doc.awareness.getStates();
+    const myId = doc.awareness.clientID;
+    // Self node color
+    const myState = states.get(myId) as
+      | { user?: { color?: string } }
+      | undefined;
+    if (myState?.user?.color) {
+      m.set("_self", myState.user.color);
+    }
+    // Browser peer colors (keyed by awareness:clientId)
+    for (const [clientId, state] of states) {
+      if (clientId === myId) continue;
+      const s = state as {
+        user?: { color?: string };
+      };
+      if (s?.user?.color) {
+        m.set(`awareness:${clientId}`, s.user.color);
+      }
+    }
+    return m;
+  })();
 
   // Keep a ref to posMap for particle lookups
   // (avoids stale closure when topology changes)
@@ -813,6 +844,9 @@ export function TopologyMap({
               y={p.y}
               guaranteeUntil={guaranteeUntil}
               onHover={onHover}
+              awarenessColor={
+                awarenessColors.get(n.id)
+              }
             />
           );
         })}
