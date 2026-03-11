@@ -226,6 +226,7 @@ async function main() {
   async function shutdown() {
     log.info("shutting down...");
     server.close();
+    server.closeAllConnections();
     if (pinner) {
       await pinner.flush();
       await pinner.stop();

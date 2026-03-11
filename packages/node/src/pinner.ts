@@ -693,8 +693,12 @@ export async function createPinner(
         try {
           const cid = CID.parse(tipCid);
           await helia.blockstore.delete(cid);
-        } catch {
-          // Block may already be gone
+        } catch (err) {
+          log.warn(
+            "blockstore delete failed for"
+            + ` ${name.slice(0, 12)}...:`,
+            (err as Error).message,
+          );
         }
       }
 
