@@ -693,17 +693,18 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 
 /* List section */
 
 .vh-list-section {
-  flex: 0 0 250px;
+  flex: 1;
   overflow-y: auto;
   border-bottom: 1px solid #e5e7eb;
   padding: 0.5rem;
+  min-height: 0;
 }
 
 .vh-list {
@@ -817,11 +818,12 @@ body {
 /* Preview section */
 
 .vh-preview-section {
-  flex: 0 0 250px;
+  flex: 1;
   overflow-y: auto;
   padding: 0.5rem;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .vh-preview {
@@ -890,6 +892,7 @@ body {
   padding: 1.5rem;
   color: #94a3b8;
   font-size: 0.8rem;
+  flex: 1;
 }
 
 .vh-spinner-dot {
@@ -912,6 +915,10 @@ body {
 }
 
 .vh-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
   padding: 1rem;
   text-align: center;
   font-size: 0.8rem;
@@ -919,6 +926,10 @@ body {
 }
 
 .vh-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
   padding: 1rem;
   text-align: center;
   font-size: 0.8rem;
