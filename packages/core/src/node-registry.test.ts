@@ -384,12 +384,12 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("fires onNodeChange for new node", () => {
+  it("emits change for new node", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-A"]);
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
-    reg.onNodeChange(cb);
+    reg.on("change", cb);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
@@ -401,7 +401,7 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("fires onNodeChange when roles change", () => {
+  it("emits change when roles change", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-A"]);
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
@@ -412,7 +412,7 @@ describe("createNodeRegistry", () => {
       data: capsMessage("peer-A", ["relay"]),
     });
 
-    reg.onNodeChange(cb);
+    reg.on("change", cb);
 
     // Same roles — no change
     pubsub._emit("message", {
@@ -431,7 +431,7 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("fires onNodeChange when connected state" + " changes", () => {
+  it("emits change when connected state" + " changes", () => {
     const pubsub = makePubsub();
     let connectedPeers: string[] = [];
     const helia = {
@@ -451,7 +451,7 @@ describe("createNodeRegistry", () => {
       data: capsMessage("peer-A", ["relay"]),
     });
 
-    reg.onNodeChange(cb);
+    reg.on("change", cb);
 
     // Same state — no fire
     pubsub._emit("message", {
@@ -471,7 +471,7 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("does not fire onNodeChange for unchanged" + " re-announce", () => {
+  it("does not emit change for unchanged" + " re-announce", () => {
     const pubsub = makePubsub();
     const helia = makeHelia(["peer-A"]);
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
@@ -482,7 +482,7 @@ describe("createNodeRegistry", () => {
       data: capsMessage("peer-A", ["relay"]),
     });
 
-    reg.onNodeChange(cb);
+    reg.on("change", cb);
 
     // Identical re-announce
     pubsub._emit("message", {
@@ -491,6 +491,84 @@ describe("createNodeRegistry", () => {
     });
 
     expect(cb).not.toHaveBeenCalled();
+
+    reg.destroy();
+  });
+
+  it("emits change when neighbors change", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 0),
+    });
+    reg.on("change", cb);
+
+    // Same roles, different neighbors — should fire
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-A",
+        ["relay"],
+        [{ peerId: "peer-B", role: "relay" }],
+        0,
+      ),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("emits change when browserCount" + " changes", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 2),
+    });
+    reg.on("change", cb);
+
+    // Same roles, different browserCount — should fire
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 5),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    reg.destroy();
+  });
+
+  it("emits change when httpUrl changes", () => {
+    const pubsub = makePubsub();
+    const helia = makeHelia(["relay-A"]);
+    const reg = createNodeRegistry(pubsub as any, () => helia as any);
+    const cb = vi.fn();
+
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2("relay-A", ["relay"], [], 0),
+    });
+    reg.on("change", cb);
+
+    // Same roles, new httpUrl — should fire
+    pubsub._emit("message", {
+      topic: NODE_CAPS_TOPIC,
+      data: capsMessageV2(
+        "relay-A",
+        ["relay"],
+        [],
+        0,
+        [],
+        "https://example.com:4443",
+      ),
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
 
     reg.destroy();
   });
@@ -517,7 +595,7 @@ describe("createNodeRegistry", () => {
       });
       expect(reg.nodes.get("peer-A")!.connected).toBe(true);
 
-      reg.onNodeChange(cb);
+      reg.on("change", cb);
 
       // Disconnect the peer
       connectedPeers = [];
@@ -598,7 +676,7 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("fires onNodeChange on stale and remove", () => {
+  it("emits change on stale and remove", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
@@ -608,7 +686,7 @@ describe("createNodeRegistry", () => {
       topic: NODE_CAPS_TOPIC,
       data: capsMessage("peer-A", ["relay"]),
     });
-    reg.onNodeChange(cb);
+    reg.on("change", cb);
 
     // Advance past stale threshold (150s) +
     // prune interval (30s)
@@ -622,13 +700,13 @@ describe("createNodeRegistry", () => {
     reg.destroy();
   });
 
-  it("offNodeChange unregisters callback", () => {
+  it("off('change') unregisters callback", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
-    reg.onNodeChange(cb);
-    reg.offNodeChange(cb);
+    reg.on("change", cb);
+    reg.off("change", cb);
 
     pubsub._emit("message", {
       topic: NODE_CAPS_TOPIC,
@@ -645,13 +723,13 @@ describe("createNodeRegistry", () => {
     const helia = makeHelia();
     const reg = createNodeRegistry(pubsub as any, () => helia as any);
     const cb = vi.fn();
-    reg.onNodeChange(cb);
+    reg.on("change", cb);
     reg.destroy();
 
     // After destroy, callback should not fire
     // (pubsub listener removed, so no new messages)
-    // Just verify no errors on offNodeChange
-    reg.offNodeChange(cb);
+    // Just verify no errors on off("change")
+    reg.off("change", cb);
   });
 
   it("destroy removes listener and stops" + " prune timer", () => {

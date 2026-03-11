@@ -1068,7 +1068,7 @@ Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Lab
 The `@pokapali/node` package provides `startRelay()`, `createPinner()`, and an HTTP server for health monitoring. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
 
 Pinner state (`knownNames`, `tips`, `nameToAppId`,
-`firstSeenAt`, `lastSeenAt`) is persisted to `state.json`
+`lastSeenAt`) is persisted to `state.json`
 in the storage directory. Writes
 use a dirty-flag + 5-second debounced flush + 60-second
 safety-net interval to avoid excessive disk I/O during
@@ -1202,9 +1202,11 @@ validate that guarantees match reality. All metrics are
 cheap: counters incremented on prune, gauges derived
 from existing state.
 
-**New per-doc state:** `firstSeenAt` (timestamp when the
-pinner first learned about a document, persisted in
-`state.json` alongside `lastSeenAt`). Lifetime is
+**Per-doc state needed:** `firstSeenAt` (timestamp when
+the pinner first learned about a document). Not yet
+implemented — currently only `lastSeenAt` is tracked.
+When implemented, it would be persisted in `state.json`
+alongside `lastSeenAt`. Lifetime would be
 `pruneTime - firstSeenAt`.
 
 **Counters** (monotonically increasing, reset on restart):

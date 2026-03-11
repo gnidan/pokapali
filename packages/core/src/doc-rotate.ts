@@ -1,3 +1,4 @@
+import { createLogger } from "@pokapali/log";
 import type { Capability, CapabilityKeys } from "@pokapali/capability";
 import {
   inferCapability,
@@ -22,6 +23,8 @@ import {
 import { getHelia } from "./helia.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
 import type { Doc, DocParams } from "./create-doc.js";
+
+const log = createLogger("core:rotate");
 
 export interface RotateResult {
   newDoc: Doc;
@@ -58,7 +61,7 @@ export async function rotateDoc(
   populateMetaFn: (
     metaDoc: import("yjs").Doc,
     signingPublicKey: Uint8Array,
-    namespaceKeys: Record<string, Uint8Array>,
+    channelKeys: Record<string, Uint8Array>,
   ) => void,
 ): Promise<RotateResult> {
   if (!ctx.cap.isAdmin || !ctx.keys.rotationKey) {
@@ -90,7 +93,7 @@ export async function rotateDoc(
   const newSyncManager = setupNamespaceRooms(
     newIpnsName,
     newSubdocManager,
-    newDocKeys.namespaceKeys,
+    newDocKeys.channelKeys,
     ctx.signalingUrls,
     rotateSyncOpts,
   );
@@ -107,7 +110,7 @@ export async function rotateDoc(
     ipnsKeyBytes: newDocKeys.ipnsKeyBytes,
     rotationKey: newDocKeys.rotationKey,
     awarenessRoomPassword: newDocKeys.awarenessRoomPassword,
-    namespaceKeys: newDocKeys.namespaceKeys,
+    channelKeys: newDocKeys.channelKeys,
   };
 
   const newAdminUrl = await buildUrl(ctx.origin, newIpnsName, newKeys);
@@ -115,7 +118,7 @@ export async function rotateDoc(
     ctx.origin,
     newIpnsName,
     narrowCapability(newKeys, {
-      namespaces: [...ctx.channels],
+      channels: [...ctx.channels],
       canPushSnapshots: true,
     }),
   );
@@ -123,7 +126,7 @@ export async function rotateDoc(
     ctx.origin,
     newIpnsName,
     narrowCapability(newKeys, {
-      namespaces: [],
+      channels: [],
     }),
   );
 
@@ -132,14 +135,14 @@ export async function rotateDoc(
   populateMetaFn(
     newSubdocManager.metaDoc,
     newSigningKey.publicKey,
-    newDocKeys.namespaceKeys,
+    newDocKeys.channelKeys,
   );
 
   let newRoomDiscovery;
   try {
     newRoomDiscovery = startRoomDiscovery(getHelia(), ctx.appId);
-  } catch {
-    // Helia may not be available
+  } catch (err) {
+    log.debug("room discovery skipped:", (err as Error)?.message ?? err);
   }
 
   const newDoc = createDocFn({

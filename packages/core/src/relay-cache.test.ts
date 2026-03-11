@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   loadCachedRelays,
   upsertCachedRelay,
-  removeCachedRelay,
   migrateOldCache,
   _resetMigrated,
   CACHE_KEY,
@@ -149,25 +148,6 @@ describe("relay-cache", () => {
       expect(data).toHaveLength(1);
       expect(data[0].addrs).toEqual(["/new"]);
       expect(data[0].lastSeen).toBeGreaterThan(oldTime);
-    });
-  });
-
-  describe("removeCachedRelay", () => {
-    it("no-ops for unknown peerId", () => {
-      storage.setItem(
-        CACHE_KEY,
-        JSON.stringify([
-          {
-            peerId: "p1",
-            addrs: [],
-            lastSeen: Date.now(),
-          },
-        ]),
-      );
-      removeCachedRelay("unknown");
-      const data = JSON.parse(storage.getItem(CACHE_KEY)!);
-      expect(data).toHaveLength(1);
-      expect(data[0].peerId).toBe("p1");
     });
   });
 });

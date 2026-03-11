@@ -12,6 +12,8 @@ function CopyRow({
   value: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -36,17 +38,20 @@ function CopyRow({
       </div>
       <div className="share-card-row">
         <input
+          ref={inputRef}
           type="text"
           readOnly
-          value={truncateUrl(value)}
+          value={focused ? value : truncateUrl(value)}
           title={value}
-          onFocus={(e) => {
-            e.target.value = value;
-            e.target.select();
+          onFocus={() => {
+            setFocused(true);
+            // Select after React re-renders with
+            // the full URL value
+            requestAnimationFrame(() => {
+              inputRef.current?.select();
+            });
           }}
-          onBlur={(e) => {
-            e.target.value = truncateUrl(value);
-          }}
+          onBlur={() => setFocused(false)}
         />
         <button className="copy-btn" onClick={copy}>
           {copied ? "Copied!" : "Copy link"}
