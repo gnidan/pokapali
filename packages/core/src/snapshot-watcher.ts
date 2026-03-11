@@ -45,14 +45,17 @@ export interface SnapshotWatcherOptions {
   isWriter: boolean;
   ipnsPublicKeyBytes?: Uint8Array;
   onSnapshot: (cid: CID) => Promise<void>;
-  onFetchStateChange?: (state: LoadingState) => void;
-  onAck?: (peerId: string) => void;
-  onGossipActivityChange?: (activity: GossipActivity) => void;
-  onGuaranteeQuery?: () => void;
   performInitialResolve?: boolean;
   /** Dynamic getter for relay HTTP URLs (for large
    *  block uploads during re-announce). */
   httpUrls?: () => string[];
+}
+
+export interface SnapshotWatcherEvents {
+  "fetch-state": [LoadingState];
+  ack: [string];
+  "gossip-activity": [GossipActivity];
+  "guarantee-query": [];
 }
 
 export interface SnapshotWatcher {
@@ -84,6 +87,14 @@ export interface SnapshotWatcher {
   /** GossipSub liveness: inactive → subscribed →
    *  receiving. Decays after 60s without messages. */
   readonly gossipActivity: GossipActivity;
+  on<E extends keyof SnapshotWatcherEvents>(
+    event: E,
+    cb: (...args: SnapshotWatcherEvents[E]) => void,
+  ): void;
+  off<E extends keyof SnapshotWatcherEvents>(
+    event: E,
+    cb: (...args: SnapshotWatcherEvents[E]) => void,
+  ): void;
   destroy(): void;
 }
 
@@ -99,6 +110,20 @@ export function createSnapshotWatcher(
     ipnsPublicKeyBytes,
     onSnapshot,
   } = options;
+
+  // --- Typed event emitter ---
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const listeners = new Map<string, Set<(...a: any[]) => void>>();
+  function emit<E extends keyof SnapshotWatcherEvents>(
+    event: E,
+    ...args: SnapshotWatcherEvents[E]
+  ) {
+    const cbs = listeners.get(event as string);
+    if (cbs) {
+      for (const cb of cbs) cb(...args);
+    }
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   let destroyed = false;
   const topic = announceTopic(appId);
@@ -140,7 +165,7 @@ export function createSnapshotWatcher(
     const next = currentGossipActivity();
     if (next !== lastReportedGossipActivity) {
       lastReportedGossipActivity = next;
-      options.onGossipActivityChange?.(next);
+      emit("gossip-activity", next);
     }
   }
 
@@ -160,7 +185,7 @@ export function createSnapshotWatcher(
 
   function setFetchState(s: LoadingState) {
     fetchState = s;
-    options.onFetchStateChange?.(s);
+    emit("fetch-state", s);
   }
 
   /** Extract CID from current fetch state, or null
@@ -190,7 +215,7 @@ export function createSnapshotWatcher(
   // so pinners respond with their current state.
   function fireGuaranteeQuery() {
     log.info("firing guarantee query");
-    options.onGuaranteeQuery?.();
+    emit("guarantee-query");
     publishGuaranteeQuery(pubsub, appId, ipnsName)
       .then(() => {
         log.debug("guarantee query published");
@@ -306,7 +331,7 @@ export function createSnapshotWatcher(
       // Notify on any guarantee change so the UI
       // can update even without a CID match.
       if (changed) {
-        options.onAck?.(gResp.peerId);
+        emit("ack", gResp.peerId);
       }
       return;
     }
@@ -343,7 +368,7 @@ export function createSnapshotWatcher(
             "for",
             ann.cid.slice(0, 16) + "...",
           );
-          options.onAck?.(ann.ack.peerId);
+          emit("ack", ann.ack.peerId);
         }
       } else {
         log.debug(
@@ -642,7 +667,21 @@ export function createSnapshotWatcher(
       return currentGossipActivity();
     },
 
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    on(event: string, cb: (...a: any[]) => void) {
+      if (!listeners.has(event)) {
+        listeners.set(event, new Set());
+      }
+      listeners.get(event)!.add(cb);
+    },
+
+    off(event: string, cb: (...a: any[]) => void) {
+      listeners.get(event)?.delete(cb);
+    },
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
     destroy() {
+      listeners.clear();
       destroyed = true;
       if (announceTimer) {
         clearInterval(announceTimer);

@@ -949,8 +949,8 @@ describe("createSnapshotWatcher", () => {
         getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
-        onAck,
       });
+      watcher.on("ack", onAck);
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);

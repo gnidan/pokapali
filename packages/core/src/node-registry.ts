@@ -42,13 +42,23 @@ export interface KnownNode {
   httpUrl: string | undefined;
 }
 
+export interface NodeRegistryEvents {
+  change: [];
+}
+
 export interface NodeRegistry {
   /** All known non-stale nodes. */
   readonly nodes: ReadonlyMap<string, KnownNode>;
   /** Register a callback for meaningful changes. */
-  onNodeChange(cb: () => void): void;
+  on<E extends keyof NodeRegistryEvents>(
+    event: E,
+    cb: (...args: NodeRegistryEvents[E]) => void,
+  ): void;
   /** Unregister a change callback. */
-  offNodeChange(cb: () => void): void;
+  off<E extends keyof NodeRegistryEvents>(
+    event: E,
+    cb: (...args: NodeRegistryEvents[E]) => void,
+  ): void;
   destroy(): void;
 }
 
@@ -283,11 +293,11 @@ export function createNodeRegistry(
       return nodes;
     },
 
-    onNodeChange(cb: () => void) {
+    on(_event: "change", cb: () => void) {
       changeListeners.add(cb);
     },
 
-    offNodeChange(cb: () => void) {
+    off(_event: "change", cb: () => void) {
       changeListeners.delete(cb);
     },
 

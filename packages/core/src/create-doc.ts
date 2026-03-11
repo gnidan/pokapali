@@ -380,7 +380,7 @@ export function createDoc(params: DocParams): Doc {
         registry,
         libp2p: (helia as any).libp2p,
       });
-      registry.onNodeChange(nodeChangeHandler);
+      registry.on("change", nodeChangeHandler);
     }
   } catch (err) {
     log.warn("topology sharing init skipped:", (err as Error)?.message ?? err);
@@ -403,33 +403,6 @@ export function createDoc(params: DocParams): Doc {
       ipnsPublicKeyBytes: hexToBytes(ipnsName),
       performInitialResolve: params.performInitialResolve,
       httpUrls: getHttpUrls,
-      onGuaranteeQuery: () => {
-        emit("guarantee-query");
-      },
-      onAck: (peerId) => {
-        emit("ack", peerId);
-      },
-      onGossipActivityChange: (activity) => {
-        gossipActivity = activity;
-        checkStatus();
-        emit("gossip-activity", activity);
-      },
-      onFetchStateChange: (state) => {
-        emit("loading", state);
-        // If we return to idle or hit permanent
-        // failure without ever applying a snapshot,
-        // the document is as ready as it gets —
-        // mount the editor so the user sees status
-        // indicators instead of a blank loading
-        // screen.
-        if (
-          (state.status === "idle" || state.status === "failed") &&
-          !readyResolved &&
-          !snapshotWatcher?.hasAppliedSnapshot
-        ) {
-          markReady();
-        }
-      },
       onSnapshot: async (cid) => {
         const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) =>
           subdocManager.applySnapshot(plaintext),
@@ -445,6 +418,34 @@ export function createDoc(params: DocParams): Doc {
           markReady();
         }
       },
+    });
+
+    snapshotWatcher.on("guarantee-query", () => {
+      emit("guarantee-query");
+    });
+    snapshotWatcher.on("ack", (peerId) => {
+      emit("ack", peerId);
+    });
+    snapshotWatcher.on("gossip-activity", (activity) => {
+      gossipActivity = activity;
+      checkStatus();
+      emit("gossip-activity", activity);
+    });
+    snapshotWatcher.on("fetch-state", (state) => {
+      emit("loading", state);
+      // If we return to idle or hit permanent
+      // failure without ever applying a snapshot,
+      // the document is as ready as it gets —
+      // mount the editor so the user sees status
+      // indicators instead of a blank loading
+      // screen.
+      if (
+        (state.status === "idle" || state.status === "failed") &&
+        !readyResolved &&
+        !snapshotWatcher?.hasAppliedSnapshot
+      ) {
+        markReady();
+      }
     });
 
     // Periodically re-announce the latest snapshot
@@ -482,9 +483,9 @@ export function createDoc(params: DocParams): Doc {
     relaySharing?.destroy();
     topSharing?.destroy();
     try {
-      getNodeRegistry()?.offNodeChange(nodeChangeHandler);
+      getNodeRegistry()?.off("change", nodeChangeHandler);
     } catch (err) {
-      log.warn("offNodeChange cleanup error:", (err as Error)?.message ?? err);
+      log.warn("off('change') cleanup error:", (err as Error)?.message ?? err);
     }
     snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();

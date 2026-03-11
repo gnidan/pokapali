@@ -28,8 +28,8 @@ function makeRegistry(nodes: KnownNode[] = []) {
   const changeCbs = new Set<() => void>();
   return {
     nodes: map as ReadonlyMap<string, KnownNode>,
-    onNodeChange: vi.fn((cb: () => void) => changeCbs.add(cb)),
-    offNodeChange: vi.fn((cb: () => void) => changeCbs.delete(cb)),
+    on: vi.fn((_event: string, cb: () => void) => changeCbs.add(cb)),
+    off: vi.fn((_event: string, cb: () => void) => changeCbs.delete(cb)),
     destroy: vi.fn(),
     _changeCbs: changeCbs,
     _fireChange() {

@@ -546,7 +546,7 @@ describe("@pokapali/core", () => {
       "fires queryGuarantees when new pinner" + " appears in node-registry",
       async () => {
         // Set up a mock registry that captures
-        // the onNodeChange callback so we can
+        // the on("change") callback so we can
         // fire it manually.
         let nodeChangeCb: (() => void) | null = null;
         const mockNodes = new Map<
@@ -565,10 +565,10 @@ describe("@pokapali/core", () => {
         >();
         const mockRegistry = {
           nodes: mockNodes,
-          onNodeChange: vi.fn((cb: () => void) => {
+          on: vi.fn((_event: string, cb: () => void) => {
             nodeChangeCb = cb;
           }),
-          offNodeChange: vi.fn(),
+          off: vi.fn(),
           destroy: vi.fn(),
         };
 
