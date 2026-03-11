@@ -157,6 +157,44 @@ describe("createSnapshotLifecycle", () => {
     }
   });
 
+  it("passes httpUrls to fetchBlock" + " during applyRemote", async () => {
+    const readKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"],
+    );
+    const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+
+    const urls = ["https://relay1.example.com", "https://relay2.example.com"];
+    const lc = createSnapshotLifecycle({
+      getHelia: () => mockHelia as any,
+      httpUrls: () => urls,
+    });
+
+    // Create a valid snapshot to apply
+    const plaintext = {
+      content: new Uint8Array([42]),
+    };
+    const block = await realEncodeSnapshot(
+      plaintext,
+      readKey,
+      null,
+      1,
+      Date.now(),
+      signingKey,
+    );
+    const hash = await sha256.digest(block);
+    const cid = CID.createV1(0x71, hash);
+
+    vi.mocked(fetchBlock).mockResolvedValue(block);
+
+    await lc.applyRemote(cid, readKey, () => {});
+
+    expect(fetchBlock).toHaveBeenCalledWith(expect.anything(), cid, {
+      httpUrls: urls,
+    });
+  });
+
   it("history returns single entry after one push", async () => {
     const readKey = await crypto.subtle.generateKey(
       { name: "AES-GCM", length: 256 },

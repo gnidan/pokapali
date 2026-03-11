@@ -171,6 +171,67 @@ describe("fetchBlock", () => {
       vi.unstubAllGlobals();
     });
 
+    it("treats 429 rate-limit as non-ok" + " and tries next URL", async () => {
+      const data = new Uint8Array([10, 20, 30]);
+      const cid = await fakeCid(data);
+      const blockstore = {
+        get: vi.fn().mockRejectedValue(new Error("gone")),
+      };
+
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+        })
+        .mockResolvedValue({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(data.buffer),
+        });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const result = await fetchBlock({ blockstore }, cid, {
+        retries: 0,
+        baseMs: 1,
+        httpUrls: ["https://limited.example.com", "https://ok.example.com"],
+      });
+
+      expect(result).toEqual(data);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it(
+      "throws original error when all URLs" + " return CID mismatch",
+      async () => {
+        const data = new Uint8Array([10, 20, 30]);
+        const cid = await fakeCid(data);
+        const blockstore = {
+          get: vi.fn().mockRejectedValue(new Error("blockstore fail")),
+        };
+
+        const tampered = new Uint8Array([99, 99, 99]);
+        const mockFetch = vi.fn().mockResolvedValue({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(tampered.buffer),
+        });
+        vi.stubGlobal("fetch", mockFetch);
+
+        await expect(
+          fetchBlock({ blockstore }, cid, {
+            retries: 0,
+            baseMs: 1,
+            httpUrls: ["https://bad1.example.com", "https://bad2.example.com"],
+          }),
+        ).rejects.toThrow("blockstore fail");
+
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+
+        vi.unstubAllGlobals();
+      },
+    );
+
     it("skips non-ok HTTP responses", async () => {
       const data = new Uint8Array([10, 20, 30]);
       const cid = await fakeCid(data);
