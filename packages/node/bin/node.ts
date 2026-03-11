@@ -219,24 +219,28 @@ async function main() {
         putBlock: async (cid, bytes) => {
           await blockstore.put(cid, bytes);
         },
-        getHistory: pinner
-          ? async (ipnsName) => {
-              const records = pinner!.history.getHistory(ipnsName);
-              // Filter to blocks we still have
-              const verified = [];
-              for (const r of records) {
-                try {
-                  const cid = CID.parse(r.cid);
-                  if (await blockstore.has(cid)) {
-                    verified.push(r);
+        // Lazy check — pinner may not be created yet
+        // when block server launches on existing cert.
+        getHistory:
+          pinApps.length > 0
+            ? async (ipnsName) => {
+                if (!pinner) return [];
+                const records = pinner.history.getHistory(ipnsName);
+                // Filter to blocks we still have
+                const verified = [];
+                for (const r of records) {
+                  try {
+                    const cid = CID.parse(r.cid);
+                    if (await blockstore.has(cid)) {
+                      verified.push(r);
+                    }
+                  } catch {
+                    // Skip unparseable CIDs
                   }
-                } catch {
-                  // Skip unparseable CIDs
                 }
+                return verified;
               }
-              return verified;
-            }
-          : undefined,
+            : undefined,
       });
 
       // Derive httpUrl from WSS multiaddr
