@@ -138,7 +138,6 @@ export function EditorView({
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
-      doc.destroy();
     };
   }, [doc]);
 
@@ -273,6 +272,14 @@ export function EditorView({
       sharePanelRef.current.focus();
     }
   }, [showShare]);
+
+  // Must be last-declared effect: React runs
+  // cleanups in declaration order, so all other
+  // effect cleanups (listeners, observers, timers)
+  // run while doc is still alive.
+  useEffect(() => {
+    return () => { doc.destroy(); };
+  }, [doc]);
 
   return (
     <div className="app">
