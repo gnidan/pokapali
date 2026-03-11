@@ -14,6 +14,10 @@ export interface LoadTestEvent {
   latencyMs?: number;
   detail?: string;
   cid?: string;
+  /** ms epoch until pinner re-announces. */
+  guaranteeUntil?: number;
+  /** ms epoch until pinner retains blocks. */
+  retainUntil?: number;
 }
 
 export interface MetricsCollector {
@@ -32,6 +36,16 @@ interface Summary {
   ackLatencyP99: number;
   durationS: number;
   memoryPeakMB: number;
+  /** Number of acks that included guaranteeUntil. */
+  acksWithGuarantee: number;
+  /** Shortest guarantee window (days), if any. */
+  guaranteeMinDays: number | null;
+  /** Longest guarantee window (days), if any. */
+  guaranteeMaxDays: number | null;
+  /** Shortest retain window (days), if any. */
+  retainMinDays: number | null;
+  /** Longest retain window (days), if any. */
+  retainMaxDays: number | null;
 }
 
 export function createMetrics(
@@ -43,7 +57,11 @@ export function createMetrics(
   const docs = new Set<string>();
   let snapshotsPushed = 0;
   let acksReceived = 0;
+  let acksWithGuarantee = 0;
   const ackLatencies: number[] = [];
+  // Guarantee/retain window durations in ms
+  const guaranteeWindows: number[] = [];
+  const retainWindows: number[] = [];
   // CID → timestamp of snapshot-pushed, for ack latency
   const pendingSnapshots = new Map<string, number>();
 
@@ -93,6 +111,17 @@ export function createMetrics(
               pendingSnapshots.delete(event.cid);
             }
           }
+          if (event.guaranteeUntil != null) {
+            acksWithGuarantee++;
+            guaranteeWindows.push(
+              event.guaranteeUntil - event.ts,
+            );
+          }
+          if (event.retainUntil != null) {
+            retainWindows.push(
+              event.retainUntil - event.ts,
+            );
+          }
           break;
       }
     },
@@ -115,6 +144,17 @@ export function createMetrics(
         return sorted[idx];
       };
 
+      const MS_PER_DAY = 86_400_000;
+      const minMax = (arr: number[]) =>
+        arr.length > 0
+          ? {
+            min: Math.min(...arr) / MS_PER_DAY,
+            max: Math.max(...arr) / MS_PER_DAY,
+          }
+          : null;
+      const gw = minMax(guaranteeWindows);
+      const rw = minMax(retainWindows);
+
       const durationS = (Date.now() - startedAt) / 1000;
       const summary: Summary = {
         totalDocs: docs.size,
@@ -133,6 +173,11 @@ export function createMetrics(
         memoryPeakMB: Math.round(
           peakRss / 1024 / 1024,
         ),
+        acksWithGuarantee,
+        guaranteeMinDays: gw?.min ?? null,
+        guaranteeMaxDays: gw?.max ?? null,
+        retainMinDays: rw?.min ?? null,
+        retainMaxDays: rw?.max ?? null,
       };
 
       console.error("\n--- Load Test Summary ---");
@@ -161,6 +206,37 @@ export function createMetrics(
       console.error(
         `  Peak RSS:   ${summary.memoryPeakMB}MB`,
       );
+      if (summary.acksWithGuarantee > 0) {
+        console.error(
+          `  Guarantees: ${summary.acksWithGuarantee}`
+          + ` acks with guarantee fields`,
+        );
+        if (
+          summary.guaranteeMinDays != null
+          && summary.guaranteeMaxDays != null
+        ) {
+          console.error(
+            `  Guarantee:  `
+            + `${summary.guaranteeMinDays.toFixed(1)}`
+            + `-${summary.guaranteeMaxDays.toFixed(1)}d`,
+          );
+        }
+        if (
+          summary.retainMinDays != null
+          && summary.retainMaxDays != null
+        ) {
+          console.error(
+            `  Retain:     `
+            + `${summary.retainMinDays.toFixed(1)}`
+            + `-${summary.retainMaxDays.toFixed(1)}d`,
+          );
+        }
+      } else {
+        console.error(
+          "  Guarantees: none"
+          + " (pinners not sending guarantee fields)",
+        );
+      }
     },
   };
 }

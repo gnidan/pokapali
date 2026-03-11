@@ -41,6 +41,10 @@ export interface WriterEvent {
   cid?: string;
   seq?: number;
   ackerPeerId?: string;
+  /** ms epoch until pinner re-announces. */
+  guaranteeUntil?: number;
+  /** ms epoch until pinner retains blocks. */
+  retainUntil?: number;
   error?: string;
 }
 
@@ -122,6 +126,8 @@ export async function startWriter(
       timestampMs: Date.now(),
       cid: announcement.cid,
       ackerPeerId: announcement.ack.peerId,
+      guaranteeUntil: announcement.ack.guaranteeUntil,
+      retainUntil: announcement.ack.retainUntil,
     });
     log.info(
       `writer ${writerId} ack from`,

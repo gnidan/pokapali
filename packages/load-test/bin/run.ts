@@ -105,6 +105,8 @@ function mapWriterEvent(
         docId,
         detail: event.ackerPeerId,
         cid: event.cid,
+        guaranteeUntil: event.guaranteeUntil,
+        retainUntil: event.retainUntil,
       };
     case "error":
       return {
