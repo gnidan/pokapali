@@ -3,12 +3,16 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
-import type { Doc, DocStatus, SaveState } from "@pokapali/core";
+import type { Doc as YDoc } from "yjs";
+import type { Doc, DocStatus, SaveState, VersionEntry } from "@pokapali/core";
 import { createAutoSaver, docIdFromUrl } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
 import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
 import { SharePanel } from "./SharePanel";
+import { VersionHistory } from "./VersionHistory";
+import { VersionPreviewOverlay } from "./VersionPreviewOverlay";
+import { useVersionHistory } from "./useVersionHistory";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -22,6 +26,11 @@ import { capitalize } from "./utils";
 export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const [status, setStatus] = useState<DocStatus>(doc.status);
   const [showShare, setShowShare] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [previewVersion, setPreviewVersion] = useState<{
+    entry: VersionEntry;
+    ydoc: YDoc;
+  } | null>(null);
   const [showEncryption, setShowEncryption] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>(doc.saveState);
   const [ackCount, setAckCount] = useState(doc.ackedBy.size);
@@ -43,7 +52,11 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const titleBtnRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
 
-  const isReadOnly = !doc.capability.namespaces.has("content");
+  // Preload version history on doc open so the
+  // drawer opens instantly when the user clicks History.
+  const versionHistory = useVersionHistory(doc);
+
+  const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
   const role = doc.role;
 
@@ -219,6 +232,17 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     }
   }, [editingTitle]);
 
+  const handleVersionPreview = useCallback(
+    (entry: VersionEntry, ydoc: YDoc) => {
+      setPreviewVersion({ entry, ydoc });
+    },
+    [],
+  );
+
+  const closePreview = useCallback(() => {
+    setPreviewVersion(null);
+  }, []);
+
   useEffect(() => {
     if (showShare && sharePanelRef.current) {
       sharePanelRef.current.focus();
@@ -331,22 +355,56 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         >
           {showShare ? "Hide share" : "Share"}
         </button>
+        <button
+          className="toggle-history"
+          onClick={() => setShowHistory((s) => !s)}
+          aria-expanded={showHistory}
+          aria-label={
+            showHistory ? "Hide version history" : "Open version history"
+          }
+        >
+          {showHistory ? "Hide history" : "History"}
+        </button>
       </div>
 
       {showShare && <SharePanel ref={sharePanelRef} doc={doc} />}
 
-      <div className="editor-container">
-        {showEditor ? (
-          <>
-            {isReadOnly && (
-              <div className="read-only-banner">
-                Read-only — you cannot edit this document.
-              </div>
-            )}
-            <EditorContent editor={editor} />
-          </>
-        ) : (
-          <div className="loading-doc">Loading…</div>
+      <div className="editor-area">
+        <div
+          className="editor-container"
+          style={previewVersion ? { visibility: "hidden" } : undefined}
+        >
+          {showEditor ? (
+            <>
+              {isReadOnly && (
+                <div className="read-only-banner">
+                  Read-only — you cannot edit this document.
+                </div>
+              )}
+              <EditorContent editor={editor} />
+            </>
+          ) : (
+            <div className="loading-doc">Loading…</div>
+          )}
+        </div>
+
+        {previewVersion && (
+          <VersionPreviewOverlay
+            doc={doc}
+            liveEditor={editor}
+            entry={previewVersion.entry}
+            ydoc={previewVersion.ydoc}
+            onClose={closePreview}
+          />
+        )}
+
+        {showHistory && (
+          <VersionHistory
+            doc={doc}
+            history={versionHistory}
+            onClose={() => setShowHistory(false)}
+            onPreview={handleVersionPreview}
+          />
         )}
       </div>
 

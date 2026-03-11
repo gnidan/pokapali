@@ -132,7 +132,8 @@ describe("@pokapali/node", () => {
   it("prunes old snapshots but keeps tip", async () => {
     const secret = generateAdminSecret();
     const now = Date.now();
-    const old = now - 25 * 60 * 60 * 1000;
+    // 15 days ago — past 14-day retention
+    const old = now - 15 * 24 * 60 * 60 * 1000;
 
     const block1 = await makeKeysAndSnapshot(secret, { seq: 1, ts: old });
     const block2 = await makeKeysAndSnapshot(secret, {
@@ -146,7 +147,7 @@ describe("@pokapali/node", () => {
     await pinner.ingest("name1", block3);
 
     const removed = pinner.history.prune(now);
-    // block1 and block2 are >24h old,
+    // block1 and block2 are >14d old,
     // block3 is the tip and recent
     expect(removed).toHaveLength(2);
 

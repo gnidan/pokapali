@@ -441,6 +441,185 @@ describe("createSnapshotWatcher", () => {
     });
   });
 
+  describe("ackedBy tracking", () => {
+    function makePubsub() {
+      return {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    function getMessageHandler(pubsub: ReturnType<typeof makePubsub>) {
+      const call = pubsub.addEventListener.mock.calls.find(
+        (c: any) => c[0] === "message",
+      );
+      return call?.[1] as (evt: any) => void;
+    }
+
+    function fakeAckEvent(
+      topic: string,
+      ipnsName: string,
+      cid: string,
+      peerId: string,
+    ) {
+      vi.mocked(parseAnnouncement).mockReturnValueOnce({
+        ipnsName,
+        cid,
+        ack: { peerId },
+      });
+      return {
+        detail: { topic, data: new Uint8Array() },
+      };
+    }
+
+    it("empty before any acks", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({}) as any,
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      expect(watcher.ackedBy.size).toBe(0);
+      watcher.destroy();
+    });
+
+    it("adds pinner peerId on ack", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({}) as any,
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic = "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A"));
+      expect(watcher.ackedBy.has("pinner-A")).toBe(true);
+      expect(watcher.ackedBy.size).toBe(1);
+      watcher.destroy();
+    });
+
+    it("accumulates multiple pinners", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({}) as any,
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic = "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A"));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-B"));
+      expect(watcher.ackedBy.size).toBe(2);
+      expect(watcher.ackedBy.has("pinner-A")).toBe(true);
+      expect(watcher.ackedBy.has("pinner-B")).toBe(true);
+      watcher.destroy();
+    });
+
+    it("deduplicates same pinner", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({}) as any,
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic = "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A"));
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A"));
+      expect(watcher.ackedBy.size).toBe(1);
+      watcher.destroy();
+    });
+
+    it("clears on new CID tracking", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({}) as any,
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic = "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(topic, "abc", "cid-1", "pinner-A"));
+      expect(watcher.ackedBy.size).toBe(1);
+
+      // New CID clears ackedBy
+      watcher.trackCidForAcks("cid-2");
+      expect(watcher.ackedBy.size).toBe(0);
+
+      watcher.destroy();
+    });
+
+    it("ignores ack for wrong CID", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({}) as any,
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic = "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(topic, "abc", "cid-WRONG", "pinner-A"));
+      expect(watcher.ackedBy.size).toBe(0);
+      watcher.destroy();
+    });
+
+    it("ignores ack for wrong ipnsName", () => {
+      const pubsub = makePubsub();
+      const watcher = createSnapshotWatcher({
+        appId: "test",
+        ipnsName: "abc",
+        pubsub: pubsub as any,
+        getHelia: () => ({}) as any,
+        isWriter: false,
+        onSnapshot: vi.fn(),
+      });
+
+      watcher.trackCidForAcks("cid-1");
+      const handler = getMessageHandler(pubsub);
+      const topic = "/pokapali/app/test/announce";
+
+      handler(fakeAckEvent(topic, "OTHER", "cid-1", "pinner-A"));
+      expect(watcher.ackedBy.size).toBe(0);
+      watcher.destroy();
+    });
+  });
+
   describe("performInitialResolve", () => {
     async function fakeCid(seed: number): Promise<CID> {
       const hash = await sha256.digest(new Uint8Array([seed]));
@@ -637,6 +816,103 @@ describe("createSnapshotWatcher", () => {
     });
   });
 
+  describe("pinner re-announce", () => {
+    function makePubsub() {
+      return {
+        subscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        publish: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    function getMessageHandler(pubsub: ReturnType<typeof makePubsub>) {
+      const call = pubsub.addEventListener.mock.calls.find(
+        (c: any) => c[0] === "message",
+      );
+      return call?.[1] as (evt: any) => void;
+    }
+
+    it(
+      "triggers onSnapshot for pinner re-announce" +
+        " with ack but no seq/block",
+      async () => {
+        const hash = await sha256.digest(new Uint8Array([99]));
+        const tipCid = CID.createV1(0x71, hash);
+
+        const pubsub = makePubsub();
+        const onSnapshot = vi.fn().mockResolvedValue(undefined);
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc",
+          pubsub: pubsub as any,
+          getHelia: () => ({}) as any,
+          isWriter: false,
+          onSnapshot,
+        });
+
+        const handler = getMessageHandler(pubsub);
+        const topic = "/pokapali/app/test/announce";
+
+        // Pinner re-announce: has CID, ack, fromPinner
+        // but no seq and no block.
+        vi.mocked(parseAnnouncement).mockReturnValueOnce({
+          ipnsName: "abc",
+          cid: tipCid.toString(),
+          fromPinner: true,
+          ack: {
+            peerId: "pinner-A",
+            guaranteeUntil: 1700000000000,
+          },
+        });
+
+        handler({
+          detail: { topic, data: new Uint8Array() },
+        });
+
+        expect(onSnapshot).toHaveBeenCalledTimes(1);
+
+        watcher.destroy();
+      },
+    );
+
+    it(
+      "does NOT trigger onSnapshot for" + " standalone ack (no fromPinner)",
+      () => {
+        const pubsub = makePubsub();
+        const onSnapshot = vi.fn();
+        const watcher = createSnapshotWatcher({
+          appId: "test",
+          ipnsName: "abc",
+          pubsub: pubsub as any,
+          getHelia: () => ({}) as any,
+          isWriter: false,
+          onSnapshot,
+        });
+
+        watcher.trackCidForAcks("cid-1");
+        const handler = getMessageHandler(pubsub);
+        const topic = "/pokapali/app/test/announce";
+
+        // Standalone ack: has CID and ack, but no
+        // fromPinner, no seq, no block.
+        vi.mocked(parseAnnouncement).mockReturnValueOnce({
+          ipnsName: "abc",
+          cid: "cid-1",
+          ack: { peerId: "pinner-A" },
+        });
+
+        handler({
+          detail: { topic, data: new Uint8Array() },
+        });
+
+        expect(onSnapshot).not.toHaveBeenCalled();
+
+        watcher.destroy();
+      },
+    );
+  });
+
   describe("guarantee query", () => {
     function makePubsub() {
       return {
@@ -770,8 +1046,8 @@ describe("createSnapshotWatcher", () => {
         getHelia: () => ({}) as any,
         isWriter: false,
         onSnapshot: vi.fn(),
-        onAck,
       });
+      watcher.on("ack", onAck);
 
       watcher.trackCidForAcks("cid-1");
       const handler = getMessageHandler(pubsub);

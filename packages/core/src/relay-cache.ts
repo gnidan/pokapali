@@ -69,14 +69,6 @@ function saveCachedRelays(relays: CachedRelay[]): void {
   }
 }
 
-export function removeCachedRelay(peerId: string): void {
-  const relays = loadCachedRelays();
-  const filtered = relays.filter((r) => r.peerId !== peerId);
-  if (filtered.length !== relays.length) {
-    saveCachedRelays(filtered);
-  }
-}
-
 export function upsertCachedRelay(peerId: string, addrs: string[]): void {
   const relays = loadCachedRelays();
   const existing = relays.find((r) => r.peerId === peerId);

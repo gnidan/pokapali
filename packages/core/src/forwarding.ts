@@ -78,6 +78,7 @@ export function lookupForwardingRecord(
   return forwardingStore.get(ipnsName);
 }
 
-export function clearForwardingStore(): void {
+/** @internal Test-only reset. */
+export function _resetForwardingStore(): void {
   forwardingStore.clear();
 }

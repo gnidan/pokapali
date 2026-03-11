@@ -45,8 +45,9 @@ describe("HistoryTracker", () => {
     expect(entry!.snapshots).toHaveLength(1);
   });
 
-  it("prunes snapshots older than 24h", async () => {
-    const tracker = createHistoryTracker();
+  it("prunes snapshots older than retention", async () => {
+    // Use 1h retention for fast testing
+    const tracker = createHistoryTracker(60 * 60_000);
     const old = await makeCid("old");
     const recent = await makeCid("recent");
 
@@ -66,7 +67,7 @@ describe("HistoryTracker", () => {
   });
 
   it("always keeps the tip even if old", async () => {
-    const tracker = createHistoryTracker();
+    const tracker = createHistoryTracker(60 * 60_000);
     const old = await makeCid("only-one");
 
     const now = Date.now();
@@ -265,8 +266,9 @@ describe("thinSnapshots", () => {
     tracker.add("doc1", tip, now - 1000);
 
     // Two snapshots in hour-bucket X, two in
-    // hour-bucket X+1, at 10 days ago
-    const baseTs = now - 10 * DAY;
+    // hour-bucket X+1, at 10 days ago.
+    // Align to hour start to avoid straddling.
+    const baseTs = Math.floor((now - 10 * DAY) / HOUR) * HOUR;
     const h0a = await makeCid("h0a");
     const h0b = await makeCid("h0b");
     const h1a = await makeCid("h1a");

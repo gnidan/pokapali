@@ -25,12 +25,15 @@ const app = pokapali({
 
 **Options:**
 
-- `appId` — identifier for your app (used for relay
-  discovery and room names)
-- `channels` — named data channels for your doc
-  (e.g. `["content"]`, `["text", "canvas"]`)
-- `origin` — origin + path prefix for generating
-  shareable URLs
+| Option           | Type       | Required | Default         | Description                                                                                                                                                                                        |
+| ---------------- | ---------- | -------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `appId`          | `string`   | No       | `""`            | App identifier used for relay discovery, GossipSub topic namespacing, and HKDF key derivation. Public — not a secret. Different apps with the same `appId` share pinners and relay infrastructure. |
+| `channels`       | `string[]` | **Yes**  | —               | Named data channels. Each becomes its own `Y.Doc` with independent write access. E.g. `["content"]`, `["text", "comments"]`.                                                                       |
+| `primaryChannel` | `string`   | No       | `channels[0]`   | Which channel gates `_meta` room access. Peers who can write to the primary channel can modify access allowlists. Usually the main content channel.                                                |
+| `origin`         | `string`   | **Yes**  | —               | Origin + path prefix for generating shareable URLs (e.g. `window.location.origin` or `"https://example.com/app"`).                                                                                 |
+| `rtc`            | `object`   | No       | —               | WebRTC peer connection options passed to `simple-peer` (e.g. custom ICE servers).                                                                                                                  |
+| `signalingUrls`  | `string[]` | No       | `[]`            | Additional WebSocket signaling server URLs. Empty by default — signaling uses GossipSub via libp2p, not WebSocket servers.                                                                         |
+| `bootstrapPeers` | `string[]` | No       | libp2p defaults | Override libp2p bootstrap peer multiaddrs. Rarely needed — the defaults connect to the public libp2p network.                                                                                      |
 
 ### 2. Create or open a document
 
@@ -107,7 +110,7 @@ access the document at that level without a server.
 ```ts
 doc.capability.isAdmin; // boolean
 doc.capability.canPushSnapshots; // boolean
-doc.capability.namespaces; // Set<string>
+doc.capability.channels; // Set<string>
 ```
 
 **Generate invite links:**
@@ -115,12 +118,12 @@ doc.capability.namespaces; // Set<string>
 ```ts
 // Write access to the "content" channel
 const writeInvite = await doc.invite({
-  namespaces: ["content"],
+  channels: ["content"],
 });
 
-// Read-only (no namespaces)
+// Read-only (no channels)
 const readInvite = await doc.invite({
-  namespaces: [],
+  channels: [],
 });
 ```
 
@@ -140,11 +143,22 @@ doc.on("publish-needed", () => {
   doc.publish();
 });
 
-// Listen for remote snapshots being applied
-doc.on("snapshot", () => {
-  console.log("Received update from IPNS");
+// Listen for snapshots (local publishes + remote)
+doc.on("snapshot", ({ cid, seq, ts, isLocal }) => {
+  if (isLocal) {
+    console.log("Published snapshot:", cid.toString());
+  } else {
+    console.log("Received remote snapshot:", cid);
+  }
 });
 ```
+
+**Block distribution:** Snapshots up to 1 MB are
+distributed inline via GossipSub announcements. Larger
+snapshots (1–6 MB) are uploaded to connected pinners
+via HTTP POST and fetched by readers via HTTP GET. This
+is transparent — `publish()` and snapshot fetching
+handle it automatically.
 
 ### 7. Document status
 
@@ -180,6 +194,30 @@ doc.on("save", (state) => {
 });
 ```
 
+**Additional events** for network visualization:
+
+```ts
+// Block fetch progress (IPNS resolve, block fetch)
+doc.on("loading", (state) => {
+  // state.status: "idle" | "resolving" |
+  //   "fetching" | "retrying" | "failed"
+});
+
+// GossipSub activity changes
+doc.on("gossip-activity", (activity) => {
+  // "inactive" | "subscribed" | "receiving"
+});
+
+// Outbound guarantee query sent to pinners
+doc.on("guarantee-query", () => {});
+
+// Pinner acknowledged current snapshot
+doc.on("ack", (peerId) => {});
+
+// Infrastructure node discovered or changed
+doc.on("node-change", () => {});
+```
+
 ### 8. Node diagnostics
 
 `doc.diagnostics()` returns detailed network info
@@ -209,6 +247,28 @@ Nodes advertise their roles (`"relay"`, `"pinner"`, or
 both) via GossipSub. Use this to show users whether
 their changes will be persisted remotely — if no pinner
 is connected, warn them.
+
+**Topology graph** — `doc.topologyGraph()` returns a
+`TopologyGraph` with `nodes` and `edges` suitable for
+rendering a network visualization:
+
+```ts
+const topo = doc.topologyGraph();
+
+// topo.nodes: TopologyNode[]
+//   id, kind ("self" | "relay" | "pinner" |
+//     "relay+pinner" | "browser"),
+//   label, connected, roles, clientId?,
+//   ackedCurrentCid?, browserCount?
+
+// topo.edges: TopologyGraphEdge[]
+//   source, target, connected
+```
+
+The graph merges local diagnostics, node-registry data,
+and awareness state from remote peers, giving a
+whole-network view even of nodes not directly connected
+to you.
 
 ### 9. Auto-save
 
@@ -335,16 +395,217 @@ if (isDocUrl(window.location.href)) {
 }
 ```
 
+## Document Rotation
+
+Admins can rotate a document's identity — generating
+new keys, a new IPNS name, and new URLs while
+preserving the current content:
+
+```ts
+const result = await doc.rotate();
+// result.doc — new Doc with fresh keys
+// result.forwardingRecord — signed redirect from
+//   old IPNS name to new one
+```
+
+**What `rotate()` does:**
+
+1. Generates a new `adminSecret` and derives all new
+   keys (IPNS keypair, read key, channel access keys)
+2. Copies current document state to the new identity
+3. Creates new admin/write/read URLs
+4. Stores a `rotationKey`-signed forwarding record so
+   peers following the old IPNS name discover the new
+   location
+
+**When to use it:**
+
+- **Revoking access** — after removing a collaborator,
+  rotate so the old URLs stop working
+- **Recovering from a compromised `ipnsKey`** — if an
+  attacker can publish to the IPNS name, rotating
+  gives you a clean identity
+- **Seq freeze recovery** — if an attacker publishes
+  `seq = 2^64 - 1` to freeze the IPNS pointer,
+  rotation is the only recovery path
+
+**Requirements:** Admin capability (has `rotationKey`).
+The old document continues to exist — rotation creates
+a new identity, it doesn't delete the old one.
+
+## Loading State Machine
+
+`doc.on("loading", ...)` reports the snapshot fetch
+lifecycle as a discriminated union:
+
+```
+  ┌──────────────────────────────────────────┐
+  │                                          │
+  ▼                                          │
+idle ──→ resolving ──→ fetching ──→ idle     │
+                          │                  │
+                          ▼                  │
+                       retrying ─────────────┘
+                          │
+                          ▼ (max 10 attempts)
+                       failed
+```
+
+| State       | Fields                          | Entered when                                                         |
+| ----------- | ------------------------------- | -------------------------------------------------------------------- |
+| `idle`      | —                               | Snapshot applied successfully, or new doc with no remote state       |
+| `resolving` | `startedAt`                     | IPNS poll begins (readers on `open()`)                               |
+| `fetching`  | `cid`, `startedAt`              | CID received from announcement or IPNS resolve                       |
+| `retrying`  | `cid`, `attempt`, `nextRetryAt` | Block fetch or apply failed; retries up to 10 times at 30s intervals |
+| `failed`    | `cid`, `error`                  | All 10 retry attempts exhausted                                      |
+
+Writers skip `resolving` — they receive snapshots via
+GossipSub announcements, which provide the CID
+directly. Readers start with IPNS resolution.
+
+On `failed`, the library calls `markReady()` so the
+editor mounts with whatever state is available (local
+IndexedDB or partial sync) rather than blocking
+forever.
+
 ## Version History
+
+Pokapali tracks a chain of snapshots — each publish
+creates a new version linked to the previous one. You
+can browse past versions and load any snapshot as an
+independent set of `Y.Doc`s.
+
+### Current tip
+
+```ts
+doc.tipCid; // CID | null
+```
+
+The CID of the most recently published snapshot, or
+`null` if the document has never been published. Useful
+for highlighting "you are here" in a version list.
+
+### Listing versions
+
+**Recommended — `versionHistory()`:**
+
+```ts
+const versions = await doc.versionHistory();
+// Array<{ cid: CID; seq: number; ts: number }>
+```
+
+Returns versions **newest-first**. Automatically queries
+connected pinners' HTTP history endpoints, falling back
+to a local chain walk if no pinners are reachable. This
+is the best way to get a complete version list —
+pinners track every snapshot they've seen, so the list
+isn't truncated by missing intermediate blocks.
+
+**Low-level — `history()`:**
 
 ```ts
 const versions = await doc.history();
-// [{ cid, seq, ts }, ...]
+// Array<{ cid: CID; seq: number; ts: number }>
+```
 
-// Load a specific version
+Walks the local snapshot chain from the current tip.
+Uses a three-tier block resolution strategy:
+
+1. **In-memory cache** — blocks from locally-pushed
+   snapshots
+2. **Helia blockstore** — blocks from GossipSub or
+   prior fetches (5s timeout)
+3. **HTTP fallback** — fetches from pinner/relay
+   `httpUrl` endpoints, verifying the response hash
+   against the requested CID
+
+If a block is still missing after all three tiers,
+the walk stops gracefully — the returned list may be
+shorter than the full chain but never throws.
+
+Each entry contains:
+
+| Field | Type     | Description                       |
+| ----- | -------- | --------------------------------- |
+| `cid` | `CID`    | Content-addressed block ID        |
+| `seq` | `number` | Yjs clock sum at time of snapshot |
+| `ts`  | `number` | Unix timestamp (ms)               |
+
+### Snapshot event
+
+```ts
+doc.on("snapshot", (info) => {
+  // info.cid     — CID of the snapshot
+  // info.seq     — Yjs clock sum
+  // info.ts      — Unix timestamp (ms)
+  // info.isLocal — true if published by this client
+});
+```
+
+Fires on both local publishes and remote snapshot
+application.
+
+### Loading a version
+
+```ts
 const channels = await doc.loadVersion(versions[0].cid);
 // Record<string, Y.Doc> — one Y.Doc per channel
 ```
+
+Returns an independent `Y.Doc` for each channel,
+containing the full state at that snapshot. These are
+copies — modifying them does not affect the live
+document.
+
+### Restoring a version
+
+Restore creates a **new version** — it does not revert
+or discard later versions. The snapshot chain is
+append-only (CIDs are content hashes), so history is
+immutable.
+
+The restore strategy depends on your content type and
+editor. Core provides `loadVersion()` as the primitive;
+your app applies the old content as new CRDT operations.
+
+**Tiptap / ProseMirror (XmlFragment):**
+
+```ts
+import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+
+async function restoreVersion(doc, editor, cid) {
+  const old = await doc.loadVersion(cid);
+  const frag = old["content"].getXmlFragment("default");
+  const json = yXmlFragmentToProsemirrorJSON(frag);
+  editor.commands.setContent(json);
+  await doc.publish();
+}
+```
+
+`setContent()` is a single ProseMirror transaction —
+atomic replace with no intermediate empty state.
+Yjs translates it into new delete+insert operations
+that propagate correctly to all peers.
+
+**Plain Y.Text:**
+
+```ts
+async function restoreVersion(doc, cid) {
+  const old = await doc.loadVersion(cid);
+  const oldText = old["content"].getText("main").toString();
+  const current = doc.channel("content").getText("main");
+  current.delete(0, current.length);
+  current.insert(0, oldText);
+  await doc.publish();
+}
+```
+
+**Why not `Y.applyUpdate()`?** Applying an old Yjs
+state update to the current doc _merges_ rather than
+_replaces_ — the old state is a subset of the current
+state, so it's a no-op or creates merge artifacts.
+You must read old content and write it as new CRDT
+operations.
 
 ## Tips
 
@@ -365,3 +626,13 @@ const channels = await doc.loadVersion(versions[0].cid);
 - **Monitor node health** with
   `doc.diagnostics().nodes` to warn users when no
   pinners are connected.
+- **Large documents** (over 1 MB serialized) require at
+  least one pinner with HTTP block upload support. The
+  library handles this automatically — blocks that
+  exceed the 1 MB GossipSub inline limit are uploaded
+  via HTTP POST and fetched via HTTP GET.
+- **Topology visualization** — use `doc.topologyGraph()`
+  combined with the network events (`snapshot`, `ack`,
+  `loading`, `gossip-activity`, `guarantee-query`) to
+  build a live network map showing data flow between
+  your app and infrastructure nodes.

@@ -20,7 +20,9 @@ import {
   announceTopic,
   announceSnapshot,
   parseAnnouncement,
+  MAX_INLINE_BLOCK_BYTES,
 } from "@pokapali/core/announce";
+import { uploadBlock } from "@pokapali/core/block-upload";
 import { createLogger } from "@pokapali/log";
 import type { HeliaNode } from "./helia-node.js";
 
@@ -50,6 +52,9 @@ export interface WriterConfig {
   editIntervalMs?: number;
   /** Bytes of random text per edit. Default 100. */
   editSizeBytes?: number;
+  /** HTTP block endpoint URLs for uploading
+   *  blocks that exceed the inline limit. */
+  httpUrls?: string[];
   /** Callback for metrics/event collection. */
   onEvent?: (event: WriterEvent) => void;
 }
@@ -70,6 +75,7 @@ export async function startWriter(
   const appId = config.appId;
   const editInterval = config.editIntervalMs ?? 10_000;
   const editSize = config.editSizeBytes ?? 100;
+  const httpUrls = config.httpUrls ?? [];
   const onEvent = config.onEvent ?? (() => {});
 
   // Generate fresh identity
@@ -132,7 +138,12 @@ export async function startWriter(
       "0123456789 \n";
     let result = "";
     const bytes = new Uint8Array(size);
-    crypto.getRandomValues(bytes);
+    // getRandomValues has a 65536-byte limit
+    const CHUNK = 65536;
+    for (let off = 0; off < size; off += CHUNK) {
+      const end = Math.min(off + CHUNK, size);
+      crypto.getRandomValues(bytes.subarray(off, end));
+    }
     for (let i = 0; i < size; i++) {
       result += chars[bytes[i] % chars.length];
     }
@@ -190,12 +201,26 @@ export async function startWriter(
         seq: seqForThis,
       });
 
-      // Announce with inline block
+      // Upload + announce
       const announceStart = Date.now();
-      // Use doc text length as clock sum proxy
       const clockSum = text.length;
 
-      await announceSnapshot(pubsub, appId, ipnsName, cidStr, clockSum, block);
+      if (block.length > MAX_INLINE_BLOCK_BYTES && httpUrls.length > 0) {
+        // Large block: upload via HTTP first,
+        // then announce without inline data.
+        await uploadBlock(cid, block, httpUrls);
+        await announceSnapshot(pubsub, appId, ipnsName, cidStr, clockSum);
+      } else {
+        // Fits inline — announce with block data.
+        await announceSnapshot(
+          pubsub,
+          appId,
+          ipnsName,
+          cidStr,
+          clockSum,
+          block,
+        );
+      }
 
       onEvent({
         type: "announced",

@@ -10,9 +10,11 @@ const log = createLogger("load-test");
 interface Config {
   docs: number;
   intervalMs: number;
+  editSizeBytes: number;
   readers: number;
   durationS: number;
   bootstrap: string[];
+  httpUrls: string[];
   output: string | undefined;
   ramp: boolean;
   appId: string;
@@ -22,9 +24,11 @@ function parseArgs(argv: string[]): Config {
   const config: Config = {
     docs: 1,
     intervalMs: 5000,
+    editSizeBytes: 100,
     readers: 0,
     durationS: 60,
     bootstrap: [],
+    httpUrls: [],
     output: undefined,
     ramp: false,
     appId: "pokapali-example",
@@ -36,12 +40,16 @@ function parseArgs(argv: string[]): Config {
       config.docs = parseInt(argv[++i], 10);
     } else if (arg === "--interval" && argv[i + 1]) {
       config.intervalMs = parseInt(argv[++i], 10);
+    } else if (arg === "--edit-size" && argv[i + 1]) {
+      config.editSizeBytes = parseInt(argv[++i], 10);
     } else if (arg === "--readers" && argv[i + 1]) {
       config.readers = parseInt(argv[++i], 10);
     } else if (arg === "--duration" && argv[i + 1]) {
       config.durationS = parseInt(argv[++i], 10);
     } else if (arg === "--bootstrap" && argv[i + 1]) {
       config.bootstrap.push(argv[++i]);
+    } else if (arg === "--http-url" && argv[i + 1]) {
+      config.httpUrls.push(argv[++i]);
     } else if (arg === "--output" && argv[i + 1]) {
       config.output = argv[++i];
     } else if (arg === "--ramp") {
@@ -111,6 +119,7 @@ async function main() {
   log.info(
     `starting: ${config.docs} docs,` +
       ` ${config.intervalMs}ms interval,` +
+      ` ${config.editSizeBytes}B edits,` +
       ` ${config.durationS}s duration,` +
       ` appId=${config.appId}`,
   );
@@ -146,6 +155,8 @@ async function main() {
     const writer = await startWriter(helia, {
       appId: config.appId,
       editIntervalMs: config.intervalMs,
+      editSizeBytes: config.editSizeBytes,
+      httpUrls: config.httpUrls,
       onEvent(event: WriterEvent) {
         const mapped = mapWriterEvent(event, docId);
         if (mapped) metrics.record(mapped);

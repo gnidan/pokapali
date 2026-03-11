@@ -1,7 +1,7 @@
 # P2P Collaborative Text Editor — Architecture Reference
 
 A serverless, encrypted, peer-to-peer collaborative
-document sync library using Yjs subdocuments, WebRTC,
+document sync library using Yjs channels, WebRTC,
 IndexedDB, and Helia/IPFS for offline persistence.
 Designed to be dropped into any Yjs-aware editor (TipTap,
 ProseMirror, CodeMirror, etc.) with minimal integration
@@ -38,7 +38,7 @@ snapshot updates.
   read latency equals snapshot interval
 - **The library has no opinion on content** — it
   enforces which channel access key gates which
-  subdocument; what lives in those subdocuments is
+  channel; what lives in those channels is
   entirely the application's business
 - **The library has no opinion on snapshot timing** —
   it exposes `publish()` and emits `"publish-needed"`;
@@ -51,10 +51,10 @@ snapshot updates.
 These guarantees hold regardless of which peers are online, which capability levels are in play, or how many snapshots exist in the chain.
 
 **Each snapshot is a full `Y.encodeStateAsUpdate` per
-subdocument** — a complete Yjs state for every channel,
+channel** — a complete Yjs state for every channel,
 not a delta. Any single snapshot CID is independently
 sufficient to reconstruct the entire document (all
-subdocuments) at that point in time. The `prev` chain
+channels) at that point in time. The `prev` chain
 is for version history traversal only — losing any node
 (or all but one) does not affect recoverability.
 
@@ -77,7 +77,7 @@ import { pokapali } from "your-collab-lib";
 
 // Initialize once. appId is a public string — not a
 // secret.
-// channels: the set of subdocuments the library manages.
+// channels: the set of channels the library manages.
 // Each channel becomes its own Y.Doc. Writable channels
 // are synced in real-time via y-webrtc; read-only
 // channels are updated via GossipSub-announced and
@@ -388,10 +388,10 @@ keys are present on `open()`.
 
 ---
 
-## Channel Enforcement via Subdocuments and Room Isolation
+## Channel Enforcement via Room Isolation
 
-Each channel is a separate Yjs subdocument (`Y.Doc`)
-with its own y-webrtc room. Write enforcement is
+Each channel is a separate `Y.Doc` with its own
+y-webrtc room. Write enforcement is
 structural: a peer only joins the y-webrtc room for
 channels it has access keys for. Read access to all
 channels is delivered via IPNS-resolved and
@@ -482,7 +482,7 @@ for live updates via two transport paths:
 
 For channels the peer can only read (not in its
 capability set), the library does **not** connect to
-the WebRTC room. The peer receives all subdoc content
+the WebRTC room. The peer receives all channel content
 from snapshot updates (announced or polled). Block
 fetches use exponential backoff retry (6 retries, 2s
 base, 15s timeout per attempt) to handle IPFS
@@ -561,14 +561,14 @@ entirely and propagate unsigned mutations. That approach
 is cooperative — it works as long as every peer runs
 honest code, but a single malicious client (or a
 malicious fork of the library) could break enforcement
-for every deployment. The subdocument + room isolation
-design avoids this entirely.
+for every deployment. The channel + room isolation design avoids this
+entirely.
 
 ### Read-only peers
 
 A peer with only `readKey` (no channel access keys)
 joins no content rooms — only the awareness room. It
-receives all subdoc content from IPFS snapshots, updated
+receives all channel content from IPFS snapshots, updated
 via GossipSub announcements (instant) and IPNS polling
 (30s fallback) whenever a trusted peer pushes. The
 application should set the editor to read-only mode
@@ -595,13 +595,13 @@ changes) reference positions in the content channel
 using Yjs `Y.RelativePosition`. Creating a
 RelativePosition reads from the content subdoc
 (available to all peers) and stores it in the annotation
-subdoc (writable by the annotator). This requires no
-content write access — it's a read from one subdoc and a
-write to another.
+channel (writable by the annotator). This requires no
+content write access — it's a read from one channel and
+a write to another.
 
-### `_meta` as a subdocument
+### `_meta` as a channel
 
-`_meta` is itself a subdocument with its own y-webrtc
+`_meta` is itself a channel with its own y-webrtc
 room. The room password is derived from the primary
 channel's access key (e.g., hex of
 `HKDF(primaryAccessKey, info: '_meta_room')`), so only
@@ -615,7 +615,7 @@ it.
 
 ## `_meta` Structure and CRDT Merge Semantics
 
-`_meta` is a dedicated subdocument that holds access
+`_meta` is a dedicated channel that holds access
 allowlists and configuration. It has its own y-webrtc
 room, accessible only to peers with the primary
 channel's access key.
@@ -650,7 +650,7 @@ meta.getArray("canPushSnapshots"); // Y.Array<Uint8Array> — ipnsKey public key
 ## IPFS Persistence: Linked-List Snapshot DAG
 
 Each snapshot contains the full state of every
-subdocument, encoded independently.
+channel, encoded independently.
 
 ```ts
 interface SnapshotNode {
@@ -673,7 +673,7 @@ interface SnapshotNode {
 IPNS name
   └─> CID_n (latest) ──prev──> CID_n-1 ──prev──> ... ──prev──> CID_1 (null)
 
-Any single CID = complete document recovery (all subdocs)
+Any single CID = complete document recovery (all channels)
 prev chain = version history only, not load-bearing for recoverability
 ```
 
@@ -690,7 +690,7 @@ environments. The publish is fire-and-forget from
 `publish()`'s perspective: the UI updates immediately
 while IPNS propagation continues in the background.
 
-The IPNS sequence number is the **Y.Doc clockSum** — the sum of all state vector clocks across all subdocuments. This is deterministic: the same document state always produces the same seq, so multiple browsers publishing the same snapshot produce identical IPNS records (no race). A browser with more edits naturally gets a higher seq. On publish, the library guards against stale seq after page reload: `effectiveSeq = max(existingSeq + 1, clockSum)`, fetching the existing record from delegated routing to compare.
+The IPNS sequence number is the **Y.Doc clockSum** — the sum of all state vector clocks across all channels. This is deterministic: the same document state always produces the same seq, so multiple browsers publishing the same snapshot produce identical IPNS records (no race). A browser with more edits naturally gets a higher seq. On publish, the library guards against stale seq after page reload: `effectiveSeq = max(existingSeq + 1, clockSum)`, fetching the existing record from delegated routing to compare.
 
 Publishes are serialized per key within a tab via a publish queue. If a publish is in-flight and a newer CID is queued, the stale CID is skipped.
 
@@ -721,14 +721,33 @@ interface Announcement {
 }
 ```
 
-**Inline block distribution.** Bitswap does not work for
-browser→relay block fetching (NAT/WebRTC prevents inbound
-connections). Instead, snapshot blocks are embedded directly
-in GossipSub announcements as base64-encoded `blockData`.
-A 256KB size guard prevents oversized messages. This
-eliminates the need for a separate block fetch path for
-typical documents. Pinners validate inline blocks directly
-from the announcement without a blockstore round-trip.
+**Three-tier block distribution.** Bitswap does not work
+for browser→relay block fetching (NAT/WebRTC prevents
+inbound connections). Blocks are distributed via three
+tiers based on size:
+
+| Size  | Transport            | Writer path                                              | Reader path                         |
+| ----- | -------------------- | -------------------------------------------------------- | ----------------------------------- |
+| <1MB  | GossipSub inline     | base64 `blockData` in announcement                       | announcement handler                |
+| 1–6MB | HTTP POST + announce | POST to relay's `/block/:cid`, then announce (no inline) | HTTP GET from relay's `/block/:cid` |
+| >6MB  | Rejected             | Error at publish time                                    | N/A                                 |
+
+The GossipSub wire limit is 4MB per RPC frame (set by
+`it-length-prefixed`); exceeding it disconnects the peer.
+The 1MB inline guard (`MAX_INLINE_BLOCK_BYTES` in
+`announce.ts`) keeps base64-encoded blocks (~1.33MB)
+well within this limit. For blocks between 1–6MB, the
+writer uploads via HTTP POST to a relay's block endpoint
+(see HTTP Block Endpoint below), then publishes a
+GossipSub announcement without `blockData`. Readers
+fetch the block via HTTP GET as a fallback when it is
+not inline.
+
+Pinners validate inline blocks directly from the
+announcement without a blockstore round-trip. For
+HTTP-uploaded blocks, the block lands in the relay's
+shared `FsBlockstore` — the pinner reads it locally
+(no additional protocol needed).
 
 Writers re-announce every 15 seconds (and re-put the block
 to the blockstore so late-joining pinners can fetch it).
@@ -896,6 +915,18 @@ stretch, fewer docs due per cycle. GossipSub's
 `seenCache` (2-minute TTL) provides a natural floor on
 re-announce frequency.
 
+**Fan-in: demand-driven priority boost.** When a pinner
+receives a `guarantee-query` for a document, it bumps
+the document's re-announce priority (resets the decay
+interval to `BASE`). This means a reader opening a
+stale document doesn't have to wait up to 24 hours for
+the next scheduled re-announce — the query itself
+triggers a near-immediate re-announce with inline
+block. Combined with the 3-second mesh formation delay
+before the query is sent, this gives readers fast
+block availability even for documents that have been
+idle for days.
+
 **Reader activity as demand signal.** When a non-pinner
 peer (reader or writer) re-announces a CID, the pinner
 updates `lastSeenAt` for that document _before_ the dedup
@@ -1037,7 +1068,7 @@ Bootstrap peers default to the standard libp2p bootstrap list, also Protocol Lab
 The `@pokapali/node` package provides `startRelay()`, `createPinner()`, and an HTTP server for health monitoring. A relay is generic network infrastructure (any relay serves any app); a pinner is configured with specific `appId` values. Both typically run in the same Node.js process, sharing a single Helia instance.
 
 Pinner state (`knownNames`, `tips`, `nameToAppId`,
-`firstSeenAt`, `lastSeenAt`) is persisted to `state.json`
+`lastSeenAt`) is persisted to `state.json`
 in the storage directory. Writes
 use a dirty-flag + 5-second debounced flush + 60-second
 safety-net interval to avoid excessive disk I/O during
@@ -1082,9 +1113,167 @@ process — GossipSub mesh formation is automatic.
 
 The HTTP server exposes:
 
-- `GET /health` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
-- `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, pinner state, and lifetime metrics (see below)
+- `GET /health` — returns `200 OK` when the node is
+  running (used for deployment health checks; the relay
+  takes ~25s to start due to autoTLS cert provisioning)
+- `GET /status` — returns JSON diagnostics: peer count,
+  connection details, GossipSub mesh/topic stats, pinned
+  document count, pinner state, and lifetime metrics
+  (see below)
 - `GET /metrics` — returns Prometheus-formatted metrics
+
+### HTTP block endpoint
+
+Relays expose a separate HTTPS server on port 4443
+(configurable via `--https-port`) for large block
+transfer. The HTTPS certificate is reused from
+`@ipshipyard/libp2p-auto-tls` — the relay obtains a
+wildcard cert for `*.<base36-peerid>.libp2p.direct`
+during startup, and the block endpoint server uses
+the same PEM key/cert. Zero additional TLS config.
+
+**Endpoints:**
+
+- `GET /block/:cid` — readers fetch blocks by CID.
+  Returns raw bytes with `Content-Type:
+application/octet-stream`. The client verifies the
+  block by hashing the response and comparing against
+  the requested CID's multihash (using `cid.code` to
+  select the correct hasher). Returns 404 if the block
+  is not in the blockstore.
+
+- `POST /block/:cid` — writers upload blocks. The
+  server hashes the request body and verifies it matches
+  the CID in the URL path. Returns 200 on success, 400
+  if the hash doesn't match. No auth needed — CIDs are
+  content-addressed, so a valid block for a given CID
+  is self-authenticating. The block is stored in the
+  relay's `FsBlockstore`, making it immediately
+  available to the co-located pinner (no protocol
+  changes needed).
+
+**Security:**
+
+- CORS: `Access-Control-Allow-Origin: *` by default,
+  configurable per-operator via `--cors-origin`
+- Per-IP rate limiting: 60 requests/minute (separate
+  from the per-IPNS-name pinner rate limiter)
+- Body size cap: 6MB (matches the >6MB rejection tier)
+- No auth for GET (public, content-addressed) or POST
+  (CID verification replaces auth)
+
+**Discovery:** The relay advertises `httpUrl` in its
+v2 node caps message (see Node capability broadcasting
+below). Browsers discover relay HTTP endpoints via the
+node registry.
+
+**Client-side integration:**
+
+- `fetch-block.ts` — after exhausting blockstore retries
+  (6 attempts, exponential backoff), falls back to HTTP
+  GET from any relay advertising `httpUrl` in caps.
+  Verifies the response by hashing with the CID's own
+  codec.
+- `block-upload.ts` — for blocks >1MB, uploads via
+  HTTP POST to a relay before publishing the GossipSub
+  announcement (without `blockData`). Tries each known
+  relay with `httpUrl` until one succeeds.
+
+**Backward compatibility:** Old relays without the
+block endpoint return 404; browsers fall back to
+blockstore retry. Old browsers without HTTP fallback
+continue using inline blocks for <1MB documents. No
+breaking changes in either direction.
+
+**CLI flags:**
+
+| Flag                  | Default | Purpose                   |
+| --------------------- | ------- | ------------------------- |
+| `--https-port`        | 4443    | Block endpoint HTTPS port |
+| `--cors-origin`       | `*`     | CORS allowed origin       |
+| `--rate-limit-rpm`    | 60      | Per-IP requests/minute    |
+| `--trust-proxy`       | false   | Trust X-Forwarded-For     |
+| `--delegated-routing` | (none)  | Delegated routing URL     |
+
+### Pinner history endpoint
+
+Pinners expose a version history index on the same
+HTTPS port (4443) as the block endpoint. The pinner's
+`HistoryTracker` records every snapshot CID it has seen
+for each document — this flat list is more reliable than
+chain walking because it doesn't depend on intermediate
+blocks being available.
+
+**Endpoint:**
+
+- `GET /history/:ipnsName` — returns the pinner's known
+  snapshot list for the given IPNS name, newest-first.
+
+**Query parameters:**
+
+| Param    | Default | Description                                |
+| -------- | ------- | ------------------------------------------ |
+| `limit`  | 50      | Max entries to return (capped at 200)      |
+| `before` | —       | Pagination: only entries with seq < before |
+
+**Response (200):**
+
+```json
+[
+  { "cid": "bafyrei...", "ts": 1710123456789, "seq": 42 },
+  { "cid": "bafyrei...", "ts": 1710123400000, "seq": 41 }
+]
+```
+
+Seq numbers are assigned by the pinner (newest =
+highest). The `before` parameter enables cursor-based
+pagination — pass the lowest `seq` from the current
+page to fetch older entries.
+
+**Security:** Same CORS, rate limiting, and TLS as the
+block endpoint. No auth needed — the response only
+contains CIDs and timestamps; actual block content
+requires fetching via `GET /block/:cid` and is
+encrypted with the document's read key.
+
+**Trust model:** A malicious pinner could omit entries
+but cannot fabricate valid ones — CIDs that don't
+resolve to properly signed snapshot blocks are rejected
+by clients. Omitted entries are no worse than the
+current chain-walking behavior where missing blocks
+truncate history.
+
+**Client-side integration:** `doc.versionHistory()`
+queries connected pinners' history endpoints
+automatically, falling back to local chain walking
+if no pinners are reachable. The `fetchVersionHistory()`
+function in core handles pinner URL discovery (from
+node-registry), timeout (10s), and response validation.
+
+### Version history chain walk
+
+`doc.history()` walks the snapshot `prev` chain locally
+using a three-tier block resolution strategy:
+
+1. **In-memory cache** — blocks from locally-pushed
+   snapshots (always available, zero latency)
+2. **Helia blockstore** — blocks received via GossipSub
+   or prior fetches (5s timeout to avoid blocking on
+   slow DHT lookups)
+3. **HTTP block endpoints** — fetches from pinner/relay
+   `httpUrl` endpoints discovered via node-registry.
+   The response is verified by hashing with sha256 and
+   comparing against the requested CID's multihash.
+
+If a block is missing after all three tiers, the walk
+stops gracefully — the returned list is partial rather
+than throwing an error. This makes `history()` safe to
+call even when the network is degraded.
+
+`doc.versionHistory()` is the recommended API for
+applications — it queries the pinner history endpoint
+first (complete, gap-tolerant) and falls back to
+`history()` (local chain walk) if no pinners respond.
 
 ### Document lifetime metrics (designed)
 
@@ -1093,9 +1282,11 @@ validate that guarantees match reality. All metrics are
 cheap: counters incremented on prune, gauges derived
 from existing state.
 
-**New per-doc state:** `firstSeenAt` (timestamp when the
-pinner first learned about a document, persisted in
-`state.json` alongside `lastSeenAt`). Lifetime is
+**Per-doc state needed:** `firstSeenAt` (timestamp when
+the pinner first learned about a document). Not yet
+implemented — currently only `lastSeenAt` is tracked.
+When implemented, it would be persisted in `state.json`
+alongside `lastSeenAt`. Lifetime would be
 `pruneTime - firstSeenAt`.
 
 **Counters** (monotonically increasing, reset on restart):
@@ -1204,13 +1395,17 @@ interface NodeCapsMessage {
   neighbors?: Neighbor[]; // connected relay/pinner peers
   browserCount?: number; // connected browser count
   addrs?: string[]; // WSS multiaddrs for dialing
+  httpUrl?: string; // HTTPS block endpoint URL
 }
 ```
 
 Version 2 caps enable topology map construction: relays
 report their neighbors and browser count so peers can
 build a full relay mesh graph. The `addrs` field lets
-browsers dial caps-discovered relays directly.
+browsers dial caps-discovered relays directly. The
+`httpUrl` field advertises the relay's HTTPS block
+endpoint (derived from the WSS hostname + HTTPS port)
+so browsers can upload and fetch large blocks.
 
 Roles are configured at startup — a relay-only node
 advertises `["relay"]`, a pinner-only node `["pinner"]`,
@@ -1257,7 +1452,7 @@ Bandwidth at steady state is low. Suitable for a VPS or homelab behind standard 
 ## Local Persistence and Encryption-at-Rest
 
 `y-indexeddb` stores raw Yjs updates in the browser's
-IndexedDB — one store per subdocument. **This data is
+IndexedDB — one store per channel. **This data is
 unencrypted at rest.** The encrypted IPFS snapshots
 protect data in transit and at rest on pinners, but a
 compromised device (physical access, malicious
@@ -1338,7 +1533,7 @@ y-webrtc syncs in a mesh — every peer in a room receives every sync message ov
 
 ### Threat 3: Peer escalates by modifying `_meta`
 
-`_meta` is a subdocument in its own password-protected
+`_meta` is a channel in its own password-protected
 y-webrtc room, accessible only to peers with the
 primary channel's access key. A limited-channel peer
 cannot join the `_meta` room. **Structurally
@@ -1455,9 +1650,9 @@ The library should document expected bundle sizes for each configuration tier.
 
 | Package                         | Purpose                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `yjs`                           | CRDT engine; subdocument support for channel isolation                                                 |
+| `yjs`                           | CRDT engine; channel isolation via Yjs subdocuments                                                    |
 | `y-webrtc`                      | P2P real-time sync — one room per writable channel, plus a shared awareness room                       |
-| `y-indexeddb`                   | Local persistence in browser (per-subdoc)                                                              |
+| `y-indexeddb`                   | Local persistence in browser (per-channel)                                                             |
 | `helia`                         | IPFS in browser and relay/pinner; delivers snapshot updates via delegated routing                      |
 | `@ipld/dag-cbor`                | IPFS block encoding for snapshots (IPLD-native CID handling)                                           |
 | `@helia/ipns`                   | IPNS publish (delegated HTTP) / resolve (delegated + DHT fallback)                                     |
@@ -1466,7 +1661,8 @@ The library should document expected bundle sizes for each configuration tier.
 | `@libp2p/crypto/keys`           | IPNS keypair derivation from seed                                                                      |
 | `@libp2p/pubsub-peer-discovery` | Browser peer discovery via GossipSub                                                                   |
 | `@libp2p/kad-dht`               | DHT for relay (client-mode) — record providing and IPNS republish                                      |
-| `@ipshipyard/libp2p-auto-tls`   | Automatic TLS certificates for relay WSS                                                               |
+| `@ipshipyard/libp2p-auto-tls`   | Automatic TLS certificates for relay WSS and HTTPS block endpoint                                      |
+| `blockstore-fs`                 | Persistent file-based blockstore for relay/pinner (shared between pinner and HTTP block endpoint)      |
 | `datastore-level`               | Persistent LevelDB datastore for relay                                                                 |
 | `@pokapali/log`                 | Zero-dependency structured logging (`createLogger(module)`) — leaf package used by all other packages  |
 | `@tiptap/*`                     | Example editor integration (app-side, not in library)                                                  |

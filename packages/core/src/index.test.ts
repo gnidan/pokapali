@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import {
-  clearForwardingStore,
+  _resetForwardingStore,
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
@@ -96,6 +96,8 @@ import {
   type SaveState,
   type Diagnostics,
 } from "./index.js";
+import { acquireNodeRegistry, getNodeRegistry } from "./node-registry.js";
+import { publishGuaranteeQuery } from "./announce.js";
 
 const OPTS = {
   appId: "test-app",
@@ -106,7 +108,7 @@ const OPTS = {
 describe("@pokapali/core", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearForwardingStore();
+    _resetForwardingStore();
   });
 
   it("create() returns Doc", async () => {
@@ -152,7 +154,7 @@ describe("@pokapali/core", () => {
     const doc = await lib.create();
     expect(doc.capability.isAdmin).toBe(true);
     expect(doc.capability.canPushSnapshots).toBe(true);
-    expect(doc.capability.namespaces).toEqual(new Set(["content", "comments"]));
+    expect(doc.capability.channels).toEqual(new Set(["content", "comments"]));
     doc.destroy();
   });
 
@@ -186,7 +188,7 @@ describe("@pokapali/core", () => {
     const reader = await lib.open(readUrl);
     expect(reader.capability.isAdmin).toBe(false);
     expect(reader.capability.canPushSnapshots).toBe(false);
-    expect(reader.capability.namespaces.size).toBe(0);
+    expect(reader.capability.channels.size).toBe(0);
     expect(reader.urls.admin).toBeNull();
     expect(reader.urls.write).toBeNull();
     reader.destroy();
@@ -230,13 +232,13 @@ describe("@pokapali/core", () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     const url = await doc.invite({
-      namespaces: ["comments"],
+      channels: ["comments"],
     });
     expect(url).toContain("https://example.com/doc/");
 
     const parsed = await parseUrl(url);
     const cap = inferCapability(parsed.keys, OPTS.channels);
-    expect(cap.namespaces).toEqual(new Set(["comments"]));
+    expect(cap.channels).toEqual(new Set(["comments"]));
     expect(cap.canPushSnapshots).toBe(false);
     expect(cap.isAdmin).toBe(false);
     doc.destroy();
@@ -391,6 +393,26 @@ describe("@pokapali/core", () => {
       expect(h[0].cid.toString()).not.toBe(h[1].cid.toString());
       doc.destroy();
     });
+
+    it("versionHistory falls back to local chain", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      await doc.publish();
+      const content = doc.channel("content");
+      content.getMap("test").set("k", "v");
+      await doc.publish();
+      content.getMap("test").set("k", "v2");
+      await doc.publish();
+
+      // No pinner URLs → falls back to local
+      const h = await doc.versionHistory();
+      expect(h).toHaveLength(3);
+      expect(h[0].seq).toBe(3);
+      expect(h[1].seq).toBe(2);
+      expect(h[2].seq).toBe(1);
+      doc.destroy();
+    });
   });
 
   describe("loadVersion()", () => {
@@ -537,5 +559,98 @@ describe("@pokapali/core", () => {
       followed.destroy();
       newDoc.destroy();
     });
+  });
+
+  describe("pinner discovery triggers guarantee query", () => {
+    it(
+      "fires queryGuarantees when new pinner" + " appears in node-registry",
+      async () => {
+        // Set up a mock registry that captures
+        // the on("change") callback so we can
+        // fire it manually.
+        let nodeChangeCb: (() => void) | null = null;
+        const mockNodes = new Map<
+          string,
+          {
+            peerId: string;
+            roles: string[];
+            lastSeenAt: number;
+            connected: boolean;
+            stale: boolean;
+            neighbors: { peerId: string; role?: string }[];
+            browserCount: number;
+            addrs: string[];
+            httpUrl: string | undefined;
+          }
+        >();
+        const mockRegistry = {
+          nodes: mockNodes,
+          on: vi.fn((_event: string, cb: () => void) => {
+            nodeChangeCb = cb;
+          }),
+          off: vi.fn(),
+          destroy: vi.fn(),
+        };
+
+        vi.mocked(acquireNodeRegistry).mockReturnValue(mockRegistry as any);
+        vi.mocked(getNodeRegistry).mockReturnValue(mockRegistry as any);
+
+        const lib = pokapali(OPTS);
+        const doc = await lib.create();
+
+        // nodeChangeHandler should have been
+        // registered
+        expect(nodeChangeCb).not.toBeNull();
+
+        // Clear any calls from setup
+        vi.mocked(publishGuaranteeQuery).mockClear();
+
+        // Simulate a pinner appearing in the
+        // registry
+        mockNodes.set("pinner-1", {
+          peerId: "pinner-1",
+          roles: ["pinner"],
+          lastSeenAt: Date.now(),
+          connected: true,
+          stale: false,
+          neighbors: [],
+          browserCount: 0,
+          addrs: [],
+          httpUrl: undefined,
+        });
+        nodeChangeCb!();
+
+        // publishGuaranteeQuery should fire
+        // (called by snapshotWatcher.queryGuarantees)
+        expect(publishGuaranteeQuery).toHaveBeenCalled();
+
+        // Firing again with same pinner should
+        // NOT re-query (already known)
+        vi.mocked(publishGuaranteeQuery).mockClear();
+        nodeChangeCb!();
+        expect(publishGuaranteeQuery).not.toHaveBeenCalled();
+
+        // New pinner should trigger again
+        mockNodes.set("pinner-2", {
+          peerId: "pinner-2",
+          roles: ["pinner"],
+          lastSeenAt: Date.now(),
+          connected: true,
+          stale: false,
+          neighbors: [],
+          browserCount: 0,
+          addrs: [],
+          httpUrl: undefined,
+        });
+        nodeChangeCb!();
+        expect(publishGuaranteeQuery).toHaveBeenCalled();
+
+        doc.destroy();
+
+        // Restore default mock behavior
+        vi.mocked(acquireNodeRegistry).mockReset();
+        vi.mocked(getNodeRegistry).mockReturnValue(null);
+      },
+    );
   });
 });

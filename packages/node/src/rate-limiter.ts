@@ -78,3 +78,35 @@ export function createRateLimiter(
     },
   };
 }
+
+// --- Per-IP rate limiter for block endpoint ---
+
+const IP_WINDOW_MS = 60_000;
+
+export interface IpRateLimiter {
+  check(ip: string, now?: number): boolean;
+  record(ip: string, now?: number): void;
+}
+
+export function createIpRateLimiter(rpm: number): IpRateLimiter {
+  const entries = new Map<string, number[]>();
+
+  function prune(timestamps: number[], now: number): number[] {
+    const cutoff = now - IP_WINDOW_MS;
+    return timestamps.filter((t) => t > cutoff);
+  }
+
+  return {
+    check(ip: string, now: number = Date.now()): boolean {
+      const ts = prune(entries.get(ip) ?? [], now);
+      entries.set(ip, ts);
+      return ts.length < rpm;
+    },
+
+    record(ip: string, now: number = Date.now()): void {
+      const ts = prune(entries.get(ip) ?? [], now);
+      ts.push(now);
+      entries.set(ip, ts);
+    },
+  };
+}

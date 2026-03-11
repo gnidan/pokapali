@@ -1,8 +1,13 @@
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import type { Server } from "node:http";
+import type { Server as HttpsServer } from "node:https";
 import type { Relay } from "./relay.js";
 import type { Pinner } from "./pinner.js";
 import { createLogger, getLogLevel } from "@pokapali/log";
+import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
+import { createIpRateLimiter, type IpRateLimiter } from "./rate-limiter.js";
 
 const startedAt = Date.now();
 const log = createLogger("http");
@@ -88,6 +93,72 @@ function getStatusData(config: HttpConfig) {
   };
 }
 
+function getGossipsubMetrics(
+  config: HttpConfig,
+): Record<string, unknown> | null {
+  const { relay } = config;
+  if (!relay) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gs = (relay.helia.libp2p.services as any).pubsub as any;
+  if (!gs) return null;
+
+  const gsTopics: string[] = gs.getTopics?.() ?? [];
+  const gsPeers: { toString(): string }[] = gs.getPeers?.() ?? [];
+  const mesh = gs.mesh as Map<string, Set<string>> | undefined;
+
+  // Per-topic mesh and subscriber counts
+  const topics: Record<string, { subscribers: number; mesh: number }> = {};
+  for (const t of gsTopics) {
+    const subs = gs.getSubscribers?.(t) ?? [];
+    const topicMesh = mesh?.get(t);
+    topics[t] = {
+      subscribers: subs.length,
+      mesh: topicMesh?.size ?? 0,
+    };
+  }
+
+  // Per-peer scores for mesh members
+  const meshPeerIds = new Set<string>();
+  if (mesh) {
+    for (const peerSet of mesh.values()) {
+      for (const pid of peerSet) {
+        meshPeerIds.add(pid);
+      }
+    }
+  }
+
+  const scores: Record<string, number> = {};
+  for (const pid of meshPeerIds) {
+    const score = gs.score?.score?.(pid);
+    if (typeof score === "number") {
+      scores[pid] = Math.round(score * 100) / 100;
+    }
+  }
+
+  // Score distribution summary
+  const scoreValues = Object.values(scores);
+  const distribution =
+    scoreValues.length > 0
+      ? {
+          min: Math.min(...scoreValues),
+          max: Math.max(...scoreValues),
+          median: scoreValues.sort((a, b) => a - b)[
+            Math.floor(scoreValues.length / 2)
+          ],
+          negative: scoreValues.filter((s) => s < 0).length,
+        }
+      : null;
+
+  return {
+    peers: gsPeers.length,
+    topics,
+    meshPeerCount: meshPeerIds.size,
+    scores,
+    scoreDistribution: distribution,
+  };
+}
+
 export function startHttpServer(config: HttpConfig): Server {
   const { pinner, port } = config;
 
@@ -123,6 +194,7 @@ export function startHttpServer(config: HttpConfig): Server {
         },
         uptime: Math.floor((Date.now() - startedAt) / 1000),
         pinner: config.pinner ? config.pinner.metrics() : null,
+        gossipsub: getGossipsubMetrics(config),
       };
       res.writeHead(200, {
         "content-type": "application/json",
@@ -194,5 +266,310 @@ export function startHttpServer(config: HttpConfig): Server {
   });
 
   server.listen(port);
+  return server;
+}
+
+// --- HTTPS block server ---
+
+export interface HttpsConfig {
+  port: number;
+  key: string;
+  cert: string;
+  corsOrigin: string;
+  rateLimitRpm: number;
+  trustProxy: boolean;
+  /** Blockstore get function — serves raw bytes. */
+  getBlock: (cid: CID) => Promise<Uint8Array | null>;
+  /** Blockstore put function — stores raw bytes. */
+  putBlock: (cid: CID, bytes: Uint8Array) => Promise<void>;
+  /** History lookup — returns snapshot records for
+   *  an IPNS name, filtered to blocks we still have. */
+  getHistory?: (ipnsName: string) => Promise<{ cid: string; ts: number }[]>;
+}
+
+function parseCorsOrigins(origin: string): string[] | "*" {
+  if (origin === "*") return "*";
+  return origin
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function corsHeaders(
+  requestOrigin: string | undefined,
+  configured: string[] | "*",
+): Record<string, string> {
+  if (configured === "*") {
+    return { "access-control-allow-origin": "*" };
+  }
+  if (requestOrigin && configured.includes(requestOrigin)) {
+    return {
+      "access-control-allow-origin": requestOrigin,
+      vary: "Origin",
+    };
+  }
+  return {};
+}
+
+function getClientIp(
+  req: {
+    headers: Record<string, string | string[] | undefined>;
+    socket: { remoteAddress?: string };
+  },
+  trustProxy: boolean,
+): string {
+  if (trustProxy) {
+    const xff = req.headers["x-forwarded-for"];
+    if (typeof xff === "string") {
+      const first = xff.split(",")[0]?.trim();
+      if (first) return first;
+    }
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+export function startBlockServer(config: HttpsConfig): HttpsServer {
+  const origins = parseCorsOrigins(config.corsOrigin);
+  const limiter: IpRateLimiter = createIpRateLimiter(config.rateLimitRpm);
+
+  const server = createHttpsServer(
+    { key: config.key, cert: config.cert },
+    async (req, res) => {
+      const url = new URL(req.url ?? "/", `https://localhost:${config.port}`);
+      const reqOrigin = req.headers.origin;
+      const cors = corsHeaders(reqOrigin, origins);
+
+      // OPTIONS preflight
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          ...cors,
+          "access-control-allow-methods": "GET, POST",
+          "access-control-max-age": "86400",
+        });
+        res.end();
+        return;
+      }
+
+      // GET /history/:ipnsName
+      const histMatch = url.pathname.match(/^\/history\/([a-fA-F0-9]+)$/);
+      if (req.method === "GET" && histMatch && config.getHistory) {
+        const ipnsName = histMatch[1];
+        const limit = Math.min(
+          parseInt(url.searchParams.get("limit") ?? "50", 10) || 50,
+          200,
+        );
+        const before = parseInt(url.searchParams.get("before") ?? "", 10);
+
+        try {
+          const records = await config.getHistory(ipnsName);
+
+          // Sort newest-first, assign seq numbers
+          records.sort((a, b) => b.ts - a.ts);
+          const withSeq = records.map((r, i) => ({
+            cid: r.cid,
+            ts: r.ts,
+            seq: records.length - i,
+          }));
+
+          // Paginate: before=seq filters to
+          // entries with seq < before
+          let page = withSeq;
+          if (!Number.isNaN(before) && before > 0) {
+            page = page.filter((r) => r.seq < before);
+          }
+          page = page.slice(0, limit);
+
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "cache-control": "no-cache",
+            ...cors,
+          });
+          res.end(JSON.stringify(page));
+        } catch (err) {
+          log.warn("history error:", (err as Error).message);
+          res.writeHead(500, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "internal error",
+            }),
+          );
+        }
+        return;
+      }
+
+      // /block/:cid (GET or POST)
+      const match = url.pathname.match(/^\/block\/(.+)$/);
+      if (!match || (req.method !== "GET" && req.method !== "POST")) {
+        res.writeHead(404, {
+          "content-type": "application/json",
+          ...cors,
+        });
+        res.end(JSON.stringify({ error: "not found" }));
+        return;
+      }
+
+      // Rate limit
+      const ip = getClientIp(req, config.trustProxy);
+      if (!limiter.check(ip)) {
+        res.writeHead(429, {
+          "content-type": "application/json",
+          "retry-after": "60",
+          ...cors,
+        });
+        res.end(
+          JSON.stringify({
+            error: "too many requests",
+          }),
+        );
+        return;
+      }
+      limiter.record(ip);
+
+      // Parse CID
+      let cid: CID;
+      try {
+        cid = CID.parse(match[1]);
+      } catch {
+        res.writeHead(400, {
+          "content-type": "application/json",
+          ...cors,
+        });
+        res.end(JSON.stringify({ error: "invalid CID" }));
+        return;
+      }
+
+      // --- POST /block/:cid ---
+      if (req.method === "POST") {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let aborted = false;
+        for await (const chunk of req) {
+          const buf = chunk as Buffer;
+          size += buf.length;
+          if (size > MAX_BODY_BYTES) {
+            aborted = true;
+            req.destroy();
+            break;
+          }
+          chunks.push(buf);
+        }
+        if (aborted) {
+          res.writeHead(413, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "body too large",
+            }),
+          );
+          return;
+        }
+        const body = new Uint8Array(Buffer.concat(chunks));
+        if (body.length === 0) {
+          res.writeHead(400, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(JSON.stringify({ error: "empty body" }));
+          return;
+        }
+
+        // Verify CID matches body content
+        try {
+          const hash = await sha256.digest(body);
+          const computed = CID.createV1(cid.code, hash);
+          if (!computed.equals(cid)) {
+            res.writeHead(400, {
+              "content-type": "application/json",
+              ...cors,
+            });
+            res.end(
+              JSON.stringify({
+                error: "CID mismatch",
+              }),
+            );
+            return;
+          }
+        } catch {
+          res.writeHead(400, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "CID verification failed",
+            }),
+          );
+          return;
+        }
+
+        // Store block
+        try {
+          await config.putBlock(cid, body);
+          log.debug(`stored block ${cid.toString().slice(0, 16)}...`);
+          res.writeHead(200, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          log.warn("block put error:", (err as Error).message);
+          res.writeHead(500, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "internal error",
+            }),
+          );
+        }
+        return;
+      }
+
+      // --- GET /block/:cid ---
+      try {
+        const block = await config.getBlock(cid);
+        if (!block) {
+          res.writeHead(404, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "block not found",
+            }),
+          );
+          return;
+        }
+
+        res.writeHead(200, {
+          "content-type": "application/octet-stream",
+          "content-length": String(block.length),
+          "cache-control": "public, max-age=31536000, immutable",
+          ...cors,
+        });
+        res.end(block);
+      } catch (err) {
+        log.warn("block fetch error:", (err as Error).message);
+        res.writeHead(500, {
+          "content-type": "application/json",
+          ...cors,
+        });
+        res.end(
+          JSON.stringify({
+            error: "internal error",
+          }),
+        );
+      }
+    },
+  );
+
+  server.listen(config.port);
+  log.info(`HTTPS block server on port ${config.port}`);
   return server;
 }

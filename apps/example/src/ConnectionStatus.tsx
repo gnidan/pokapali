@@ -379,8 +379,6 @@ function SnapshotsDetail({
 export function ConnectionStatus({ doc }: { doc: Doc }) {
   const [info, setInfo] = useState<Diagnostics>(() => doc.diagnostics());
   const historyRef = useRef<History>(emptyHistory());
-  const [pulseKey, setPulseKey] = useState(0);
-
   useEffect(() => {
     let active = true;
     const refresh = () => {
@@ -393,16 +391,12 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
         // doc destroyed during teardown
       }
     };
-    const onPulse = () => {
-      refresh();
-      setPulseKey((k) => k + 1);
-    };
     refresh();
 
     doc.on("status", refresh);
     doc.on("publish-needed", refresh);
-    doc.on("snapshot", onPulse);
-    doc.on("ack", onPulse);
+    doc.on("snapshot", refresh);
+    doc.on("ack", refresh);
     doc.on("loading", refresh);
     doc.on("node-change", refresh);
     const awareness = doc.awareness;
@@ -416,8 +410,8 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
       active = false;
       doc.off("status", refresh);
       doc.off("publish-needed", refresh);
-      doc.off("snapshot", onPulse);
-      doc.off("ack", onPulse);
+      doc.off("snapshot", refresh);
+      doc.off("ack", refresh);
       doc.off("loading", refresh);
       doc.off("node-change", refresh);
       awareness.off("change", refresh);
@@ -500,7 +494,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
 
       {/* Detail panel — always visible */}
       <div className="cs-detail">
-        <TopologyMap doc={doc} pulseKey={pulseKey} />
+        <TopologyMap doc={doc} />
         <NetworkDetail info={info} history={h} />
         <SnapshotsDetail info={info} history={h} />
       </div>

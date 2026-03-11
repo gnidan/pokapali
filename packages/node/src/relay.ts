@@ -19,6 +19,8 @@ import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { announceTopic } from "@pokapali/core/announce";
+import { createDelegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
+import { delegatedHTTPRoutingDefaults } from "@helia/routers";
 import { createLogger } from "@pokapali/log";
 
 // Even with client-mode DHT, peers accumulate via
@@ -51,6 +53,22 @@ async function networkCID(): Promise<CID> {
 const DEFAULT_WS_PORT = 4003;
 const KEY_FILENAME = "relay-key.bin";
 
+/**
+ * Derive an HTTPS URL from a WSS multiaddr.
+ * e.g. /dns4/1-2-3-4.xxx.libp2p.direct/tcp/4003/tls/ws
+ * → https://1-2-3-4.xxx.libp2p.direct:4443
+ */
+export function deriveHttpUrl(
+  wssMultiaddr: string,
+  httpsPort: number,
+): string | undefined {
+  // Match /dns4/<host>/tcp/... or /dns6/<host>/tcp/...
+  const m = wssMultiaddr.match(/\/(dns[46])\/([^/]+)\/tcp/);
+  if (!m) return undefined;
+  const host = m[2];
+  return `https://${host}:${httpsPort}`;
+}
+
 async function loadOrCreateKey(storagePath: string): Promise<PrivateKey> {
   const keyPath = join(storagePath, KEY_FILENAME);
   try {
@@ -81,6 +99,8 @@ export interface NodeCapabilities {
   browserCount?: number;
   /** Public WSS addresses for direct dialing. */
   addrs?: string[];
+  /** HTTPS block endpoint URL. */
+  httpUrl?: string;
 }
 
 export function encodeNodeCaps(caps: NodeCapabilities): Uint8Array {
@@ -120,6 +140,10 @@ export interface RelayConfig {
   // If omitted, inferred: "pinner" if pinAppIds
   // is non-empty, otherwise empty.
   roles?: string[];
+  // Custom delegated routing endpoint URL. When set,
+  // overrides the default (delegated-ipfs.dev) for
+  // IPNS resolve/publish via HTTP.
+  delegatedRoutingUrl?: string;
 }
 
 export interface Relay {
@@ -127,6 +151,9 @@ export interface Relay {
   multiaddrs(): string[];
   peerId(): string;
   helia: Helia;
+  /** Set by bin/node.ts once the HTTPS block server
+   *  is listening. Included in caps advertisements. */
+  httpUrl: string | undefined;
 }
 
 export async function startRelay(config: RelayConfig): Promise<Relay> {
@@ -277,6 +304,15 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         // relay for the IPFS network, it floods us with
         // connections.
         delete (svc as any).relay;
+        // Override delegated routing URL if specified.
+        if (config.delegatedRoutingUrl) {
+          (svc as any).delegatedRouting = () =>
+            createDelegatedRoutingV1HttpApiClient(
+              config.delegatedRoutingUrl!,
+              delegatedHTTPRoutingDefaults(),
+            );
+          log.info("delegated routing:", config.delegatedRoutingUrl);
+        }
         return svc;
       })(),
     },
@@ -418,6 +454,11 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     knownPeerRoles.set(caps.peerId, caps.roles);
   });
 
+  // Mutable — set by bin/node.ts once the HTTPS
+  // block server is listening. Referenced by
+  // publishCaps() for caps advertisements.
+  let httpUrl: string | undefined;
+
   function publishCaps() {
     // Build neighbor list from connected peers
     // with known roles (relays/pinners).
@@ -425,6 +466,14 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     const connectedPids = new Set<string>();
     for (const conn of conns) {
       connectedPids.add((conn as any).remotePeer.toString());
+    }
+
+    // Prune stale entries from knownPeerRoles —
+    // remove peers we're no longer connected to.
+    for (const pid of knownPeerRoles.keys()) {
+      if (!connectedPids.has(pid)) {
+        knownPeerRoles.delete(pid);
+      }
     }
 
     const neighbors: NodeNeighbor[] = [];
@@ -463,6 +512,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
       neighbors: neighbors.length > 0 ? neighbors : undefined,
       browserCount,
       addrs: addrs.length > 0 ? addrs : undefined,
+      httpUrl,
     });
     pubsub.publish(NODE_CAPS_TOPIC, msg).catch((err: unknown) => {
       log.warn("caps publish failed:", err);
@@ -488,7 +538,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   // and let normal GossipSub mesh formation (D=3)
   // naturally GRAFT connected relays.
   const RELAY_PEER_TAG = "pokapali-relay-peer";
-  const RELAY_PEER_TAG_VALUE = 200;
+  const RELAY_PEER_TAG_VALUE = 100;
 
   /**
    * Find other relays providing the network CID and
@@ -591,10 +641,11 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
 
   // Re-provide after autoTLS certificate is obtained
   // so the DHT peer record includes WSS addresses.
-  helia.libp2p.addEventListener("certificate:provision", () => {
+  const onCertProvision = () => {
     log.info("certificate obtained, re-providing");
     setTimeout(() => provideAll(), 15_000);
-  });
+  };
+  helia.libp2p.addEventListener("certificate:provision", onCertProvision);
 
   // Periodic re-provide
   const provideInterval = setInterval(provideAll, PROVIDE_INTERVAL_MS);
@@ -669,10 +720,21 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   return {
     helia,
 
+    get httpUrl() {
+      return httpUrl;
+    },
+    set httpUrl(url: string | undefined) {
+      httpUrl = url;
+    },
+
     async stop() {
       clearInterval(provideInterval);
       clearInterval(logInterval);
       clearInterval(capsInterval);
+      helia.libp2p.removeEventListener(
+        "certificate:provision",
+        onCertProvision,
+      );
       await helia.stop();
       log.info("stopped");
     },

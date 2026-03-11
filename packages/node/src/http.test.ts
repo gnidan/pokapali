@@ -1,8 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { request } from "node:http";
+import { request as httpsRequest } from "node:https";
 import type { Server } from "node:http";
-import { startHttpServer } from "./http.js";
-import type { HttpConfig } from "./http.js";
+import type { Server as HttpsServer } from "node:https";
+import { startHttpServer, startBlockServer } from "./http.js";
+import type { HttpConfig, HttpsConfig } from "./http.js";
+import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 
 // Minimal mock relay that satisfies the interface
 // used by getHealthData / getStatusData.
@@ -13,6 +17,10 @@ function mockRelay(opts?: {
   multiaddrs?: string[];
   topics?: string[];
   gsPeers?: number;
+  /** Map of topic → subscriber peer IDs. */
+  subscribers?: Record<string, string[]>;
+  /** Map of topic → mesh peer IDs. */
+  meshPeers?: Record<string, string[]>;
 }) {
   const pid = opts?.peerId ?? "12D3KooWTestPeer";
   const conns = Array.from({ length: opts?.connections ?? 2 }, () => ({}));
@@ -20,6 +28,11 @@ function mockRelay(opts?: {
   const addrs = (opts?.multiaddrs ?? []).map((a) => ({ toString: () => a }));
   const topics = opts?.topics ?? [];
   const gsPeers = Array.from({ length: opts?.gsPeers ?? 0 }, () => ({}));
+  const subs = opts?.subscribers ?? {};
+  const mesh = new Map<string, Set<string>>();
+  for (const [t, pids] of Object.entries(opts?.meshPeers ?? {})) {
+    mesh.set(t, new Set(pids));
+  }
 
   return {
     peerId: () => pid,
@@ -33,8 +46,9 @@ function mockRelay(opts?: {
           pubsub: {
             getTopics: () => topics,
             getPeers: () => gsPeers,
-            getSubscribers: () => [],
-            mesh: new Map(),
+            getSubscribers: (topic: string) =>
+              (subs[topic] ?? []).map((p: string) => ({ toString: () => p })),
+            mesh,
           },
         },
       },
@@ -196,15 +210,30 @@ describe("startHttpServer", () => {
     it("includes gossipsub diagnostics", async () => {
       start({
         relay: mockRelay({
-          topics: ["topic-a"],
-          gsPeers: 2,
+          topics: ["topic-a", "topic-b"],
+          gsPeers: 3,
+          subscribers: {
+            "topic-a": ["peer-1", "peer-2"],
+            "topic-b": ["peer-3"],
+          },
+          meshPeers: {
+            "topic-a": ["peer-1"],
+            "topic-b": ["peer-3"],
+          },
         }),
       });
       const res = await fetch(port, "GET", "/status");
       const data = JSON.parse(res.body);
       expect(data.gossipsub).not.toBeNull();
-      expect(data.gossipsub.peers).toBe(2);
-      expect(data.gossipsub.topics).toHaveProperty("topic-a");
+      expect(data.gossipsub.peers).toBe(3);
+      expect(data.gossipsub.topics["topic-a"]).toEqual({
+        subscribers: 2,
+        mesh: 1,
+      });
+      expect(data.gossipsub.topics["topic-b"]).toEqual({
+        subscribers: 1,
+        mesh: 1,
+      });
     });
   });
 
@@ -317,5 +346,377 @@ describe("startHttpServer", () => {
       const res = await fetch(port, "POST", "/health");
       expect(res.status).toBe(404);
     });
+  });
+});
+
+// --- Block server tests ---
+
+// Pre-generated EC P-256 self-signed cert for
+// localhost. Test-only, expires 2036, no secrets.
+// Avoids shelling out to openssl (not available
+// on all CI runners).
+const testKey = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgLDwIQJlQOGL+Cvfa
+2n1FOHB44GBk9B6Y5Y7bNoETaa+hRANCAAS06IJtYpYiseas9vLZQulMBwAbrvOc
+AZ0JgManZxPo82/oaz2dpwSEFF2mveCNx01fsLEx0KTaDoSOCtqwcgoO
+-----END PRIVATE KEY-----`;
+
+const testCert = `-----BEGIN CERTIFICATE-----
+MIIBfTCCASOgAwIBAgIUClFHl+Mfu0LohA2kkWE1cm1dDi8wCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDMxMTAzNTEyOFoXDTM2MDMwODAz
+NTEyOFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0D
+AQcDQgAEtOiCbWKWIrHmrPby2ULpTAcAG67znAGdCYDGp2cT6PNv6Gs9nacEhBRd
+pr3gjcdNX7CxMdCk2g6EjgrasHIKDqNTMFEwHQYDVR0OBBYEFJ7pp9k7fCgmoj3f
+og+myBluoevZMB8GA1UdIwQYMBaAFJ7pp9k7fCgmoj3fog+myBluoevZMA8GA1Ud
+EwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhALXKFyE4MRiTAtFJfwi8kRiQ
+gjZvwQ9mCQgywml0+I0YAiBt9NvU8duWx1XGmTqpbXhRwWvdYL7CjvMjUYqgR4m5
+1Q==
+-----END CERTIFICATE-----`;
+
+function fetchHttps(
+  port: number,
+  method: string,
+  path: string,
+  headers?: Record<string, string>,
+  body?: Buffer,
+): Promise<{
+  status: number;
+  body: Buffer;
+  headers: Record<string, string>;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method,
+        path,
+        rejectUnauthorized: false,
+        headers: {
+          ...headers,
+          ...(body ? { "content-length": body.length } : {}),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          const respHeaders: Record<string, string> = {};
+          for (const [k, v] of Object.entries(res.headers)) {
+            if (typeof v === "string") respHeaders[k] = v;
+          }
+          resolve({
+            status: res.statusCode!,
+            body: Buffer.concat(chunks),
+            headers: respHeaders,
+          });
+        });
+      },
+    );
+    req.on("error", reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+describe("startBlockServer", () => {
+  let server: HttpsServer;
+  let port: number;
+
+  // In-memory blockstore
+  const blocks = new Map<string, Uint8Array>();
+
+  afterEach(async () => {
+    if (server) {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+    blocks.clear();
+  });
+
+  function startBlock(overrides?: Partial<HttpsConfig>) {
+    const cfg: HttpsConfig = {
+      port: 0,
+      key: testKey,
+      cert: testCert,
+      corsOrigin: "*",
+      rateLimitRpm: 60,
+      trustProxy: false,
+      getBlock: async (cid) => {
+        return blocks.get(cid.toString()) ?? null;
+      },
+      putBlock: async (cid, bytes) => {
+        blocks.set(cid.toString(), bytes);
+      },
+      ...overrides,
+    };
+    server = startBlockServer(cfg);
+    const addr = server.address() as any;
+    port = addr.port;
+  }
+
+  async function putBlock(data: Uint8Array): Promise<CID> {
+    const hash = await sha256.digest(data);
+    const cid = CID.createV1(0x55, hash);
+    blocks.set(cid.toString(), data);
+    return cid;
+  }
+
+  it("serves a block by CID", async () => {
+    startBlock();
+    const data = new Uint8Array([1, 2, 3, 4]);
+    const cid = await putBlock(data);
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`);
+    expect(res.status).toBe(200);
+    expect([...res.body]).toEqual([1, 2, 3, 4]);
+    expect(res.headers["content-type"]).toBe("application/octet-stream");
+    expect(res.headers["cache-control"]).toContain("immutable");
+  });
+
+  it("returns 404 for missing block", async () => {
+    startBlock();
+    const hash = await sha256.digest(new Uint8Array([99]));
+    const cid = CID.createV1(0x55, hash);
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`);
+    expect(res.status).toBe(404);
+    const data = JSON.parse(res.body.toString());
+    expect(data.error).toBe("block not found");
+  });
+
+  it("returns 400 for invalid CID", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "GET", "/block/not-a-valid-cid");
+    expect(res.status).toBe(400);
+    const data = JSON.parse(res.body.toString());
+    expect(data.error).toBe("invalid CID");
+  });
+
+  it("returns 429 when rate limited", async () => {
+    startBlock({ rateLimitRpm: 2 });
+    const data = new Uint8Array([10]);
+    const cid = await putBlock(data);
+    const path = `/block/${cid.toString()}`;
+
+    // Use up the limit
+    await fetchHttps(port, "GET", path);
+    await fetchHttps(port, "GET", path);
+
+    const res = await fetchHttps(port, "GET", path);
+    expect(res.status).toBe(429);
+    expect(res.headers["retry-after"]).toBe("60");
+  });
+
+  it("handles OPTIONS preflight", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "OPTIONS", "/block/anything");
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toBe("GET, POST");
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+
+  it("returns CORS * by default", async () => {
+    startBlock();
+    const data = new Uint8Array([5]);
+    const cid = await putBlock(data);
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`);
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+
+  it("matches configured CORS origin", async () => {
+    startBlock({
+      corsOrigin: "https://a.com,https://b.com",
+    });
+    const data = new Uint8Array([6]);
+    const cid = await putBlock(data);
+
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`, {
+      Origin: "https://b.com",
+    });
+    expect(res.headers["access-control-allow-origin"]).toBe("https://b.com");
+  });
+
+  it("omits CORS for non-matching origin", async () => {
+    startBlock({ corsOrigin: "https://a.com" });
+    const data = new Uint8Array([7]);
+    const cid = await putBlock(data);
+
+    const res = await fetchHttps(port, "GET", `/block/${cid.toString()}`, {
+      Origin: "https://evil.com",
+    });
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("returns 404 for non-block paths", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "GET", "/health");
+    expect(res.status).toBe(404);
+  });
+
+  // --- POST /block/:cid tests ---
+
+  it("stores a block via POST", async () => {
+    startBlock();
+    const data = new Uint8Array([10, 20, 30]);
+    const hash = await sha256.digest(data);
+    const cid = CID.createV1(0x55, hash);
+    const path = `/block/${cid.toString()}`;
+
+    const res = await fetchHttps(port, "POST", path, {}, Buffer.from(data));
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body.ok).toBe(true);
+
+    // Verify it's now readable via GET
+    const get = await fetchHttps(port, "GET", path);
+    expect(get.status).toBe(200);
+    expect([...get.body]).toEqual([10, 20, 30]);
+  });
+
+  it("rejects POST with CID mismatch", async () => {
+    startBlock();
+    const data = new Uint8Array([1, 2, 3]);
+    // Use wrong data to compute CID
+    const wrongHash = await sha256.digest(new Uint8Array([99]));
+    const wrongCid = CID.createV1(0x55, wrongHash);
+
+    const res = await fetchHttps(
+      port,
+      "POST",
+      `/block/${wrongCid.toString()}`,
+      {},
+      Buffer.from(data),
+    );
+    expect(res.status).toBe(400);
+    const body = JSON.parse(res.body.toString());
+    expect(body.error).toBe("CID mismatch");
+  });
+
+  it("rejects POST with empty body", async () => {
+    startBlock();
+    const hash = await sha256.digest(new Uint8Array([1]));
+    const cid = CID.createV1(0x55, hash);
+
+    const res = await fetchHttps(
+      port,
+      "POST",
+      `/block/${cid.toString()}`,
+      {},
+      Buffer.alloc(0),
+    );
+    expect(res.status).toBe(400);
+    const body = JSON.parse(res.body.toString());
+    expect(body.error).toBe("empty body");
+  });
+
+  it("rejects POST exceeding 6MB", async () => {
+    startBlock();
+    const hash = await sha256.digest(new Uint8Array([1]));
+    const cid = CID.createV1(0x55, hash);
+
+    try {
+      const res = await fetchHttps(
+        port,
+        "POST",
+        `/block/${cid.toString()}`,
+        {},
+        Buffer.alloc(6_000_001),
+      );
+      expect(res.status).toBe(413);
+    } catch (err: any) {
+      // Socket may reset before response
+      expect(
+        err.message === "socket hang up" || err.code === "ECONNRESET",
+      ).toBe(true);
+    }
+  });
+
+  it("rate limits POST requests", async () => {
+    startBlock({ rateLimitRpm: 2 });
+    const data = new Uint8Array([5]);
+    const hash = await sha256.digest(data);
+    const cid = CID.createV1(0x55, hash);
+    const path = `/block/${cid.toString()}`;
+    const buf = Buffer.from(data);
+
+    // Use up the limit
+    await fetchHttps(port, "POST", path, {}, buf);
+    await fetchHttps(port, "POST", path, {}, buf);
+
+    const res = await fetchHttps(port, "POST", path, {}, buf);
+    expect(res.status).toBe(429);
+  });
+
+  it("OPTIONS preflight allows POST", async () => {
+    startBlock();
+    const res = await fetchHttps(port, "OPTIONS", "/block/anything");
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toBe("GET, POST");
+  });
+
+  // --- History endpoint tests ---
+
+  it("returns history for an IPNS name", async () => {
+    const now = Date.now();
+    startBlock({
+      getHistory: async () => [
+        { cid: "cid-old", ts: now - 2000 },
+        { cid: "cid-new", ts: now },
+      ],
+    });
+    const name = "aa".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body).toHaveLength(2);
+    // Newest first
+    expect(body[0].cid).toBe("cid-new");
+    expect(body[1].cid).toBe("cid-old");
+    // Has seq numbers
+    expect(body[0].seq).toBe(2);
+    expect(body[1].seq).toBe(1);
+  });
+
+  it("paginates history with limit and before", async () => {
+    const now = Date.now();
+    const records = Array.from({ length: 10 }, (_, i) => ({
+      cid: `cid-${i}`,
+      ts: now - (9 - i) * 1000,
+    }));
+    startBlock({
+      getHistory: async () => records,
+    });
+    const name = "bb".repeat(32);
+
+    // Limit to 3
+    const res1 = await fetchHttps(port, "GET", `/history/${name}?limit=3`);
+    const body1 = JSON.parse(res1.body.toString());
+    expect(body1).toHaveLength(3);
+
+    // before=5 gets entries with seq < 5
+    const res2 = await fetchHttps(
+      port,
+      "GET",
+      `/history/${name}?before=5&limit=2`,
+    );
+    const body2 = JSON.parse(res2.body.toString());
+    expect(body2).toHaveLength(2);
+    expect(body2[0].seq).toBeLessThan(5);
+  });
+
+  it("returns empty array for unknown name", async () => {
+    startBlock({
+      getHistory: async () => [],
+    });
+    const name = "cc".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body).toEqual([]);
+  });
+
+  it("returns 404 when no getHistory configured", async () => {
+    startBlock(); // no getHistory
+    const name = "dd".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(404);
   });
 });

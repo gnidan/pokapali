@@ -127,7 +127,7 @@ export function createTopologySharing(
 
   libp2p.addEventListener("peer:connect", connectHandler);
   libp2p.addEventListener("peer:disconnect", disconnectHandler);
-  registry.onNodeChange(nodeChangeHandler);
+  registry.on("change", nodeChangeHandler);
 
   const periodicTimer = setInterval(publish, PERIODIC_MS);
 
@@ -161,7 +161,7 @@ export function createTopologySharing(
       clearTimeout(initialTimer);
       libp2p.removeEventListener("peer:connect", connectHandler);
       libp2p.removeEventListener("peer:disconnect", disconnectHandler);
-      registry.offNodeChange(nodeChangeHandler);
+      registry.off("change", nodeChangeHandler);
     },
   };
 }

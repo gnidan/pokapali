@@ -157,6 +157,173 @@ describe("createSnapshotLifecycle", () => {
     }
   });
 
+  it("passes httpUrls to fetchBlock" + " during applyRemote", async () => {
+    const readKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"],
+    );
+    const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+
+    const urls = ["https://relay1.example.com", "https://relay2.example.com"];
+    const lc = createSnapshotLifecycle({
+      getHelia: () => mockHelia as any,
+      httpUrls: () => urls,
+    });
+
+    // Create a valid snapshot to apply
+    const plaintext = {
+      content: new Uint8Array([42]),
+    };
+    const block = await realEncodeSnapshot(
+      plaintext,
+      readKey,
+      null,
+      1,
+      Date.now(),
+      signingKey,
+    );
+    const hash = await sha256.digest(block);
+    const cid = CID.createV1(0x71, hash);
+
+    vi.mocked(fetchBlock).mockResolvedValue(block);
+
+    await lc.applyRemote(cid, readKey, () => {});
+
+    expect(fetchBlock).toHaveBeenCalledWith(expect.anything(), cid, {
+      httpUrls: urls,
+    });
+  });
+
+  it(
+    "history returns partial chain when " + "predecessor blocks are missing",
+    async () => {
+      const readKey = await crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"],
+      );
+      const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+
+      // Build a 3-block chain externally
+      const p = { content: new Uint8Array([1]) };
+      const block1 = await realEncodeSnapshot(
+        p,
+        readKey,
+        null,
+        1,
+        1000,
+        signingKey,
+      );
+      const hash1 = await sha256.digest(block1);
+      const cid1 = CID.createV1(0x71, hash1);
+
+      const block2 = await realEncodeSnapshot(
+        p,
+        readKey,
+        cid1,
+        2,
+        2000,
+        signingKey,
+      );
+      const hash2 = await sha256.digest(block2);
+      const cid2 = CID.createV1(0x71, hash2);
+
+      const block3 = await realEncodeSnapshot(
+        p,
+        readKey,
+        cid2,
+        3,
+        3000,
+        signingKey,
+      );
+      const hash3 = await sha256.digest(block3);
+      const cid3 = CID.createV1(0x71, hash3);
+
+      // Simulate open() path: applyRemote with only
+      // the tip block — predecessors not in memory
+      // or blockstore.
+      vi.mocked(fetchBlock).mockResolvedValue(block3);
+
+      const lc = createSnapshotLifecycle({
+        getHelia: () => mockHelia as any,
+      });
+
+      await lc.applyRemote(cid3, readKey, () => {});
+
+      // history() should return the tip entry and
+      // gracefully stop (not throw) when it can't
+      // find cid2.
+      const entries = await lc.history();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].seq).toBe(3);
+      expect(entries[0].cid.toString()).toBe(cid3.toString());
+    },
+  );
+
+  it(
+    "history uses blockstore fallback for " + "predecessor blocks",
+    async () => {
+      const readKey = await crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"],
+      );
+      const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+
+      // Build a 2-block chain
+      const p = { content: new Uint8Array([1]) };
+      const block1 = await realEncodeSnapshot(
+        p,
+        readKey,
+        null,
+        1,
+        1000,
+        signingKey,
+      );
+      const hash1 = await sha256.digest(block1);
+      const cid1 = CID.createV1(0x71, hash1);
+
+      const block2 = await realEncodeSnapshot(
+        p,
+        readKey,
+        cid1,
+        2,
+        2000,
+        signingKey,
+      );
+      const hash2 = await sha256.digest(block2);
+      const cid2 = CID.createV1(0x71, hash2);
+
+      // Blockstore has block1 (predecessor)
+      const heliaWithBlocks = {
+        blockstore: {
+          put: vi.fn().mockResolvedValue(undefined),
+          get: vi.fn().mockImplementation(async (cid: CID) => {
+            if (cid.equals(cid1)) return block1;
+            throw new Error("Not found");
+          }),
+        },
+      };
+
+      vi.mocked(fetchBlock).mockResolvedValue(block2);
+
+      const lc = createSnapshotLifecycle({
+        getHelia: () => heliaWithBlocks as any,
+      });
+
+      // Apply only the tip
+      await lc.applyRemote(cid2, readKey, () => {});
+
+      // history() should find block2 in-memory, then
+      // fetch block1 from blockstore
+      const entries = await lc.history();
+      expect(entries).toHaveLength(2);
+      expect(entries[0].seq).toBe(2);
+      expect(entries[1].seq).toBe(1);
+    },
+  );
+
   it("history returns single entry after one push", async () => {
     const readKey = await crypto.subtle.generateKey(
       { name: "AES-GCM", length: 256 },
