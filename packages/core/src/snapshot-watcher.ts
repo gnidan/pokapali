@@ -21,6 +21,9 @@ const REANNOUNCE_MS = 15_000;
 const RETRY_INTERVAL_MS = 30_000;
 const MAX_OUTER_RETRIES = 10;
 const GUARANTEE_REQUERY_MS = 5 * 60_000;
+/** Delay before initial guarantee query to let
+ *  the GossipSub mesh form after subscribe. */
+const GUARANTEE_INITIAL_DELAY_MS = 3_000;
 
 export type LoadingState =
   | { status: "idle" }
@@ -199,10 +202,18 @@ export function createSnapshotWatcher(
     });
   }
 
-  // Readers query immediately; writers query after
-  // startReannounce subscribes to the topic.
+  // Delay initial query so GossipSub mesh can form
+  // after subscribe (GRAFT requires a heartbeat).
+  // Readers delay here; writers delay in
+  // startReannounce.
+  let initialQueryTimer: ReturnType<
+    typeof setTimeout
+  > | null = null;
   if (!isWriter) {
-    fireGuaranteeQuery();
+    initialQueryTimer = setTimeout(() => {
+      initialQueryTimer = null;
+      if (!destroyed) fireGuaranteeQuery();
+    }, GUARANTEE_INITIAL_DELAY_MS);
   }
 
   // Re-query periodically for long sessions
@@ -586,7 +597,12 @@ export function createSnapshotWatcher(
       // mesh for the announce topic.
       pubsub.subscribe(topic);
       markGossipSubscribed();
-      fireGuaranteeQuery();
+      // Delay so GossipSub mesh can form after
+      // subscribe before publishing the query.
+      initialQueryTimer = setTimeout(() => {
+        initialQueryTimer = null;
+        if (!destroyed) fireGuaranteeQuery();
+      }, GUARANTEE_INITIAL_DELAY_MS);
 
       reannounceGetCid = getCid;
       reannounceGetBlock = getBlock;
@@ -658,6 +674,10 @@ export function createSnapshotWatcher(
         announceTimer = null;
       }
       clearInterval(guaranteeQueryTimer);
+      if (initialQueryTimer) {
+        clearTimeout(initialQueryTimer);
+        initialQueryTimer = null;
+      }
       if (gossipDecayTimer) {
         clearInterval(gossipDecayTimer);
         gossipDecayTimer = null;

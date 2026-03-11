@@ -749,7 +749,7 @@ describe("createSnapshotWatcher", () => {
     }
 
     it("fires guarantee query on reader"
-      + " startup", () => {
+      + " startup after mesh delay", () => {
       const pubsub = makePubsub();
       const watcher = createSnapshotWatcher({
         appId: "test",
@@ -760,6 +760,13 @@ describe("createSnapshotWatcher", () => {
         onSnapshot: vi.fn(),
       });
 
+      // Not yet — waiting for mesh to form
+      expect(
+        publishGuaranteeQuery,
+      ).not.toHaveBeenCalled();
+
+      // After 3s mesh delay
+      vi.advanceTimersByTime(3_000);
       expect(
         publishGuaranteeQuery,
       ).toHaveBeenCalledWith(
@@ -789,7 +796,7 @@ describe("createSnapshotWatcher", () => {
     });
 
     it("fires query on startReannounce for"
-      + " writers", () => {
+      + " writers after mesh delay", () => {
       const pubsub = makePubsub();
       const helia = {
         blockstore: { get: vi.fn() },
@@ -807,6 +814,13 @@ describe("createSnapshotWatcher", () => {
         () => null, () => undefined,
       );
 
+      // Not yet — waiting for mesh to form
+      expect(
+        publishGuaranteeQuery,
+      ).not.toHaveBeenCalled();
+
+      // After 3s mesh delay
+      vi.advanceTimersByTime(3_000);
       expect(
         publishGuaranteeQuery,
       ).toHaveBeenCalledWith(
@@ -827,7 +841,8 @@ describe("createSnapshotWatcher", () => {
         onSnapshot: vi.fn(),
       });
 
-      // Initial query on startup
+      // After 3s mesh delay — initial query
+      vi.advanceTimersByTime(3_000);
       expect(
         publishGuaranteeQuery,
       ).toHaveBeenCalledTimes(1);
