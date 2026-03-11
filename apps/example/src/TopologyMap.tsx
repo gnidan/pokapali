@@ -652,10 +652,7 @@ export function TopologyMap({
     awareness: {
       on(event: string, cb: () => void): void;
       off(event: string, cb: () => void): void;
-      getStates(): Map<
-        number,
-        Record<string, unknown>
-      >;
+      getStates(): Map<number, Record<string, unknown>>;
       clientID: number;
     };
   };
@@ -836,9 +833,7 @@ export function TopologyMap({
               y={p.y}
               guaranteeUntil={guaranteeUntil}
               onHover={onHover}
-              awarenessColor={
-                awarenessColors.get(n.id)
-              }
+              awarenessColor={awarenessColors.get(n.id)}
             />
           );
         })}
