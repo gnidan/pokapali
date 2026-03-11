@@ -129,17 +129,6 @@ function buildDiffDecorations(
   const diffs = dmp.diff_main(currentText, preview.text);
   dmp.diff_cleanupSemantic(diffs);
 
-  // TODO: remove debug logging
-  console.log("[diff] currentText:", JSON.stringify(currentText));
-  console.log("[diff] previewText:", JSON.stringify(preview.text));
-  console.log(
-    "[diff] segments:",
-    diffs.map(([op, t]) => {
-      const label = op === 0 ? "EQUAL" : op === 1 ? "INSERT" : "DELETE";
-      return `${label}: ${JSON.stringify(t)}`;
-    }),
-  );
-
   const decorations: Decoration[] = [];
   let previewOffset = 0;
 
@@ -162,10 +151,10 @@ function buildDiffDecorations(
       previewOffset += text.length;
     } else if (op === DiffMatchPatch.DIFF_DELETE) {
       // Text in current, not in preview → red widget.
-      // Replace synthetic block-boundary '\n' with
-      // spaces for continuous inline display.
-      const cleaned = text.replace(/\n/g, " ").trim();
-      if (cleaned.length === 0) {
+      // Split on '\n' block separators to preserve
+      // paragraph structure in deletion display.
+      const parts = text.split("\n").filter((s) => s.length > 0);
+      if (parts.length === 0) {
         // Pure structural diff — skip
         continue;
       }
@@ -186,7 +175,12 @@ function buildDiffDecorations(
             () => {
               const el = document.createElement("span");
               el.className = "vh-diff-del";
-              el.textContent = cleaned;
+              parts.forEach((part, i) => {
+                if (i > 0) {
+                  el.appendChild(document.createElement("br"));
+                }
+                el.appendChild(document.createTextNode(part));
+              });
               return el;
             },
             { side: -1 },
