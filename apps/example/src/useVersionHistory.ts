@@ -9,12 +9,37 @@ type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string };
 
-/** Extract plain text from ProseMirror JSON. */
+/** Block-level ProseMirror node types that get
+ *  newline separators when extracting text. */
+const BLOCK_TYPES = new Set([
+  "paragraph",
+  "heading",
+  "blockquote",
+  "codeBlock",
+  "listItem",
+  "bulletList",
+  "orderedList",
+  "horizontalRule",
+]);
+
+/** Extract plain text from ProseMirror JSON,
+ *  preserving paragraph breaks as newlines. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractText(node: any): string {
   if (typeof node.text === "string") return node.text;
   if (Array.isArray(node.content)) {
-    return node.content.map(extractText).join("");
+    return (
+      node.content
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((child: any) => {
+          const text = extractText(child);
+          if (BLOCK_TYPES.has(child.type)) {
+            return text + "\n";
+          }
+          return text;
+        })
+        .join("")
+    );
   }
   return "";
 }
