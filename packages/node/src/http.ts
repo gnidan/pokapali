@@ -1,8 +1,12 @@
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import type { Server } from "node:http";
+import type { Server as HttpsServer } from "node:https";
 import type { Relay } from "./relay.js";
 import type { Pinner } from "./pinner.js";
 import { createLogger, getLogLevel } from "@pokapali/log";
+import { CID } from "multiformats/cid";
+import { createIpRateLimiter, type IpRateLimiter } from "./rate-limiter.js";
 
 const startedAt = Date.now();
 const log = createLogger("http");
@@ -194,5 +198,153 @@ export function startHttpServer(config: HttpConfig): Server {
   });
 
   server.listen(port);
+  return server;
+}
+
+// --- HTTPS block server ---
+
+export interface HttpsConfig {
+  port: number;
+  key: string;
+  cert: string;
+  corsOrigin: string;
+  rateLimitRpm: number;
+  trustProxy: boolean;
+  /** Blockstore get function — serves raw bytes. */
+  getBlock: (cid: CID) => Promise<Uint8Array | null>;
+}
+
+function parseCorsOrigins(origin: string): string[] | "*" {
+  if (origin === "*") return "*";
+  return origin
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function corsHeaders(
+  requestOrigin: string | undefined,
+  configured: string[] | "*",
+): Record<string, string> {
+  if (configured === "*") {
+    return { "access-control-allow-origin": "*" };
+  }
+  if (requestOrigin && configured.includes(requestOrigin)) {
+    return {
+      "access-control-allow-origin": requestOrigin,
+      vary: "Origin",
+    };
+  }
+  return {};
+}
+
+function getClientIp(
+  req: {
+    headers: Record<string, string | string[] | undefined>;
+    socket: { remoteAddress?: string };
+  },
+  trustProxy: boolean,
+): string {
+  if (trustProxy) {
+    const xff = req.headers["x-forwarded-for"];
+    if (typeof xff === "string") {
+      const first = xff.split(",")[0]?.trim();
+      if (first) return first;
+    }
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+export function startBlockServer(config: HttpsConfig): HttpsServer {
+  const origins = parseCorsOrigins(config.corsOrigin);
+  const limiter: IpRateLimiter = createIpRateLimiter(config.rateLimitRpm);
+
+  const server = createHttpsServer(
+    { key: config.key, cert: config.cert },
+    async (req, res) => {
+      const url = new URL(req.url ?? "/", `https://localhost:${config.port}`);
+      const reqOrigin = req.headers.origin;
+      const cors = corsHeaders(reqOrigin, origins);
+
+      // OPTIONS preflight
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          ...cors,
+          "access-control-allow-methods": "GET",
+          "access-control-max-age": "86400",
+        });
+        res.end();
+        return;
+      }
+
+      // Only GET /block/:cid
+      const match = url.pathname.match(/^\/block\/(.+)$/);
+      if (req.method !== "GET" || !match) {
+        res.writeHead(404, {
+          "content-type": "application/json",
+          ...cors,
+        });
+        res.end(JSON.stringify({ error: "not found" }));
+        return;
+      }
+
+      // Rate limit
+      const ip = getClientIp(req, config.trustProxy);
+      if (!limiter.check(ip)) {
+        res.writeHead(429, {
+          "content-type": "application/json",
+          "retry-after": "60",
+          ...cors,
+        });
+        res.end(JSON.stringify({ error: "too many requests" }));
+        return;
+      }
+      limiter.record(ip);
+
+      // Parse CID
+      let cid: CID;
+      try {
+        cid = CID.parse(match[1]);
+      } catch {
+        res.writeHead(400, {
+          "content-type": "application/json",
+          ...cors,
+        });
+        res.end(JSON.stringify({ error: "invalid CID" }));
+        return;
+      }
+
+      // Fetch block
+      try {
+        const block = await config.getBlock(cid);
+        if (!block) {
+          res.writeHead(404, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(JSON.stringify({ error: "block not found" }));
+          return;
+        }
+
+        res.writeHead(200, {
+          "content-type": "application/octet-stream",
+          "content-length": String(block.length),
+          "cache-control": "public, max-age=31536000, immutable",
+          ...cors,
+        });
+        res.end(block);
+      } catch (err) {
+        log.warn("block fetch error:", (err as Error).message);
+        res.writeHead(500, {
+          "content-type": "application/json",
+          ...cors,
+        });
+        res.end(JSON.stringify({ error: "internal error" }));
+      }
+    },
+  );
+
+  server.listen(config.port);
+  log.info(`HTTPS block server on port ${config.port}`);
   return server;
 }

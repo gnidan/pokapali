@@ -53,6 +53,22 @@ async function networkCID(): Promise<CID> {
 const DEFAULT_WS_PORT = 4003;
 const KEY_FILENAME = "relay-key.bin";
 
+/**
+ * Derive an HTTPS URL from a WSS multiaddr.
+ * e.g. /dns4/1-2-3-4.xxx.libp2p.direct/tcp/4003/tls/ws
+ * → https://1-2-3-4.xxx.libp2p.direct:4443
+ */
+export function deriveHttpUrl(
+  wssMultiaddr: string,
+  httpsPort: number,
+): string | undefined {
+  // Match /dns4/<host>/tcp/... or /dns6/<host>/tcp/...
+  const m = wssMultiaddr.match(/\/(dns[46])\/([^/]+)\/tcp/);
+  if (!m) return undefined;
+  const host = m[2];
+  return `https://${host}:${httpsPort}`;
+}
+
 async function loadOrCreateKey(storagePath: string): Promise<PrivateKey> {
   const keyPath = join(storagePath, KEY_FILENAME);
   try {
@@ -83,6 +99,8 @@ export interface NodeCapabilities {
   browserCount?: number;
   /** Public WSS addresses for direct dialing. */
   addrs?: string[];
+  /** HTTPS block endpoint URL. */
+  httpUrl?: string;
 }
 
 export function encodeNodeCaps(caps: NodeCapabilities): Uint8Array {
@@ -133,6 +151,9 @@ export interface Relay {
   multiaddrs(): string[];
   peerId(): string;
   helia: Helia;
+  /** Set by bin/node.ts once the HTTPS block server
+   *  is listening. Included in caps advertisements. */
+  httpUrl: string | undefined;
 }
 
 export async function startRelay(config: RelayConfig): Promise<Relay> {
@@ -478,6 +499,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
       neighbors: neighbors.length > 0 ? neighbors : undefined,
       browserCount,
       addrs: addrs.length > 0 ? addrs : undefined,
+      httpUrl,
     });
     pubsub.publish(NODE_CAPS_TOPIC, msg).catch((err: unknown) => {
       log.warn("caps publish failed:", err);
@@ -682,8 +704,17 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     }
   }, LOG_INTERVAL_MS);
 
+  let httpUrl: string | undefined;
+
   return {
     helia,
+
+    get httpUrl() {
+      return httpUrl;
+    },
+    set httpUrl(url: string | undefined) {
+      httpUrl = url;
+    },
 
     async stop() {
       clearInterval(provideInterval);

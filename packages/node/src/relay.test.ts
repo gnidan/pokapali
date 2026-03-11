@@ -3,6 +3,7 @@ import {
   encodeNodeCaps,
   decodeNodeCaps,
   appIdToCID,
+  deriveHttpUrl,
   NODE_CAPS_TOPIC,
   type NodeCapabilities,
 } from "./relay.js";
@@ -152,6 +153,55 @@ describe("decodeNodeCaps", () => {
   it("returns null for binary garbage", () => {
     const data = new Uint8Array([0xff, 0xfe, 0x00]);
     expect(decodeNodeCaps(data)).toBeNull();
+  });
+});
+
+describe("deriveHttpUrl", () => {
+  it("extracts hostname from dns4 WSS multiaddr", () => {
+    const ma = "/dns4/1-2-3-4.xxx.libp2p.direct" + "/tcp/4003/tls/ws";
+    expect(deriveHttpUrl(ma, 4443)).toBe(
+      "https://1-2-3-4.xxx.libp2p.direct:4443",
+    );
+  });
+
+  it("uses custom port", () => {
+    const ma = "/dns4/host.example.com/tcp/4003/tls/ws";
+    expect(deriveHttpUrl(ma, 9443)).toBe("https://host.example.com:9443");
+  });
+
+  it("returns undefined for non-dns multiaddr", () => {
+    const ma = "/ip4/1.2.3.4/tcp/4003/ws";
+    expect(deriveHttpUrl(ma, 4443)).toBeUndefined();
+  });
+
+  it("handles dns6 multiaddr", () => {
+    const ma = "/dns6/host.example.com/tcp/4003/tls/ws";
+    expect(deriveHttpUrl(ma, 4443)).toBe("https://host.example.com:4443");
+  });
+});
+
+describe("httpUrl in caps", () => {
+  it("roundtrips httpUrl field", () => {
+    const caps: NodeCapabilities = {
+      version: 2,
+      peerId: "12D3KooWTest",
+      roles: ["relay"],
+      httpUrl: "https://1-2-3-4.xxx.libp2p.direct:4443",
+    };
+    const encoded = encodeNodeCaps(caps);
+    const decoded = decodeNodeCaps(encoded);
+    expect(decoded!.httpUrl).toBe("https://1-2-3-4.xxx.libp2p.direct:4443");
+  });
+
+  it("omits httpUrl when undefined", () => {
+    const caps: NodeCapabilities = {
+      version: 2,
+      peerId: "12D3KooWTest",
+      roles: ["relay"],
+    };
+    const encoded = encodeNodeCaps(caps);
+    const decoded = decodeNodeCaps(encoded);
+    expect(decoded!.httpUrl).toBeUndefined();
   });
 });
 
