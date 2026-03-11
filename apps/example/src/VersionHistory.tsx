@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -36,6 +36,16 @@ function relativeAge(ts: number): string {
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
+/** Extract plain text from ProseMirror JSON. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractText(node: any): string {
+  if (typeof node.text === "string") return node.text;
+  if (Array.isArray(node.content)) {
+    return node.content.map(extractText).join("");
+  }
+  return "";
+}
+
 // ── Restore helper ───────────────────────────────
 //
 // Restore = new version with old content (DC-1).
@@ -68,12 +78,15 @@ function VersionListItem({
   selected,
   current,
   unavailable,
+  delta,
   onSelect,
 }: {
   entry: VersionEntry;
   selected: boolean;
   current: boolean;
   unavailable: boolean;
+  /** Net char delta vs previous version. */
+  delta: number | undefined;
   onSelect: () => void;
 }) {
   return (
@@ -98,6 +111,16 @@ function VersionListItem({
         #{entry.seq}
         {current && <span className="vh-current-badge">current</span>}
       </span>
+      {delta !== undefined && (
+        <span
+          className={
+            "vh-item-delta" +
+            (delta > 0 ? " added" : delta < 0 ? " removed" : " unchanged")
+          }
+        >
+          {delta > 0 ? `+${delta}` : delta < 0 ? String(delta) : "±0"}
+        </span>
+      )}
       <span className="vh-item-ts">{relativeAge(entry.ts)}</span>
     </button>
   );
@@ -215,6 +238,10 @@ export function VersionHistory({
   const [restoring, setRestoring] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const cancelRef = useRef(false);
+  const [textLengths, setTextLengths] = useState<Map<number, number>>(
+    new Map(),
+  );
+  const loadedSeqsRef = useRef<Set<number>>(new Set());
 
   // Current tip CID for marking "current" version
   const tipCidStr = doc.tipCid?.toString() ?? null;
@@ -263,6 +290,70 @@ export function VersionHistory({
       doc.off("snapshot", onSnapshot);
     };
   }, [doc]);
+
+  // Background-preload versions for diff indicators.
+  // Loads one version at a time after the list renders,
+  // extracting text length for char-delta computation.
+  useEffect(() => {
+    if (listState.status !== "idle" || versions.length === 0) {
+      return;
+    }
+    let cancelled = false;
+
+    (async () => {
+      for (const entry of versions) {
+        if (cancelled) break;
+        if (loadedSeqsRef.current.has(entry.seq)) continue;
+        try {
+          const channels = await doc.loadVersion(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            entry.cid as any,
+          );
+          if (cancelled) break;
+          const ydoc = channels["content"] ?? Object.values(channels)[0];
+          if (!ydoc) {
+            loadedSeqsRef.current.add(entry.seq);
+            continue;
+          }
+          const frag = ydoc.getXmlFragment("default");
+          const json = yXmlFragmentToProsemirrorJSON(frag);
+          const len = extractText(json).length;
+          loadedSeqsRef.current.add(entry.seq);
+          setTextLengths((prev) => {
+            const next = new Map(prev);
+            next.set(entry.seq, len);
+            return next;
+          });
+        } catch {
+          // Skip unavailable versions
+          loadedSeqsRef.current.add(entry.seq);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, listState.status, versions]);
+
+  // Compute net char delta between adjacent versions
+  const deltas = useMemo(() => {
+    const result = new Map<number, number>();
+    for (let i = 0; i < versions.length; i++) {
+      const len = textLengths.get(versions[i].seq);
+      if (len === undefined) continue;
+      // Oldest version (last in array): delta = total len
+      const next = versions[i + 1];
+      if (!next) {
+        result.set(versions[i].seq, len);
+        continue;
+      }
+      const prevLen = textLengths.get(next.seq);
+      if (prevLen === undefined) continue;
+      result.set(versions[i].seq, len - prevLen);
+    }
+    return result;
+  }, [versions, textLengths]);
 
   // Load a specific version for preview
   const selectVersion = useCallback(
@@ -396,6 +487,7 @@ export function VersionHistory({
                     tipCidStr != null && entry.cid.toString() === tipCidStr
                   }
                   unavailable={unavailable.has(entry.seq)}
+                  delta={deltas.get(entry.seq)}
                   onSelect={() => selectVersion(entry)}
                 />
               ))}
