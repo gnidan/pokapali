@@ -5,10 +5,7 @@ declare module "y-webrtc" {
    * Module-level map of signaling connections keyed by
    * URL (or adapter key like "libp2p:gossipsub").
    */
-  export const signalingConns: Map<
-    string,
-    SignalingConn
-  >;
+  export const signalingConns: Map<string, SignalingConn>;
 
   /**
    * Registers the standard connect/message/disconnect
@@ -21,6 +18,6 @@ declare module "y-webrtc" {
     conn: Observable<string> & {
       url: string;
       send(message: unknown): void;
-    }
+    },
   ): void;
 }

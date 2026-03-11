@@ -1,8 +1,5 @@
 import { Observable } from "lib0/observable";
-import {
-  signalingConns,
-  setupSignalingHandlers,
-} from "y-webrtc";
+import { signalingConns, setupSignalingHandlers } from "y-webrtc";
 import { createLogger } from "@pokapali/log";
 
 /**
@@ -13,14 +10,8 @@ export interface PubSubLike {
   subscribe(topic: string): void;
   unsubscribe(topic: string): void;
   publish(topic: string, data: Uint8Array): Promise<unknown>;
-  addEventListener(
-    type: string,
-    handler: (evt: CustomEvent) => void
-  ): void;
-  removeEventListener(
-    type: string,
-    handler: (evt: CustomEvent) => void
-  ): void;
+  addEventListener(type: string, handler: (evt: CustomEvent) => void): void;
+  removeEventListener(type: string, handler: (evt: CustomEvent) => void): void;
 }
 
 const ADAPTER_KEY = "libp2p:gossipsub";
@@ -55,20 +46,14 @@ export class GossipSubSignaling extends Observable<string> {
       try {
         const text = new TextDecoder().decode(msg.data);
         const parsed = JSON.parse(text);
-        log.debug(
-          `recv ${parsed?.topic}:`,
-          parsed?.data?.type,
-        );
+        log.debug(`recv ${parsed?.topic}:`, parsed?.data?.type);
         this.emit("message", [parsed]);
       } catch {
         // malformed message — ignore
       }
     };
 
-    this.pubsub.addEventListener(
-      "message",
-      this.gossipHandler
-    );
+    this.pubsub.addEventListener("message", this.gossipHandler);
   }
 
   send(message: {
@@ -102,15 +87,10 @@ export class GossipSubSignaling extends Observable<string> {
               type: "publish",
               topic: message.topic,
               data: message.data,
-            })
+            }),
           );
-          log.debug(
-            `publish ${message.topic}:`,
-            (message.data as any)?.type,
-          );
-          this.pubsub.publish(
-            SIGNALING_TOPIC, payload
-          ).catch((err) => {
+          log.debug(`publish ${message.topic}:`, (message.data as any)?.type);
+          this.pubsub.publish(SIGNALING_TOPIC, payload).catch((err) => {
             const msg = (err as Error)?.message ?? "";
             if (msg.includes("NoPeersSubscribed")) {
               log.debug("publish: no peers yet");
@@ -130,12 +110,10 @@ export class GossipSubSignaling extends Observable<string> {
       const ps = this.pubsub as any;
       const gsPeers = ps.getPeers?.() ?? [];
       const topics = ps.getTopics?.() ?? [];
-      const subs = topics.flatMap(
-        (t: string) =>
-          (ps.getSubscribers?.(t) ?? []).map(
-            (p: any) =>
-              `${t}:${p.toString().slice(-8)}`,
-          ),
+      const subs = topics.flatMap((t: string) =>
+        (ps.getSubscribers?.(t) ?? []).map(
+          (p: any) => `${t}:${p.toString().slice(-8)}`,
+        ),
       );
       log.debug(
         "re-announce,",
@@ -157,10 +135,7 @@ export class GossipSubSignaling extends Observable<string> {
       this.pubsub.unsubscribe(SIGNALING_TOPIC);
     }
     this.subscribedTopics.clear();
-    this.pubsub.removeEventListener(
-      "message",
-      this.gossipHandler
-    );
+    this.pubsub.removeEventListener("message", this.gossipHandler);
     this.connected = false;
     signalingConns.delete(ADAPTER_KEY);
     super.destroy();
@@ -175,7 +150,7 @@ export class GossipSubSignaling extends Observable<string> {
  * automatically use it for peer discovery / signaling.
  */
 export function createGossipSubSignaling(
-  pubsub: PubSubLike
+  pubsub: PubSubLike,
 ): GossipSubSignaling {
   const existing = signalingConns.get(ADAPTER_KEY);
   if (existing) {

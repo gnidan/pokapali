@@ -1,53 +1,43 @@
-import {
-  describe, it, expect, vi, beforeEach,
-} from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const {
-  mockPubsub,
-  mockStop,
-  mockHelia,
-  mockCreateHelia,
-  mockGossipsub,
-} = vi.hoisted(() => {
-  const mockPubsub = {
-    subscribe: vi.fn(),
-    unsubscribe: vi.fn(),
-    publish: vi.fn(),
-  };
+const { mockPubsub, mockStop, mockHelia, mockCreateHelia, mockGossipsub } =
+  vi.hoisted(() => {
+    const mockPubsub = {
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      publish: vi.fn(),
+    };
 
-  const mockStop =
-    vi.fn().mockResolvedValue(undefined);
+    const mockStop = vi.fn().mockResolvedValue(undefined);
 
-  const mockHelia = {
-    libp2p: {
-      services: { pubsub: mockPubsub },
-    },
-    stop: mockStop,
-    start: vi.fn(),
-    blockstore: {},
-    datastore: {},
-    pins: {},
-    logger: {},
-    routing: {},
-    dns: {},
-    gc: vi.fn(),
-    getCodec: vi.fn(),
-    getHasher: vi.fn(),
-  };
+    const mockHelia = {
+      libp2p: {
+        services: { pubsub: mockPubsub },
+      },
+      stop: mockStop,
+      start: vi.fn(),
+      blockstore: {},
+      datastore: {},
+      pins: {},
+      logger: {},
+      routing: {},
+      dns: {},
+      gc: vi.fn(),
+      getCodec: vi.fn(),
+      getHasher: vi.fn(),
+    };
 
-  const mockCreateHelia =
-    vi.fn().mockResolvedValue(mockHelia);
-  const mockGossipsub =
-    vi.fn().mockReturnValue("gossipsub-service");
+    const mockCreateHelia = vi.fn().mockResolvedValue(mockHelia);
+    const mockGossipsub = vi.fn().mockReturnValue("gossipsub-service");
 
-  return {
-    mockPubsub,
-    mockStop,
-    mockHelia,
-    mockCreateHelia,
-    mockGossipsub,
-  };
-});
+    return {
+      mockPubsub,
+      mockStop,
+      mockHelia,
+      mockCreateHelia,
+      mockGossipsub,
+    };
+  });
 
 vi.mock("helia", () => ({
   createHelia: mockCreateHelia,
@@ -75,106 +65,65 @@ describe("helia lifecycle", () => {
     mockCreateHelia.mockResolvedValue(mockHelia);
   });
 
-  it(
-    "acquireHelia() returns a Helia instance",
-    async () => {
-      const helia = await acquireHelia();
-      expect(helia).toBe(mockHelia);
-    },
-  );
+  it("acquireHelia() returns a Helia instance", async () => {
+    const helia = await acquireHelia();
+    expect(helia).toBe(mockHelia);
+  });
 
-  it(
-    "second acquireHelia() returns same instance",
-    async () => {
-      const first = await acquireHelia();
-      const second = await acquireHelia();
-      expect(first).toBe(second);
-      expect(
-        mockCreateHelia
-      ).toHaveBeenCalledTimes(1);
-    },
-  );
+  it("second acquireHelia() returns same instance", async () => {
+    const first = await acquireHelia();
+    const second = await acquireHelia();
+    expect(first).toBe(second);
+    expect(mockCreateHelia).toHaveBeenCalledTimes(1);
+  });
 
-  it(
-    "releaseHelia() decrements refcount",
-    async () => {
-      await acquireHelia();
-      await acquireHelia();
-      await releaseHelia();
-      expect(mockStop).not.toHaveBeenCalled();
-    },
-  );
+  it("releaseHelia() decrements refcount", async () => {
+    await acquireHelia();
+    await acquireHelia();
+    await releaseHelia();
+    expect(mockStop).not.toHaveBeenCalled();
+  });
 
-  it(
-    "after all releases, Helia is stopped",
-    async () => {
-      await acquireHelia();
-      await acquireHelia();
-      await releaseHelia();
-      await releaseHelia();
-      expect(mockStop).toHaveBeenCalledOnce();
-    },
-  );
+  it("after all releases, Helia is stopped", async () => {
+    await acquireHelia();
+    await acquireHelia();
+    await releaseHelia();
+    await releaseHelia();
+    expect(mockStop).toHaveBeenCalledOnce();
+  });
 
-  it(
-    "getHeliaPubsub() returns pubsub service",
-    async () => {
-      await acquireHelia();
-      const pubsub = getHeliaPubsub();
-      expect(pubsub).toBe(mockPubsub);
-    },
-  );
+  it("getHeliaPubsub() returns pubsub service", async () => {
+    await acquireHelia();
+    const pubsub = getHeliaPubsub();
+    expect(pubsub).toBe(mockPubsub);
+  });
 
-  it(
-    "getHeliaPubsub() throws with no Helia",
-    () => {
-      expect(() => getHeliaPubsub()).toThrow(
-        "No Helia instance exists"
-      );
-    },
-  );
+  it("getHeliaPubsub() throws with no Helia", () => {
+    expect(() => getHeliaPubsub()).toThrow("No Helia instance exists");
+  });
 
-  it(
-    "passes gossipsub in libp2p services",
-    async () => {
-      await acquireHelia();
-      const call = mockCreateHelia.mock.calls[0];
-      const init = call[0] as Record<
-        string, unknown
-      >;
-      const libp2p = init.libp2p as Record<
-        string, unknown
-      >;
-      const services = libp2p.services as Record<
-        string, unknown
-      >;
-      expect(services.pubsub).toBe(
-        "gossipsub-service"
-      );
-    },
-  );
+  it("passes gossipsub in libp2p services", async () => {
+    await acquireHelia();
+    const call = mockCreateHelia.mock.calls[0];
+    const init = call[0] as Record<string, unknown>;
+    const libp2p = init.libp2p as Record<string, unknown>;
+    const services = libp2p.services as Record<string, unknown>;
+    expect(services.pubsub).toBe("gossipsub-service");
+  });
 
-  it(
-    "releaseHelia() is no-op with no instance",
-    async () => {
-      await releaseHelia();
-      expect(mockStop).not.toHaveBeenCalled();
-    },
-  );
+  it("releaseHelia() is no-op with no instance", async () => {
+    await releaseHelia();
+    expect(mockStop).not.toHaveBeenCalled();
+  });
 
-  it(
-    "can re-acquire after full release",
-    async () => {
-      await acquireHelia();
-      await releaseHelia();
-      expect(mockStop).toHaveBeenCalledOnce();
+  it("can re-acquire after full release", async () => {
+    await acquireHelia();
+    await releaseHelia();
+    expect(mockStop).toHaveBeenCalledOnce();
 
-      mockStop.mockClear();
-      const helia = await acquireHelia();
-      expect(helia).toBe(mockHelia);
-      expect(
-        mockCreateHelia
-      ).toHaveBeenCalledTimes(2);
-    },
-  );
+    mockStop.mockClear();
+    const helia = await acquireHelia();
+    expect(helia).toBe(mockHelia);
+    expect(mockCreateHelia).toHaveBeenCalledTimes(2);
+  });
 });

@@ -23,10 +23,8 @@ export function createAutoSaver(
     return () => {};
   }
 
-  const debounceMs =
-    options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-  let timer: ReturnType<typeof setTimeout> | null =
-    null;
+  const debounceMs = options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   function doSave() {
     if (timer) {
@@ -48,43 +46,22 @@ export function createAutoSaver(
   }
 
   function onVisibilityChange() {
-    if (
-      document.visibilityState === "hidden" &&
-      doc.saveState === "dirty"
-    ) {
+    if (document.visibilityState === "hidden" && doc.saveState === "dirty") {
       doSave();
     }
   }
 
-  doc.on(
-    "publish-needed",
-    onSnapshotRecommended,
-  );
-  window.addEventListener(
-    "beforeunload",
-    onBeforeUnload,
-  );
-  document.addEventListener(
-    "visibilitychange",
-    onVisibilityChange,
-  );
+  doc.on("publish-needed", onSnapshotRecommended);
+  window.addEventListener("beforeunload", onBeforeUnload);
+  document.addEventListener("visibilitychange", onVisibilityChange);
 
   return () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
-    doc.off(
-      "publish-needed",
-      onSnapshotRecommended,
-    );
-    window.removeEventListener(
-      "beforeunload",
-      onBeforeUnload,
-    );
-    document.removeEventListener(
-      "visibilitychange",
-      onVisibilityChange,
-    );
+    doc.off("publish-needed", onSnapshotRecommended);
+    window.removeEventListener("beforeunload", onBeforeUnload);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }

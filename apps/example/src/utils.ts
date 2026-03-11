@@ -3,10 +3,7 @@ export function capitalize(s: string): string {
 }
 
 export function formatAge(timestamp: number): string {
-  const sec = Math.max(
-    0,
-    Math.round((Date.now() - timestamp) / 1000),
-  );
+  const sec = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
   if (sec < 5) return "just now";
   if (sec < 60) return `${sec}s ago`;
   if (sec < 3600) {

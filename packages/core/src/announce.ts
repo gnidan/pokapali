@@ -12,10 +12,7 @@
  * @pokapali/sync but avoids requiring the full interface.
  */
 export interface AnnouncePubSub {
-  publish(
-    topic: string,
-    data: Uint8Array,
-  ): Promise<unknown>;
+  publish(topic: string, data: Uint8Array): Promise<unknown>;
 }
 
 export interface AnnouncementAck {
@@ -92,9 +89,7 @@ export async function announceSnapshot(
   }
   if (fromPinner) msg.fromPinner = true;
   if (ack) msg.ack = ack;
-  const data = new TextEncoder().encode(
-    JSON.stringify(msg),
-  );
+  const data = new TextEncoder().encode(JSON.stringify(msg));
   await pubsub.publish(topic, data);
 }
 
@@ -125,9 +120,7 @@ export async function announceAck(
     cid,
     ack,
   };
-  const data = new TextEncoder().encode(
-    JSON.stringify(msg),
-  );
+  const data = new TextEncoder().encode(JSON.stringify(msg));
   await pubsub.publish(topic, data);
 }
 
@@ -136,16 +129,11 @@ export async function announceAck(
  *
  * @returns parsed Announcement or null if invalid
  */
-export function parseAnnouncement(
-  data: Uint8Array,
-): Announcement | null {
+export function parseAnnouncement(data: Uint8Array): Announcement | null {
   try {
     const text = new TextDecoder().decode(data);
     const obj = JSON.parse(text);
-    if (
-      typeof obj.ipnsName === "string" &&
-      typeof obj.cid === "string"
-    ) {
+    if (typeof obj.ipnsName === "string" && typeof obj.cid === "string") {
       return obj as Announcement;
     }
     return null;

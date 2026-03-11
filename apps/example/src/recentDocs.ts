@@ -42,21 +42,13 @@ export function loadRecent(): RecentDoc[] {
   }
 }
 
-export function saveRecent(
-  url: string,
-  role: string,
-  title?: string,
-): void {
+export function saveRecent(url: string, role: string, title?: string): void {
   const entries = loadRecent();
   const docId = docIdFromUrl(url);
 
   // Preserve existing title if not provided
-  const existing = entries.find(
-    (e) => e.docId === docId,
-  );
-  const filtered = entries.filter(
-    (e) => e.docId !== docId,
-  );
+  const existing = entries.find((e) => e.docId === docId);
+  const filtered = entries.filter((e) => e.docId !== docId);
 
   filtered.unshift({
     url,
@@ -72,40 +64,24 @@ export function saveRecent(
   }
 
   try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(filtered),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
   } catch {}
 }
 
-export function updateRecentTitle(
-  docId: string,
-  title: string,
-): void {
+export function updateRecentTitle(docId: string, title: string): void {
   const entries = loadRecent();
-  const entry = entries.find(
-    (e) => e.docId === docId,
-  );
+  const entry = entries.find((e) => e.docId === docId);
   if (!entry) return;
   entry.title = title;
   try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(entries),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch {}
 }
 
 export function removeRecent(docId: string): void {
   const entries = loadRecent();
-  const filtered = entries.filter(
-    (e) => e.docId !== docId,
-  );
+  const filtered = entries.filter((e) => e.docId !== docId);
   try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(filtered),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
   } catch {}
 }

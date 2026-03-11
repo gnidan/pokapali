@@ -1,27 +1,26 @@
 import { createHelia, libp2pDefaults } from "helia";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
-import {
-  pubsubPeerDiscovery,
-} from "@libp2p/pubsub-peer-discovery";
+import { pubsubPeerDiscovery } from "@libp2p/pubsub-peer-discovery";
 import type { Helia } from "helia";
 import type { Libp2p, PubSub } from "@libp2p/interface";
 
-const DISCOVERY_TOPIC =
-  "pokapali._peer-discovery._p2p._pubsub";
+const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
 
 export interface HeliaOptions {
   bootstrapPeers?: string[];
 }
 
-interface HeliaWithPubsub extends Helia<Libp2p<{
-  pubsub: PubSub;
-}>> {}
+interface HeliaWithPubsub extends Helia<
+  Libp2p<{
+    pubsub: PubSub;
+  }>
+> {}
 
 let sharedHelia: HeliaWithPubsub | null = null;
 let refCount = 0;
 
 export async function acquireHelia(
-  options?: HeliaOptions
+  options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
   if (sharedHelia) {
     refCount++;
@@ -82,32 +81,32 @@ export async function acquireHelia(
     // Block plain ws:// dials from HTTPS pages — browsers
     // reject mixed content and the failed attempts waste
     // connection slots and time.
-    ...(isSecureContext ? {
-      connectionGater: {
-        ...defaults.connectionGater,
-        denyDialMultiaddr: (ma: any) => {
-          const s = ma.toString();
-          if (s.includes("/ws/") || s.endsWith("/ws")) {
-            return !s.includes("/tls/");
-          }
-          return false;
-        },
-      },
-    } : {}),
+    ...(isSecureContext
+      ? {
+          connectionGater: {
+            ...defaults.connectionGater,
+            denyDialMultiaddr: (ma: any) => {
+              const s = ma.toString();
+              if (s.includes("/ws/") || s.endsWith("/ws")) {
+                return !s.includes("/tls/");
+              }
+              return false;
+            },
+          },
+        }
+      : {}),
   };
 
   const BOOTSTRAP_TIMEOUT_MS = 30_000;
-  const helia = await Promise.race([
+  const helia = (await Promise.race([
     createHelia({ libp2p: libp2pOptions }),
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(
-          new Error("Helia bootstrap timed out"),
-        ),
+        () => reject(new Error("Helia bootstrap timed out")),
         BOOTSTRAP_TIMEOUT_MS,
       ),
     ),
-  ]) as unknown as HeliaWithPubsub;
+  ])) as unknown as HeliaWithPubsub;
 
   sharedHelia = helia;
   refCount = 1;

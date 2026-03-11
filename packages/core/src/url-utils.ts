@@ -10,9 +10,7 @@ export function docIdFromUrl(url: string): string {
     const docIdx = parts.indexOf("doc");
     if (docIdx >= 0 && parts[docIdx + 1]) {
       const id = parts[docIdx + 1];
-      return id.length > 12
-        ? id.slice(0, 6) + "\u2026" + id.slice(-6)
-        : id;
+      return id.length > 12 ? id.slice(0, 6) + "\u2026" + id.slice(-6) : id;
     }
   } catch {}
   return "unknown";

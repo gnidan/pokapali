@@ -1,11 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as Y from "yjs";
 import type { CapabilityKeys } from "@pokapali/capability";
 import { parseUrl, inferCapability } from "@pokapali/capability";
@@ -31,9 +24,7 @@ vi.mock("./helia.js", () => ({
   getHelia: vi.fn(() => ({
     blockstore: {
       put: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockRejectedValue(
-        new Error("Not found"),
-      ),
+      get: vi.fn().mockRejectedValue(new Error("Not found")),
     },
     libp2p: {
       addEventListener: vi.fn(),
@@ -50,17 +41,11 @@ vi.mock("./ipns-helpers.js", () => ({
 }));
 
 vi.mock("./announce.js", () => ({
-  announceSnapshot: vi.fn().mockResolvedValue(
-    undefined,
-  ),
-  announceTopic: vi.fn().mockReturnValue(
-    "/pokapali/app/test/announce",
-  ),
+  announceSnapshot: vi.fn().mockResolvedValue(undefined),
+  announceTopic: vi.fn().mockReturnValue("/pokapali/app/test/announce"),
   parseAnnouncement: vi.fn().mockReturnValue(null),
-  parseGuaranteeResponse:
-    vi.fn().mockReturnValue(null),
-  publishGuaranteeQuery:
-    vi.fn().mockResolvedValue(undefined),
+  parseGuaranteeResponse: vi.fn().mockReturnValue(null),
+  publishGuaranteeQuery: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./peer-discovery.js", () => ({
@@ -73,8 +58,7 @@ vi.mock("./node-registry.js", () => ({
   acquireNodeRegistry: vi.fn(),
   getNodeRegistry: vi.fn(() => null),
   _resetNodeRegistry: vi.fn(),
-  NODE_CAPS_TOPIC:
-    "pokapali._node-caps._p2p._pubsub",
+  NODE_CAPS_TOPIC: "pokapali._node-caps._p2p._pubsub",
 }));
 
 vi.mock("@pokapali/sync", () => ({
@@ -348,9 +332,7 @@ describe("@pokapali/core", () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     doc.destroy();
-    expect(() => doc.channel("content")).toThrow(
-      /destroyed/,
-    );
+    expect(() => doc.channel("content")).toThrow(/destroyed/);
   });
 
   it("_meta populated on create", async () => {
@@ -452,31 +434,20 @@ describe("@pokapali/core", () => {
       const content = doc.channel("content");
       content.getMap("data").set("hello", "world");
 
-      const { newDoc, forwardingRecord } =
-        await doc.rotate();
+      const { newDoc, forwardingRecord } = await doc.rotate();
 
-      expect(forwardingRecord).toBeInstanceOf(
-        Uint8Array,
-      );
+      expect(forwardingRecord).toBeInstanceOf(Uint8Array);
       expect(newDoc.capability.isAdmin).toBe(true);
 
       const newContent = newDoc.channel("content");
-      expect(
-        newContent.getMap("data").get("hello"),
-      ).toBe("world");
+      expect(newContent.getMap("data").get("hello")).toBe("world");
 
       // Old doc is destroyed
-      expect(() => doc.channel("content")).toThrow(
-        /destroyed/,
-      );
+      expect(() => doc.channel("content")).toThrow(/destroyed/);
 
       // New doc has different URLs
-      expect(newDoc.urls.admin).not.toBe(
-        doc.urls.admin,
-      );
-      expect(newDoc.urls.read).not.toBe(
-        doc.urls.read,
-      );
+      expect(newDoc.urls.admin).not.toBe(doc.urls.admin);
+      expect(newDoc.urls.read).not.toBe(doc.urls.read);
 
       newDoc.destroy();
     });
@@ -488,9 +459,7 @@ describe("@pokapali/core", () => {
       admin.destroy();
 
       const reader = await lib.open(readUrl);
-      await expect(reader.rotate()).rejects.toThrow(
-        /Only admins can rotate/,
-      );
+      await expect(reader.rotate()).rejects.toThrow(/Only admins can rotate/);
       reader.destroy();
     });
 
@@ -502,15 +471,10 @@ describe("@pokapali/core", () => {
       const adminUrl = doc.urls.admin!;
       const parsed = await parseUrl(adminUrl);
 
-      const { forwardingRecord } =
-        await doc.rotate();
+      const { forwardingRecord } = await doc.rotate();
 
-      const fwd =
-        decodeForwardingRecord(forwardingRecord);
-      const valid = await verifyForwardingRecord(
-        fwd,
-        parsed.keys.rotationKey!,
-      );
+      const fwd = decodeForwardingRecord(forwardingRecord);
+      const valid = await verifyForwardingRecord(fwd, parsed.keys.rotationKey!);
       expect(valid).toBe(true);
     });
   });
@@ -570,9 +534,7 @@ describe("@pokapali/core", () => {
       const followed = await lib.open(oldAdminUrl);
       // The followed doc has a different ipnsName
       // (it resolved to the new doc)
-      expect(followed.urls.read).not.toBe(
-        oldAdminUrl,
-      );
+      expect(followed.urls.read).not.toBe(oldAdminUrl);
 
       followed.destroy();
       newDoc.destroy();

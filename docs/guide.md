@@ -24,6 +24,7 @@ const app = pokapali({
 ```
 
 **Options:**
+
 - `appId` — identifier for your app (used for relay
   discovery and room names)
 - `channels` — named data channels for your doc
@@ -92,9 +93,9 @@ Every document has up to three URLs with different access
 levels:
 
 ```ts
-doc.urls.admin;  // full control (null if not admin)
-doc.urls.write;  // edit + publish (null if read-only)
-doc.urls.read;   // view only (always available)
+doc.urls.admin; // full control (null if not admin)
+doc.urls.write; // edit + publish (null if read-only)
+doc.urls.read; // view only (always available)
 ```
 
 URLs are self-contained capability tokens — the hash
@@ -104,9 +105,9 @@ access the document at that level without a server.
 **Check capabilities:**
 
 ```ts
-doc.capability.isAdmin;        // boolean
+doc.capability.isAdmin; // boolean
 doc.capability.canPushSnapshots; // boolean
-doc.capability.namespaces;     // Set<string>
+doc.capability.namespaces; // Set<string>
 ```
 
 **Generate invite links:**
@@ -238,14 +239,10 @@ doc.destroy();
 
 ```tsx
 import { useEffect } from "react";
-import {
-  useEditor, EditorContent
-} from "@tiptap/react";
+import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Collaboration
-  from "@tiptap/extension-collaboration";
-import CollaborationCursor
-  from "@tiptap/extension-collaboration-cursor";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 
 function Editor({ doc }) {
   const ydoc = doc.channel("content");
@@ -329,15 +326,12 @@ const BASE = "/my-app";
 
 function isDocUrl(url) {
   const parsed = new URL(url);
-  return parsed.pathname.startsWith(BASE + "/doc/")
-    && parsed.hash.length > 1;
+  return parsed.pathname.startsWith(BASE + "/doc/") && parsed.hash.length > 1;
 }
 
 // Auto-open on page load
 if (isDocUrl(window.location.href)) {
-  const doc = await app.open(
-    window.location.href
-  );
+  const doc = await app.open(window.location.href);
 }
 ```
 
@@ -348,9 +342,7 @@ const versions = await doc.history();
 // [{ cid, seq, ts }, ...]
 
 // Load a specific version
-const channels = await doc.loadVersion(
-  versions[0].cid
-);
+const channels = await doc.loadVersion(versions[0].cid);
 // Record<string, Y.Doc> — one Y.Doc per channel
 ```
 

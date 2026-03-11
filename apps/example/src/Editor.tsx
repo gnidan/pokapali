@@ -1,28 +1,13 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
-import type {
-  Doc,
-  DocStatus,
-  SaveState,
-} from "@pokapali/core";
-import {
-  createAutoSaver,
-  docIdFromUrl,
-} from "@pokapali/core";
+import type { Doc, DocStatus, SaveState } from "@pokapali/core";
+import { createAutoSaver, docIdFromUrl } from "@pokapali/core";
 import { StatusIndicator } from "./StatusIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
-import {
-  LockIcon,
-  EncryptionInfo,
-} from "./EncryptionInfo";
+import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
 import { SharePanel } from "./SharePanel";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
@@ -34,32 +19,15 @@ import {
 } from "./UserIdentity";
 import { capitalize } from "./utils";
 
-export function EditorView({
-  doc,
-  onBack,
-}: {
-  doc: Doc;
-  onBack: () => void;
-}) {
-  const [status, setStatus] = useState<DocStatus>(
-    doc.status,
-  );
+export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
+  const [status, setStatus] = useState<DocStatus>(doc.status);
   const [showShare, setShowShare] = useState(false);
-  const [showEncryption, setShowEncryption] =
-    useState(false);
-  const [saveState, setSaveState] = useState<SaveState>(
-    doc.saveState,
-  );
-  const [ackCount, setAckCount] = useState(
-    doc.ackedBy.size,
-  );
-  const [lastPublished, setLastPublished] = useState(
-    Date.now(),
-  );
+  const [showEncryption, setShowEncryption] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>(doc.saveState);
+  const [ackCount, setAckCount] = useState(doc.ackedBy.size);
+  const [lastPublished, setLastPublished] = useState(Date.now());
   const [updateFlash, setUpdateFlash] = useState(false);
-  const flashTimer = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [user, setUser] = useState<StoredUser>(loadUser);
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -68,17 +36,14 @@ export function EditorView({
   const metaDoc = doc.channel("_meta");
   const docMap = metaDoc.getMap("doc");
   const [docTitle, setDocTitle] = useState(
-    () =>
-      (docMap.get("title") as string) || "Untitled",
+    () => (docMap.get("title") as string) || "Untitled",
   );
-  const [editingTitle, setEditingTitle] =
-    useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const titleBtnRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
 
-  const isReadOnly =
-    !doc.capability.namespaces.has("content");
+  const isReadOnly = !doc.capability.namespaces.has("content");
   const canSave = doc.capability.canPushSnapshots;
   const role = doc.role;
 
@@ -99,18 +64,14 @@ export function EditorView({
     // indicator reacts even if a y-webrtc status event
     // was missed (e.g. silent reconnect).
     const refreshStatus = () => setStatus(doc.status);
-    const onSaveState = (s: SaveState) =>
-      setSaveState(s);
+    const onSaveState = (s: SaveState) => setSaveState(s);
     const onSnapshotApplied = () => {
       setLastPublished(Date.now());
       setUpdateFlash(true);
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
-      flashTimer.current = setTimeout(
-        () => setUpdateFlash(false),
-        2_000,
-      );
+      flashTimer.current = setTimeout(() => setUpdateFlash(false), 2_000);
       refreshStatus();
     };
     const onAck = () => {
@@ -164,8 +125,7 @@ export function EditorView({
   // Writers always show the editor — they don't need
   // to wait for a snapshot load. Readers wait for
   // ready (snapshot loaded) or synced (peer connected).
-  const showEditor =
-    !isReadOnly || ready || status === "synced";
+  const showEditor = !isReadOnly || ready || status === "synced";
 
   const editor = useEditor(
     {
@@ -207,22 +167,17 @@ export function EditorView({
     });
   }, []);
 
-  const handleNameKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        (e.target as HTMLInputElement).blur();
-      }
-    },
-    [],
-  );
+  const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      (e.target as HTMLInputElement).blur();
+    }
+  }, []);
 
   // Sync title from _meta subdoc
   const docId = docIdFromUrl(doc.urls.best);
   useEffect(() => {
     const observer = () => {
-      const t =
-        (docMap.get("title") as string) ||
-        "Untitled";
+      const t = (docMap.get("title") as string) || "Untitled";
       setDocTitle(t);
       if (t !== "Untitled") {
         updateRecentTitle(docId, t);
@@ -244,14 +199,11 @@ export function EditorView({
     });
   }, [docMap, docTitle]);
 
-  const handleTitleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        (e.target as HTMLInputElement).blur();
-      }
-    },
-    [],
-  );
+  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      (e.target as HTMLInputElement).blur();
+    }
+  }, []);
 
   useEffect(() => {
     if (editingName && nameRef.current) {
@@ -278,7 +230,9 @@ export function EditorView({
   // effect cleanups (listeners, observers, timers)
   // run while doc is still alive.
   useEffect(() => {
-    return () => { doc.destroy(); };
+    return () => {
+      doc.destroy();
+    };
   }, [doc]);
 
   return (
@@ -299,9 +253,7 @@ export function EditorView({
             value={docTitle}
             placeholder="Untitled"
             aria-label="Document title"
-            onChange={(e) =>
-              setDocTitle(e.target.value)
-            }
+            onChange={(e) => setDocTitle(e.target.value)}
             onBlur={commitTitle}
             onKeyDown={handleTitleKeyDown}
             maxLength={80}
@@ -309,15 +261,8 @@ export function EditorView({
         ) : (
           <button
             ref={titleBtnRef}
-            className={
-              "doc-title" +
-              (isReadOnly ? " read-only" : "")
-            }
-            onClick={
-              isReadOnly
-                ? undefined
-                : () => setEditingTitle(true)
-            }
+            className={"doc-title" + (isReadOnly ? " read-only" : "")}
+            onClick={isReadOnly ? undefined : () => setEditingTitle(true)}
             title={docTitle || "Untitled"}
             aria-label={`Document: ${docTitle || "Untitled"}`}
             disabled={isReadOnly}
@@ -328,25 +273,17 @@ export function EditorView({
         <span className="encryption-wrap">
           <button
             className="encryption-btn"
-            onClick={() =>
-              setShowEncryption((s) => !s)
-            }
+            onClick={() => setShowEncryption((s) => !s)}
             aria-label="Encryption info"
             title="End-to-end encrypted"
           >
             <LockIcon size={14} />
           </button>
           {showEncryption && (
-            <EncryptionInfo
-              onClose={() =>
-                setShowEncryption(false)
-              }
-            />
+            <EncryptionInfo onClose={() => setShowEncryption(false)} />
           )}
         </span>
-        <span className={`badge ${role}`}>
-          {capitalize(role)}
-        </span>
+        <span className={`badge ${role}`}>{capitalize(role)}</span>
         {editingName ? (
           <input
             ref={nameRef}
@@ -384,47 +321,32 @@ export function EditorView({
             onPublish={doSave}
           />
         ) : (
-          <LastUpdated
-            timestamp={lastPublished}
-            flash={updateFlash}
-          />
+          <LastUpdated timestamp={lastPublished} flash={updateFlash} />
         )}
         <button
           className="toggle-share"
           onClick={() => setShowShare((s) => !s)}
           aria-expanded={showShare}
-          aria-label={
-            showShare
-              ? "Hide share panel"
-              : "Open share panel"
-          }
+          aria-label={showShare ? "Hide share panel" : "Open share panel"}
         >
           {showShare ? "Hide share" : "Share"}
         </button>
       </div>
 
-      {showShare && (
-        <SharePanel
-          ref={sharePanelRef}
-          doc={doc}
-        />
-      )}
+      {showShare && <SharePanel ref={sharePanelRef} doc={doc} />}
 
       <div className="editor-container">
         {showEditor ? (
           <>
             {isReadOnly && (
               <div className="read-only-banner">
-                Read-only — you cannot edit
-                this document.
+                Read-only — you cannot edit this document.
               </div>
             )}
             <EditorContent editor={editor} />
           </>
         ) : (
-          <div className="loading-doc">
-            Loading…
-          </div>
+          <div className="loading-doc">Loading…</div>
         )}
       </div>
 

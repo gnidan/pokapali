@@ -94,42 +94,42 @@ const app = pokapali({
 
 // Create a new document
 const doc = await app.create();
-doc.channel("content");  // Y.Doc for "content" — pass
-                         // to editor
+doc.channel("content"); // Y.Doc for "content" — pass
+// to editor
 doc.channel("comments"); // Y.Doc for "comments" — pass
-                         // to comments UI
+// to comments UI
 doc.provider; // for awareness / cursor presence
-              // (shared room, ephemeral)
+// (shared room, ephemeral)
 doc.capability; // { namespaces: Set<string>,
-                //   canPushSnapshots: bool,
-                //   isAdmin: bool }
+//   canPushSnapshots: bool,
+//   isAdmin: bool }
 doc.urls.admin; // keep private — derives everything
 doc.urls.write; // read + write all namespaces
-                // + canPushSnapshots
-doc.urls.read;  // read only
-doc.status;     // observable: "connecting" | "synced"
-                // | "receiving" | "offline"
-doc.saveState;  // observable: "saved" | "dirty"
-                // | "saving" | "unpublished"
+// + canPushSnapshots
+doc.urls.read; // read only
+doc.status; // observable: "connecting" | "synced"
+// | "receiving" | "offline"
+doc.saveState; // observable: "saved" | "dirty"
+// | "saving" | "unpublished"
 
 // Generate a custom capability URL — any subset of
 // channels, with or without snapshot pushing
 doc.invite({
   namespaces: ["comments"],
   canPushSnapshots: true, // explicit — not implied
-                          // by namespace access
+  // by namespace access
 });
 
 // Open an existing document — capability inferred
 // from fragment
 const doc = await app.open(url);
-doc.channel("content");  // Y.Doc — readable by all
-                         // capability levels
+doc.channel("content"); // Y.Doc — readable by all
+// capability levels
 doc.channel("comments"); // Y.Doc — readable by all
-                         // capability levels
+// capability levels
 doc.capability; // { namespaces: Set<string>,
-                //   canPushSnapshots: bool,
-                //   isAdmin: bool }
+//   canPushSnapshots: bool,
+//   isAdmin: bool }
 doc.invite(capability); // generate lower-privilege URLs
 // can only grant subsets of own capability
 
@@ -172,8 +172,7 @@ The application should reflect this in the editor
 configuration:
 
 ```ts
-const isReadOnly =
-  !doc.capability.namespaces.has("content");
+const isReadOnly = !doc.capability.namespaces.has("content");
 const editor = new Editor({
   editable: !isReadOnly,
   extensions: [
@@ -259,12 +258,9 @@ window.addEventListener("beforeunload", (e) => {
 // visibilitychange is more reliable on mobile for
 // detecting tab/app backgrounding
 document.addEventListener("visibilitychange", () => {
-  if (
-    document.visibilityState === "hidden" &&
-    doc.saveState === "dirty"
-  ) {
+  if (document.visibilityState === "hidden" && doc.saveState === "dirty") {
     doc.publish(); // fire-and-forget; may or may not
-                   // complete
+    // complete
   }
 });
 ```
@@ -282,10 +278,10 @@ cheap to emit.
 myapp.com/doc/<ipns-name>#<version-byte><key-material>
 ```
 
-| Part              | Visibility         | Purpose                                                                                                                                                                                        |
-| ----------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<ipns-name>`     | Public (in path)   | Stable document ID — same across all capability levels. Used as prefix for y-webrtc room names (`${ipnsName}:${namespace}`), IndexedDB DB names, pubsub topic, DHT key. |
-| `#<version-byte>` | Private (fragment) | Format version — enables future key derivation scheme changes without breaking old URLs.                                                                                                       |
+| Part              | Visibility         | Purpose                                                                                                                                                                                      |
+| ----------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<ipns-name>`     | Public (in path)   | Stable document ID — same across all capability levels. Used as prefix for y-webrtc room names (`${ipnsName}:${namespace}`), IndexedDB DB names, pubsub topic, DHT key.                      |
+| `#<version-byte>` | Private (fragment) | Format version — enables future key derivation scheme changes without breaking old URLs.                                                                                                     |
 | `<key-material>`  | Private (fragment) | Always contains `readKey` and `awarenessRoomPassword`. Optionally contains `ipnsKey`, `rotationKey`, and any subset of channel access keys. The set of included keys defines the capability. |
 
 Capability is implicit in which keys are present — the
@@ -366,9 +362,7 @@ async function deriveDocKeys(
   // peer with the access key can join the room.
   const channelKeys = Object.fromEntries(
     await Promise.all(
-      channels.map(async (ch) => [
-        ch, await deriveBits(`ns:${ch}`),
-      ]),
+      channels.map(async (ch) => [ch, await deriveBits(`ns:${ch}`)]),
     ),
   );
 
@@ -432,9 +426,9 @@ three transport layers:
 ```ts
 type DocStatus =
   | "connecting" // bootstrapping, no transport ready
-  | "synced"     // WebRTC connected to ≥1 channel room
-  | "receiving"  // no WebRTC peers, GossipSub active
-  | "offline";   // no transports active
+  | "synced" // WebRTC connected to ≥1 channel room
+  | "receiving" // no WebRTC peers, GossipSub active
+  | "offline"; // no transports active
 ```
 
 The derivation considers WebRTC channel providers,
@@ -462,9 +456,9 @@ GossipSub and cursor presence via the awareness room.
 
 ```ts
 type SaveState =
-  | "saved"       // snapshot pushed and acked
-  | "dirty"       // local changes not yet pushed
-  | "saving"      // push in progress
+  | "saved" // snapshot pushed and acked
+  | "dirty" // local changes not yet pushed
+  | "saving" // push in progress
   | "unpublished"; // no snapshot pushed yet (new doc)
 ```
 
@@ -663,9 +657,9 @@ interface SnapshotNode {
   subdocs: {
     // one entry per channel + _meta
     [channel: string]: // e.g. "content", "comments",
-                       // "_meta"
+    // "_meta"
     Uint8Array; // Y.encodeStateAsUpdate — complete
-                // encrypted state for this subdoc
+    // encrypted state for this subdoc
   };
   prev: CID | null; // link to previous snapshot
   seq: number; // Y.Doc clockSum (sum of all state vector clocks) — deterministic IPNS ordering
@@ -708,11 +702,11 @@ Resolution tries **delegated HTTP first** (fast, reliable), falling back to **fu
 
 ### Snapshot notification channels
 
-| Channel                  | Speed     | Persistence              | Use                                                         |
-| ------------------------ | --------- | ------------------------ | ----------------------------------------------------------- |
-| GossipSub announcements  | Immediate | Ephemeral                | Fast propagation to online pinners **and all peers**        |
-| IPNS polling (30s)       | Delayed   | N/A                      | Fallback when no GossipSub peers are connected              |
-| DHT (IPNS resolve)       | ~seconds  | Persistent, expires ~24h | Cold bootstrap, pinner re-resolution                        |
+| Channel                 | Speed     | Persistence              | Use                                                  |
+| ----------------------- | --------- | ------------------------ | ---------------------------------------------------- |
+| GossipSub announcements | Immediate | Ephemeral                | Fast propagation to online pinners **and all peers** |
+| IPNS polling (30s)      | Delayed   | N/A                      | Fallback when no GossipSub peers are connected       |
+| DHT (IPNS resolve)      | ~seconds  | Persistent, expires ~24h | Cold bootstrap, pinner re-resolution                 |
 
 Writers publish a GossipSub announcement on topic
 `/pokapali/app/{appId}/announce` immediately after each
@@ -720,10 +714,10 @@ Writers publish a GossipSub announcement on topic
 
 ```ts
 interface Announcement {
-  ipnsName: string;  // hex-encoded IPNS name
-  cid: string;       // CID of the snapshot block
+  ipnsName: string; // hex-encoded IPNS name
+  cid: string; // CID of the snapshot block
   blockData?: string; // base64-encoded block (inline)
-  fromPinner?: true;  // set by pinner re-announces
+  fromPinner?: true; // set by pinner re-announces
 }
 ```
 
@@ -815,7 +809,7 @@ interface AnnouncementAck {
   ack: true;
   peerId: string;
   guaranteeUntil?: number; // re-announce end (ms epoch)
-  retainUntil?: number;    // block storage end (ms epoch)
+  retainUntil?: number; // block storage end (ms epoch)
 }
 ```
 
@@ -889,6 +883,7 @@ priority model:
   - `RETENTION_DURATION` (14d): block storage window
 
 Interval progression at idle (no load factor):
+
 ```
 t=0:      30s       t=3d:     32min
 t=12h:    60s       t=4d:     ~2h
@@ -903,12 +898,12 @@ re-announce frequency.
 
 **Reader activity as demand signal.** When a non-pinner
 peer (reader or writer) re-announces a CID, the pinner
-updates `lastSeenAt` for that document *before* the dedup
+updates `lastSeenAt` for that document _before_ the dedup
 early return in `onAnnouncement`. This refreshes the
 document's priority and extends both guarantee windows
 without triggering a re-fetch.
 
-Pinner re-announces are *supply signals*, not demand
+Pinner re-announces are _supply signals_, not demand
 signals — they indicate the pinner is doing its job, not
 that anyone is reading the doc. The `fromPinner` field on
 announcements lets pinners distinguish: when
@@ -1041,6 +1036,7 @@ via DHT. Adding a new relay requires only starting the
 process — GossipSub mesh formation is automatic.
 
 The HTTP server exposes:
+
 - `GET /health` — returns `200 OK` when the node is running (used for deployment health checks; the relay takes ~25s to start due to autoTLS cert provisioning)
 - `GET /status` — returns JSON diagnostics: peer count, connection details, GossipSub mesh/topic stats, pinned document count, pinner state, and lifetime metrics (see below)
 - `GET /metrics` — returns Prometheus-formatted metrics
@@ -1059,15 +1055,15 @@ pinner first learned about a document, persisted in
 
 **Counters** (monotonically increasing, reset on restart):
 
-| Counter | Updated when |
-| --- | --- |
-| `docsTracked` | new IPNS name discovered |
-| `docsPruned` | doc removed from state |
-| `guaranteesIssued` | ack sent with `guaranteeUntil` |
-| `guaranteesHonored` | doc pruned after its `guaranteeUntil` |
-| `guaranteesBroken` | doc pruned before its `guaranteeUntil` |
-| `retentionsHonored` | doc pruned after its `retainUntil` |
-| `retentionsBroken` | doc pruned before its `retainUntil` |
+| Counter             | Updated when                           |
+| ------------------- | -------------------------------------- |
+| `docsTracked`       | new IPNS name discovered               |
+| `docsPruned`        | doc removed from state                 |
+| `guaranteesIssued`  | ack sent with `guaranteeUntil`         |
+| `guaranteesHonored` | doc pruned after its `guaranteeUntil`  |
+| `guaranteesBroken`  | doc pruned before its `guaranteeUntil` |
+| `retentionsHonored` | doc pruned after its `retainUntil`     |
+| `retentionsBroken`  | doc pruned before its `retainUntil`    |
 
 `guaranteesBroken` should be 0 in normal operation. If
 it's nonzero, the pinner is over-promising — it should
@@ -1076,13 +1072,13 @@ forces early pruning (tracking > maxActiveDocs × 10).
 
 **Gauges** (current snapshot):
 
-| Gauge | Meaning |
-| --- | --- |
-| `activeDocs` | docs in re-announce phase |
-| `retainedDocs` | docs past guarantee, before prune |
-| `oldestActiveAge` | age of oldest active doc (ms) |
-| `oldestRetainedAge` | age of oldest retained doc (ms) |
-| `utilization` | activeDocs / capacity |
+| Gauge               | Meaning                           |
+| ------------------- | --------------------------------- |
+| `activeDocs`        | docs in re-announce phase         |
+| `retainedDocs`      | docs past guarantee, before prune |
+| `oldestActiveAge`   | age of oldest active doc (ms)     |
+| `oldestRetainedAge` | age of oldest retained doc (ms)   |
+| `utilization`       | activeDocs / capacity             |
 
 **Lifetime histogram** (updated on each prune):
 
@@ -1122,9 +1118,14 @@ tight against the guarantee.
       "retentionsHonored": 5690,
       "retentionsBroken": 2,
       "histogram": {
-        "<1h": 12, "1h-1d": 89, "1-3d": 204,
-        "3-7d": 1830, "7-14d": 2104,
-        "14-30d": 1200, "30-90d": 248, "90d+": 5
+        "<1h": 12,
+        "1h-1d": 89,
+        "1-3d": 204,
+        "3-7d": 1830,
+        "7-14d": 2104,
+        "14-30d": 1200,
+        "30-90d": 248,
+        "90d+": 5
       },
       "oldestActiveAge": 518400000,
       "oldestRetainedAge": 1123200000
@@ -1153,11 +1154,11 @@ seconds, a node publishes a JSON capability message:
 interface NodeCapsMessage {
   version: 1 | 2;
   peerId: string;
-  roles: string[];       // e.g. ["relay", "pinner"]
+  roles: string[]; // e.g. ["relay", "pinner"]
   // v2 additions:
-  neighbors?: Neighbor[];  // connected relay/pinner peers
-  browserCount?: number;   // connected browser count
-  addrs?: string[];        // WSS multiaddrs for dialing
+  neighbors?: Neighbor[]; // connected relay/pinner peers
+  browserCount?: number; // connected browser count
+  addrs?: string[]; // WSS multiaddrs for dialing
 }
 ```
 
@@ -1407,23 +1408,23 @@ The library should document expected bundle sizes for each configuration tier.
 
 ## Dependency Summary
 
-| Package                                       | Purpose                                                                            |
-| --------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `yjs`                                         | CRDT engine; subdocument support for channel isolation                             |
-| `y-webrtc`                                    | P2P real-time sync — one room per writable channel, plus a shared awareness room   |
-| `y-indexeddb`                                 | Local persistence in browser (per-subdoc)                                          |
-| `helia`                                       | IPFS in browser and relay/pinner; delivers snapshot updates via delegated routing   |
-| `@ipld/dag-cbor`                              | IPFS block encoding for snapshots (IPLD-native CID handling)                       |
-| `@helia/ipns`                                 | IPNS publish (delegated HTTP) / resolve (delegated + DHT fallback)                 |
-| `ipns`                                        | IPNS record creation and validation                                                |
-| `@chainsafe/libp2p-gossipsub`                 | GossipSub pubsub — signaling, peer discovery, snapshot announcements, and node capability broadcasting |
-| `@libp2p/crypto/keys`                         | IPNS keypair derivation from seed                                                  |
-| `@libp2p/pubsub-peer-discovery`               | Browser peer discovery via GossipSub                                               |
-| `@libp2p/kad-dht`                             | DHT for relay (client-mode) — record providing and IPNS republish                  |
-| `@ipshipyard/libp2p-auto-tls`                 | Automatic TLS certificates for relay WSS                                           |
-| `datastore-level`                             | Persistent LevelDB datastore for relay                                             |
-| `@pokapali/log`                                | Zero-dependency structured logging (`createLogger(module)`) — leaf package used by all other packages |
-| `@tiptap/*`                                   | Example editor integration (app-side, not in library)                              |
+| Package                         | Purpose                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `yjs`                           | CRDT engine; subdocument support for channel isolation                                                 |
+| `y-webrtc`                      | P2P real-time sync — one room per writable channel, plus a shared awareness room                       |
+| `y-indexeddb`                   | Local persistence in browser (per-subdoc)                                                              |
+| `helia`                         | IPFS in browser and relay/pinner; delivers snapshot updates via delegated routing                      |
+| `@ipld/dag-cbor`                | IPFS block encoding for snapshots (IPLD-native CID handling)                                           |
+| `@helia/ipns`                   | IPNS publish (delegated HTTP) / resolve (delegated + DHT fallback)                                     |
+| `ipns`                          | IPNS record creation and validation                                                                    |
+| `@chainsafe/libp2p-gossipsub`   | GossipSub pubsub — signaling, peer discovery, snapshot announcements, and node capability broadcasting |
+| `@libp2p/crypto/keys`           | IPNS keypair derivation from seed                                                                      |
+| `@libp2p/pubsub-peer-discovery` | Browser peer discovery via GossipSub                                                                   |
+| `@libp2p/kad-dht`               | DHT for relay (client-mode) — record providing and IPNS republish                                      |
+| `@ipshipyard/libp2p-auto-tls`   | Automatic TLS certificates for relay WSS                                                               |
+| `datastore-level`               | Persistent LevelDB datastore for relay                                                                 |
+| `@pokapali/log`                 | Zero-dependency structured logging (`createLogger(module)`) — leaf package used by all other packages  |
+| `@tiptap/*`                     | Example editor integration (app-side, not in library)                                                  |
 
 ---
 

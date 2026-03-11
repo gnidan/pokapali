@@ -1,9 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   forceSimulation,
   forceLink,
@@ -12,10 +7,7 @@ import {
   forceX,
   forceY,
 } from "d3-force";
-import type {
-  Simulation,
-  SimulationNodeDatum,
-} from "d3-force";
+import type { Simulation, SimulationNodeDatum } from "d3-force";
 import type {
   TopologyNode,
   TopologyGraphEdge,
@@ -62,18 +54,13 @@ function graphFp(graph: TopologyGraph): string {
     graph.nodes
       .map(
         (n) =>
-          `${n.id}:${n.kind}:${n.connected}` +
-          `:${n.ackedCurrentCid ?? ""}`,
+          `${n.id}:${n.kind}:${n.connected}` + `:${n.ackedCurrentCid ?? ""}`,
       )
       .sort()
       .join("|") +
     "||" +
     graph.edges
-      .map(
-        (e) =>
-          `${e.source}-${e.target}` +
-          `:${e.connected}`,
-      )
+      .map((e) => `${e.source}-${e.target}` + `:${e.connected}`)
       .sort()
       .join("|")
   );
@@ -91,13 +78,9 @@ interface SimNode extends SimulationNodeDatum {
 }
 
 const isInfra = (k: TopologyNode["kind"]) =>
-  k === "relay" ||
-  k === "pinner" ||
-  k === "relay+pinner";
+  k === "relay" || k === "pinner" || k === "relay+pinner";
 
-function linkDistanceFn(
-  l: { source: SimNode; target: SimNode },
-): number {
+function linkDistanceFn(l: { source: SimNode; target: SimNode }): number {
   const s = l.source;
   const t = l.target;
   if (isInfra(s.kind) && isInfra(t.kind)) {
@@ -109,18 +92,13 @@ function linkDistanceFn(
   return 110;
 }
 
-function linkStrengthFn(
-  l: { source: SimNode; target: SimNode },
-): number {
+function linkStrengthFn(l: { source: SimNode; target: SimNode }): number {
   const s = l.source;
   const t = l.target;
   if (isInfra(s.kind) && isInfra(t.kind)) {
     return 0.9;
   }
-  if (
-    s.kind === "browser" ||
-    t.kind === "browser"
-  ) {
+  if (s.kind === "browser" || t.kind === "browser") {
     return 0.15;
   }
   return 0.7;
@@ -128,9 +106,12 @@ function linkStrengthFn(
 
 function chargeFn(d: SimNode): number {
   switch (d.kind) {
-    case "self": return -350;
-    case "browser": return -150;
-    default: return -120;
+    case "self":
+      return -350;
+    case "browser":
+      return -150;
+    default:
+      return -120;
   }
 }
 
@@ -144,35 +125,26 @@ function useForceLayout(
   type Sim = Simulation<SimNode, undefined>;
   const simRef = useRef<Sim | null>(null);
   const nodesRef = useRef<SimNode[]>([]);
-  const [posMap, setPosMap] = useState<
-    Map<string, { x: number; y: number }>
-  >(() => new Map());
+  const [posMap, setPosMap] = useState<Map<string, { x: number; y: number }>>(
+    () => new Map(),
+  );
 
   // One-time simulation creation
   useEffect(() => {
     const tick = () => {
-      const m = new Map<
-        string,
-        { x: number; y: number }
-      >();
+      const m = new Map<string, { x: number; y: number }>();
       // Read live ref — nodes array is replaced
       // on each graph update
       for (const n of nodesRef.current) {
         m.set(n.id, {
-          x: Math.max(
-            30, Math.min(W - 30, n.x),
-          ),
-          y: Math.max(
-            30, Math.min(H - 30, n.y),
-          ),
+          x: Math.max(30, Math.min(W - 30, n.x)),
+          y: Math.max(30, Math.min(H - 30, n.y)),
         });
       }
       setPosMap(m);
     };
 
-    const sim = forceSimulation<SimNode>(
-      nodesRef.current,
-    )
+    const sim = forceSimulation<SimNode>(nodesRef.current)
       .force(
         "link",
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -181,35 +153,22 @@ function useForceLayout(
           .distance(linkDistanceFn)
           .strength(linkStrengthFn),
       )
-      .force(
-        "charge",
-        forceManyBody<SimNode>()
-          .strength(chargeFn),
-      )
+      .force("charge", forceManyBody<SimNode>().strength(chargeFn))
       .force(
         "collide",
         forceCollide<SimNode>()
-          .radius((d) =>
-            (d.kind === "self"
-              ? SELF_R : NODE_R) + 12,
-          )
+          .radius((d) => (d.kind === "self" ? SELF_R : NODE_R) + 12)
           .strength(0.8),
       )
-      .force(
-        "x",
-        forceX<SimNode>(CX)
-          .strength(centerStrength),
-      )
-      .force(
-        "y",
-        forceY<SimNode>(CY)
-          .strength(centerStrength),
-      )
+      .force("x", forceX<SimNode>(CX).strength(centerStrength))
+      .force("y", forceY<SimNode>(CY).strength(centerStrength))
       .alphaDecay(0.025)
       .on("tick", tick);
 
     simRef.current = sim;
-    return () => { sim.stop(); };
+    return () => {
+      sim.stop();
+    };
   }, []);
 
   // Incremental update on graph change
@@ -217,52 +176,36 @@ function useForceLayout(
     const sim = simRef.current;
     if (!sim) return;
 
-    const prev = new Map(
-      nodesRef.current.map((n) => [n.id, n]),
-    );
-    const nextIds = new Set(
-      graph.nodes.map((n) => n.id),
-    );
+    const prev = new Map(nodesRef.current.map((n) => [n.id, n]));
+    const nextIds = new Set(graph.nodes.map((n) => n.id));
 
     // Update existing + add new nodes
-    const nodes: SimNode[] = graph.nodes.map(
-      (n) => {
-        const existing = prev.get(n.id);
-        if (existing) {
-          // Update mutable properties in place
-          existing.kind = n.kind;
-          existing.fx =
-            n.kind === "self" ? CX : undefined;
-          existing.fy =
-            n.kind === "self" ? CY : undefined;
-          return existing;
-        }
-        // New node — position near center
-        return {
-          id: n.id,
-          kind: n.kind,
-          x: CX + (Math.random() - 0.5) * 80,
-          y: CY + (Math.random() - 0.5) * 60,
-          vx: 0,
-          vy: 0,
-          fx:
-            n.kind === "self" ? CX : undefined,
-          fy:
-            n.kind === "self" ? CY : undefined,
-        };
-      },
-    );
+    const nodes: SimNode[] = graph.nodes.map((n) => {
+      const existing = prev.get(n.id);
+      if (existing) {
+        // Update mutable properties in place
+        existing.kind = n.kind;
+        existing.fx = n.kind === "self" ? CX : undefined;
+        existing.fy = n.kind === "self" ? CY : undefined;
+        return existing;
+      }
+      // New node — position near center
+      return {
+        id: n.id,
+        kind: n.kind,
+        x: CX + (Math.random() - 0.5) * 80,
+        y: CY + (Math.random() - 0.5) * 60,
+        vx: 0,
+        vy: 0,
+        fx: n.kind === "self" ? CX : undefined,
+        fy: n.kind === "self" ? CY : undefined,
+      };
+    });
     nodesRef.current = nodes;
 
-    const byId = new Map(
-      nodes.map((n) => [n.id, n]),
-    );
+    const byId = new Map(nodes.map((n) => [n.id, n]));
     const links = graph.edges
-      .filter(
-        (e) =>
-          byId.has(e.source) &&
-          byId.has(e.target),
-      )
+      .filter((e) => byId.has(e.source) && byId.has(e.target))
       .map((e) => ({
         source: e.source,
         target: e.target,
@@ -276,8 +219,7 @@ function useForceLayout(
     // Structural change (nodes added/removed):
     // moderate reheat. Data-only change: gentle.
     const structural =
-      nextIds.size !== prev.size ||
-      [...nextIds].some((id) => !prev.has(id));
+      nextIds.size !== prev.size || [...nextIds].some((id) => !prev.has(id));
     sim.alpha(structural ? 0.3 : 0.08).restart();
   }, [graph]);
 
@@ -290,18 +232,14 @@ function useParticles(
   groupRef: React.RefObject<SVGGElement | null>,
   pulseKey: number,
   edges: TopologyGraphEdge[],
-  posMapRef: React.RefObject<
-    Map<string, { x: number; y: number }>
-  >,
+  posMapRef: React.RefObject<Map<string, { x: number; y: number }>>,
 ) {
   const rafRef = useRef(0);
 
   useEffect(() => {
     const g = groupRef.current;
     const posMap = posMapRef.current;
-    if (
-      !g || pulseKey === 0 || posMap.size === 0
-    ) {
+    if (!g || pulseKey === 0 || posMap.size === 0) {
       return;
     }
 
@@ -319,10 +257,7 @@ function useParticles(
       if (!e.connected) continue;
       // Only animate edges involving _self —
       // we only observe our own send/receive.
-      if (
-        e.source !== "_self" &&
-        e.target !== "_self"
-      ) continue;
+      if (e.source !== "_self" && e.target !== "_self") continue;
       if (!posMap.has(e.source)) continue;
       if (!posMap.has(e.target)) continue;
       // Bidirectional: spawn particles both ways
@@ -331,12 +266,9 @@ function useParticles(
         [e.target, e.source],
       ] as const;
       for (const [src, tgt] of dirs) {
-        const count =
-          1 + Math.floor(Math.random() * 2);
+        const count = 1 + Math.floor(Math.random() * 2);
         for (let i = 0; i < count; i++) {
-          const el = document.createElementNS(
-            ns, "circle",
-          );
+          const el = document.createElementNS(ns, "circle");
           el.setAttribute("r", "2.5");
           el.setAttribute("fill", C.particle);
           el.setAttribute("opacity", "0");
@@ -345,9 +277,7 @@ function useParticles(
             el,
             srcId: src,
             tgtId: tgt,
-            born: performance.now() +
-              i * 150 +
-              Math.random() * 100,
+            born: performance.now() + i * 150 + Math.random() * 100,
             dur: 700 + Math.random() * 500,
           });
         }
@@ -358,7 +288,10 @@ function useParticles(
       const pm = posMapRef.current;
       let alive = 0;
       for (const p of particles) {
-        if (now < p.born) { alive++; continue; }
+        if (now < p.born) {
+          alive++;
+          continue;
+        }
         const t = (now - p.born) / p.dur;
         if (t >= 1) {
           p.el.remove();
@@ -374,24 +307,12 @@ function useParticles(
         }
         alive++;
         const ease = 1 - (1 - t) ** 2;
-        p.el.setAttribute(
-          "cx",
-          String(s.x + (d.x - s.x) * ease),
-        );
-        p.el.setAttribute(
-          "cy",
-          String(s.y + (d.y - s.y) * ease),
-        );
-        p.el.setAttribute(
-          "opacity",
-          String(
-            t < 0.7 ? 0.85 : (1 - t) / 0.3,
-          ),
-        );
+        p.el.setAttribute("cx", String(s.x + (d.x - s.x) * ease));
+        p.el.setAttribute("cy", String(s.y + (d.y - s.y) * ease));
+        p.el.setAttribute("opacity", String(t < 0.7 ? 0.85 : (1 - t) / 0.3));
       }
       if (alive > 0) {
-        rafRef.current =
-          requestAnimationFrame(tick);
+        rafRef.current = requestAnimationFrame(tick);
       }
     };
 
@@ -411,10 +332,7 @@ function PersonIcon() {
   return (
     <g opacity={0.5}>
       <circle cx={0} cy={-2} r={4} fill="#64748b" />
-      <path
-        d="M-6,7 Q-6,2 0,2 Q6,2 6,7"
-        fill="#64748b"
-      />
+      <path d="M-6,7 Q-6,2 0,2 Q6,2 6,7" fill="#64748b" />
     </g>
   );
 }
@@ -441,10 +359,7 @@ function NodeShape({
   x: number;
   y: number;
   guaranteeUntil: number | null;
-  onHover: (
-    n: TopologyNode | null,
-    e?: React.MouseEvent,
-  ) => void;
+  onHover: (n: TopologyNode | null, e?: React.MouseEvent) => void;
 }) {
   const isSelf = node.kind === "self";
   const r = isSelf ? SELF_R : NODE_R;
@@ -454,29 +369,18 @@ function NodeShape({
     (e: React.MouseEvent) => onHover(node, e),
     [node, onHover],
   );
-  const handleLeave = useCallback(
-    () => onHover(null),
-    [onHover],
-  );
+  const handleLeave = useCallback(() => onHover(null), [onHover]);
 
   // Determine roles
-  const isRelay =
-    node.kind === "relay" ||
-    node.kind === "relay+pinner";
-  const isPinner =
-    node.kind === "pinner" ||
-    node.kind === "relay+pinner";
+  const isRelay = node.kind === "relay" || node.kind === "relay+pinner";
+  const isPinner = node.kind === "pinner" || node.kind === "relay+pinner";
   const isBrowser = node.kind === "browser";
 
   // Guarantee state
   const now = Date.now();
   const showGuarantee =
-    isPinner &&
-    node.ackedCurrentCid &&
-    guaranteeUntil != null;
-  const guaranteeActive = showGuarantee
-    ? guaranteeUntil > now
-    : false;
+    isPinner && node.ackedCurrentCid && guaranteeUntil != null;
+  const guaranteeActive = showGuarantee ? guaranteeUntil > now : false;
 
   // Role ring color (primary visual identifier)
   let roleStroke: string;
@@ -557,45 +461,31 @@ function NodeShape({
       {/* Pulsing guarantee halo */}
       {showGuarantee && (
         <circle
-          cx={0} cy={0}
+          cx={0}
+          cy={0}
           r={r + 6}
           fill="none"
-          stroke={
-            guaranteeActive
-              ? C.guaranteeActive
-              : C.guaranteeExpired
-          }
-          strokeWidth={
-            guaranteeActive ? 2.5 : 1.5
-          }
-          strokeDasharray={
-            guaranteeActive ? "none" : "3 2"
-          }
+          stroke={guaranteeActive ? C.guaranteeActive : C.guaranteeExpired}
+          strokeWidth={guaranteeActive ? 2.5 : 1.5}
+          strokeDasharray={guaranteeActive ? "none" : "3 2"}
           className={
-            guaranteeActive
-              ? "topo-guarantee-pulse"
-              : "topo-guarantee-fade"
+            guaranteeActive ? "topo-guarantee-pulse" : "topo-guarantee-fade"
           }
         />
       )}
 
       {/* Self glow */}
-      {isSelf && (
-        <circle
-          cx={0} cy={0} r={r + 8}
-          fill={C.selfGlow}
-        />
-      )}
+      {isSelf && <circle cx={0} cy={0} r={r + 8} fill={C.selfGlow} />}
 
       {/* Main circle — colored ring = role */}
       <circle
-        cx={0} cy={0} r={r}
+        cx={0}
+        cy={0}
+        r={r}
         fill={fill}
         stroke={roleStroke}
         strokeWidth={roleStrokeW}
-        strokeDasharray={
-          off ? "3 2" : "none"
-        }
+        strokeDasharray={off ? "3 2" : "none"}
         opacity={off ? 0.5 : 1}
       />
 
@@ -604,7 +494,8 @@ function NodeShape({
         <PersonIcon />
       ) : (
         <text
-          x={0} y={1}
+          x={0}
+          y={1}
           textAnchor="middle"
           dominantBaseline="central"
           className={
@@ -621,41 +512,29 @@ function NodeShape({
 
       {/* Peer ID / name below circle */}
       {!isSelf && (
-        <text
-          x={0}
-          y={r + 11}
-          textAnchor="middle"
-          className="topo-peer-id"
-        >
+        <text x={0} y={r + 11} textAnchor="middle" className="topo-peer-id">
           {node.label}
         </text>
       )}
 
       {/* Browser count badge */}
-      {!isSelf && !isBrowser &&
+      {!isSelf &&
+        !isBrowser &&
         node.browserCount != null &&
         node.browserCount > 0 && (
-        <g
-          transform={
-            `translate(${-(r - 1)},${r - 1})`
-          }
-        >
-          <circle
-            r={6}
-            fill="#059669"
-            stroke="#fff"
-            strokeWidth={1}
-          />
-          <text
-            x={0} y={0.5}
-            textAnchor="middle"
-            dominantBaseline="central"
-            className="topo-badge-text"
-          >
-            {node.browserCount}
-          </text>
-        </g>
-      )}
+          <g transform={`translate(${-(r - 1)},${r - 1})`}>
+            <circle r={6} fill="#059669" stroke="#fff" strokeWidth={1} />
+            <text
+              x={0}
+              y={0.5}
+              textAnchor="middle"
+              dominantBaseline="central"
+              className="topo-badge-text"
+            >
+              {node.browserCount}
+            </text>
+          </g>
+        )}
 
       {/* Guarantee label below */}
       {showGuarantee && (
@@ -681,20 +560,27 @@ function NodeShape({
 // ── Edge rendering ───────────────────────────────
 
 function EdgeLine({
-  x1, y1, x2, y2, connected,
+  x1,
+  y1,
+  x2,
+  y2,
+  connected,
 }: {
-  x1: number; y1: number;
-  x2: number; y2: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
   connected: boolean;
 }) {
   return (
     <line
-      x1={x1} y1={y1} x2={x2} y2={y2}
+      x1={x1}
+      y1={y1}
+      x2={x2}
+      y2={y2}
       stroke={connected ? C.edge : C.edgeDash}
       strokeWidth={connected ? 1.2 : 0.8}
-      strokeDasharray={
-        connected ? "none" : "4 3"
-      }
+      strokeDasharray={connected ? "none" : "4 3"}
       strokeOpacity={connected ? 0.5 : 0.25}
     />
   );
@@ -718,9 +604,7 @@ function Tooltip({
   const left = mouseX - svgRect.left + 12;
   const top = mouseY - svgRect.top - 10;
 
-  const isPinner =
-    node.kind === "pinner" ||
-    node.kind === "relay+pinner";
+  const isPinner = node.kind === "pinner" || node.kind === "relay+pinner";
   const now = Date.now();
   const gActive =
     isPinner &&
@@ -734,10 +618,7 @@ function Tooltip({
     guaranteeUntil <= now;
 
   return (
-    <div
-      className="topo-tooltip"
-      style={{ left, top }}
-    >
+    <div className="topo-tooltip" style={{ left, top }}>
       <div className="topo-tooltip-kind">
         {node.kind === "self"
           ? "You (this browser)"
@@ -746,47 +627,29 @@ function Tooltip({
             : node.kind}
       </div>
       {node.kind !== "self" && (
-        <div className="topo-tooltip-id">
-          {node.label}
-        </div>
+        <div className="topo-tooltip-id">{node.label}</div>
       )}
-      {node.kind !== "self" &&
-        node.kind !== "browser" && (
+      {node.kind !== "self" && node.kind !== "browser" && (
         <div className="topo-tooltip-status">
-          {node.connected
-            ? "Connected"
-            : "Disconnected"}
+          {node.connected ? "Connected" : "Disconnected"}
         </div>
       )}
-      {node.browserCount != null &&
-        node.browserCount > 0 && (
+      {node.browserCount != null && node.browserCount > 0 && (
         <div className="topo-tooltip-detail">
           {node.browserCount} browser
-          {node.browserCount > 1 ? "s" : ""}{" "}
-          connected
+          {node.browserCount > 1 ? "s" : ""} connected
         </div>
       )}
       {node.ackedCurrentCid && (
-        <div className="topo-tooltip-ack">
-          Acked current snapshot
-        </div>
+        <div className="topo-tooltip-ack">Acked current snapshot</div>
       )}
       {gActive && (
-        <div
-          className={
-            "topo-tooltip-guarantee active"
-          }
-        >
-          Pinned for{" "}
-          {formatRelativeTime(guaranteeUntil!)}
+        <div className={"topo-tooltip-guarantee active"}>
+          Pinned for {formatRelativeTime(guaranteeUntil!)}
         </div>
       )}
       {gExpired && (
-        <div
-          className={
-            "topo-tooltip-guarantee expired"
-          }
-        >
+        <div className={"topo-tooltip-guarantee expired"}>
           Guarantee expired
         </div>
       )}
@@ -812,17 +675,12 @@ export function TopologyMap({
   };
   pulseKey: number;
 }) {
-  const [graph, setGraph] = useState<TopologyGraph>(
-    () => doc.topologyGraph(),
+  const [graph, setGraph] = useState<TopologyGraph>(() => doc.topologyGraph());
+  const [guaranteeUntil, setGuaranteeUntil] = useState<number | null>(
+    () => doc.diagnostics().guaranteeUntil,
   );
-  const [guaranteeUntil, setGuaranteeUntil] =
-    useState<number | null>(
-      () => doc.diagnostics().guaranteeUntil,
-    );
   const prevFpRef = useRef("");
-  const debounceRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refresh graph data, deduping by fingerprint
   const refreshGraph = useCallback(() => {
@@ -883,15 +741,8 @@ export function TopologyMap({
   posMapRef.current = posMap;
 
   // Particle animation
-  const particleRef = useRef<SVGGElement | null>(
-    null,
-  );
-  useParticles(
-    particleRef,
-    pulseKey,
-    graph.edges,
-    posMapRef,
-  );
+  const particleRef = useRef<SVGGElement | null>(null);
+  useParticles(particleRef, pulseKey, graph.edges, posMapRef);
 
   // Tooltip state
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -902,10 +753,7 @@ export function TopologyMap({
   } | null>(null);
 
   const onHover = useCallback(
-    (
-      n: TopologyNode | null,
-      e?: React.MouseEvent,
-    ) => {
+    (n: TopologyNode | null, e?: React.MouseEvent) => {
       if (n && e) {
         setHovered({
           node: n,
@@ -920,22 +768,21 @@ export function TopologyMap({
   );
 
   // Render order: browsers, infra, self on top
-  const sorted = graph.nodes.slice().sort(
-    (a, b) => {
-      const order = (
-        k: TopologyNode["kind"],
-      ) => {
-        switch (k) {
-          case "browser": return 0;
-          case "relay":
-          case "pinner":
-          case "relay+pinner": return 1;
-          case "self": return 2;
-        }
-      };
-      return order(a.kind) - order(b.kind);
-    },
-  );
+  const sorted = graph.nodes.slice().sort((a, b) => {
+    const order = (k: TopologyNode["kind"]) => {
+      switch (k) {
+        case "browser":
+          return 0;
+        case "relay":
+        case "pinner":
+        case "relay+pinner":
+          return 1;
+        case "self":
+          return 2;
+      }
+    };
+    return order(a.kind) - order(b.kind);
+  });
 
   return (
     <div className="topo-wrap">
@@ -953,8 +800,10 @@ export function TopologyMap({
           return (
             <EdgeLine
               key={`${e.source}-${e.target}`}
-              x1={s.x} y1={s.y}
-              x2={t.x} y2={t.y}
+              x1={s.x}
+              y1={s.y}
+              x2={t.x}
+              y2={t.y}
               connected={e.connected}
             />
           );
@@ -984,9 +833,7 @@ export function TopologyMap({
       {hovered && svgRef.current && (
         <Tooltip
           node={hovered.node}
-          svgRect={
-            svgRef.current.getBoundingClientRect()
-          }
+          svgRect={svgRef.current.getBoundingClientRect()}
           mouseX={hovered.mx}
           mouseY={hovered.my}
           guaranteeUntil={guaranteeUntil}

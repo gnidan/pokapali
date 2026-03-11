@@ -1,9 +1,4 @@
-export type LogLevel =
-  | "debug"
-  | "info"
-  | "warn"
-  | "error"
-  | "silent";
+export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 
 export interface Logger {
   debug(...args: unknown[]): void;
@@ -12,13 +7,7 @@ export interface Logger {
   error(...args: unknown[]): void;
 }
 
-const LEVELS: LogLevel[] = [
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "silent",
-];
+const LEVELS: LogLevel[] = ["debug", "info", "warn", "error", "silent"];
 
 function levelIndex(level: LogLevel): number {
   return LEVELS.indexOf(level);
@@ -31,11 +20,11 @@ function readEnvLevel(): LogLevel | undefined {
         ? process.env.POKAPALI_LOG_LEVEL
         : undefined;
     if (
-      val === "debug"
-      || val === "info"
-      || val === "warn"
-      || val === "error"
-      || val === "silent"
+      val === "debug" ||
+      val === "info" ||
+      val === "warn" ||
+      val === "error" ||
+      val === "silent"
     ) {
       return val;
     }
@@ -45,8 +34,7 @@ function readEnvLevel(): LogLevel | undefined {
   return undefined;
 }
 
-let globalLevel: LogLevel =
-  readEnvLevel() ?? "info";
+let globalLevel: LogLevel = readEnvLevel() ?? "info";
 
 export function setLogLevel(level: LogLevel): void {
   globalLevel = level;
@@ -56,27 +44,21 @@ export function getLogLevel(): LogLevel {
   return globalLevel;
 }
 
-export function createLogger(
-  module: string,
-): Logger {
+export function createLogger(module: string): Logger {
   const prefix = `[pokapali:${module}]`;
 
   return {
     debug(...args) {
-      if (levelIndex(globalLevel) <= 0)
-        console.debug(prefix, ...args);
+      if (levelIndex(globalLevel) <= 0) console.debug(prefix, ...args);
     },
     info(...args) {
-      if (levelIndex(globalLevel) <= 1)
-        console.log(prefix, ...args);
+      if (levelIndex(globalLevel) <= 1) console.log(prefix, ...args);
     },
     warn(...args) {
-      if (levelIndex(globalLevel) <= 2)
-        console.warn(prefix, ...args);
+      if (levelIndex(globalLevel) <= 2) console.warn(prefix, ...args);
     },
     error(...args) {
-      if (levelIndex(globalLevel) <= 3)
-        console.error(prefix, ...args);
+      if (levelIndex(globalLevel) <= 3) console.error(prefix, ...args);
     },
   };
 }

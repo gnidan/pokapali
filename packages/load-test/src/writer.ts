@@ -28,12 +28,7 @@ const DAG_CBOR_CODE = 0x71;
 const log = createLogger("load-test:writer");
 
 export interface WriterEvent {
-  type:
-    | "edit"
-    | "snapshot-pushed"
-    | "announced"
-    | "ack-received"
-    | "error";
+  type: "edit" | "snapshot-pushed" | "announced" | "ack-received" | "error";
   writerId: string;
   timestampMs: number;
   /** Elapsed ms for the operation. */
@@ -73,21 +68,14 @@ export async function startWriter(
   config: WriterConfig,
 ): Promise<Writer> {
   const appId = config.appId;
-  const editInterval =
-    config.editIntervalMs ?? 10_000;
+  const editInterval = config.editIntervalMs ?? 10_000;
   const editSize = config.editSizeBytes ?? 100;
   const onEvent = config.onEvent ?? (() => {});
 
   // Generate fresh identity
   const adminSecret = generateAdminSecret();
-  const keys = await deriveDocKeys(
-    adminSecret,
-    appId,
-    ["content"],
-  );
-  const signingKey = await ed25519KeyPairFromSeed(
-    keys.ipnsKeyBytes,
-  );
+  const keys = await deriveDocKeys(adminSecret, appId, ["content"]);
+  const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
   const ipnsName = bytesToHex(signingKey.publicKey);
   const writerId = ipnsName.slice(0, 12);
 
@@ -113,9 +101,7 @@ export async function startWriter(
 
   const messageHandler = (evt: any) => {
     if (evt.detail.topic !== topic) return;
-    const announcement = parseAnnouncement(
-      evt.detail.data,
-    );
+    const announcement = parseAnnouncement(evt.detail.data);
     if (!announcement) return;
     if (announcement.ipnsName !== ipnsName) return;
     if (!announcement.ack) return;
@@ -135,17 +121,14 @@ export async function startWriter(
       `cid=${announcement.cid.slice(0, 12)}...`,
     );
   };
-  pubsub.addEventListener(
-    "message",
-    messageHandler,
-  );
+  pubsub.addEventListener("message", messageHandler);
 
   // Random text generator
   function randomText(size: number): string {
     const chars =
-      "abcdefghijklmnopqrstuvwxyz"
-      + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-      + "0123456789 \n";
+      "abcdefghijklmnopqrstuvwxyz" +
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+      "0123456789 \n";
     let result = "";
     const bytes = new Uint8Array(size);
     crypto.getRandomValues(bytes);
@@ -174,8 +157,7 @@ export async function startWriter(
     const pushStart = Date.now();
     try {
       const state = Y.encodeStateAsUpdate(doc);
-      const plaintext: Record<string, Uint8Array> =
-        { content: state };
+      const plaintext: Record<string, Uint8Array> = { content: state };
 
       const seqForThis = seq;
       const prevForThis = prev;
@@ -189,10 +171,7 @@ export async function startWriter(
         signingKey,
       );
       const hash = await sha256.digest(block);
-      const cid = CID.createV1(
-        DAG_CBOR_CODE,
-        hash,
-      );
+      const cid = CID.createV1(DAG_CBOR_CODE, hash);
       const cidStr = cid.toString();
 
       // Store in blockstore
@@ -215,14 +194,7 @@ export async function startWriter(
       // Use doc text length as clock sum proxy
       const clockSum = text.length;
 
-      await announceSnapshot(
-        pubsub,
-        appId,
-        ipnsName,
-        cidStr,
-        clockSum,
-        block,
-      );
+      await announceSnapshot(pubsub, appId, ipnsName, cidStr, clockSum, block);
 
       onEvent({
         type: "announced",
@@ -247,10 +219,7 @@ export async function startWriter(
         timestampMs: Date.now(),
         error: msg,
       });
-      log.error(
-        `writer ${writerId} error:`,
-        msg,
-      );
+      log.error(`writer ${writerId} error:`, msg);
     }
   }
 
@@ -258,10 +227,7 @@ export async function startWriter(
   editAndPush();
 
   // Periodic loop
-  const timer = setInterval(
-    editAndPush,
-    editInterval,
-  );
+  const timer = setInterval(editAndPush, editInterval);
 
   return {
     ipnsName,
@@ -269,10 +235,7 @@ export async function startWriter(
     stop() {
       stopped = true;
       clearInterval(timer);
-      pubsub.removeEventListener(
-        "message",
-        messageHandler,
-      );
+      pubsub.removeEventListener("message", messageHandler);
       pubsub.unsubscribe(topic);
       log.info(`writer ${writerId} stopped`);
     },
