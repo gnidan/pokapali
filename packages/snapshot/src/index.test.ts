@@ -404,6 +404,158 @@ describe("@pokapali/snapshot", () => {
     });
   });
 
+  describe("publisher edge cases", () => {
+    it("different publishers in same chain " + "both validate", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const id1 = await generateIdentityKeypair();
+      const id2 = await generateIdentityKeypair();
+
+      // Block 1: publisher id1
+      const block1 = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        1,
+        1000,
+        signingKey,
+        id1,
+      );
+      const hash1 = await sha256.digest(block1);
+      const cid1 = CID.createV1(0x71, hash1);
+
+      // Block 2: publisher id2, prev=cid1
+      const block2 = await encodeSnapshot(
+        { doc: new Uint8Array([2]) },
+        readKey,
+        cid1,
+        2,
+        2000,
+        signingKey,
+        id2,
+      );
+
+      const node1 = decodeSnapshot(block1);
+      const node2 = decodeSnapshot(block2);
+
+      // Both validate independently
+      expect(await validateStructure(block1)).toBe(true);
+      expect(await validateStructure(block2)).toBe(true);
+
+      // Different publisher keys
+      expect(node1.publisher).toEqual(id1.publicKey);
+      expect(node2.publisher).toEqual(id2.publicKey);
+      expect(node1.publisher).not.toEqual(node2.publisher);
+    });
+
+    it(
+      "publisher field present but " + "publisherSig missing fails validation",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const identity = await generateIdentityKeypair();
+
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          1,
+          1000,
+          signingKey,
+          identity,
+        );
+
+        const node = decodeSnapshot(encoded);
+        // Strip publisherSig but keep publisher
+        const malformed = { ...node };
+        delete (malformed as Record<string, unknown>).publisherSig;
+
+        // Re-encode — doc sig won't match since
+        // original was signed with publisherSig
+        // included in payload
+        const { signature, ...rest } = malformed;
+        const reEncoded = dagCbor.encode(malformed);
+        expect(await validateStructure(reEncoded)).toBe(false);
+      },
+    );
+
+    it(
+      "publisher sig from wrong identity " + "key fails validation",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const realId = await generateIdentityKeypair();
+        const wrongId = await generateIdentityKeypair();
+
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          1,
+          1000,
+          signingKey,
+          realId,
+        );
+
+        const node = decodeSnapshot(encoded);
+
+        // Replace publisher with wrongId's pubkey
+        // but keep realId's publisherSig
+        const tampered = { ...node };
+        tampered.publisher = wrongId.publicKey;
+
+        const reEncoded = dagCbor.encode(tampered);
+        expect(await validateStructure(reEncoded)).toBe(false);
+      },
+    );
+
+    it("walkChain preserves publisher " + "fields through chain", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const id = await generateIdentityKeypair();
+
+      const block1 = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        1,
+        1000,
+        signingKey,
+        id,
+      );
+      const hash1 = await sha256.digest(block1);
+      const cid1 = CID.createV1(0x71, hash1);
+
+      const block2 = await encodeSnapshot(
+        { doc: new Uint8Array([2]) },
+        readKey,
+        cid1,
+        2,
+        2000,
+        signingKey,
+        id,
+      );
+      const hash2 = await sha256.digest(block2);
+      const cid2 = CID.createV1(0x71, hash2);
+
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid1.toString(), block1);
+      blocks.set(cid2.toString(), block2);
+
+      const getter = async (cid: CID) => {
+        const b = blocks.get(cid.toString());
+        if (!b) throw new Error("not found");
+        return b;
+      };
+
+      const nodes: import("./index.js").SnapshotNode[] = [];
+      for await (const node of walkChain(cid2, getter)) {
+        nodes.push(node);
+      }
+
+      expect(nodes).toHaveLength(2);
+      // Both have publisher fields
+      expect(nodes[0].publisher).toEqual(id.publicKey);
+      expect(nodes[1].publisher).toEqual(id.publicKey);
+    });
+  });
+
   describe("FetchCoalescerState", () => {
     it("creates empty state", () => {
       const s = createFetchCoalescerState();
