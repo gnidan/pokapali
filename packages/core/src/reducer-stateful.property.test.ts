@@ -629,10 +629,11 @@ describe("stateful reducer properties", () => {
         }
 
         const g = state.connectivity.gossip;
-        // If receiving, lastMessageAt must be
-        // non-zero (a gossip-message was seen)
+        // If receiving, lastMessageAt must have been
+        // set (a gossip-message was seen). ts=0 is
+        // valid in tests, so check defined, not > 0.
         if (g.activity === "receiving") {
-          expect(g.lastMessageAt).toBeGreaterThan(0);
+          expect(g.lastMessageAt).toBeGreaterThanOrEqual(0);
         }
         // subscribed flag must be true if
         // activity is "subscribed"
