@@ -122,6 +122,10 @@ export function createSnapshotLifecycle(
       const block = await fetchBlock(helia, cid, {
         httpUrls: options.httpUrls?.(),
       });
+      if (block.length === 0) {
+        log.warn("empty block for", cidStr);
+        return false;
+      }
 
       const node = decodeSnapshot(block);
       const plaintext = await decryptSnapshot(node, readKey);
@@ -152,7 +156,7 @@ export function createSnapshotLifecycle(
         // 1. In-memory blocks (always available for
         //    locally-pushed snapshots)
         const cached = blocks.get(cid.toString());
-        if (cached) return cached;
+        if (cached && cached.length > 0) return cached;
 
         // 2. Blockstore (picks up blocks from bitswap
         //    / applyRemote that stored to blockstore)
@@ -165,6 +169,9 @@ export function createSnapshotLifecycle(
               signal: ctrl.signal,
             });
             const block = ensureUint8Array(raw);
+            if (block.length === 0) {
+              throw new Error("empty block");
+            }
             blocks.set(cid.toString(), block);
             return block;
           } finally {
@@ -183,6 +190,7 @@ export function createSnapshotLifecycle(
             });
             if (!resp.ok) continue;
             const bytes = new Uint8Array(await resp.arrayBuffer());
+            if (bytes.length === 0) continue;
             const hash = await sha256.digest(bytes);
             const verified = CIDClass.createV1(cid.code, hash);
             if (!verified.equals(cid)) continue;
@@ -226,11 +234,17 @@ export function createSnapshotLifecycle(
     },
 
     async loadVersion(cid, readKey) {
-      let block = blocks.get(cid.toString());
+      const cached = blocks.get(cid.toString());
+      let block: Uint8Array | undefined =
+        cached && cached.length > 0 ? cached : undefined;
       if (!block) {
         try {
           const helia = options.getHelia();
-          block = ensureUint8Array(await helia.blockstore.get(cid));
+          const raw = ensureUint8Array(await helia.blockstore.get(cid));
+          if (raw.length === 0) {
+            throw new Error("empty block");
+          }
+          block = raw;
         } catch {
           throw new Error("Unknown CID: " + cid.toString());
         }
@@ -251,7 +265,9 @@ export function createSnapshotLifecycle(
     },
 
     putBlock(cidStr, block) {
-      blocks.set(cidStr, block);
+      if (block.length > 0) {
+        blocks.set(cidStr, block);
+      }
     },
 
     get prev() {
