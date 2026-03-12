@@ -184,6 +184,8 @@ describe("reduceChain", () => {
     expect(prevEntry).toBeDefined();
     expect(prevEntry!.blockStatus).toBe("unknown");
     expect(prevEntry!.discoveredVia.has("chain-walk")).toBe(true);
+    // seq inferred from parent (6 - 1 = 5)
+    expect(prevEntry!.seq).toBe(5);
   });
 
   it("does not overwrite existing entry on chain walk", async () => {

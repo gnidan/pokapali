@@ -479,6 +479,8 @@ export function createDoc(params: DocParams): Doc {
 
     // Interpreter chain first — authoritative,
     // has remote entries + ack/guarantee info.
+    // Chain-walk entries now have inferred seq
+    // (parentSeq - 1) so they appear immediately.
     if (interpreterState?.chain) {
       for (const v of versionHistory(interpreterState.chain)) {
         versions.set(v.cid.toString(), v);
@@ -493,62 +495,6 @@ export function createDoc(params: DocParams): Doc {
         if (!versions.has(key)) {
           versions.set(key, v);
         }
-      }
-    }
-
-    // Gap-fill: walk prev links from known entries
-    // using locally cached blocks. The interpreter
-    // builds chain state incrementally (async fetch
-    // → reduce → next entry), so early calls to
-    // history() may see incomplete chains. Walking
-    // cached blocks synchronously ensures a stable,
-    // complete list — matching the old snapshotLC
-    // behavior and preventing UI flicker.
-    const toWalk: CID[] = [];
-    for (const v of versions.values()) {
-      // Find prev links we don't already have
-      const block = snapshotLC.getBlock(v.cid.toString());
-      if (!block) continue;
-      try {
-        const node = decodeSnapshot(block);
-        if (node.prev) {
-          const prevKey = node.prev.toString();
-          if (!versions.has(prevKey)) {
-            toWalk.push(node.prev);
-          }
-        }
-      } catch {
-        // Skip decode errors
-      }
-    }
-
-    // Walk prev chain from discovered gaps
-    const visited = new Set(versions.keys());
-    while (toWalk.length > 0) {
-      const cid = toWalk.pop()!;
-      const key = cid.toString();
-      if (visited.has(key)) continue;
-      visited.add(key);
-
-      const block = snapshotLC.getBlock(key);
-      if (!block) continue;
-      try {
-        const node = decodeSnapshot(block);
-        if (node.seq != null) {
-          versions.set(key, {
-            cid,
-            seq: node.seq,
-            ts: node.ts ?? 0,
-          });
-        }
-        if (node.prev) {
-          const prevKey = node.prev.toString();
-          if (!visited.has(prevKey)) {
-            toWalk.push(node.prev);
-          }
-        }
-      } catch {
-        // Skip decode errors
       }
     }
 

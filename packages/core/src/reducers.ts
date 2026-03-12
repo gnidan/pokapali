@@ -174,14 +174,28 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
         ts: e.ts ?? fact.snapshotTs,
       }),
     );
-    // Chain walk: discover prev CID
+    // Chain walk: discover prev CID.
+    // Infer seq from parent: if parent has seq=N,
+    // prev must be seq=N-1 (sequential, single-
+    // writer, linear chain). This makes chain-walk
+    // entries immediately visible in versionHistory()
+    // instead of waiting for their block to be
+    // fetched and decoded.
     if (fact.prev) {
       const prevKey = fact.prev.toString();
       if (!next.entries.has(prevKey)) {
+        const parentSeq = resolvedSeq;
+        const inferredSeq = parentSeq != null ? parentSeq - 1 : undefined;
+        const walkMaxSeq =
+          inferredSeq != null
+            ? Math.max(next.maxSeq, inferredSeq)
+            : next.maxSeq;
         next = {
           ...next,
+          maxSeq: walkMaxSeq,
           entries: mapSet(next.entries, prevKey, {
             cid: fact.prev,
+            seq: inferredSeq,
             discoveredVia: new Set<CidSource>(["chain-walk"]),
             blockStatus: "unknown",
             fetchAttempt: 0,
