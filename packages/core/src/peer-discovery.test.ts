@@ -378,7 +378,7 @@ describe("startRoomDiscovery", () => {
     });
 
     it(
-      "stops retrying after max attempts " + "and untracks relay",
+      "caps backoff at 120s and keeps " + "retrying indefinitely",
       async () => {
         vi.mocked(loadCachedRelays).mockReturnValue([
           {
@@ -392,35 +392,30 @@ describe("startRoomDiscovery", () => {
         helia.libp2p.dial.mockClear();
         helia.libp2p.dial.mockRejectedValue(new Error("refused"));
 
-        // Simulate 8 disconnect+fail cycles
-        for (let i = 0; i < 8; i++) {
+        // Simulate disconnect+fail cycles past
+        // where old limit (8) would have stopped.
+        // Backoff: 5, 10, 20, 40, 80, 120, 120...
+        const expectedDelays = [
+          5_000, 10_000, 20_000, 40_000, 80_000, 120_000, 120_000,
+        ];
+        for (let i = 0; i < expectedDelays.length; i++) {
           helia.libp2p.dial.mockClear();
           helia._emit("peer:disconnect", {
             toString: () => RELAY_PID,
           });
 
-          // Relay stays tracked during window
+          // Relay stays tracked — never untracked
           expect(rd.relayPeerIds.has(RELAY_PID)).toBe(true);
 
-          const delay = 5_000 * Math.pow(2, i);
-          await vi.advanceTimersByTimeAsync(delay + 1);
+          await vi.advanceTimersByTimeAsync(expectedDelays[i] + 1);
           expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
 
           // Let failed dial settle
           await vi.advanceTimersByTimeAsync(1);
         }
 
-        // 9th disconnect: max attempts reached,
-        // relay untracked, no redial scheduled
-        helia.libp2p.dial.mockClear();
-        helia._emit("peer:disconnect", {
-          toString: () => RELAY_PID,
-        });
-
-        expect(rd.relayPeerIds.has(RELAY_PID)).toBe(false);
-
-        await vi.advanceTimersByTimeAsync(5_000 * Math.pow(2, 8) + 1);
-        expect(helia.libp2p.dial).not.toHaveBeenCalled();
+        // Still tracked after many failures
+        expect(rd.relayPeerIds.has(RELAY_PID)).toBe(true);
 
         rd.stop();
       },

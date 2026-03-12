@@ -35,6 +35,8 @@ const RAW_CODEC = 0x55;
 const PROVIDE_INTERVAL_MS = 5 * 60_000;
 const LOG_INTERVAL_MS = 30_000;
 const CAPS_INTERVAL_MS = 30_000;
+const HEALTH_CHECK_MIN_MS = 60_000;
+const HEALTH_CHECK_MAX_MS = 90_000;
 
 const log = createLogger("relay");
 
@@ -312,13 +314,14 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
             floodPublish: false,
             allowPublishToZeroTopicPeers: true,
             // D=3 is achievable with 4 relays (3
-            // peers). Dlo=2 avoids constant GRAFT
-            // churn when some relays are temporarily
-            // disconnected. Scales naturally as more
-            // relays join — GossipSub adds up to Dhi
-            // mesh peers.
+            // peers). Dlo=3 maintains full mesh
+            // before triggering GRAFT, reducing
+            // isolation risk when a relay briefly
+            // drops. Scales naturally as more relays
+            // join — GossipSub adds up to Dhi mesh
+            // peers.
             D: 3,
-            Dlo: 2,
+            Dlo: 3,
             Dhi: 8,
             Dout: 1,
             Dscore: 1,
@@ -696,6 +699,32 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   // Periodic re-provide
   const provideInterval = setInterval(provideAll, PROVIDE_INTERVAL_MS);
 
+  // --- Relay-to-relay health check ---
+  //
+  // Periodically verify connectivity to known relay
+  // peers. Re-dial any that have silently dropped.
+  // Jittered interval (60-90s) prevents thundering
+  // herd across relays.
+  function scheduleHealthCheck() {
+    const jitter =
+      HEALTH_CHECK_MIN_MS +
+      Math.random() * (HEALTH_CHECK_MAX_MS - HEALTH_CHECK_MIN_MS);
+    return setTimeout(async () => {
+      const connectedPids = new Set(
+        helia.libp2p.getConnections().map((c: any) => c.remotePeer.toString()),
+      );
+      for (const pid of knownRelayPeerIds) {
+        if (connectedPids.has(pid)) continue;
+        const short = pid.slice(-8);
+        log.info(`health: relay ...${short} not connected,`, `re-dialing`);
+        findAndDialProviders().catch(() => {});
+        break; // one re-dial pass per check
+      }
+      healthTimer = scheduleHealthCheck();
+    }, jitter);
+  }
+  let healthTimer = scheduleHealthCheck();
+
   // Periodic status logging
   let lastAddrCount = 0;
   const logInterval = setInterval(() => {
@@ -774,6 +803,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     },
 
     async stop() {
+      clearTimeout(healthTimer);
       clearInterval(provideInterval);
       clearInterval(logInterval);
       clearInterval(capsInterval);
