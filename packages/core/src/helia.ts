@@ -12,7 +12,9 @@ export interface HeliaOptions {
    *  browser persistence). Defaults to in-memory.
    *  Typed loosely to avoid interface-blockstore
    *  version conflicts between helia and
-   *  blockstore-idb. */
+   *  blockstore-idb.
+   *  TODO(#20): revisit when helia and blockstore-idb
+   *  align on interface-blockstore version */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   blockstore?: any;
 }

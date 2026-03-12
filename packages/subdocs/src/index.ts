@@ -1,7 +1,6 @@
 import * as Y from "yjs";
 
 export const SNAPSHOT_ORIGIN: unique symbol = Symbol("snapshot-apply");
-export const INDEXEDDB_ORIGIN: unique symbol = Symbol("indexeddb");
 
 export interface SubdocManagerOptions {
   primaryNamespace?: string;
@@ -53,7 +52,7 @@ export function createSubdocManager(
 
   for (const [key, doc] of docs) {
     const handler = (_update: Uint8Array, origin: unknown) => {
-      if (origin === SNAPSHOT_ORIGIN || origin === INDEXEDDB_ORIGIN) {
+      if (origin === SNAPSHOT_ORIGIN) {
         return;
       }
       if (skipOrigins && skipOrigins.has(origin as object)) {
