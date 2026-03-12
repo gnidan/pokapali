@@ -459,6 +459,45 @@ export function createDoc(params: DocParams): Doc {
   // without waiting for the async interpreter
   // pipeline.
   let localChain: ChainState | null = null;
+
+  /**
+   * Merge local publish chain with interpreter
+   * chain. Interpreter chain has remote entries
+   * (gossip, acks, guarantees); local chain has
+   * immediate publish entries the interpreter
+   * hasn't processed yet.
+   */
+  function mergedHistory() {
+    const versions = new Map<
+      string,
+      {
+        cid: CID;
+        seq: number;
+        ts: number;
+      }
+    >();
+
+    // Interpreter chain first — authoritative,
+    // has remote entries + ack/guarantee info.
+    if (interpreterState?.chain) {
+      for (const v of versionHistory(interpreterState.chain)) {
+        versions.set(v.cid.toString(), v);
+      }
+    }
+
+    // Local chain fills in entries the interpreter
+    // hasn't processed yet (recent publishes).
+    if (localChain) {
+      for (const v of versionHistory(localChain)) {
+        const key = v.cid.toString();
+        if (!versions.has(key)) {
+          versions.set(key, v);
+        }
+      }
+    }
+
+    return [...versions.values()].sort((a, b) => b.seq - a.seq);
+  }
   let interpreterAc: AbortController | null = null;
   let lastLocalPublishCid: string | null = null;
   let lastEmittedAcks = new Set<string>();
@@ -1492,18 +1531,12 @@ export function createDoc(params: DocParams): Doc {
 
     async history() {
       assertNotDestroyed();
-      const chain = localChain ?? interpreterState?.chain;
-      if (!chain) return [];
-      return versionHistory(chain);
+      return mergedHistory();
     },
 
     async versionHistory(): Promise<VersionEntry[]> {
       assertNotDestroyed();
-      const chainFallback = async () => {
-        const chain = localChain ?? interpreterState?.chain;
-        if (!chain) return [];
-        return versionHistory(chain);
-      };
+      const chainFallback = async () => mergedHistory();
       const entries = await fetchVersionHistory(
         getHttpUrls(),
         ipnsName,
