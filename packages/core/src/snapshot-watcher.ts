@@ -51,11 +51,19 @@ export interface SnapshotWatcherOptions {
   httpUrls?: () => string[];
 }
 
+export interface GuaranteeResponseDetail {
+  peerId: string;
+  cid: string;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
+
 export interface SnapshotWatcherEvents {
   "fetch-state": [LoadingState];
   ack: [string];
   "gossip-activity": [GossipActivity];
   "guarantee-query": [];
+  "guarantee-response": [GuaranteeResponseDetail];
 }
 
 export interface SnapshotWatcher {
@@ -307,6 +315,12 @@ export function createSnapshotWatcher(
         gResp.retainUntil,
       );
       touchGossip();
+      emit("guarantee-response", {
+        peerId: gResp.peerId,
+        cid: gResp.cid,
+        guaranteeUntil: gResp.guaranteeUntil ?? 0,
+        retainUntil: gResp.retainUntil ?? 0,
+      });
       // Update guarantees for the responding pinner
       // (same monotonic logic as ack handling).
       const prev = pinnerGuarantees.get(gResp.peerId) ?? {
@@ -345,6 +359,17 @@ export function createSnapshotWatcher(
     // Handle pinner ack (may coexist with snapshot
     // data in pinner re-announces).
     if (ann.ack) {
+      if (
+        ann.ack.guaranteeUntil !== undefined ||
+        ann.ack.retainUntil !== undefined
+      ) {
+        emit("guarantee-response", {
+          peerId: ann.ack.peerId,
+          cid: ann.cid,
+          guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
+          retainUntil: ann.ack.retainUntil ?? 0,
+        });
+      }
       if (ann.cid === ackedCid) {
         const isNew = !ackedBy.has(ann.ack.peerId);
         ackedBy.add(ann.ack.peerId);

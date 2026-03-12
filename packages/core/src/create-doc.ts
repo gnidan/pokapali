@@ -42,8 +42,18 @@ import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
+import { createShadowInterpreter } from "./shadow-interpreter.js";
+import type { ShadowInterpreter } from "./shadow-interpreter.js";
 
 const log = createLogger("core");
+
+/**
+ * Enable to run the new fact-stream interpreter in
+ * parallel with snapshot-watcher for validation.
+ * Shadow mode is read-only — it does not affect
+ * behavior. Set to true during migration testing.
+ */
+const SHADOW_MODE = false;
 
 export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
 
@@ -314,10 +324,29 @@ export function createDoc(params: DocParams): Doc {
     checkSaveState();
     emit("publish-needed");
     awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
+    shadow?.pushFact({
+      type: "content-dirty",
+      ts: Date.now(),
+      clockSum: computeClockSum(),
+    });
   });
 
-  syncManager.onStatusChange(() => checkStatus());
-  awarenessRoom.onStatusChange(() => checkStatus());
+  syncManager.onStatusChange(() => {
+    checkStatus();
+    shadow?.pushFact({
+      type: "sync-status-changed",
+      ts: Date.now(),
+      status: syncManager.status,
+    });
+  });
+  awarenessRoom.onStatusChange(() => {
+    checkStatus();
+    shadow?.pushFact({
+      type: "awareness-status-changed",
+      ts: Date.now(),
+      connected: awarenessRoom.connected,
+    });
+  });
 
   // If the subdoc is already dirty (e.g. _meta was
   // populated before we registered), fire the event
@@ -361,6 +390,11 @@ export function createDoc(params: DocParams): Doc {
         ) {
           knownPinnerPids.add(node.peerId);
           newPinner = true;
+          shadow?.pushFact({
+            type: "pinner-discovered",
+            ts: Date.now(),
+            peerId: node.peerId,
+          });
         }
       }
       if (newPinner && snapshotWatcher) {
@@ -487,6 +521,11 @@ export function createDoc(params: DocParams): Doc {
         const pid = evt.detail?.toString?.() ?? "";
         if (rd.relayPeerIds.has(pid)) {
           sw.reannounceNow();
+          shadow?.pushFact({
+            type: "relay-connected",
+            ts: Date.now(),
+            peerId: pid,
+          });
         }
       };
       const helia = getHelia();
@@ -497,8 +536,52 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
+  // --- Shadow interpreter (validation mode) ---
+  let shadow: ShadowInterpreter | null = null;
+  if (SHADOW_MODE && snapshotWatcher && params.pubsub && params.appId) {
+    try {
+      const role = cap.isAdmin
+        ? "admin"
+        : cap.channels.size > 0
+          ? "writer"
+          : "reader";
+      shadow = createShadowInterpreter({
+        pubsub: params.pubsub,
+        appId: params.appId,
+        ipnsName,
+        role,
+        channels,
+        getBlock: (cid: CID) => {
+          const b = snapshotLC.getBlock(cid.toString());
+          return b ?? null;
+        },
+        snapshotWatcher,
+        getStatus: () =>
+          computeStatus(
+            syncManager.status,
+            awarenessRoom.connected,
+            gossipActivity,
+          ),
+        getSaveState: () => computeSaveState(subdocManager.isDirty, isSaving),
+      });
+      // Snapshot-watcher already subscribed to
+      // GossipSub — seed the shadow with the fact.
+      shadow.pushFact({
+        type: "gossip-subscribed",
+        ts: Date.now(),
+      });
+      log.info("shadow interpreter started");
+    } catch (err) {
+      log.warn(
+        "shadow interpreter init failed:",
+        (err as Error)?.message ?? err,
+      );
+    }
+  }
+
   function teardown() {
     destroyed = true;
+    shadow?.destroy();
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
@@ -655,19 +738,41 @@ export function createDoc(params: DocParams): Doc {
       }
       isSaving = true;
       checkSaveState();
+      shadow?.pushFact({
+        type: "publish-started",
+        ts: Date.now(),
+      });
 
       const plaintext = subdocManager.encodeAll();
       const clockSum = this.clockSum;
-      const pushResult = await snapshotLC.push(
-        plaintext,
-        readKey,
-        signingKey,
-        clockSum,
-      );
+      let pushResult;
+      try {
+        pushResult = await snapshotLC.push(
+          plaintext,
+          readKey,
+          signingKey,
+          clockSum,
+        );
+      } catch (err) {
+        isSaving = false;
+        checkSaveState();
+        shadow?.pushFact({
+          type: "publish-failed",
+          ts: Date.now(),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
       const { cid, block } = pushResult;
 
       isSaving = false;
       checkSaveState();
+      shadow?.pushFact({
+        type: "publish-succeeded",
+        ts: Date.now(),
+        cid,
+        seq: pushResult.seq,
+      });
       emit("snapshot", {
         cid,
         seq: pushResult.seq,
