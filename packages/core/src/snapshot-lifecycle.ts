@@ -38,6 +38,7 @@ export interface SnapshotLifecycle {
     readKey: CryptoKey,
     signingKey: Ed25519KeyPair,
     clockSum: number,
+    identityKey?: Ed25519KeyPair,
   ): Promise<PushResult>;
 
   applyRemote(
@@ -69,18 +70,31 @@ export function createSnapshotLifecycle(
   let lastAppliedCid: string | null = null;
 
   return {
-    async push(plaintext, readKey, signingKey, clockSum): Promise<PushResult> {
+    async push(
+      plaintext,
+      readKey,
+      signingKey,
+      clockSum,
+      identityKey,
+    ): Promise<PushResult> {
       const prevForThis = prev;
       const seqForThis = seq;
 
-      const block = await encodeSnapshot(
+      // identityKey is forwarded for publisher
+      // attribution once snapshot package supports it
+      // (protocol branch). The cast handles the
+      // transition period before merge.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+      const encode = encodeSnapshot as Function;
+      const block = (await encode(
         plaintext,
         readKey,
         prevForThis,
         seqForThis,
         Date.now(),
         signingKey,
-      );
+        identityKey,
+      )) as Uint8Array;
       const hash = await sha256.digest(block);
       const cid = CIDClass.createV1(DAG_CBOR_CODE, hash);
 

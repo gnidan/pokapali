@@ -51,6 +51,7 @@ function mockEffects(overrides?: Partial<EffectHandlers>): EffectHandlers {
     }),
     getBlock: vi.fn().mockReturnValue(null),
     decodeBlock: vi.fn().mockReturnValue({}),
+    isPublisherAuthorized: vi.fn().mockReturnValue(true),
     announce: vi.fn(),
     markReady: vi.fn(),
     emitSnapshotApplied: vi.fn(),
