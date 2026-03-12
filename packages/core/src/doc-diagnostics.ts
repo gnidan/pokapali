@@ -1,6 +1,6 @@
 import type { Awareness } from "y-protocols/awareness";
 import type { RoomDiscovery } from "./peer-discovery.js";
-import type { SnapshotWatcher } from "./snapshot-watcher.js";
+import type { LoadingState } from "./snapshot-watcher.js";
 import type { TopologyEdge } from "./topology-graph.js";
 import { getHelia } from "./helia.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -54,7 +54,12 @@ export interface Diagnostics {
 }
 
 export interface DiagnosticsContext {
-  snapshotWatcher: SnapshotWatcher | null;
+  ackedBy: ReadonlySet<string>;
+  latestAnnouncedSeq: number;
+  loadingState: LoadingState;
+  hasAppliedSnapshot: boolean;
+  guaranteeUntil: number | null;
+  retainUntil: number | null;
   roomDiscovery: RoomDiscovery | undefined;
   awareness: Awareness;
   clockSum: number;
@@ -70,7 +75,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
     meshPeers: 0,
   };
 
-  const ackedSet = ctx.snapshotWatcher?.ackedBy ?? new Set<string>();
+  const ackedSet = ctx.ackedBy;
 
   try {
     const helia = getHelia();
@@ -194,13 +199,13 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
     gossipsub,
     clockSum: ctx.clockSum,
     maxPeerClockSum,
-    latestAnnouncedSeq: ctx.snapshotWatcher?.latestAnnouncedSeq ?? 0,
+    latestAnnouncedSeq: ctx.latestAnnouncedSeq,
     ipnsSeq: ctx.ipnsSeq,
-    loadingState: ctx.snapshotWatcher?.fetchState ?? { status: "idle" },
-    hasAppliedSnapshot: ctx.snapshotWatcher?.hasAppliedSnapshot ?? false,
+    loadingState: ctx.loadingState,
+    hasAppliedSnapshot: ctx.hasAppliedSnapshot,
     ackedBy: [...ackedSet],
-    guaranteeUntil: ctx.snapshotWatcher?.guaranteeUntil ?? null,
-    retainUntil: ctx.snapshotWatcher?.retainUntil ?? null,
+    guaranteeUntil: ctx.guaranteeUntil,
+    retainUntil: ctx.retainUntil,
     topology,
   };
 }
