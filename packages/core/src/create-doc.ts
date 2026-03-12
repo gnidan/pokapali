@@ -56,7 +56,16 @@ import {
 import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
 import { reduce } from "./reducers.js";
 import { initialDocState, bestGuarantee, EMPTY_SET } from "./facts.js";
-import type { Fact, DocState, LoadingState, GossipActivity } from "./facts.js";
+import type {
+  Fact,
+  DocState,
+  DocStatus,
+  SaveState,
+  DocRole,
+  SyncStatus,
+  LoadingState,
+  GossipActivity,
+} from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
 
@@ -66,11 +75,7 @@ const REANNOUNCE_MS = 15_000;
 const GUARANTEE_INITIAL_DELAY_MS = 3_000;
 const GUARANTEE_REQUERY_MS = 5 * 60_000;
 
-export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
-
-export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
-
-export type DocRole = "admin" | "writer" | "reader";
+export type { DocStatus, SaveState, DocRole };
 
 export interface VersionInfo {
   cid: CID;
@@ -201,8 +206,6 @@ export interface DocParams {
   roomDiscovery?: RoomDiscovery;
   performInitialResolve?: boolean;
 }
-
-type SyncStatus = "connecting" | "connected" | "disconnected";
 
 function computeStatus(
   syncStatus: SyncStatus,
