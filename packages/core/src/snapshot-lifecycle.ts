@@ -240,14 +240,15 @@ export function createSnapshotLifecycle(
       if (!block) {
         try {
           const helia = options.getHelia();
-          const raw = ensureUint8Array(await helia.blockstore.get(cid));
-          if (raw.length === 0) {
-            throw new Error("empty block");
-          }
-          block = raw;
+          block = await fetchBlock(helia, cid, {
+            httpUrls: options.httpUrls?.(),
+            retries: 2,
+            baseMs: 1_000,
+          });
         } catch {
-          throw new Error("Unknown CID: " + cid.toString());
+          throw new Error("Block not found: " + cid.toString());
         }
+        blocks.set(cid.toString(), block);
       }
       const node = decodeSnapshot(block);
       const plaintext = await decryptSnapshot(node, readKey);
