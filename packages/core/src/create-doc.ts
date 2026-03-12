@@ -61,7 +61,7 @@ import { reduce, reduceChain } from "./reducers.js";
 import {
   initialDocState,
   bestGuarantee,
-  versionHistory,
+  deriveVersionHistory,
   EMPTY_SET,
 } from "./facts.js";
 import type {
@@ -74,6 +74,7 @@ import type {
   SyncStatus,
   LoadingState,
   GossipActivity,
+  VersionHistory,
 } from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
@@ -151,6 +152,9 @@ export interface Doc {
   readonly tip: Feed<VersionInfo | null>;
   /** Reactive loading feed (useSyncExternalStore). */
   readonly loading: Feed<LoadingState>;
+  /** Reactive version history feed. Updates as
+   *  chain walks discover and fetch entries. */
+  readonly versions: Feed<VersionHistory>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -460,46 +464,6 @@ export function createDoc(params: DocParams): Doc {
   // pipeline.
   let localChain: ChainState | null = null;
 
-  /**
-   * Merge local publish chain with interpreter
-   * chain. Interpreter chain has remote entries
-   * (gossip, acks, guarantees); local chain has
-   * immediate publish entries the interpreter
-   * hasn't processed yet.
-   */
-  function mergedHistory() {
-    const versions = new Map<
-      string,
-      {
-        cid: CID;
-        seq: number;
-        ts: number;
-      }
-    >();
-
-    // Interpreter chain first — authoritative,
-    // has remote entries + ack/guarantee info.
-    // Chain-walk entries now have inferred seq
-    // (parentSeq - 1) so they appear immediately.
-    if (interpreterState?.chain) {
-      for (const v of versionHistory(interpreterState.chain)) {
-        versions.set(v.cid.toString(), v);
-      }
-    }
-
-    // Local chain fills in entries the interpreter
-    // hasn't processed yet (recent publishes).
-    if (localChain) {
-      for (const v of versionHistory(localChain)) {
-        const key = v.cid.toString();
-        if (!versions.has(key)) {
-          versions.set(key, v);
-        }
-      }
-    }
-
-    return [...versions.values()].sort((a, b) => b.seq - a.seq);
-  }
   let interpreterAc: AbortController | null = null;
   let lastLocalPublishCid: string | null = null;
   let lastEmittedAcks = new Set<string>();
@@ -528,6 +492,20 @@ export function createDoc(params: DocParams): Doc {
     { status: "idle" },
     (a, b) => !loadingStateChanged(a, b),
   );
+
+  const EMPTY_VERSION_HISTORY: VersionHistory = {
+    entries: [],
+    walking: false,
+  };
+  const versionsFeed: WritableFeed<VersionHistory> = createFeed<VersionHistory>(
+    EMPTY_VERSION_HISTORY,
+  );
+
+  function updateVersionsFeed(): void {
+    versionsFeed._update(
+      deriveVersionHistory(interpreterState?.chain ?? null, localChain),
+    );
+  }
 
   // --- Event bridges ---
   // Status and saveState are always computed
@@ -872,6 +850,12 @@ export function createDoc(params: DocParams): Doc {
           ) {
             markReady();
           }
+        }
+
+        // Version history feed — update when chain
+        // changes (structural sharing: cheap check)
+        if (item.next.chain !== item.prev.chain) {
+          updateVersionsFeed();
         }
 
         yield item;
@@ -1328,6 +1312,7 @@ export function createDoc(params: DocParams): Doc {
 
     tip: tipFeed as Feed<VersionInfo | null>,
     loading: loadingFeed as Feed<LoadingState>,
+    versions: versionsFeed as Feed<VersionHistory>,
 
     ready(): Promise<void> {
       return readyPromise;
@@ -1432,6 +1417,10 @@ export function createDoc(params: DocParams): Doc {
         publishSucceeded,
       ].reduce(reduceChain, base);
 
+      // Update versions feed synchronously so
+      // subscribers see the new version immediately.
+      updateVersionsFeed();
+
       // Push to interpreter for side effects
       // (announce, acks, gossip, etc.)
       if (factQueue) {
@@ -1533,12 +1522,24 @@ export function createDoc(params: DocParams): Doc {
 
     async history() {
       assertNotDestroyed();
-      return mergedHistory();
+      const { entries } = versionsFeed.getSnapshot();
+      return entries.map((e) => ({
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts,
+      }));
     },
 
     async versionHistory(): Promise<VersionEntry[]> {
       assertNotDestroyed();
-      const chainFallback = async () => mergedHistory();
+      const chainFallback = async () => {
+        const { entries } = versionsFeed.getSnapshot();
+        return entries.map((e) => ({
+          cid: e.cid,
+          seq: e.seq,
+          ts: e.ts,
+        }));
+      };
       const entries = await fetchVersionHistory(
         getHttpUrls(),
         ipnsName,
