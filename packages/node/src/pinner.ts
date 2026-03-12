@@ -57,6 +57,10 @@ const HALF_LIFE_MS = 12 * 60 * 60_000;
 const MAX_INTERVAL_MS = 24 * 60 * 60_000;
 const SCHEDULE_TICK_MS = 5_000;
 
+// Stale name pruning: drop names with no GossipSub
+// activity AND no successful IPNS resolve for 3 days.
+const DEFAULT_STALE_RESOLVE_MS = 3 * 24 * 60 * 60_000;
+
 // Self-tuning capacity
 const INITIAL_PER_DOC_MS = 50;
 const EMA_ALPHA = 0.3;
@@ -81,6 +85,10 @@ export interface PinnerConfig {
   /** Max IPNS requests per second to delegated
    * routing. Default: 10. */
   ipnsRateLimit?: number;
+  /** Drop names with no GossipSub activity and no
+   * successful IPNS resolve after this many days.
+   * Default: 3. Set to 0 to disable. */
+  staleResolveDays?: number;
 }
 
 export interface PinnerMetrics {
@@ -95,6 +103,7 @@ export interface PinnerMetrics {
   stateWriteCount: number;
   ipnsThrottleAcquired: number;
   ipnsThrottleRejected: number;
+  stalePruned: number;
 }
 
 export interface Pinner {
@@ -155,6 +164,14 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   // max 1 response per ipnsName per 3s.
   const lastQueryResponse = new Map<string, number>();
   const QUERY_RESPONSE_COOLDOWN_MS = 3_000;
+  // Last successful IPNS resolve per name.
+  // Persisted in LevelDB for stale pruning.
+  const lastResolvedAt = new Map<string, number>();
+  // Stale resolve threshold (0 = disabled)
+  const staleResolveMs =
+    config.staleResolveDays === 0
+      ? 0
+      : (config.staleResolveDays ?? 3) * 24 * 60 * 60_000;
 
   // Self-tuning capacity measurement
   let perDocEma = INITIAL_PER_DOC_MS;
@@ -321,6 +338,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   let lastReannounceMs = 0;
   let lastPersistMs = 0;
   let stateWriteCount = 0;
+  let stalePruned = 0;
 
   /** Write-through: persist a state mutation to
    * LevelDB. Fire-and-forget safe for sync callers
@@ -461,6 +479,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         log.error(`resolve returned null for` + ` ${ipnsName.slice(0, 12)}...`);
         return false;
       }
+
+      // Record successful resolve for stale pruning
+      const now = Date.now();
+      lastResolvedAt.set(ipnsName, now);
+      persistMutation(() => store.setLastResolved(ipnsName, now));
+
       log.debug(
         `resolved ${ipnsName.slice(0, 12)}...` +
           ` -> ${cid.toString().slice(0, 12)}...`,
@@ -761,18 +785,39 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
   /**
    * Prune docs past retention (14 days of inactivity).
+   * Also prune stale names: no GossipSub activity AND
+   * no successful IPNS resolve for staleResolveMs.
    * Capacity backstop: if tracking > capacity * 10,
    * prune oldest by lastSeenAt even if < 14 days.
    */
   async function pruneIfNeeded(): Promise<void> {
     const now = Date.now();
     const toPrune: string[] = [];
+    let staleCount = 0;
 
     // Primary: time-based retention pruning
     for (const name of knownNames) {
       const seen = lastSeenAt.get(name) ?? 0;
       if (seen + RETENTION_DURATION_MS < now) {
         toPrune.push(name);
+      }
+    }
+
+    // Stale-resolve pruning: names within retention
+    // window but with no GossipSub activity AND no
+    // successful IPNS resolve for staleResolveMs.
+    if (staleResolveMs > 0) {
+      const pruneSet = new Set(toPrune);
+      for (const name of knownNames) {
+        if (pruneSet.has(name)) continue;
+        const seen = lastSeenAt.get(name) ?? 0;
+        const resolved = lastResolvedAt.get(name) ?? 0;
+        const seenStale = seen + staleResolveMs < now;
+        const resolveStale = resolved + staleResolveMs < now;
+        if (seenStale && resolveStale) {
+          toPrune.push(name);
+          staleCount++;
+        }
       }
     }
 
@@ -817,16 +862,23 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       lastSeenAt.delete(name);
       lastAckedCid.delete(name);
       nameToAppId.delete(name);
+      lastResolvedAt.delete(name);
       persistMutation(() => store.removeName(name));
       guaranteedUntil.delete(name);
       inHeap.delete(name);
     }
 
+    if (staleCount > 0) {
+      stalePruned += staleCount;
+    }
     if (toPrune.length > 0) {
       markDirty();
-      log.info(
-        `pruned ${toPrune.length} docs,` + ` ${knownNames.size} remaining`,
-      );
+      const parts = [`pruned ${toPrune.length} docs`];
+      if (staleCount > 0) {
+        parts.push(`${staleCount} stale`);
+      }
+      parts.push(`${knownNames.size} remaining`);
+      log.info(parts.join(", "));
     }
   }
 
@@ -898,6 +950,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     const tips = await store.getTips();
     const seenMap = await store.getLastSeenAll();
     const appMap = await store.getAppIds();
+    const resMap = await store.getLastResolvedAll();
 
     for (const [name, cidStr] of tips) {
       const ts = seenMap.get(name) ?? 0;
@@ -908,6 +961,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
     for (const [name, ts] of seenMap) {
       lastSeenAt.set(name, ts);
+    }
+    for (const [name, ts] of resMap) {
+      lastResolvedAt.set(name, ts);
     }
     // Backfill lastSeenAt for names that don't have
     // it — use 0 so they get pruned on next cycle.
@@ -1095,6 +1151,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         stateWriteCount,
         ipnsThrottleAcquired: tm.acquired,
         ipnsThrottleRejected: tm.rejected,
+        stalePruned,
       };
     },
 

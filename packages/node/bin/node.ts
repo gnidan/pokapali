@@ -45,6 +45,9 @@ Options:
                               (default: 30d = 2592000000)
   --ipns-rate-limit <n>       Max IPNS requests/sec to
                               delegated routing (default: 10)
+  --stale-resolve-days <n>    Drop names with no activity
+                              and no resolve for N days
+                              (default: 3, 0 = disable)
   --log-level <level>         debug, info, warn, error
   --help                      Show this help message
 
@@ -72,6 +75,7 @@ interface ParsedArgs {
   retentionHourlyMs: number;
   retentionDailyMs: number;
   ipnsRateLimit: number;
+  staleResolveDays: number;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -90,6 +94,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let retentionHourlyMs = DEFAULT_RETENTION_HOURLY_MS;
   let retentionDailyMs = DEFAULT_RETENTION_DAILY_MS;
   let ipnsRateLimit = 10;
+  let staleResolveDays = 3;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -162,6 +167,12 @@ function parseArgs(argv: string[]): ParsedArgs {
         console.error(`invalid --ipns-rate-limit: "${argv[i]}"`);
         process.exit(1);
       }
+    } else if (arg === "--stale-resolve-days" && argv[i + 1]) {
+      staleResolveDays = parseInt(argv[++i], 10);
+      if (Number.isNaN(staleResolveDays) || staleResolveDays < 0) {
+        console.error(`invalid --stale-resolve-days:` + ` "${argv[i]}"`);
+        process.exit(1);
+      }
     }
   }
 
@@ -190,6 +201,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     retentionHourlyMs,
     retentionDailyMs,
     ipnsRateLimit,
+    staleResolveDays,
   };
 }
 
@@ -217,6 +229,7 @@ async function main() {
     retentionHourlyMs,
     retentionDailyMs,
     ipnsRateLimit,
+    staleResolveDays,
   } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
@@ -380,6 +393,7 @@ async function main() {
       pubsub,
       peerId,
       ipnsRateLimit,
+      staleResolveDays,
       retentionConfig: {
         fullResolutionMs: retentionFullMs,
         hourlyRetentionMs: retentionHourlyMs,

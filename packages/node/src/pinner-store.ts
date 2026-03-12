@@ -11,6 +11,7 @@
  *   /tip/<ipnsName>    → CID string
  *   /app/<ipnsName>    → appId string
  *   /seen/<ipnsName>   → timestamp ms (string)
+ *   /res/<ipnsName>    → timestamp ms (string)
  */
 
 import { LevelDatastore } from "datastore-level";
@@ -31,6 +32,7 @@ const PREFIX_KN = "/kn/";
 const PREFIX_TIP = "/tip/";
 const PREFIX_APP = "/app/";
 const PREFIX_SEEN = "/seen/";
+const PREFIX_RES = "/res/";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -78,6 +80,13 @@ export interface PinnerStore {
   /** All last-seen timestamps as a Map. */
   getLastSeenAll(): Promise<Map<string, number>>;
 
+  /** Set last-resolved timestamp for a name. */
+  setLastResolved(name: string, ts: number): Promise<void>;
+  /** Get last-resolved timestamp, or null. */
+  getLastResolved(name: string): Promise<number | null>;
+  /** All last-resolved timestamps as a Map. */
+  getLastResolvedAll(): Promise<Map<string, number>>;
+
   /** Batch-import state (for migration). */
   importState(state: {
     knownNames: string[];
@@ -108,6 +117,7 @@ export async function createPinnerStore(path: string): Promise<PinnerStore> {
     batch.delete(Key(PREFIX_TIP + name));
     batch.delete(Key(PREFIX_APP + name));
     batch.delete(Key(PREFIX_SEEN + name));
+    batch.delete(Key(PREFIX_RES + name));
     await batch.commit();
   }
 
@@ -200,6 +210,32 @@ export async function createPinnerStore(path: string): Promise<PinnerStore> {
     return map;
   }
 
+  async function setLastResolved(name: string, ts: number): Promise<void> {
+    await ds.put(Key(PREFIX_RES + name), encode(String(ts)));
+  }
+
+  async function getLastResolved(name: string): Promise<number | null> {
+    try {
+      const val = await ds.get(Key(PREFIX_RES + name));
+      const n = Number(decode(val));
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function getLastResolvedAll(): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    for await (const { key, value } of ds.query({
+      prefix: PREFIX_RES,
+    })) {
+      const name = key.toString().slice(PREFIX_RES.length);
+      const n = Number(decode(value));
+      if (Number.isFinite(n)) map.set(name, n);
+    }
+    return map;
+  }
+
   async function importState(state: {
     knownNames: string[];
     tips: Record<string, string>;
@@ -245,6 +281,9 @@ export async function createPinnerStore(path: string): Promise<PinnerStore> {
     setLastSeen,
     getLastSeen,
     getLastSeenAll,
+    setLastResolved,
+    getLastResolved,
+    getLastResolvedAll,
     importState,
   };
 }

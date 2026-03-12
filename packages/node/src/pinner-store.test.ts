@@ -128,12 +128,40 @@ describe("pinner-store", () => {
     });
   });
 
+  describe("lastResolved", () => {
+    it("returns null for unknown", async () => {
+      expect(await store.getLastResolved("xxx")).toBeNull();
+    });
+
+    it("sets and gets timestamp", async () => {
+      await store.setLastResolved("aaa", 1710000000000);
+      expect(await store.getLastResolved("aaa")).toBe(1710000000000);
+    });
+
+    it("getLastResolvedAll returns all", async () => {
+      await store.setLastResolved("aaa", 100);
+      await store.setLastResolved("bbb", 200);
+      const map = await store.getLastResolvedAll();
+      expect(map.size).toBe(2);
+      expect(map.get("aaa")).toBe(100);
+      expect(map.get("bbb")).toBe(200);
+    });
+
+    it("removeName deletes resolved key", async () => {
+      await store.addName("aaa");
+      await store.setLastResolved("aaa", 999);
+      await store.removeName("aaa");
+      expect(await store.getLastResolved("aaa")).toBeNull();
+    });
+  });
+
   describe("persistence", () => {
     it("survives close and reopen", async () => {
       await store.addName("aaa");
       await store.setTip("aaa", "cid1");
       await store.setAppId("aaa", "app1");
       await store.setLastSeen("aaa", 999);
+      await store.setLastResolved("aaa", 888);
 
       await store.close();
 
@@ -145,6 +173,7 @@ describe("pinner-store", () => {
       expect(await store2.getTip("aaa")).toBe("cid1");
       expect(await store2.getAppId("aaa")).toBe("app1");
       expect(await store2.getLastSeen("aaa")).toBe(999);
+      expect(await store2.getLastResolved("aaa")).toBe(888);
 
       await store2.close();
     });
