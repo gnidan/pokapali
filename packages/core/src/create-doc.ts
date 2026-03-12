@@ -708,7 +708,9 @@ export function createDoc(params: DocParams): Doc {
             // Store inline block for getBlock()
             snapshotLC.putBlock(ann.cid, block);
             const helia = getHelia();
-            Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+            Promise.resolve(helia.blockstore.put(cid, block)).catch(
+              (err: unknown) => log.warn("blockstore.put failed:", err),
+            );
           } catch {
             // decode failure — skip inline block
           }
@@ -834,7 +836,9 @@ export function createDoc(params: DocParams): Doc {
           // Persist to IDB so history survives
           // page reloads.
           if (helia.blockstore.put) {
-            Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+            Promise.resolve(helia.blockstore.put(cid, block)).catch(
+              (err: unknown) => log.warn("blockstore.put failed:", err),
+            );
           }
           return block;
         } catch {

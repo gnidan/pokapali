@@ -43,7 +43,7 @@ export interface BlockGetter {
   blockstore: {
     get(
       cid: CID,
-      opts?: { signal?: AbortSignal },
+      opts?: { signal?: AbortSignal; offline?: boolean },
     ): Promise<Uint8Array> | Uint8Array;
     put?(cid: CID, block: Uint8Array): Promise<CID> | CID | void;
   };
@@ -60,7 +60,11 @@ export async function fetchBlock(
 
   let blockstoreErr: unknown;
 
-  // Phase 1: blockstore retry loop
+  // Phase 1: blockstore (IDB) — offline only.
+  // Helia's NetworkedStorage triggers bitswap/gateway
+  // fetches on miss; offline: true skips that so we
+  // fail fast and fall through to our own HTTP
+  // fallback which is faster and more reliable.
   for (let i = 0; i <= retries; i++) {
     try {
       const ctrl = new AbortController();
@@ -68,6 +72,7 @@ export async function fetchBlock(
       try {
         const raw = await helia.blockstore.get(cid, {
           signal: ctrl.signal,
+          offline: true,
         });
         // IDBBlockstore may return a Buffer or
         // ArrayBuffer-backed view that fails

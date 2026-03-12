@@ -67,6 +67,7 @@ export function createSnapshotLifecycle(
   let prev: CID | null = null;
   let lastIpnsSeq: number | null = null;
   const blocks = new Map<string, Uint8Array>();
+  const decodedVersions = new Map<string, Record<string, Y.Doc>>();
   let lastAppliedCid: string | null = null;
 
   return {
@@ -135,7 +136,9 @@ export function createSnapshotLifecycle(
       // Serve the validated block to other peers
       // via bitswap.
       if (helia.blockstore.put) {
-        Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+        Promise.resolve(helia.blockstore.put(cid, block)).catch(
+          (err: unknown) => log.warn("blockstore.put failed:", err),
+        );
       }
 
       onApply(plaintext);
@@ -158,8 +161,8 @@ export function createSnapshotLifecycle(
         const cached = blocks.get(cid.toString());
         if (cached && cached.length > 0) return cached;
 
-        // 2. Blockstore (picks up blocks from bitswap
-        //    / applyRemote that stored to blockstore)
+        // 2. Blockstore (IDB) — offline only so Helia
+        //    doesn't trigger bitswap/gateway fetches.
         try {
           const helia = options.getHelia();
           const ctrl = new AbortController();
@@ -167,6 +170,7 @@ export function createSnapshotLifecycle(
           try {
             const raw = await helia.blockstore.get(cid, {
               signal: ctrl.signal,
+              offline: true,
             });
             const block = ensureUint8Array(raw);
             if (block.length === 0) {
@@ -198,7 +202,9 @@ export function createSnapshotLifecycle(
             // Persist to blockstore for next reload
             const h = options.getHelia();
             if (h.blockstore.put) {
-              Promise.resolve(h.blockstore.put(cid, bytes)).catch(() => {});
+              Promise.resolve(h.blockstore.put(cid, bytes)).catch(
+                (err: unknown) => log.warn("blockstore.put failed:", err),
+              );
             }
             return bytes;
           } catch {
@@ -239,7 +245,16 @@ export function createSnapshotLifecycle(
     },
 
     async loadVersion(cid, readKey) {
-      const cached = blocks.get(cid.toString());
+      const cidStr = cid.toString();
+
+      // Return cached decoded version — avoids
+      // redundant decrypt + Y.Doc creation when
+      // the same version is loaded multiple times
+      // (e.g. preload then click in diff view).
+      const decoded = decodedVersions.get(cidStr);
+      if (decoded) return decoded;
+
+      const cached = blocks.get(cidStr);
       let block: Uint8Array | undefined =
         cached && cached.length > 0 ? cached : undefined;
       if (!block) {
@@ -251,12 +266,14 @@ export function createSnapshotLifecycle(
             baseMs: 1_000,
           });
         } catch {
-          throw new Error("Block not found: " + cid.toString());
+          throw new Error("Block not found: " + cidStr);
         }
-        blocks.set(cid.toString(), block);
+        blocks.set(cidStr, block);
         // Persist to blockstore for next reload
         if (helia.blockstore.put) {
-          Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+          Promise.resolve(helia.blockstore.put(cid, block)).catch(
+            (err: unknown) => log.warn("blockstore.put failed:", err),
+          );
         }
       }
       const node = decodeSnapshot(block);
@@ -267,6 +284,7 @@ export function createSnapshotLifecycle(
         Y.applyUpdate(doc, bytes);
         result[ns] = doc;
       }
+      decodedVersions.set(cidStr, result);
       return result;
     },
 
