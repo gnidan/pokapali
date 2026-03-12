@@ -916,6 +916,10 @@ export function createDoc(params: DocParams): Doc {
       (err) => {
         if (!signal.aborted) {
           log.warn("interpreter error:", err);
+          // Ensure ready() resolves even if the
+          // interpreter crashes — otherwise the doc
+          // hangs permanently with no recovery path.
+          markReady();
         }
       },
     );
