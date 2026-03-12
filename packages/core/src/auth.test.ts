@@ -597,4 +597,198 @@ describe("interpreter publisher authorization", () => {
     ac.abort();
     await done.catch(() => {});
   });
+
+  it("dynamic auth: policy changes between " + "blocks", async () => {
+    const cid1 = await makeCid("block-1");
+    const cid2 = await makeCid("block-2");
+    const block1 = new Uint8Array([1, 2, 3]);
+    const block2 = new Uint8Array([4, 5, 6]);
+
+    const init = initialDocState({
+      ipnsName: "dynamic-auth",
+      role: "reader",
+      channels: ["content"],
+      appId: "dynamic",
+    });
+
+    const ac = new AbortController();
+    const input = createAsyncQueue<Fact>(ac.signal);
+    const feedback = createAsyncQueue<Fact>(ac.signal);
+
+    const applyMock = vi.fn().mockResolvedValue({
+      seq: 1,
+    });
+
+    // Auth policy: starts accepting pub-a,
+    // then changes to reject it
+    let authorized = new Set(["pub-a"]);
+    const effects = mockEffects({
+      fetchBlock: vi.fn().mockResolvedValue(null),
+      applySnapshot: applyMock,
+      getBlock: vi.fn((cid: CID) => {
+        if (cid.equals(cid1)) return block1;
+        if (cid.equals(cid2)) return block2;
+        return null;
+      }),
+      decodeBlock: vi.fn((block: Uint8Array) => {
+        if (block === block1) {
+          return { seq: 1, publisher: "pub-a" };
+        }
+        return { seq: 2, publisher: "pub-a" };
+      }),
+      isPublisherAuthorized: vi.fn(
+        (pub: string | undefined) => pub != null && authorized.has(pub),
+      ),
+    });
+
+    const stateStream = scan(merge(input, feedback), reduce, init);
+
+    async function* capture(
+      stream: AsyncIterable<{
+        prev: DocState;
+        next: DocState;
+        fact: Fact;
+      }>,
+    ) {
+      yield* stream;
+    }
+
+    const done = runInterpreter(
+      capture(stateStream),
+      effects,
+      feedback,
+      ac.signal,
+    );
+
+    // First block: pub-a authorized
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid: cid1,
+      source: "gossipsub",
+      block: block1,
+      seq: 1,
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(applyMock).toHaveBeenCalledTimes(1);
+
+    // Change policy: revoke pub-a
+    authorized = new Set<string>();
+
+    // Second block: pub-a no longer authorized
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid: cid2,
+      source: "gossipsub",
+      block: block2,
+      seq: 2,
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Second block should NOT be applied
+    expect(applyMock).toHaveBeenCalledTimes(1);
+
+    ac.abort();
+    await done.catch(() => {});
+  });
+
+  it("multiple publishers: only authorized " + "ones applied", async () => {
+    const cidGood = await makeCid("good-pub");
+    const cidBad = await makeCid("bad-pub");
+    const blockGood = new Uint8Array([10, 20]);
+    const blockBad = new Uint8Array([30, 40]);
+
+    const init = initialDocState({
+      ipnsName: "multi-pub",
+      role: "reader",
+      channels: ["content"],
+      appId: "multi",
+    });
+
+    const ac = new AbortController();
+    const input = createAsyncQueue<Fact>(ac.signal);
+    const feedback = createAsyncQueue<Fact>(ac.signal);
+
+    const applyMock = vi.fn().mockResolvedValue({
+      seq: 1,
+    });
+
+    const effects = mockEffects({
+      fetchBlock: vi.fn().mockResolvedValue(null),
+      applySnapshot: applyMock,
+      getBlock: vi.fn((cid: CID) => {
+        if (cid.equals(cidGood)) return blockGood;
+        if (cid.equals(cidBad)) return blockBad;
+        return null;
+      }),
+      decodeBlock: vi.fn((block: Uint8Array) => {
+        if (block === blockGood) {
+          return {
+            seq: 2,
+            publisher: "allowed-pub",
+          };
+        }
+        return {
+          seq: 1,
+          publisher: "denied-pub",
+        };
+      }),
+      isPublisherAuthorized: vi.fn(
+        (pub: string | undefined) => pub === "allowed-pub",
+      ),
+    });
+
+    const stateStream = scan(merge(input, feedback), reduce, init);
+
+    async function* capture(
+      stream: AsyncIterable<{
+        prev: DocState;
+        next: DocState;
+        fact: Fact;
+      }>,
+    ) {
+      yield* stream;
+    }
+
+    const done = runInterpreter(
+      capture(stateStream),
+      effects,
+      feedback,
+      ac.signal,
+    );
+
+    // Discover both blocks — denied first,
+    // then authorized (higher seq)
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid: cidBad,
+      source: "gossipsub",
+      block: blockBad,
+      seq: 1,
+    });
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid: cidGood,
+      source: "gossipsub",
+      block: blockGood,
+      seq: 2,
+    });
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Only the authorized block applied
+    expect(applyMock).toHaveBeenCalledWith(cidGood, blockGood);
+    // denied block NOT applied
+    for (const call of applyMock.mock.calls) {
+      expect(call[0].toString()).not.toBe(cidBad.toString());
+    }
+
+    ac.abort();
+    await done.catch(() => {});
+  });
 });
