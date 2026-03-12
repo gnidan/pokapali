@@ -21,11 +21,14 @@ function getApp() {
   if (import.meta.hot?.data.app) {
     return import.meta.hot.data.app as ReturnType<typeof pokapali>;
   }
+  const noCache =
+    new URLSearchParams(window.location.search).get("noCache") === "1";
   const instance = pokapali({
     appId: "pokapali-example",
     channels: ["content"],
     origin:
       window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
+    persistence: !noCache,
   });
   if (import.meta.hot) {
     import.meta.hot.data.app = instance;
