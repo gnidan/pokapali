@@ -154,6 +154,16 @@ export function getHelia(): Helia {
 }
 
 /**
+ * True when a shared Helia instance already exists.
+ * Callers should skip creating a new blockstore when
+ * this returns true — acquireHelia will ignore the
+ * blockstore option and just increment the ref count.
+ */
+export function isHeliaLive(): boolean {
+  return sharedHelia !== null;
+}
+
+/**
  * Reset internal state. For testing only.
  */
 export function _resetHeliaState(): void {
