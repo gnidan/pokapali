@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchBlock } from "./fetch-block.js";
+import { fetchBlock, ensureUint8Array } from "./fetch-block.js";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
@@ -52,6 +52,48 @@ describe("fetchBlock", () => {
         timeoutMs: 5000,
       }),
     ).rejects.toThrow("gone");
+  });
+
+  // Regression: GH #60 — IDBBlockstore returns
+  // ArrayBuffer. fetchBlock must normalize to
+  // Uint8Array so downstream sha256.digest() and
+  // other typed-array consumers don't break.
+  describe("ArrayBuffer normalization (GH #60)", () => {
+    it(
+      "normalizes ArrayBuffer from blockstore" + " to Uint8Array",
+      async () => {
+        const data = new Uint8Array([10, 20, 30]);
+        const cid = await fakeCid();
+        // Simulate IDBBlockstore returning ArrayBuffer
+        const arrayBuffer = data.buffer.slice(
+          data.byteOffset,
+          data.byteOffset + data.byteLength,
+        );
+        const blockstore = {
+          get: vi.fn().mockResolvedValue(arrayBuffer),
+        };
+        const result = await fetchBlock({ blockstore }, cid);
+        expect(result).toBeInstanceOf(Uint8Array);
+        expect(result).toEqual(data);
+      },
+    );
+
+    it("returned Uint8Array works with " + "sha256.digest", async () => {
+      const data = new Uint8Array([10, 20, 30]);
+      const cid = await fakeCid();
+      const arrayBuffer = data.buffer.slice(
+        data.byteOffset,
+        data.byteOffset + data.byteLength,
+      );
+      const blockstore = {
+        get: vi.fn().mockResolvedValue(arrayBuffer),
+      };
+      const result = await fetchBlock({ blockstore }, cid);
+      // This would throw "Unknown type, must be
+      // binary type" if result is still ArrayBuffer
+      const hash = await sha256.digest(result);
+      expect(hash).toBeDefined();
+    });
   });
 
   describe("HTTP fallback", () => {
@@ -358,5 +400,70 @@ describe("fetchBlock", () => {
       expect(result).toBe(block);
       expect(blockstore.get).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+// Regression: GH #60 — ensureUint8Array utility
+describe("ensureUint8Array", () => {
+  it("returns plain Uint8Array unchanged", () => {
+    const u8 = new Uint8Array([1, 2, 3]);
+    const result = ensureUint8Array(u8);
+    expect(result).toBe(u8);
+  });
+
+  it("converts ArrayBuffer to Uint8Array", () => {
+    const u8 = new Uint8Array([4, 5, 6]);
+    const ab = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+    const result = ensureUint8Array(ab);
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(result.constructor).toBe(Uint8Array);
+    expect(result).toEqual(u8);
+  });
+
+  it("converts Buffer to plain Uint8Array", () => {
+    const buf = Buffer.from([7, 8, 9]);
+    const result = ensureUint8Array(buf);
+    expect(result).toBeInstanceOf(Uint8Array);
+    // Buffer subclasses Uint8Array but
+    // constructor !== Uint8Array
+    expect(result.constructor).toBe(Uint8Array);
+    expect(result).toEqual(new Uint8Array([7, 8, 9]));
+  });
+
+  it("handles typed-array subclass view", () => {
+    const ab = new ArrayBuffer(4);
+    const view = new DataView(ab);
+    view.setUint8(0, 10);
+    view.setUint8(1, 20);
+    view.setUint8(2, 30);
+    view.setUint8(3, 40);
+    const result = ensureUint8Array(view);
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(result).toEqual(new Uint8Array([10, 20, 30, 40]));
+  });
+
+  it("handles Buffer subclass with non-zero " + "byteOffset", () => {
+    const ab = new ArrayBuffer(10);
+    const slice = new Uint8Array(ab, 3, 4);
+    slice.set([1, 2, 3, 4]);
+    // Create a Buffer-like subclass with offset
+    const buf = Buffer.from(ab, slice.byteOffset, slice.byteLength);
+    const result = ensureUint8Array(buf);
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(result).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(result.length).toBe(4);
+  });
+
+  it("preserves data through sha256.digest", async () => {
+    const data = new Uint8Array([1, 2, 3]);
+    const ab = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    );
+    const result = ensureUint8Array(ab);
+    // sha256.digest rejects ArrayBuffer but
+    // accepts the converted Uint8Array
+    const hash = await sha256.digest(result);
+    expect(hash).toBeDefined();
   });
 });

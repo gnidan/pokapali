@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as Y from "yjs";
 
 vi.mock("./fetch-block.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./fetch-block.js")>();
@@ -327,6 +328,129 @@ describe("createSnapshotLifecycle", () => {
       expect(entries[1].seq).toBe(1);
     },
   );
+
+  // Regression: GH #60 — IDBBlockstore returns
+  // ArrayBuffer instead of Uint8Array. The history()
+  // and loadVersion() methods call blockstore.get()
+  // directly and must normalize the result.
+  describe("ArrayBuffer normalization (GH #60)", () => {
+    it("history works when blockstore returns" + " ArrayBuffer", async () => {
+      const readKey = await crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"],
+      );
+      const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+
+      // Build a 2-block chain
+      const p = { content: new Uint8Array([1]) };
+      const block1 = await realEncodeSnapshot(
+        p,
+        readKey,
+        null,
+        1,
+        1000,
+        signingKey,
+      );
+      const hash1 = await sha256.digest(block1);
+      const cid1 = CID.createV1(0x71, hash1);
+
+      const block2 = await realEncodeSnapshot(
+        p,
+        readKey,
+        cid1,
+        2,
+        2000,
+        signingKey,
+      );
+      const hash2 = await sha256.digest(block2);
+      const cid2 = CID.createV1(0x71, hash2);
+
+      // Blockstore returns ArrayBuffer (IDB behavior)
+      const toAB = (u8: Uint8Array) =>
+        u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+
+      const heliaWithAB = {
+        blockstore: {
+          put: vi.fn().mockResolvedValue(undefined),
+          get: vi.fn().mockImplementation(async (cid: CID) => {
+            if (cid.equals(cid1)) return toAB(block1);
+            throw new Error("Not found");
+          }),
+        },
+      };
+
+      vi.mocked(fetchBlock).mockResolvedValue(block2);
+
+      const lc = createSnapshotLifecycle({
+        getHelia: () => heliaWithAB as any,
+      });
+
+      await lc.applyRemote(cid2, readKey, () => {});
+
+      // history() walks chain; block1 comes from
+      // blockstore as ArrayBuffer. If not normalized,
+      // walkChain → decodeSnapshot will get an
+      // ArrayBuffer that may break downstream.
+      const entries = await lc.history();
+      expect(entries).toHaveLength(2);
+      expect(entries[0].seq).toBe(2);
+      expect(entries[1].seq).toBe(1);
+    });
+
+    it(
+      "loadVersion works when blockstore " + "returns ArrayBuffer",
+      async () => {
+        const readKey = await crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 256 },
+          true,
+          ["encrypt", "decrypt"],
+        );
+        const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+
+        // Must use a valid Yjs update as subdoc
+        // content, since loadVersion calls
+        // Y.applyUpdate on each decrypted subdoc.
+        const tmpDoc = new Y.Doc();
+        tmpDoc.getText("t").insert(0, "hello");
+        const yjsUpdate = Y.encodeStateAsUpdate(tmpDoc);
+
+        const block = await realEncodeSnapshot(
+          { content: yjsUpdate },
+          readKey,
+          null,
+          1,
+          1000,
+          signingKey,
+        );
+        const hash = await sha256.digest(block);
+        const cid = CID.createV1(0x71, hash);
+
+        // Blockstore returns ArrayBuffer
+        const arrayBuffer = block.buffer.slice(
+          block.byteOffset,
+          block.byteOffset + block.byteLength,
+        );
+        const heliaWithAB = {
+          blockstore: {
+            put: vi.fn(),
+            get: vi.fn().mockResolvedValue(arrayBuffer),
+          },
+        };
+
+        const lc = createSnapshotLifecycle({
+          getHelia: () => heliaWithAB as any,
+        });
+
+        // loadVersion() calls blockstore.get() directly
+        // then decodeSnapshot + decryptSnapshot. If the
+        // ArrayBuffer is not normalized, Y.applyUpdate()
+        // will receive non-Uint8Array data.
+        const result = await lc.loadVersion(cid, readKey);
+        expect(result.content).toBeDefined();
+      },
+    );
+  });
 
   it("history returns single entry after one push", async () => {
     const readKey = await crypto.subtle.generateKey(
