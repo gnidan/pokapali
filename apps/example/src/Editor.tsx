@@ -25,9 +25,9 @@ import { capitalize } from "./utils";
 import { useFeed } from "./useFeed";
 
 export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
-  const status = useFeed(doc.statusFeed);
-  const saveState = useFeed(doc.saveStateFeed);
-  const tipInfo = useFeed(doc.tipFeed);
+  const status = useFeed(doc.status);
+  const saveState = useFeed(doc.saveState);
+  const tipInfo = useFeed(doc.tip);
   const ackCount = tipInfo?.ackedBy.size ?? 0;
 
   const [showShare, setShowShare] = useState(false);

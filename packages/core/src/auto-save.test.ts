@@ -4,11 +4,12 @@ import { createAutoSaver } from "./auto-save.js";
 // Minimal mock of CollabDoc for auto-save purposes.
 function mockDoc(opts?: { canPush?: boolean; saveState?: string }) {
   const listeners = new Map<string, Set<(...args: any[]) => void>>();
+  const sv = opts?.saveState ?? "saved";
   return {
     capability: {
       canPushSnapshots: opts?.canPush ?? true,
     },
-    saveState: opts?.saveState ?? "saved",
+    saveState: { getSnapshot: () => sv },
     publish: vi.fn().mockResolvedValue(undefined),
     on(event: string, fn: (...args: any[]) => void) {
       if (!listeners.has(event)) {

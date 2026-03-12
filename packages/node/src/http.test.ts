@@ -9,11 +9,13 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 
 // Minimal mock relay that satisfies the interface
-// used by getHealthData / getStatusData.
+// used by getHealthData / getStatusData / metrics.
 function mockRelay(opts?: {
   peerId?: string;
   connections?: number;
   peers?: number;
+  /** Peer IDs for connections (for remotePeer). */
+  connectedPeerIds?: string[];
   multiaddrs?: string[];
   topics?: string[];
   gsPeers?: number;
@@ -21,9 +23,25 @@ function mockRelay(opts?: {
   subscribers?: Record<string, string[]>;
   /** Map of topic → mesh peer IDs. */
   meshPeers?: Record<string, string[]>;
+  /** Map of peer ID → score. */
+  peerScores?: Record<string, number>;
+  /** Map of topic → Map of peer ID → backoff
+   *  expiry (ms epoch). */
+  backoff?: Record<string, Record<string, number>>;
+  /** Set of peer IDs with outbound streams. */
+  streamsOutbound?: string[];
 }) {
   const pid = opts?.peerId ?? "12D3KooWTestPeer";
-  const conns = Array.from({ length: opts?.connections ?? 2 }, () => ({}));
+  const connPids = opts?.connectedPeerIds ?? [];
+  const connCount = opts?.connections ?? (connPids.length || 2);
+  const conns =
+    connPids.length > 0
+      ? connPids.map((p) => ({
+          remotePeer: { toString: () => p },
+        }))
+      : Array.from({ length: connCount }, () => ({
+          remotePeer: { toString: () => "unknown" },
+        }));
   const peers = Array.from({ length: opts?.peers ?? 3 }, () => ({}));
   const addrs = (opts?.multiaddrs ?? []).map((a) => ({ toString: () => a }));
   const topics = opts?.topics ?? [];
@@ -32,6 +50,16 @@ function mockRelay(opts?: {
   const mesh = new Map<string, Set<string>>();
   for (const [t, pids] of Object.entries(opts?.meshPeers ?? {})) {
     mesh.set(t, new Set(pids));
+  }
+
+  const peerScores = opts?.peerScores ?? {};
+  const backoff = new Map<string, Map<string, number>>();
+  for (const [t, peers] of Object.entries(opts?.backoff ?? {})) {
+    backoff.set(t, new Map(Object.entries(peers)));
+  }
+  const streamsOut = new Map<string, unknown>();
+  for (const p of opts?.streamsOutbound ?? []) {
+    streamsOut.set(p, {});
   }
 
   return {
@@ -48,7 +76,13 @@ function mockRelay(opts?: {
             getPeers: () => gsPeers,
             getSubscribers: (topic: string) =>
               (subs[topic] ?? []).map((p: string) => ({ toString: () => p })),
-            mesh,
+            getMeshPeers: (topic: string) =>
+              [...(mesh.get(topic) ?? [])].map((p) => ({ toString: () => p })),
+            backoff,
+            streamsOutbound: streamsOut,
+            score: {
+              score: (peerId: string) => peerScores[peerId] ?? 0,
+            },
           },
         },
       },
@@ -258,6 +292,143 @@ describe("startHttpServer", () => {
       const res = await fetch(port, "GET", "/metrics");
       const data = JSON.parse(res.body);
       expect(data.pinner).toBeNull();
+    });
+
+    it("includes per-topic mesh peer details", async () => {
+      start({
+        relay: mockRelay({
+          topics: ["topic-a"],
+          gsPeers: 3,
+          subscribers: {
+            "topic-a": ["peer-1", "peer-2"],
+          },
+          meshPeers: {
+            "topic-a": ["peer-1", "peer-2"],
+          },
+          peerScores: {
+            "peer-1": 100,
+            "peer-2": 0,
+          },
+          streamsOutbound: ["peer-1"],
+        }),
+      });
+      const res = await fetch(port, "GET", "/metrics");
+      const data = JSON.parse(res.body);
+      const gs = data.gossipsub;
+      expect(gs).not.toBeNull();
+
+      const topicA = gs.topics["topic-a"];
+      expect(topicA.mesh).toBe(2);
+      expect(topicA.meshPeers).toHaveLength(2);
+
+      const p1 = topicA.meshPeers.find((p: any) => p.peerId === "peer-1");
+      expect(p1.score).toBe(100);
+      expect(p1.hasStream).toBe(true);
+      expect(p1.backoffSec).toBeNull();
+
+      const p2 = topicA.meshPeers.find((p: any) => p.peerId === "peer-2");
+      expect(p2.score).toBe(0);
+      expect(p2.hasStream).toBe(false);
+    });
+
+    it("reports backoff state for mesh peers", async () => {
+      const futureBackoff = Date.now() + 30_000;
+      start({
+        relay: mockRelay({
+          topics: ["topic-a"],
+          subscribers: {
+            "topic-a": ["peer-1"],
+          },
+          meshPeers: {
+            "topic-a": ["peer-1"],
+          },
+          backoff: {
+            "topic-a": {
+              "peer-1": futureBackoff,
+            },
+          },
+        }),
+      });
+      const res = await fetch(port, "GET", "/metrics");
+      const data = JSON.parse(res.body);
+      const p1 = data.gossipsub.topics["topic-a"].meshPeers[0];
+      expect(p1.backoffSec).toBeGreaterThan(0);
+      expect(p1.backoffSec).toBeLessThanOrEqual(30);
+    });
+
+    it("identifies relay peers by score", async () => {
+      start({
+        relay: mockRelay({
+          topics: ["topic-a"],
+          subscribers: {
+            "topic-a": ["relay-1", "browser-1"],
+          },
+          meshPeers: {
+            "topic-a": ["relay-1", "browser-1"],
+          },
+          peerScores: {
+            "relay-1": 100,
+            "browser-1": 0,
+          },
+          connectedPeerIds: ["relay-1"],
+        }),
+      });
+      const res = await fetch(port, "GET", "/metrics");
+      const data = JSON.parse(res.body);
+      const relays = data.gossipsub.relayPeers;
+      expect(relays).toHaveLength(1);
+      expect(relays[0].peerId).toBe("relay-1");
+      expect(relays[0].connected).toBe(true);
+      expect(relays[0].score).toBe(100);
+    });
+
+    it("shows disconnected relay peers", async () => {
+      start({
+        relay: mockRelay({
+          topics: ["topic-a"],
+          subscribers: {
+            "topic-a": ["relay-1"],
+          },
+          meshPeers: {
+            "topic-a": ["relay-1"],
+          },
+          peerScores: { "relay-1": 100 },
+          // relay-1 NOT in connectedPeerIds
+          connectedPeerIds: [],
+        }),
+      });
+      const res = await fetch(port, "GET", "/metrics");
+      const data = JSON.parse(res.body);
+      const relays = data.gossipsub.relayPeers;
+      expect(relays).toHaveLength(1);
+      expect(relays[0].connected).toBe(false);
+    });
+
+    it("includes score distribution", async () => {
+      start({
+        relay: mockRelay({
+          topics: ["topic-a"],
+          subscribers: {
+            "topic-a": ["p1", "p2", "p3"],
+          },
+          meshPeers: {
+            "topic-a": ["p1", "p2", "p3"],
+          },
+          peerScores: {
+            p1: -2,
+            p2: 50,
+            p3: 100,
+          },
+        }),
+      });
+      const res = await fetch(port, "GET", "/metrics");
+      const data = JSON.parse(res.body);
+      const dist = data.gossipsub.scoreDistribution;
+      expect(dist).not.toBeNull();
+      expect(dist.min).toBe(-2);
+      expect(dist.max).toBe(100);
+      expect(dist.negative).toBe(1);
+      expect(dist.count).toBe(3);
     });
   });
 

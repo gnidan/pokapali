@@ -885,4 +885,87 @@ describe("pinner with mock helia", () => {
       await pinner2.stop();
     });
   });
+
+  describe("IPNS rate limiting", () => {
+    it("throttles republish operations", async () => {
+      // Ingest 5 names, set rate limit to 2/sec,
+      // trigger republish. The throttle metrics
+      // should show acquired > 0.
+      const blocks = new Map<string, Uint8Array>();
+      const mockHelia = createMockHelia(blocks);
+
+      mockResolve.mockResolvedValue({
+        cid: CID.create(
+          1,
+          dagCborCode,
+          await sha256.digest(new TextEncoder().encode("x")),
+        ),
+        record: new Uint8Array([1, 2, 3]),
+      });
+      mockRepublish.mockResolvedValue(undefined);
+
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+        ipnsRateLimit: 2, // 2 req/sec
+      });
+      await pinner.start();
+
+      for (let i = 0; i < 5; i++) {
+        const hex = (i + 0xa0).toString(16).padStart(2, "0");
+        const name = hex.padEnd(64, "0");
+        const b = await makeSnapshot({
+          ts: 5000 + i,
+        });
+        const c = await blockToCid(b);
+        blocks.set(c.toString(), b);
+        await pinner.ingest(name, b);
+      }
+
+      // Trigger initial republish (5 min)
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      // Allow throttle wait timers to fire
+      await vi.advanceTimersByTimeAsync(10_000);
+      await pinner.flush();
+
+      const m = pinner.metrics();
+      expect(m.ipnsThrottleAcquired).toBeGreaterThan(0);
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
+
+    it("exposes throttle metrics", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        ipnsRateLimit: 10,
+      });
+      await pinner.start();
+
+      const m = pinner.metrics();
+      expect(m.ipnsThrottleAcquired).toBe(0);
+      expect(m.ipnsThrottleRejected).toBe(0);
+
+      await pinner.stop();
+    });
+
+    it("defaults to 10 req/sec when not configured", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+
+      // Should have throttle metrics available
+      const m = pinner.metrics();
+      expect(typeof m.ipnsThrottleAcquired).toBe("number");
+      expect(typeof m.ipnsThrottleRejected).toBe("number");
+
+      await pinner.stop();
+    });
+  });
 });

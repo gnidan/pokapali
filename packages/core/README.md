@@ -37,12 +37,6 @@ the only package most apps need to import.
 
 - `snapshot-lifecycle` — chain state, push, applyRemote,
   history, loadVersion
-- `snapshot-watcher` — GossipSub announce subscription,
-  IPNS polling, retry scheduling. Supports max retries
-  with a `"failed"` loading state, pinner ack tracking
-  (`ackedBy`, `"ack"` event), guarantee query/response
-  protocol, and a `"resolving"` loading state for IPNS
-  resolve-in-progress feedback
 - `fetch-block` — block fetch with exponential backoff
   retry and abort timeout
 - `relay-sharing` — awareness-based relay address exchange

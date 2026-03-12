@@ -43,6 +43,8 @@ Options:
                               (default: 14d = 1209600000)
   --retention-daily <ms>      Daily retention
                               (default: 30d = 2592000000)
+  --ipns-rate-limit <n>       Max IPNS requests/sec to
+                              delegated routing (default: 10)
   --log-level <level>         debug, info, warn, error
   --help                      Show this help message
 
@@ -69,6 +71,7 @@ interface ParsedArgs {
   retentionFullMs: number;
   retentionHourlyMs: number;
   retentionDailyMs: number;
+  ipnsRateLimit: number;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -86,6 +89,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let retentionFullMs = DEFAULT_RETENTION_FULL_MS;
   let retentionHourlyMs = DEFAULT_RETENTION_HOURLY_MS;
   let retentionDailyMs = DEFAULT_RETENTION_DAILY_MS;
+  let ipnsRateLimit = 10;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -152,6 +156,12 @@ function parseArgs(argv: string[]): ParsedArgs {
         console.error(`invalid --retention-daily: "${argv[i]}"`);
         process.exit(1);
       }
+    } else if (arg === "--ipns-rate-limit" && argv[i + 1]) {
+      ipnsRateLimit = parseInt(argv[++i], 10);
+      if (Number.isNaN(ipnsRateLimit) || ipnsRateLimit < 1) {
+        console.error(`invalid --ipns-rate-limit: "${argv[i]}"`);
+        process.exit(1);
+      }
     }
   }
 
@@ -179,6 +189,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     retentionFullMs,
     retentionHourlyMs,
     retentionDailyMs,
+    ipnsRateLimit,
   };
 }
 
@@ -205,6 +216,7 @@ async function main() {
     retentionFullMs,
     retentionHourlyMs,
     retentionDailyMs,
+    ipnsRateLimit,
   } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
@@ -367,6 +379,7 @@ async function main() {
       helia: relayHandle?.helia,
       pubsub,
       peerId,
+      ipnsRateLimit,
       retentionConfig: {
         fullResolutionMs: retentionFullMs,
         hourlyRetentionMs: retentionHourlyMs,

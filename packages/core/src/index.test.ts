@@ -79,6 +79,21 @@ vi.mock("@pokapali/sync", () => ({
   })),
 }));
 
+vi.mock("blockstore-idb", () => ({
+  IDBBlockstore: vi.fn(() => ({
+    open: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+vi.mock("./persistence.js", () => ({
+  createDocPersistence: vi.fn(() => ({
+    whenSynced: Promise.resolve(),
+    providers: new Set(),
+    destroy: vi.fn(),
+  })),
+}));
+
 vi.mock("@pokapali/snapshot", async () => {
   const actual =
     await vi.importActual<typeof import("@pokapali/snapshot")>(
@@ -265,7 +280,7 @@ describe("@pokapali/core", () => {
 
     // With mock sync status "connected",
     // status should be "synced".
-    expect(doc.status).toBe("synced");
+    expect(doc.status.getSnapshot()).toBe("synced");
     doc.destroy();
   });
 
@@ -276,12 +291,12 @@ describe("@pokapali/core", () => {
     // After create(), _meta writes trigger dirty.
     // Push to clear.
     await doc.publish();
-    expect(doc.saveState).toBe("saved");
+    expect(doc.saveState.getSnapshot()).toBe("saved");
 
     // Edit a subdoc to trigger dirty
     const content = doc.channel("content");
     content.getMap("test").set("key", "value");
-    expect(doc.saveState).toBe("dirty");
+    expect(doc.saveState.getSnapshot()).toBe("dirty");
     doc.destroy();
   });
 
@@ -291,7 +306,7 @@ describe("@pokapali/core", () => {
 
     // Push snapshot to clear dirty state
     await doc.publish();
-    expect(doc.saveState).toBe("saved");
+    expect(doc.saveState.getSnapshot()).toBe("saved");
 
     const states: SaveState[] = [];
     doc.on("save", (s: SaveState) => {

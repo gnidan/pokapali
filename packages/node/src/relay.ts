@@ -35,6 +35,8 @@ const RAW_CODEC = 0x55;
 const PROVIDE_INTERVAL_MS = 5 * 60_000;
 const LOG_INTERVAL_MS = 30_000;
 const CAPS_INTERVAL_MS = 30_000;
+const HEALTH_CHECK_MIN_MS = 60_000;
+const HEALTH_CHECK_MAX_MS = 90_000;
 
 const log = createLogger("relay");
 
@@ -212,9 +214,9 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     join(config.storagePath, "blockstore"),
   );
   await rawBlockstore.open();
-  // blockstore-fs@3 get() returns AsyncGenerator,
-  // not Uint8Array. Wrap to match the interface
-  // Helia expects.
+  // blockstore-fs@3 get() returns AsyncGenerator
+  // <Uint8Array>, not Promise<Uint8Array>. Wrap to
+  // match the Blockstore interface Helia expects.
   const blockstore = {
     ...rawBlockstore,
     open: () => rawBlockstore.open(),
@@ -223,31 +225,19 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     has: (k: CID) => rawBlockstore.has(k),
     delete: (k: CID) => rawBlockstore.delete(k),
     async get(key: CID): Promise<Uint8Array> {
-      const result = await rawBlockstore.get(key);
-      // FsBlockstore@3 may return AsyncGenerator
-      if (
-        result &&
-        typeof (result as any)[Symbol.asyncIterator] === "function"
-      ) {
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of result as any) {
-          chunks.push(chunk);
-        }
-        const total = chunks.reduce((s, c) => s + c.length, 0);
-        const merged = new Uint8Array(total);
-        let offset = 0;
-        for (const c of chunks) {
-          merged.set(c, offset);
-          offset += c.length;
-        }
-        return merged;
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of rawBlockstore.get(key)) {
+        chunks.push(chunk);
       }
-      // If get() returned a plain Uint8Array
-      // (future version fix), use it directly.
-      if (result instanceof Uint8Array) {
-        return result;
+      if (chunks.length === 1) return chunks[0];
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
       }
-      throw new Error("unexpected blockstore.get return type");
+      return merged;
     },
   };
 
@@ -312,13 +302,14 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
             floodPublish: false,
             allowPublishToZeroTopicPeers: true,
             // D=3 is achievable with 4 relays (3
-            // peers). Dlo=2 avoids constant GRAFT
-            // churn when some relays are temporarily
-            // disconnected. Scales naturally as more
-            // relays join — GossipSub adds up to Dhi
-            // mesh peers.
+            // peers). Dlo=3 maintains full mesh
+            // before triggering GRAFT, reducing
+            // isolation risk when a relay briefly
+            // drops. Scales naturally as more relays
+            // join — GossipSub adds up to Dhi mesh
+            // peers.
             D: 3,
-            Dlo: 2,
+            Dlo: 3,
             Dhi: 8,
             Dout: 1,
             Dscore: 1,
@@ -696,6 +687,32 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   // Periodic re-provide
   const provideInterval = setInterval(provideAll, PROVIDE_INTERVAL_MS);
 
+  // --- Relay-to-relay health check ---
+  //
+  // Periodically verify connectivity to known relay
+  // peers. Re-dial any that have silently dropped.
+  // Jittered interval (60-90s) prevents thundering
+  // herd across relays.
+  function scheduleHealthCheck() {
+    const jitter =
+      HEALTH_CHECK_MIN_MS +
+      Math.random() * (HEALTH_CHECK_MAX_MS - HEALTH_CHECK_MIN_MS);
+    return setTimeout(async () => {
+      const connectedPids = new Set(
+        helia.libp2p.getConnections().map((c: any) => c.remotePeer.toString()),
+      );
+      for (const pid of knownRelayPeerIds) {
+        if (connectedPids.has(pid)) continue;
+        const short = pid.slice(-8);
+        log.info(`health: relay ...${short} not connected,`, `re-dialing`);
+        findAndDialProviders().catch(() => {});
+        break; // one re-dial pass per check
+      }
+      healthTimer = scheduleHealthCheck();
+    }, jitter);
+  }
+  let healthTimer = scheduleHealthCheck();
+
   // Periodic status logging
   let lastAddrCount = 0;
   const logInterval = setInterval(() => {
@@ -709,11 +726,11 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         .getSubscribers(t)
         .map((p: any) => `${t}:${p.toString().slice(-8)}`),
     );
-    // Check internal mesh state
-    const mesh = (pubsub as any).mesh as Map<string, Set<string>> | undefined;
-    const meshInfo = mesh
-      ? [...mesh.entries()].map(([t, s]) => `${t}:${s.size}`)
-      : "no-mesh";
+    // Check mesh state via public getMeshPeers API
+    const meshInfo = gsTopics.map((t: string) => {
+      const mp = pubsub.getMeshPeers?.(t);
+      return mp ? `${t}:${mp.length}` : `${t}:?`;
+    });
     log.debug(
       `${conns.length} conns,`,
       `${peers.length} peers,`,
@@ -733,12 +750,14 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     for (const topic of gsTopics) {
       const subs = pubsub.getSubscribers(topic);
       if (subs.length === 0) continue;
-      const topicMesh = mesh?.get(topic);
+      const topicMeshPeers = new Set(
+        (pubsub.getMeshPeers?.(topic) ?? []).map((p: any) => p.toString()),
+      );
       const topicBackoff = backoffMap?.get(topic);
       const details = subs.map((p: any) => {
         const id = p.toString();
         const short = id.slice(-8);
-        const inMesh = topicMesh?.has(id) ? "M" : "-";
+        const inMesh = topicMeshPeers.has(id) ? "M" : "-";
         const hasStream = streamsOut?.has(id) ? "S" : "!S";
         const score = gs.score?.score?.(id) ?? "?";
         const bo = topicBackoff?.has(id)
@@ -774,6 +793,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     },
 
     async stop() {
+      clearTimeout(healthTimer);
       clearInterval(provideInterval);
       clearInterval(logInterval);
       clearInterval(capsInterval);

@@ -16,6 +16,7 @@ import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker, RetentionConfig } from "./history.js";
+import { createIpnsThrottle } from "./ipns-throttle.js";
 import { loadState, saveState } from "./state.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { createLogger } from "@pokapali/log";
@@ -75,6 +76,9 @@ export interface PinnerConfig {
   peerId?: string;
   /** Version retention tiers for thinning. */
   retentionConfig?: RetentionConfig;
+  /** Max IPNS requests per second to delegated
+   * routing. Default: 10. */
+  ipnsRateLimit?: number;
 }
 
 export interface PinnerMetrics {
@@ -87,6 +91,8 @@ export interface PinnerMetrics {
   lastReannounceMs: number;
   lastPersistMs: number;
   stateWriteCount: number;
+  ipnsThrottleAcquired: number;
+  ipnsThrottleRejected: number;
 }
 
 export interface Pinner {
@@ -108,6 +114,11 @@ export interface Pinner {
 }
 
 export async function createPinner(config: PinnerConfig): Promise<Pinner> {
+  const DEFAULT_IPNS_RATE_LIMIT = 10;
+  const ipnsThrottle = createIpnsThrottle(
+    config.ipnsRateLimit ?? DEFAULT_IPNS_RATE_LIMIT,
+  );
+
   const rateLimits: RateLimiterConfig = {
     maxSnapshotsPerHour:
       config.rateLimits?.maxPerHour ?? DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
@@ -416,6 +427,14 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     if (!helia) return false;
 
     try {
+      // Best-effort throttle: skip if no token
+      // available. IPNS resolve is supplementary —
+      // GossipSub is the primary notification path.
+      if (!ipnsThrottle.tryAcquire()) {
+        log.debug(`resolve throttled:` + ` ${ipnsName.slice(0, 12)}...`);
+        return false;
+      }
+
       const keyBytes = hexToBytes(ipnsName);
       const cid = await resolveIPNS(helia, keyBytes);
       if (!cid) {
@@ -473,15 +492,19 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   async function republishOne(ipnsName: string): Promise<"ok" | "fail"> {
     if (!helia) return "fail";
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const name = ipns(helia as any);
-      const keyBytes = hexToBytes(ipnsName);
-      const pubKey = publicKeyFromRaw(keyBytes);
-
       const signal = AbortSignal.any([
         AbortSignal.timeout(REPUBLISH_TIMEOUT_MS),
         shutdownCtrl.signal,
       ]);
+
+      // Throttle IPNS requests to avoid overwhelming
+      // delegated-ipfs.dev at scale.
+      await ipnsThrottle.acquire(signal);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const name = ipns(helia as any);
+      const keyBytes = hexToBytes(ipnsName);
+      const pubKey = publicKeyFromRaw(keyBytes);
 
       const result = await name.resolve(pubKey, { signal });
 
@@ -1028,6 +1051,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     history,
 
     metrics(): PinnerMetrics {
+      const tm = ipnsThrottle.metrics();
       return {
         knownNames: knownNames.size,
         tipsTracked: history.allNames().length,
@@ -1038,6 +1062,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         lastReannounceMs,
         lastPersistMs,
         stateWriteCount,
+        ipnsThrottleAcquired: tm.acquired,
+        ipnsThrottleRejected: tm.rejected,
       };
     },
 

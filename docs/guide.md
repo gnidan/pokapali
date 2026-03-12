@@ -218,7 +218,61 @@ doc.on("ack", (peerId) => {});
 doc.on("node-change", () => {});
 ```
 
-### 8. Node diagnostics
+### 8. Reactive Feeds
+
+For framework integration (especially React), each
+status property has a corresponding `Feed<T>` that
+works directly with `useSyncExternalStore`:
+
+```ts
+import { useSyncExternalStore } from "react";
+
+// Status indicator
+function StatusBadge({ doc }) {
+  const status = useSyncExternalStore(
+    doc.statusFeed.subscribe,
+    doc.statusFeed.getSnapshot,
+  );
+  return <span className={status}>{status}</span>;
+}
+
+// Save state indicator
+function SaveIndicator({ doc }) {
+  const saveState = useSyncExternalStore(
+    doc.saveStateFeed.subscribe,
+    doc.saveStateFeed.getSnapshot,
+  );
+  return <span>{saveState}</span>;
+}
+```
+
+Available Feeds:
+
+| Feed                | Type                        | Changes when                              |
+| ------------------- | --------------------------- | ----------------------------------------- |
+| `doc.statusFeed`    | `Feed<DocStatus>`           | Connectivity changes                      |
+| `doc.saveStateFeed` | `Feed<SaveState>`           | Publish starts/completes, content dirtied |
+| `doc.tipFeed`       | `Feed<VersionInfo \| null>` | New snapshot applied                      |
+| `doc.loadingFeed`   | `Feed<LoadingState>`        | IPNS resolving, block fetching            |
+
+Each Feed has an equality gate that prevents spurious
+notifications — high-frequency events like GossipSub
+awareness messages don't trigger re-renders on
+unrelated Feeds.
+
+`Feed<T>` interface:
+
+```ts
+interface Feed<T> {
+  getSnapshot(): T;
+  subscribe(cb: () => void): () => void;
+}
+```
+
+No wrapper hook needed. The interface is designed to
+match `useSyncExternalStore` exactly.
+
+### 9. Node diagnostics and topology
 
 `doc.diagnostics()` returns detailed network info
 including discovered nodes with their roles:
@@ -270,7 +324,7 @@ and awareness state from remote peers, giving a
 whole-network view even of nodes not directly connected
 to you.
 
-### 9. Auto-save
+### 10. Auto-save
 
 The `createAutoSaver` utility handles snapshot publishing
 automatically on visibility change, beforeunload, and
@@ -286,7 +340,7 @@ const cleanup = createAutoSaver(doc);
 useEffect(() => createAutoSaver(doc), [doc]);
 ```
 
-### 10. Cleanup
+### 11. Cleanup
 
 Always destroy when done to release WebRTC connections,
 awareness rooms, and the shared Helia instance:
@@ -435,8 +489,8 @@ a new identity, it doesn't delete the old one.
 
 ## Loading State Machine
 
-`doc.on("loading", ...)` reports the snapshot fetch
-lifecycle as a discriminated union:
+`doc.loadingFeed` (or `doc.on("loading", ...)`) reports
+the snapshot fetch lifecycle as a discriminated union:
 
 ```
   ┌──────────────────────────────────────────┐
@@ -447,21 +501,26 @@ idle ──→ resolving ──→ fetching ──→ idle     │
                           ▼                  │
                        retrying ─────────────┘
                           │
-                          ▼ (max 10 attempts)
+                          ▼
                        failed
 ```
 
-| State       | Fields                          | Entered when                                                         |
-| ----------- | ------------------------------- | -------------------------------------------------------------------- |
-| `idle`      | —                               | Snapshot applied successfully, or new doc with no remote state       |
-| `resolving` | `startedAt`                     | IPNS poll begins (readers on `open()`)                               |
-| `fetching`  | `cid`, `startedAt`              | CID received from announcement or IPNS resolve                       |
-| `retrying`  | `cid`, `attempt`, `nextRetryAt` | Block fetch or apply failed; retries up to 10 times at 30s intervals |
-| `failed`    | `cid`, `error`                  | All 10 retry attempts exhausted                                      |
+| State       | Fields                          | Entered when                                             |
+| ----------- | ------------------------------- | -------------------------------------------------------- |
+| `idle`      | —                               | Snapshot applied, or new doc with no remote state        |
+| `resolving` | `startedAt`                     | IPNS poll begins (readers on `open()`)                   |
+| `fetching`  | `cid`, `startedAt`              | CID received from announcement or IPNS resolve           |
+| `retrying`  | `cid`, `attempt`, `nextRetryAt` | Block fetch failed; re-triggered on next discovery event |
+| `failed`    | `cid`, `error`                  | Fetch exhausted (no more discovery events)               |
 
 Writers skip `resolving` — they receive snapshots via
 GossipSub announcements, which provide the CID
 directly. Readers start with IPNS resolution.
+
+Retries are event-driven: a failed fetch is retried
+when the CID is re-discovered via GossipSub re-announce
+(15s) or IPNS poll (30s). There is no fixed retry
+count or interval.
 
 On `failed`, the library calls `markReady()` so the
 editor mounts with whatever state is available (local
