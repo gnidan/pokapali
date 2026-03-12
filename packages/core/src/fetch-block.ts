@@ -73,7 +73,11 @@ export async function fetchBlock(
         // ArrayBuffer-backed view that fails
         // dag-cbor's instanceof Uint8Array check.
         // Coerce to a plain Uint8Array.
-        return ensureUint8Array(raw);
+        const block = ensureUint8Array(raw);
+        if (block.length === 0) {
+          throw new Error("empty block from blockstore");
+        }
+        return block;
       } finally {
         clearTimeout(timer);
       }
@@ -101,6 +105,10 @@ export async function fetchBlock(
         });
         if (!resp.ok) continue;
         const bytes = new Uint8Array(await resp.arrayBuffer());
+        if (bytes.length === 0) {
+          log.debug("empty block from HTTP", baseUrl);
+          continue;
+        }
 
         // Verify content integrity
         const hash = await sha256.digest(bytes);
