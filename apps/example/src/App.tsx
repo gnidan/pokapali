@@ -55,7 +55,16 @@ function RecentDocsList({
     return () => clearInterval(id);
   }, []);
 
-  if (docs.length === 0) return null;
+  if (docs.length === 0) {
+    return (
+      <div className="empty-state">
+        <p>
+          End-to-end encrypted, no sign-up required. Create a document and share
+          the link to start collaborating.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="recent-docs">
