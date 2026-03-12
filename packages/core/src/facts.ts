@@ -197,6 +197,9 @@ export interface ChainState {
    * interpreter.
    */
   newestFetched: CID | null;
+  /** Highest seq seen across all entries. Avoids
+   *  O(n) scans for latestAnnouncedSeq. */
+  maxSeq: number;
 }
 
 export interface ChainEntry {
@@ -273,11 +276,21 @@ export const INITIAL_CONTENT: ContentState = {
   ipnsSeq: null,
 };
 
+/** Shared empty set — avoids repeat allocations. */
+export const EMPTY_SET: ReadonlySet<string> = new Set<string>();
+
+/** Shared empty guarantees map. */
+export const EMPTY_GUARANTEES: ReadonlyMap<
+  string,
+  { guaranteeUntil: number; retainUntil: number }
+> = new Map();
+
 export const INITIAL_CHAIN: ChainState = {
   entries: new Map(),
   tip: null,
   applying: null,
   newestFetched: null,
+  maxSeq: 0,
 };
 
 export function initialDocState(identity: {
