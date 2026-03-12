@@ -1,4 +1,5 @@
 import type { Awareness } from "y-protocols/awareness";
+import type { PeerId, PubSub } from "@libp2p/interface";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { LoadingState } from "./facts.js";
 import type { TopologyEdge } from "./topology-graph.js";
@@ -7,6 +8,11 @@ import { getNodeRegistry } from "./node-registry.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("core:diagnostics");
+
+/** GossipSub public API subset used for diagnostics. */
+interface GossipSubLike extends PubSub {
+  getMeshPeers(topic: string): PeerId[];
+}
 
 export interface NodeInfo {
   peerId: string;
@@ -79,8 +85,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
 
   try {
     const helia = getHelia();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const libp2p = (helia as any).libp2p;
+    const libp2p = helia.libp2p;
     ipfsPeers = libp2p.getPeers().length;
 
     // Build node list from registry
@@ -118,10 +123,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
       for (const pid of dhtRelays) {
         if (seenPids.has(pid)) continue;
         const conns = libp2p.getConnections();
-        const connected = conns.some(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (c: any) => c.remotePeer.toString() === pid,
-        );
+        const connected = conns.some((c) => c.remotePeer.toString() === pid);
         const acked = ackedSet.has(pid);
         nodeList.push({
           peerId: pid,
@@ -138,22 +140,22 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
     }
 
     try {
-      const pubsub = libp2p.services.pubsub;
-      const topics: string[] = pubsub.getTopics?.() ?? [];
-      const gsPeers = pubsub.getPeers?.() ?? [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mesh = (pubsub as any).mesh as Map<string, Set<string>> | undefined;
-      let meshPeers = 0;
-      if (mesh) {
-        for (const set of mesh.values()) {
-          meshPeers += set.size;
+      const pubsub = libp2p.services.pubsub as GossipSubLike | undefined;
+      if (pubsub) {
+        const topics: string[] = pubsub.getTopics?.() ?? [];
+        const gsPeers = pubsub.getPeers?.() ?? [];
+        let meshPeers = 0;
+        if (pubsub.getMeshPeers) {
+          for (const t of topics) {
+            meshPeers += pubsub.getMeshPeers(t).length;
+          }
         }
+        gossipsub = {
+          peers: gsPeers.length,
+          topics: topics.length,
+          meshPeers,
+        };
       }
-      gossipsub = {
-        peers: gsPeers.length,
-        topics: topics.length,
-        meshPeers,
-      };
     } catch (err) {
       log.debug(
         "GossipSub internals unavailable:",

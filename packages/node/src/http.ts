@@ -57,9 +57,6 @@ function getStatusData(config: HttpConfig) {
     const pubsub = (relay.helia.libp2p.services as any).pubsub;
     const gsTopics: string[] = pubsub.getTopics?.() ?? [];
     const gsPeers = pubsub.getPeers?.() ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mesh = (pubsub as any).mesh as Map<string, Set<string>> | undefined;
-
     const topics: Record<
       string,
       {
@@ -69,10 +66,10 @@ function getStatusData(config: HttpConfig) {
     > = {};
     for (const t of gsTopics) {
       const subs = pubsub.getSubscribers(t);
-      const topicMesh = mesh?.get(t);
+      const mp = pubsub.getMeshPeers?.(t);
       topics[t] = {
         subscribers: subs.length,
-        mesh: topicMesh?.size ?? 0,
+        mesh: mp?.length ?? 0,
       };
     }
 
@@ -105,7 +102,6 @@ function getGossipsubMetrics(
 
   const gsTopics: string[] = gs.getTopics?.() ?? [];
   const gsPeers: { toString(): string }[] = gs.getPeers?.() ?? [];
-  const mesh = gs.mesh as Map<string, Set<string>> | undefined;
   const backoffMap = gs.backoff as Map<string, Map<string, number>> | undefined;
   const streamsOut = gs.streamsOutbound as Map<string, unknown> | undefined;
 
@@ -126,9 +122,10 @@ function getGossipsubMetrics(
       }[];
     }
   > = {};
+  const meshPeerIds = new Set<string>();
   for (const t of gsTopics) {
     const subs = gs.getSubscribers?.(t) ?? [];
-    const topicMesh = mesh?.get(t);
+    const mp: { toString(): string }[] = gs.getMeshPeers?.(t) ?? [];
     const topicBackoff = backoffMap?.get(t);
     const meshPeers: {
       peerId: string;
@@ -136,38 +133,27 @@ function getGossipsubMetrics(
       hasStream: boolean;
       backoffSec: number | null;
     }[] = [];
-    if (topicMesh) {
-      for (const pid of topicMesh) {
-        const score = gs.score?.score?.(pid);
-        const boExpiry = topicBackoff?.get(pid);
-        const boSec =
-          typeof boExpiry === "number" && boExpiry > now
-            ? Math.round((boExpiry - now) / 1000)
-            : null;
-        meshPeers.push({
-          peerId: pid,
-          score:
-            typeof score === "number" ? Math.round(score * 100) / 100 : null,
-          hasStream: streamsOut?.has(pid) ?? false,
-          backoffSec: boSec,
-        });
-      }
+    for (const p of mp) {
+      const pid = p.toString();
+      meshPeerIds.add(pid);
+      const score = gs.score?.score?.(pid);
+      const boExpiry = topicBackoff?.get(pid);
+      const boSec =
+        typeof boExpiry === "number" && boExpiry > now
+          ? Math.round((boExpiry - now) / 1000)
+          : null;
+      meshPeers.push({
+        peerId: pid,
+        score: typeof score === "number" ? Math.round(score * 100) / 100 : null,
+        hasStream: streamsOut?.has(pid) ?? false,
+        backoffSec: boSec,
+      });
     }
     topics[t] = {
       subscribers: subs.length,
-      mesh: topicMesh?.size ?? 0,
+      mesh: mp.length,
       meshPeers,
     };
-  }
-
-  // All unique mesh peer IDs
-  const meshPeerIds = new Set<string>();
-  if (mesh) {
-    for (const peerSet of mesh.values()) {
-      for (const pid of peerSet) {
-        meshPeerIds.add(pid);
-      }
-    }
   }
 
   // Score distribution summary

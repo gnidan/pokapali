@@ -535,8 +535,7 @@ export function createDoc(params: DocParams): Doc {
       topSharing = createTopologySharing({
         awareness: awarenessRoom.awareness,
         registry,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        libp2p: (helia as any).libp2p,
+        libp2p: helia.libp2p,
       });
       registry.on("change", nodeChangeHandler);
     }
