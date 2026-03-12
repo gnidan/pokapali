@@ -314,7 +314,7 @@ export type { Feed } from "./sources.js";
 
 export type { RotateResult } from "./doc-rotate.js";
 
-export type { GossipActivity, LoadingState } from "./snapshot-watcher.js";
+export type { GossipActivity, LoadingState } from "./facts.js";
 
 export { fetchVersionHistory } from "./fetch-version-history.js";
 export type { VersionEntry, VersionTier } from "./fetch-version-history.js";

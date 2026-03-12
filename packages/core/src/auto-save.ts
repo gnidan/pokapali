@@ -31,7 +31,7 @@ export function createAutoSaver(
       clearTimeout(timer);
       timer = null;
     }
-    if (doc.saveState !== "dirty") return;
+    if (doc.saveState.getSnapshot() !== "dirty") return;
     doc.publish().catch(() => {});
   }
 
@@ -41,13 +41,16 @@ export function createAutoSaver(
   }
 
   function onBeforeUnload(e: BeforeUnloadEvent) {
-    if (doc.saveState === "dirty") {
+    if (doc.saveState.getSnapshot() === "dirty") {
       e.preventDefault();
     }
   }
 
   function onVisibilityChange() {
-    if (document.visibilityState === "hidden" && doc.saveState === "dirty") {
+    if (
+      document.visibilityState === "hidden" &&
+      doc.saveState.getSnapshot() === "dirty"
+    ) {
       doSave();
     }
   }
