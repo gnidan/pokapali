@@ -136,28 +136,30 @@ function buildDiffDecorations(
     if (op === DiffMatchPatch.DIFF_EQUAL) {
       previewOffset += text.length;
     } else if (op === DiffMatchPatch.DIFF_INSERT) {
-      // Text in preview version, not in current → green
-      const segEnd = previewOffset + text.length - 1;
-      const from = firstValidPos(preview.positions, previewOffset, segEnd);
-      const last = lastValidPos(preview.positions, previewOffset, segEnd);
-      const to = last >= 0 ? last + 1 : -1;
-      // TODO: remove debug logging
-      console.log(
-        "[diff] INSERT",
-        JSON.stringify(text),
-        "from:",
-        from,
-        "to:",
-        to,
-        "previewOffset:",
-        previewOffset,
-      );
-      if (from >= 0 && to > from) {
-        decorations.push(
-          Decoration.inline(from, to, {
-            class: "vh-diff-add",
-          }),
-        );
+      // Text in preview version, not in current → green.
+      // Split at block boundaries (positions[i] === -1)
+      // to avoid Decoration.inline spanning PM blocks,
+      // which ProseMirror silently drops.
+      let segStart = previewOffset;
+      const segEnd = previewOffset + text.length;
+      for (let i = previewOffset; i <= segEnd; i++) {
+        const atEnd = i === segEnd;
+        const atBoundary = !atEnd && preview.positions[i] === -1;
+        if (atBoundary || atEnd) {
+          if (i > segStart) {
+            const from = firstValidPos(preview.positions, segStart, i - 1);
+            const last = lastValidPos(preview.positions, segStart, i - 1);
+            const to = last >= 0 ? last + 1 : -1;
+            if (from >= 0 && to > from) {
+              decorations.push(
+                Decoration.inline(from, to, {
+                  class: "vh-diff-add",
+                }),
+              );
+            }
+          }
+          segStart = i + 1;
+        }
       }
       previewOffset += text.length;
     } else if (op === DiffMatchPatch.DIFF_DELETE) {
@@ -202,25 +204,7 @@ function buildDiffDecorations(
     }
   }
 
-  // TODO: remove debug logging
-  console.log(
-    "[diff] decorations:",
-    decorations.length,
-    decorations.map((d) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const a = d as any;
-      if (a.type?.attrs?.class) {
-        return `inline(${a.from},${a.to}) ${a.type.attrs.class}`;
-      }
-      return `widget(${a.from ?? a.pos})`;
-    }),
-  );
-  try {
-    return DecorationSet.create(previewDoc, decorations);
-  } catch (err) {
-    console.error("[diff] DecorationSet.create failed:", err);
-    return DecorationSet.empty;
-  }
+  return DecorationSet.create(previewDoc, decorations);
 }
 
 // ── Restore helper ───────────────────────────────
