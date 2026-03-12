@@ -237,6 +237,27 @@ export async function runInterpreter(
       // Only auto-fetch tip-candidate sources
       if (!shouldAutoFetch(entry)) continue;
 
+      // Fast path: if the block is already cached
+      // locally (e.g. from a prior publish or
+      // loadVersion), skip the async fetch and emit
+      // block-fetched immediately. This collapses
+      // chain walks to microtask speed for cached
+      // blocks, preventing UI flicker.
+      const cached = effects.getBlock(entry.cid);
+      if (cached) {
+        const decoded = effects.decodeBlock(cached);
+        feedback.push({
+          type: "block-fetched",
+          ts: Date.now(),
+          cid: entry.cid,
+          block: cached,
+          prev: decoded.prev,
+          seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
+        });
+        continue;
+      }
+
       dispatchFetch(entry.cid, entry, effects, feedback);
     }
 
