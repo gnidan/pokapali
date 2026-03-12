@@ -149,8 +149,10 @@ describe("parseAnnouncement", () => {
       }),
     );
     const result = parseAnnouncement(data);
-    // Should either return null or strip the block
-    expect(result === null || result.block === undefined).toBe(true);
+    // Block stripped but announcement kept for CID
+    expect(result).not.toBeNull();
+    expect(result!.block).toBeUndefined();
+    expect(result!.cid).toBe("bafyfoo");
   });
 });
 
