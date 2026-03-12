@@ -106,6 +106,18 @@ body {
   background: #fef2f2;
 }
 
+.empty-state {
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.empty-state p {
+  font-size: 0.875rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+
 /* Recent documents */
 
 .recent-docs {

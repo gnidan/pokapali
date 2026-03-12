@@ -8,6 +8,15 @@ const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
 
 export interface HeliaOptions {
   bootstrapPeers?: string[];
+  /** Optional blockstore (e.g. IDBBlockstore for
+   *  browser persistence). Defaults to in-memory.
+   *  Typed loosely to avoid interface-blockstore
+   *  version conflicts between helia and
+   *  blockstore-idb.
+   *  TODO(#20): revisit when helia and blockstore-idb
+   *  align on interface-blockstore version */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  blockstore?: any;
 }
 
 type HeliaWithPubsub = Helia<
@@ -99,8 +108,14 @@ export async function acquireHelia(
   };
 
   const BOOTSTRAP_TIMEOUT_MS = 30_000;
+  const heliaOpts: Parameters<typeof createHelia>[0] = {
+    libp2p: libp2pOptions,
+  };
+  if (_options?.blockstore) {
+    heliaOpts.blockstore = _options.blockstore;
+  }
   const helia = (await Promise.race([
-    createHelia({ libp2p: libp2pOptions }),
+    createHelia(heliaOpts),
     new Promise<never>((_, reject) =>
       setTimeout(
         () => reject(new Error("Helia bootstrap timed out")),
@@ -138,6 +153,16 @@ export function getHelia(): Helia {
     throw new Error("No Helia instance exists");
   }
   return sharedHelia;
+}
+
+/**
+ * True when a shared Helia instance already exists.
+ * Callers should skip creating a new blockstore when
+ * this returns true — acquireHelia will ignore the
+ * blockstore option and just increment the ref count.
+ */
+export function isHeliaLive(): boolean {
+  return sharedHelia !== null;
 }
 
 /**

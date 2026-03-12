@@ -6,7 +6,6 @@ import {
   encodeSnapshot,
   decodeSnapshot,
   decryptSnapshot,
-  walkChain,
 } from "@pokapali/snapshot";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
@@ -38,6 +37,7 @@ export interface SnapshotLifecycle {
     readKey: CryptoKey,
     signingKey: Ed25519KeyPair,
     clockSum: number,
+    identityKey?: Ed25519KeyPair,
   ): Promise<PushResult>;
 
   applyRemote(
@@ -45,8 +45,6 @@ export interface SnapshotLifecycle {
     readKey: CryptoKey,
     onApply: (plaintext: Record<string, Uint8Array>) => void,
   ): Promise<boolean>;
-
-  history(): Promise<Array<{ cid: CID; seq: number; ts: number }>>;
 
   loadVersion(cid: CID, readKey: CryptoKey): Promise<Record<string, Y.Doc>>;
 
@@ -66,21 +64,35 @@ export function createSnapshotLifecycle(
   let prev: CID | null = null;
   let lastIpnsSeq: number | null = null;
   const blocks = new Map<string, Uint8Array>();
+  const decodedVersions = new Map<string, Record<string, Y.Doc>>();
   let lastAppliedCid: string | null = null;
 
   return {
-    async push(plaintext, readKey, signingKey, clockSum): Promise<PushResult> {
+    async push(
+      plaintext,
+      readKey,
+      signingKey,
+      clockSum,
+      identityKey,
+    ): Promise<PushResult> {
       const prevForThis = prev;
       const seqForThis = seq;
 
-      const block = await encodeSnapshot(
+      // identityKey is forwarded for publisher
+      // attribution once snapshot package supports it
+      // (protocol branch). The cast handles the
+      // transition period before merge.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+      const encode = encodeSnapshot as Function;
+      const block = (await encode(
         plaintext,
         readKey,
         prevForThis,
         seqForThis,
         Date.now(),
         signingKey,
-      );
+        identityKey,
+      )) as Uint8Array;
       const hash = await sha256.digest(block);
       const cid = CIDClass.createV1(DAG_CBOR_CODE, hash);
 
@@ -108,6 +120,10 @@ export function createSnapshotLifecycle(
       const block = await fetchBlock(helia, cid, {
         httpUrls: options.httpUrls?.(),
       });
+      if (block.length === 0) {
+        log.warn("empty block for", cidStr);
+        return false;
+      }
 
       const node = decodeSnapshot(block);
       const plaintext = await decryptSnapshot(node, readKey);
@@ -117,7 +133,9 @@ export function createSnapshotLifecycle(
       // Serve the validated block to other peers
       // via bitswap.
       if (helia.blockstore.put) {
-        Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+        Promise.resolve(helia.blockstore.put(cid, block)).catch(
+          (err: unknown) => log.warn("blockstore.put failed:", err),
+        );
       }
 
       onApply(plaintext);
@@ -131,93 +149,36 @@ export function createSnapshotLifecycle(
       return true;
     },
 
-    async history() {
-      if (!prev) return [];
-
-      const getter = async (cid: CID) => {
-        // 1. In-memory blocks (always available for
-        //    locally-pushed snapshots)
-        const cached = blocks.get(cid.toString());
-        if (cached) return cached;
-
-        // 2. Blockstore (picks up blocks from bitswap
-        //    / applyRemote that stored to blockstore)
-        try {
-          const helia = options.getHelia();
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 5_000);
-          try {
-            const block = await helia.blockstore.get(cid, {
-              signal: ctrl.signal,
-            });
-            blocks.set(cid.toString(), block);
-            return block;
-          } finally {
-            clearTimeout(timer);
-          }
-        } catch {
-          // blockstore miss — try HTTP
-        }
-
-        // 3. HTTP block endpoints (pinner / relay)
-        const urls = options.httpUrls?.() ?? [];
-        for (const baseUrl of urls) {
-          try {
-            const resp = await fetch(`${baseUrl}/block/${cid.toString()}`, {
-              signal: AbortSignal.timeout(5_000),
-            });
-            if (!resp.ok) continue;
-            const bytes = new Uint8Array(await resp.arrayBuffer());
-            const hash = await sha256.digest(bytes);
-            const verified = CIDClass.createV1(cid.code, hash);
-            if (!verified.equals(cid)) continue;
-            blocks.set(cid.toString(), bytes);
-            return bytes;
-          } catch {
-            continue;
-          }
-        }
-
-        throw new Error("Block not found: " + cid.toString());
-      };
-
-      const entries: Array<{
-        cid: CID;
-        seq: number;
-        ts: number;
-      }> = [];
-      let currentCid: CID | null = prev;
-      try {
-        for await (const node of walkChain(prev, getter)) {
-          entries.push({
-            cid: currentCid!,
-            seq: node.seq,
-            ts: node.ts,
-          });
-          currentCid = node.prev;
-        }
-      } catch (err) {
-        // Gracefully return partial chain — missing
-        // blocks are common after page refresh when
-        // only the tip was fetched via applyRemote.
-        log.debug(
-          "history walk stopped at",
-          entries.length,
-          "entries:",
-          (err as Error)?.message ?? err,
-        );
-      }
-      return entries;
-    },
-
     async loadVersion(cid, readKey) {
-      let block = blocks.get(cid.toString());
+      const cidStr = cid.toString();
+
+      // Return cached decoded version — avoids
+      // redundant decrypt + Y.Doc creation when
+      // the same version is loaded multiple times
+      // (e.g. preload then click in diff view).
+      const decoded = decodedVersions.get(cidStr);
+      if (decoded) return decoded;
+
+      const cached = blocks.get(cidStr);
+      let block: Uint8Array | undefined =
+        cached && cached.length > 0 ? cached : undefined;
       if (!block) {
+        const helia = options.getHelia();
         try {
-          const helia = options.getHelia();
-          block = await helia.blockstore.get(cid);
+          block = await fetchBlock(helia, cid, {
+            httpUrls: options.httpUrls?.(),
+            retries: 2,
+            baseMs: 1_000,
+          });
         } catch {
-          throw new Error("Unknown CID: " + cid.toString());
+          throw new Error("Block not found: " + cidStr);
+        }
+        blocks.set(cidStr, block);
+        // Persist to blockstore for next reload
+        if (helia.blockstore.put) {
+          Promise.resolve(helia.blockstore.put(cid, block)).catch(
+            (err: unknown) => log.warn("blockstore.put failed:", err),
+          );
         }
       }
       const node = decodeSnapshot(block);
@@ -228,6 +189,7 @@ export function createSnapshotLifecycle(
         Y.applyUpdate(doc, bytes);
         result[ns] = doc;
       }
+      decodedVersions.set(cidStr, result);
       return result;
     },
 
@@ -236,7 +198,9 @@ export function createSnapshotLifecycle(
     },
 
     putBlock(cidStr, block) {
-      blocks.set(cidStr, block);
+      if (block.length > 0) {
+        blocks.set(cidStr, block);
+      }
     },
 
     get prev() {

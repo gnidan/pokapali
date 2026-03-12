@@ -886,6 +886,178 @@ describe("pinner with mock helia", () => {
     });
   });
 
+  describe("stale name pruning", () => {
+    it(
+      "prunes names with no activity and no" + " resolve for staleResolveDays",
+      async () => {
+        vi.useFakeTimers();
+        const now = Date.now();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest a block — sets lastSeenAt to now
+        const block = await makeSnapshot({ ts: now });
+        const name =
+          "aa11bb22cc33dd44ee55ff66" +
+          "00112233aa11bb22cc33dd44" +
+          "ee55ff6600112233";
+        await pinner.ingest(name, block);
+
+        // Verify it's tracked
+        expect(pinner.history.getTip(name)).not.toBeNull();
+
+        // Advance 4 days — past 3-day stale threshold
+        await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+
+        // Stop and restart to trigger pruneIfNeeded
+        await pinner.stop();
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        // Name should have been pruned (no resolve,
+        // lastSeenAt > 3 days ago)
+        const m = pinner2.metrics();
+        expect(m.knownNames).toBe(0);
+        expect(m.stalePruned).toBeGreaterThan(0);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "preserves names with recent activity" + " even without resolve",
+      async () => {
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest a block — lastSeenAt = now
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        const name =
+          "aa11bb22cc33dd44ee55ff66" +
+          "00112233aa11bb22cc33dd44" +
+          "ee55ff6600112233";
+        await pinner.ingest(name, block);
+
+        // Name should NOT be pruned (recent activity)
+        const m = pinner.metrics();
+        expect(m.knownNames).toBe(1);
+        expect(m.stalePruned).toBe(0);
+
+        await pinner.stop();
+      },
+    );
+
+    it("prunes never-resolved names after 12h" + " grace period", async () => {
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        staleResolveDays: 3,
+      });
+      await pinner.start();
+
+      const block = await makeSnapshot({
+        ts: Date.now(),
+      });
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      await pinner.ingest(name, block);
+
+      // Advance 13 hours — past 12h grace
+      await vi.advanceTimersByTimeAsync(13 * 60 * 60_000);
+
+      await pinner.stop();
+      const pinner2 = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        staleResolveDays: 3,
+      });
+      await pinner2.start();
+
+      // Should be pruned (never resolved, seen
+      // >12h ago)
+      const m = pinner2.metrics();
+      expect(m.knownNames).toBe(0);
+      expect(m.stalePruned).toBeGreaterThan(0);
+
+      await pinner2.stop();
+      vi.useRealTimers();
+    });
+
+    it("disables stale pruning when" + " staleResolveDays=0", async () => {
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        staleResolveDays: 0,
+      });
+      await pinner.start();
+
+      const block = await makeSnapshot({
+        ts: Date.now(),
+      });
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      await pinner.ingest(name, block);
+
+      // Advance 10 days — past any stale threshold
+      await vi.advanceTimersByTimeAsync(10 * 24 * 60 * 60_000);
+
+      await pinner.stop();
+      const pinner2 = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        staleResolveDays: 0,
+      });
+      await pinner2.start();
+
+      // Still present (stale pruning disabled, but
+      // retention pruning may apply at 14 days)
+      const m = pinner2.metrics();
+      expect(m.knownNames).toBe(1);
+      expect(m.stalePruned).toBe(0);
+
+      await pinner2.stop();
+      vi.useRealTimers();
+    });
+
+    it("exposes stalePruned in metrics", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+
+      const m = pinner.metrics();
+      expect(typeof m.stalePruned).toBe("number");
+      expect(m.stalePruned).toBe(0);
+
+      await pinner.stop();
+    });
+  });
+
   describe("IPNS rate limiting", () => {
     it("throttles republish operations", async () => {
       // Ingest 5 names, set rate limit to 2/sec,

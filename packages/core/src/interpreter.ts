@@ -29,8 +29,21 @@ export interface EffectHandlers {
   applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }>;
   getBlock(cid: CID): Uint8Array | null;
 
-  // Decode snapshot metadata (prev, seq)
-  decodeBlock(block: Uint8Array): { prev?: CID; seq?: number };
+  // Decode snapshot metadata (prev, seq, ts, publisher)
+  decodeBlock(block: Uint8Array): {
+    prev?: CID;
+    seq?: number;
+    snapshotTs?: number;
+    /** Hex-encoded publisher identity pubkey,
+     *  if present and signature valid. */
+    publisher?: string;
+  };
+
+  /** Check if a publisher pubkey is authorized.
+   *  Returns true if no auth is configured
+   *  (permissionless) or if the pubkey is in
+   *  authorizedPublishers. */
+  isPublisherAuthorized(publisherHex: string | undefined): boolean;
 
   // Outbound protocol
   announce(cid: CID, block: Uint8Array, seq: number): void;
@@ -62,6 +75,7 @@ const AUTO_FETCH_SOURCES: ReadonlySet<CidSource> = new Set([
   "gossipsub",
   "ipns",
   "reannounce",
+  "chain-walk",
 ]);
 
 export function shouldAutoFetch(entry: ChainEntry): boolean {
@@ -99,6 +113,7 @@ function dispatchFetch(
           block,
           prev: decoded.prev,
           seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
         });
       } else {
         feedback.push({
@@ -222,7 +237,49 @@ export async function runInterpreter(
       // Only auto-fetch tip-candidate sources
       if (!shouldAutoFetch(entry)) continue;
 
+      // Fast path: if the block is already cached
+      // locally (e.g. from a prior publish or
+      // loadVersion), skip the async fetch and emit
+      // block-fetched immediately. This collapses
+      // chain walks to microtask speed for cached
+      // blocks, preventing UI flicker.
+      const cached = effects.getBlock(entry.cid);
+      if (cached) {
+        const decoded = effects.decodeBlock(cached);
+        feedback.push({
+          type: "block-fetched",
+          ts: Date.now(),
+          cid: entry.cid,
+          block: cached,
+          prev: decoded.prev,
+          seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
+        });
+        continue;
+      }
+
       dispatchFetch(entry.cid, entry, effects, feedback);
+    }
+
+    // --- Decode inline blocks for chain discovery ---
+    // When cid-discovered arrives with an inline
+    // block, the reducer marks it "fetched" but
+    // doesn't extract prev/ts. Emit a synthetic
+    // block-fetched so the reducer discovers the
+    // chain-walk prev link.
+    if (fact.type === "cid-discovered" && fact.block) {
+      const decoded = effects.decodeBlock(fact.block);
+      if (decoded.prev || decoded.snapshotTs) {
+        feedback.push({
+          type: "block-fetched",
+          ts: Date.now(),
+          cid: fact.cid,
+          block: fact.block,
+          prev: decoded.prev,
+          seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
+        });
+      }
     }
 
     // --- Apply newest fetched CID as tip ---
@@ -234,6 +291,15 @@ export async function runInterpreter(
       if (prevEntry?.blockStatus !== "fetched") {
         const block = effects.getBlock(tipCid);
         if (block) {
+          // Authorization check: verify publisher
+          // is allowed BEFORE applying.
+          const decoded = effects.decodeBlock(block);
+          if (!effects.isPublisherAuthorized(decoded.publisher)) {
+            // Unauthorized publisher — skip apply.
+            // The block stays "fetched" but never
+            // becomes the tip.
+            continue;
+          }
           // Inline apply — fast, awaited
           const result = await effects.applySnapshot(tipCid, block);
           feedback.push({

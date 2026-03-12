@@ -184,6 +184,8 @@ describe("reduceChain", () => {
     expect(prevEntry).toBeDefined();
     expect(prevEntry!.blockStatus).toBe("unknown");
     expect(prevEntry!.discoveredVia.has("chain-walk")).toBe(true);
+    // seq inferred from parent (6 - 1 = 5)
+    expect(prevEntry!.seq).toBe(5);
   });
 
   it("does not overwrite existing entry on chain walk", async () => {
@@ -360,6 +362,40 @@ describe("reduceChain", () => {
     expect(entry!.fetchAttempt).toBe(2);
     expect(entry!.lastError).toBe("not found");
   });
+
+  it(
+    "block-fetch-failed clears newestFetched " +
+      "when the failed CID was newest (GH #61)",
+    async () => {
+      const cid = await fakeCid(1);
+      let state = reduceChain(INITIAL_CHAIN, {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "gossipsub",
+        seq: 5,
+      });
+      state = reduceChain(state, {
+        type: "block-fetched",
+        ts: 2,
+        cid,
+        block: new Uint8Array([1]),
+        seq: 5,
+      });
+      expect(state.newestFetched?.toString()).toBe(cid.toString());
+
+      // Now fail the same CID — newestFetched
+      // should no longer point to it
+      state = reduceChain(state, {
+        type: "block-fetch-failed",
+        ts: 3,
+        cid,
+        attempt: 1,
+        error: "timeout",
+      });
+      expect(state.newestFetched).toBeNull();
+    },
+  );
 
   it("ignores unrelated facts", () => {
     const state = reduceChain(INITIAL_CHAIN, {

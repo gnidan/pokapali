@@ -30,6 +30,7 @@ vi.mock("./helia.js", () => ({
       removeEventListener: vi.fn(),
     },
   })),
+  isHeliaLive: vi.fn(() => false),
   _resetHeliaState: vi.fn(),
 }));
 
@@ -77,6 +78,29 @@ vi.mock("@pokapali/sync", () => ({
     onStatusChange: vi.fn(),
     destroy: vi.fn(),
   })),
+}));
+
+vi.mock("blockstore-idb", () => ({
+  IDBBlockstore: vi.fn(() => ({
+    open: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+vi.mock("./persistence.js", () => ({
+  createDocPersistence: vi.fn(() => ({
+    whenSynced: Promise.resolve(),
+    providers: new Set(),
+    destroy: vi.fn(),
+  })),
+}));
+
+vi.mock("./identity.js", () => ({
+  loadIdentity: vi.fn(async () => ({
+    publicKey: new Uint8Array(32),
+    privateKey: new Uint8Array(32),
+  })),
+  signParticipant: vi.fn(async () => "mocksig"),
 }));
 
 vi.mock("@pokapali/snapshot", async () => {
@@ -441,7 +465,7 @@ describe("@pokapali/core", () => {
 
       const hash = await sha256.digest(new Uint8Array([1, 2, 3]));
       const fakeCid = CID.createV1(0x71, hash);
-      await expect(doc.loadVersion(fakeCid)).rejects.toThrow(/Unknown CID/);
+      await expect(doc.loadVersion(fakeCid)).rejects.toThrow(/not found/i);
       doc.destroy();
     });
   });

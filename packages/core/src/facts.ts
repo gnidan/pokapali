@@ -40,6 +40,7 @@ export type Fact =
       block: Uint8Array;
       prev?: CID;
       seq?: number;
+      snapshotTs?: number;
     }
   | {
       type: "block-fetch-failed";
@@ -349,6 +350,84 @@ export function versionHistory(chain: ChainState): VersionSummary[] {
       ts: e.ts ?? 0,
       available: e.blockStatus === "fetched" || e.blockStatus === "applied",
     }));
+}
+
+// ------------------------------------------------
+// Reactive version history (Feed-oriented)
+// ------------------------------------------------
+
+export type VersionEntryStatus = "available" | "loading" | "failed";
+
+export interface VersionHistoryEntry {
+  cid: CID;
+  seq: number;
+  ts: number;
+  status: VersionEntryStatus;
+}
+
+export interface VersionHistory {
+  /** Known versions, sorted by seq desc.
+   *  Includes loading/failed entries. */
+  readonly entries: ReadonlyArray<VersionHistoryEntry>;
+  /** True while chain-walk is in progress
+   *  (entries with unknown/fetching blocks). */
+  readonly walking: boolean;
+}
+
+function entryStatus(bs: ChainEntry["blockStatus"]): VersionEntryStatus {
+  if (bs === "fetched" || bs === "applied") {
+    return "available";
+  }
+  if (bs === "failed") return "failed";
+  return "loading";
+}
+
+/** Derive a reactive VersionHistory from one or two
+ *  chain states (interpreter + optional localChain).
+ */
+export function deriveVersionHistory(
+  chain: ChainState | null,
+  localChain?: ChainState | null,
+): VersionHistory {
+  const seen = new Map<string, VersionHistoryEntry>();
+  let walking = false;
+
+  // Interpreter chain — authoritative.
+  if (chain) {
+    for (const e of chain.entries.values()) {
+      if (e.seq == null) continue;
+      const s = entryStatus(e.blockStatus);
+      if (s === "loading") walking = true;
+      seen.set(e.cid.toString(), {
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts ?? 0,
+        status: s,
+      });
+    }
+  }
+
+  // Local chain — fills in recent publishes the
+  // interpreter hasn't processed yet.
+  if (localChain) {
+    for (const e of localChain.entries.values()) {
+      if (e.seq == null) continue;
+      const key = e.cid.toString();
+      if (seen.has(key)) continue;
+      const s = entryStatus(e.blockStatus);
+      if (s === "loading") walking = true;
+      seen.set(key, {
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts ?? 0,
+        status: s,
+      });
+    }
+  }
+
+  const entries = [...seen.values()].sort((a, b) => b.seq - a.seq);
+
+  return { entries, walking };
 }
 
 export interface BestGuarantee {

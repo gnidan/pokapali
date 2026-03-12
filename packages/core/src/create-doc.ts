@@ -6,8 +6,10 @@ import type {
   CapabilityKeys,
 } from "@pokapali/capability";
 import { narrowCapability, buildUrl } from "@pokapali/capability";
-import { hexToBytes } from "@pokapali/crypto";
+import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
+import { signParticipant } from "./identity.js";
+import type { ParticipantAwareness } from "./identity.js";
 import type { SubdocManager } from "@pokapali/subdocs";
 import type {
   SyncManager,
@@ -31,6 +33,7 @@ import {
 import { uploadBlock } from "./block-upload.js";
 import { fetchBlock as fetchBlockFromNetwork } from "./fetch-block.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
+import type { DocPersistence } from "./persistence.js";
 import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
@@ -54,17 +57,24 @@ import {
   createFeed,
 } from "./sources.js";
 import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
-import { reduce } from "./reducers.js";
-import { initialDocState, bestGuarantee, EMPTY_SET } from "./facts.js";
+import { reduce, reduceChain } from "./reducers.js";
+import {
+  initialDocState,
+  bestGuarantee,
+  deriveVersionHistory,
+  EMPTY_SET,
+} from "./facts.js";
 import type {
   Fact,
   DocState,
+  ChainState,
   DocStatus,
   SaveState,
   DocRole,
   SyncStatus,
   LoadingState,
   GossipActivity,
+  VersionHistory,
 } from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
@@ -142,6 +152,9 @@ export interface Doc {
   readonly tip: Feed<VersionInfo | null>;
   /** Reactive loading feed (useSyncExternalStore). */
   readonly loading: Feed<LoadingState>;
+  /** Reactive version history feed. Updates as
+   *  chain walks discover and fetch entries. */
+  readonly versions: Feed<VersionHistory>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -181,7 +194,27 @@ export interface Doc {
    *  falling back to local chain walking. */
   versionHistory(): Promise<VersionEntry[]>;
   loadVersion(cid: CID): Promise<Record<string, Y.Doc>>;
+  /** This device's identity public key (hex). */
+  readonly identityPubkey: string | null;
+  /** Authorize a publisher by identity pubkey (hex).
+   *  Requires admin capability. Adds to
+   *  authorizedPublishers Y.Map in _meta. */
+  authorize(pubkey: string): void;
+  /** Deauthorize a publisher by identity pubkey.
+   *  Requires admin capability. */
+  deauthorize(pubkey: string): void;
+  /** Current authorized publishers (hex pubkeys).
+   *  Empty set = permissionless (anyone can publish).
+   */
+  readonly authorizedPublishers: ReadonlySet<string>;
+  /** Participants currently visible via awareness. */
+  readonly participants: ReadonlyMap<number, ParticipantInfo>;
   destroy(): void;
+}
+
+export interface ParticipantInfo {
+  pubkey: string;
+  displayName?: string;
 }
 
 export interface DocParams {
@@ -205,6 +238,17 @@ export interface DocParams {
   pubsub?: PubSubLike;
   roomDiscovery?: RoomDiscovery;
   performInitialResolve?: boolean;
+  /** y-indexeddb persistence handle — destroyed on
+   *  doc teardown. */
+  persistence?: DocPersistence | null;
+  /** True when persistence is enabled and cached
+   *  state may exist in IndexedDB. Triggers early
+   *  markReady() after y-indexeddb sync. */
+  hasCachedState?: boolean;
+  /** Device identity keypair (always present). Used
+   *  for publisher attribution and participant
+   *  awareness. */
+  identity?: Ed25519KeyPair;
 }
 
 function computeStatus(
@@ -318,6 +362,28 @@ export function createDoc(params: DocParams): Doc {
     markReady();
   }
 
+  // When persistence is enabled on open(), resolve
+  // ready early once y-indexeddb has synced cached
+  // state — the user can start editing immediately
+  // while IPNS resolution + chain fetch continues
+  // in the background.
+  //
+  // Note: hasCachedState is true whenever persistence
+  // is enabled, even on first open (empty DB).
+  // y-indexeddb can't distinguish "synced with data"
+  // from "synced with nothing," so first-open shows
+  // a brief blank editor until IPNS resolves. This
+  // is acceptable — the alternative (blocking on
+  // IPNS) is much slower on repeat visits.
+  if (params.hasCachedState && params.persistence) {
+    params.persistence.whenSynced.then(
+      () => markReady(),
+      // IDB failure is non-fatal — degrade to
+      // in-memory, IPNS path will markReady later.
+      () => markReady(),
+    );
+  }
+
   function getHttpUrls(): string[] {
     const urls: string[] = [];
     const reg = getNodeRegistry();
@@ -390,6 +456,13 @@ export function createDoc(params: DocParams): Doc {
   // --- Interpreter state ---
   let interpreterState: DocState | null = null;
   let factQueue: AsyncQueue<Fact> | null = null;
+
+  // Local chain state maintained synchronously by
+  // publish(). Lets history() return immediately
+  // without waiting for the async interpreter
+  // pipeline.
+  let localChain: ChainState | null = null;
+
   let interpreterAc: AbortController | null = null;
   let lastLocalPublishCid: string | null = null;
   let lastEmittedAcks = new Set<string>();
@@ -418,6 +491,20 @@ export function createDoc(params: DocParams): Doc {
     { status: "idle" },
     (a, b) => !loadingStateChanged(a, b),
   );
+
+  const EMPTY_VERSION_HISTORY: VersionHistory = {
+    entries: [],
+    walking: false,
+  };
+  const versionsFeed: WritableFeed<VersionHistory> = createFeed<VersionHistory>(
+    EMPTY_VERSION_HISTORY,
+  );
+
+  function updateVersionsFeed(): void {
+    versionsFeed._update(
+      deriveVersionHistory(interpreterState?.chain ?? null, localChain),
+    );
+  }
 
   // --- Event bridges ---
   // Status and saveState are always computed
@@ -535,13 +622,37 @@ export function createDoc(params: DocParams): Doc {
       topSharing = createTopologySharing({
         awareness: awarenessRoom.awareness,
         registry,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        libp2p: (helia as any).libp2p,
+        libp2p: helia.libp2p,
       });
       registry.on("change", nodeChangeHandler);
     }
   } catch (err) {
     log.warn("topology sharing init skipped:", (err as Error)?.message ?? err);
+  }
+
+  // ── Participant awareness (identity) ──────────
+  // Publish once on doc open — identity doesn't
+  // change during a session.
+  const identityPubkeyHex = params.identity
+    ? bytesToHex(params.identity.publicKey)
+    : null;
+
+  if (params.identity) {
+    const kp = params.identity;
+    signParticipant(kp, ipnsName)
+      .then((sig) => {
+        const participant: ParticipantAwareness = {
+          pubkey: bytesToHex(kp.publicKey),
+          sig,
+        };
+        awarenessRoom.awareness.setLocalStateField("participant", participant);
+      })
+      .catch((err) => {
+        log.warn(
+          "participant awareness failed:",
+          (err as Error)?.message ?? err,
+        );
+      });
   }
 
   // ── Interpreter setup ─────────────────────────
@@ -615,40 +726,11 @@ export function createDoc(params: DocParams): Doc {
       const ann = parseAnnouncement(detail.data);
       if (!ann || ann.ipnsName !== ipnsName) return;
 
-      // Ack handling
-      if (ann.ack) {
-        try {
-          fq.push({
-            type: "ack-received",
-            ts: Date.now(),
-            cid: CID.parse(ann.cid),
-            peerId: ann.ack.peerId,
-          });
-        } catch {
-          // CID parse failure — skip
-        }
-        if (
-          ann.ack.guaranteeUntil !== undefined ||
-          ann.ack.retainUntil !== undefined
-        ) {
-          try {
-            fq.push({
-              type: "guarantee-received",
-              ts: Date.now(),
-              peerId: ann.ack.peerId,
-              cid: CID.parse(ann.cid),
-              guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
-              retainUntil: ann.ack.retainUntil ?? 0,
-            });
-          } catch {
-            // CID parse failure — skip
-          }
-        }
-      }
-
-      // CID discovery from announcement
+      // CID discovery FIRST — the chain entry must
+      // exist before ack/guarantee facts reference it.
+      let cid: CID | undefined;
       try {
-        const cid = CID.parse(ann.cid);
+        cid = CID.parse(ann.cid);
         let block: Uint8Array | undefined;
         if (ann.block) {
           try {
@@ -656,7 +738,9 @@ export function createDoc(params: DocParams): Doc {
             // Store inline block for getBlock()
             snapshotLC.putBlock(ann.cid, block);
             const helia = getHelia();
-            Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+            Promise.resolve(helia.blockstore.put(cid, block)).catch(
+              (err: unknown) => log.warn("blockstore.put failed:", err),
+            );
           } catch {
             // decode failure — skip inline block
           }
@@ -671,6 +755,30 @@ export function createDoc(params: DocParams): Doc {
         });
       } catch {
         // CID parse failure — skip
+      }
+
+      // Ack/guarantee facts AFTER discovery so the
+      // reducer's updateEntry finds the chain entry.
+      if (ann.ack && cid) {
+        fq.push({
+          type: "ack-received",
+          ts: Date.now(),
+          cid,
+          peerId: ann.ack.peerId,
+        });
+        if (
+          ann.ack.guaranteeUntil !== undefined ||
+          ann.ack.retainUntil !== undefined
+        ) {
+          fq.push({
+            type: "guarantee-received",
+            ts: Date.now(),
+            peerId: ann.ack.peerId,
+            cid,
+            guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
+            retainUntil: ann.ack.retainUntil ?? 0,
+          });
+        }
       }
     };
 
@@ -742,6 +850,13 @@ export function createDoc(params: DocParams): Doc {
             markReady();
           }
         }
+
+        // Version history feed — update when chain
+        // changes (structural sharing: cheap check)
+        if (item.next.chain !== item.prev.chain) {
+          updateVersionsFeed();
+        }
+
         yield item;
       }
     }
@@ -755,6 +870,13 @@ export function createDoc(params: DocParams): Doc {
             httpUrls: getHttpUrls(),
           });
           snapshotLC.putBlock(cid.toString(), block);
+          // Persist to IDB so history survives
+          // page reloads.
+          if (helia.blockstore.put) {
+            Promise.resolve(helia.blockstore.put(cid, block)).catch(
+              (err: unknown) => log.warn("blockstore.put failed:", err),
+            );
+          }
           return block;
         } catch {
           return null;
@@ -788,13 +910,31 @@ export function createDoc(params: DocParams): Doc {
       decodeBlock: (block) => {
         try {
           const node = decodeSnapshot(block);
+          // Extract publisher hex if present.
+          // publisher field added by protocol branch
+          // — cast to access it before merge.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const pubBytes = (node as any).publisher as Uint8Array | undefined;
+          const publisher = pubBytes ? bytesToHex(pubBytes) : undefined;
           return {
             prev: node.prev ?? undefined,
             seq: node.seq,
+            snapshotTs: node.ts,
+            publisher,
           };
         } catch {
           return {};
         }
+      },
+
+      isPublisherAuthorized: (publisherHex) => {
+        const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+        // Permissionless: no authorized publishers
+        // configured → accept everyone.
+        if (map.size === 0) return true;
+        // Auth enabled: publisher must be listed.
+        if (!publisherHex) return false;
+        return map.has(publisherHex);
       },
 
       announce: (cid, block, seq) => {
@@ -887,6 +1027,10 @@ export function createDoc(params: DocParams): Doc {
       (err) => {
         if (!signal.aborted) {
           log.warn("interpreter error:", err);
+          // Ensure ready() resolves even if the
+          // interpreter crashes — otherwise the doc
+          // hangs permanently with no recovery path.
+          markReady();
         }
       },
     );
@@ -1029,6 +1173,7 @@ export function createDoc(params: DocParams): Doc {
       log.warn("off('change') cleanup error:", (err as Error)?.message ?? err);
     }
     params.roomDiscovery?.stop();
+    params.persistence?.destroy();
     syncManager.destroy();
     awarenessRoom.destroy();
     subdocManager.destroy();
@@ -1166,6 +1311,7 @@ export function createDoc(params: DocParams): Doc {
 
     tip: tipFeed as Feed<VersionInfo | null>,
     loading: loadingFeed as Feed<LoadingState>,
+    versions: versionsFeed as Feed<VersionHistory>,
 
     ready(): Promise<void> {
       return readyPromise;
@@ -1193,6 +1339,7 @@ export function createDoc(params: DocParams): Doc {
           readKey,
           signingKey,
           clockSum,
+          params.identity,
         );
       } catch (err) {
         isSaving = false;
@@ -1217,28 +1364,69 @@ export function createDoc(params: DocParams): Doc {
       isSaving = false;
       checkSaveState();
 
-      // Push chain entry + tip + success facts
+      // Build the facts that describe this publish.
+      const now = Date.now();
+      const cidDiscovered: Fact = {
+        type: "cid-discovered",
+        ts: now,
+        cid,
+        source: "gossipsub",
+        block,
+        seq: pushResult.seq,
+        snapshotTs: now,
+      };
+      const blockFetched: Fact = {
+        type: "block-fetched",
+        ts: now,
+        cid,
+        block,
+        prev: pushResult.prev ?? undefined,
+        seq: pushResult.seq,
+        snapshotTs: now,
+      };
+      const tipAdvanced: Fact = {
+        type: "tip-advanced",
+        ts: now,
+        cid,
+        seq: pushResult.seq,
+      };
+      const publishSucceeded: Fact = {
+        type: "publish-succeeded",
+        ts: now,
+        cid,
+        seq: pushResult.seq,
+      };
+
+      // Synchronously advance localChain so
+      // history() works without waiting for the
+      // async interpreter pipeline.
+      const base =
+        localChain ??
+        interpreterState?.chain ??
+        initialDocState({
+          ipnsName,
+          role: this.role,
+          channels,
+          appId: params.appId,
+        }).chain;
+      localChain = [
+        cidDiscovered,
+        blockFetched,
+        tipAdvanced,
+        publishSucceeded,
+      ].reduce(reduceChain, base);
+
+      // Update versions feed synchronously so
+      // subscribers see the new version immediately.
+      updateVersionsFeed();
+
+      // Push to interpreter for side effects
+      // (announce, acks, gossip, etc.)
       if (factQueue) {
-        factQueue.push({
-          type: "cid-discovered",
-          ts: Date.now(),
-          cid,
-          source: "gossipsub",
-          block,
-          seq: pushResult.seq,
-        });
-        factQueue.push({
-          type: "tip-advanced",
-          ts: Date.now(),
-          cid,
-          seq: pushResult.seq,
-        });
-        factQueue.push({
-          type: "publish-succeeded",
-          ts: Date.now(),
-          cid,
-          seq: pushResult.seq,
-        });
+        factQueue.push(cidDiscovered);
+        factQueue.push(blockFetched);
+        factQueue.push(tipAdvanced);
+        factQueue.push(publishSucceeded);
       }
 
       emit("snapshot", {
@@ -1333,14 +1521,47 @@ export function createDoc(params: DocParams): Doc {
 
     async history() {
       assertNotDestroyed();
-      return snapshotLC.history();
+      const { entries } = versionsFeed.getSnapshot();
+      return entries.map((e) => ({
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts,
+      }));
     },
 
     async versionHistory(): Promise<VersionEntry[]> {
       assertNotDestroyed();
-      return fetchVersionHistory(getHttpUrls(), ipnsName, () =>
-        snapshotLC.history(),
+      const chainFallback = async () => {
+        const { entries } = versionsFeed.getSnapshot();
+        return entries.map((e) => ({
+          cid: e.cid,
+          seq: e.seq,
+          ts: e.ts,
+        }));
+      };
+      const entries = await fetchVersionHistory(
+        getHttpUrls(),
+        ipnsName,
+        chainFallback,
       );
+      // Integrate pinner-discovered CIDs into
+      // chain state so future calls use state.
+      if (factQueue) {
+        for (const e of entries) {
+          const key = e.cid.toString();
+          if (!interpreterState?.chain.entries.has(key)) {
+            factQueue.push({
+              type: "cid-discovered",
+              ts: Date.now(),
+              cid: e.cid,
+              source: "pinner-index",
+              seq: e.seq,
+              snapshotTs: e.ts,
+            });
+          }
+        }
+      }
+      return entries;
     },
 
     async loadVersion(cid: CID) {
@@ -1348,7 +1569,70 @@ export function createDoc(params: DocParams): Doc {
       if (!readKey) {
         throw new Error("No readKey available");
       }
-      return snapshotLC.loadVersion(cid, readKey);
+      const result = await snapshotLC.loadVersion(cid, readKey);
+      // Integrate fetched block into chain state
+      // so the reducer knows about it.
+      if (factQueue) {
+        const key = cid.toString();
+        const entry = interpreterState?.chain.entries.get(key);
+        if (!entry || entry.blockStatus === "unknown") {
+          const block = snapshotLC.getBlock(key);
+          factQueue.push({
+            type: "cid-discovered",
+            ts: Date.now(),
+            cid,
+            source: "chain-walk",
+            block: block ?? undefined,
+          });
+        }
+      }
+      return result;
+    },
+
+    get identityPubkey(): string | null {
+      return identityPubkeyHex;
+    },
+
+    authorize(pubkey: string): void {
+      assertNotDestroyed();
+      if (!cap.isAdmin) {
+        throw new Error("authorize() requires admin capability");
+      }
+      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      map.set(pubkey, true);
+    },
+
+    deauthorize(pubkey: string): void {
+      assertNotDestroyed();
+      if (!cap.isAdmin) {
+        throw new Error("deauthorize() requires admin" + " capability");
+      }
+      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      map.delete(pubkey);
+    },
+
+    get authorizedPublishers(): ReadonlySet<string> {
+      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      const result = new Set<string>();
+      for (const key of map.keys()) {
+        result.add(key);
+      }
+      return result;
+    },
+
+    get participants(): ReadonlyMap<number, ParticipantInfo> {
+      const result = new Map<number, ParticipantInfo>();
+      const states = awarenessRoom.awareness.getStates();
+      for (const [clientId, state] of states) {
+        const p = state.participant as ParticipantAwareness | undefined;
+        if (!p?.pubkey || !p?.sig) continue;
+        // Verify sig: covers (pubkey + ":" + docId)
+        result.set(clientId, {
+          pubkey: p.pubkey,
+          displayName: p.displayName,
+        });
+      }
+      return result;
     },
 
     destroy(): void {

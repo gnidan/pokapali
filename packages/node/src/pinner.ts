@@ -17,8 +17,10 @@ import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker, RetentionConfig } from "./history.js";
 import { createIpnsThrottle } from "./ipns-throttle.js";
-import { loadState, saveState } from "./state.js";
-import { readFile, writeFile } from "node:fs/promises";
+import { loadState } from "./state.js";
+import { createPinnerStore } from "./pinner-store.js";
+import type { PinnerStore } from "./pinner-store.js";
+import { readFile, writeFile, rename, access } from "node:fs/promises";
 import { createLogger } from "@pokapali/log";
 import type { Helia } from "helia";
 
@@ -55,6 +57,10 @@ const HALF_LIFE_MS = 12 * 60 * 60_000;
 const MAX_INTERVAL_MS = 24 * 60 * 60_000;
 const SCHEDULE_TICK_MS = 5_000;
 
+// Stale name pruning: drop names with no GossipSub
+// activity AND no successful IPNS resolve for 3 days.
+const DEFAULT_STALE_RESOLVE_MS = 3 * 24 * 60 * 60_000;
+
 // Self-tuning capacity
 const INITIAL_PER_DOC_MS = 50;
 const EMA_ALPHA = 0.3;
@@ -79,6 +85,10 @@ export interface PinnerConfig {
   /** Max IPNS requests per second to delegated
    * routing. Default: 10. */
   ipnsRateLimit?: number;
+  /** Drop names with no GossipSub activity and no
+   * successful IPNS resolve after this many days.
+   * Default: 3. Set to 0 to disable. */
+  staleResolveDays?: number;
 }
 
 export interface PinnerMetrics {
@@ -93,6 +103,7 @@ export interface PinnerMetrics {
   stateWriteCount: number;
   ipnsThrottleAcquired: number;
   ipnsThrottleRejected: number;
+  stalePruned: number;
 }
 
 export interface Pinner {
@@ -127,10 +138,13 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   };
   const rateLimiter = createRateLimiter(rateLimits);
   const history = createHistoryTracker();
+  const storePath = config.storagePath + "/pinner-state";
   const statePath = config.storagePath + "/state.json";
   const historyIndexPath = config.storagePath + "/history-index.json";
   const helia = config.helia;
   const retention = config.retentionConfig ?? DEFAULT_RETENTION;
+  const store: PinnerStore = await createPinnerStore(storePath);
+  await store.open();
 
   // In-memory block store as fallback when no Helia
   const memBlocks = new Map<string, Uint8Array>();
@@ -150,6 +164,14 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   // max 1 response per ipnsName per 3s.
   const lastQueryResponse = new Map<string, number>();
   const QUERY_RESPONSE_COOLDOWN_MS = 3_000;
+  // Last successful IPNS resolve per name.
+  // Persisted in LevelDB for stale pruning.
+  const lastResolvedAt = new Map<string, number>();
+  // Stale resolve threshold (0 = disabled)
+  const staleResolveMs =
+    config.staleResolveDays === 0
+      ? 0
+      : (config.staleResolveDays ?? 3) * 24 * 60 * 60_000;
 
   // Self-tuning capacity measurement
   let perDocEma = INITIAL_PER_DOC_MS;
@@ -316,10 +338,22 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   let lastReannounceMs = 0;
   let lastPersistMs = 0;
   let stateWriteCount = 0;
+  let stalePruned = 0;
+
+  /** Write-through: persist a state mutation to
+   * LevelDB. Fire-and-forget safe for sync callers
+   * like onAnnouncement. */
+  function persistMutation(fn: () => Promise<void>): void {
+    track(
+      fn().catch((err) => {
+        log.warn("store write failed:", err);
+      }),
+    );
+  }
 
   function markDirty(): void {
     dirty = true;
-    // Debounce: persist within 5s of last change
+    // Debounce: persist history index within 5s
     if (persistDebounceTimer) {
       clearTimeout(persistDebounceTimer);
     }
@@ -327,8 +361,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       persistDebounceTimer = null;
       if (dirty && !stopped) {
         dirty = false;
-        persistState().catch((err) => {
-          log.warn("debounced persist failed:", err);
+        persistHistoryIndex().catch((err) => {
+          log.warn("debounced history persist failed:", err);
         });
       }
     }, PERSIST_DEBOUNCE_MS);
@@ -398,6 +432,10 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       const node = decodeSnapshot(block);
       knownNames.add(ipnsName);
       history.add(ipnsName, cid, node.ts);
+      persistMutation(async () => {
+        await store.addName(ipnsName);
+        await store.setTip(ipnsName, cid.toString());
+      });
       markDirty();
       log.debug(
         `fetched block for` +
@@ -441,6 +479,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         log.error(`resolve returned null for` + ` ${ipnsName.slice(0, 12)}...`);
         return false;
       }
+
+      // Record successful resolve for stale pruning
+      const now = Date.now();
+      lastResolvedAt.set(ipnsName, now);
+      persistMutation(() => store.setLastResolved(ipnsName, now));
+
       log.debug(
         `resolved ${ipnsName.slice(0, 12)}...` +
           ` -> ${cid.toString().slice(0, 12)}...`,
@@ -741,18 +785,56 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
   /**
    * Prune docs past retention (14 days of inactivity).
+   * Also prune stale names: no GossipSub activity AND
+   * no successful IPNS resolve for staleResolveMs.
    * Capacity backstop: if tracking > capacity * 10,
    * prune oldest by lastSeenAt even if < 14 days.
    */
   async function pruneIfNeeded(): Promise<void> {
     const now = Date.now();
     const toPrune: string[] = [];
+    let staleCount = 0;
 
     // Primary: time-based retention pruning
     for (const name of knownNames) {
       const seen = lastSeenAt.get(name) ?? 0;
       if (seen + RETENTION_DURATION_MS < now) {
         toPrune.push(name);
+      }
+    }
+
+    // Stale-resolve pruning: names within retention
+    // window but with no GossipSub activity AND no
+    // successful IPNS resolve for staleResolveMs.
+    //
+    // First-run grace: names that have NEVER been
+    // resolved (lastResolvedAt=0, new field) use a
+    // shorter 12h threshold. This handles the initial
+    // deploy where lastResolvedAt hasn't been
+    // populated yet but stale names have recent
+    // lastSeenAt from pre-fromPinner re-announces.
+    const NEVER_RESOLVED_GRACE_MS = 12 * 60 * 60_000;
+    if (staleResolveMs > 0) {
+      const pruneSet = new Set(toPrune);
+      for (const name of knownNames) {
+        if (pruneSet.has(name)) continue;
+        const seen = lastSeenAt.get(name) ?? 0;
+        const resolved = lastResolvedAt.get(name) ?? 0;
+        if (resolved === 0) {
+          // Never resolved — use shorter threshold
+          const seenStale = seen + NEVER_RESOLVED_GRACE_MS < now;
+          if (seenStale) {
+            toPrune.push(name);
+            staleCount++;
+          }
+        } else {
+          const seenStale = seen + staleResolveMs < now;
+          const resolveStale = resolved + staleResolveMs < now;
+          if (seenStale && resolveStale) {
+            toPrune.push(name);
+            staleCount++;
+          }
+        }
       }
     }
 
@@ -797,15 +879,23 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       lastSeenAt.delete(name);
       lastAckedCid.delete(name);
       nameToAppId.delete(name);
+      lastResolvedAt.delete(name);
+      persistMutation(() => store.removeName(name));
       guaranteedUntil.delete(name);
       inHeap.delete(name);
     }
 
+    if (staleCount > 0) {
+      stalePruned += staleCount;
+    }
     if (toPrune.length > 0) {
       markDirty();
-      log.info(
-        `pruned ${toPrune.length} docs,` + ` ${knownNames.size} remaining`,
-      );
+      const parts = [`pruned ${toPrune.length} docs`];
+      if (staleCount > 0) {
+        parts.push(`${staleCount} stale`);
+      }
+      parts.push(`${knownNames.size} remaining`);
+      log.info(parts.join(", "));
     }
   }
 
@@ -834,9 +924,39 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     );
   }
 
-  async function restoreState(): Promise<void> {
+  async function migrateFromStateJson(): Promise<boolean> {
+    try {
+      await access(statePath);
+    } catch {
+      return false; // No state.json — nothing to migrate
+    }
+
     const state = await loadState(statePath);
-    for (const n of state.knownNames) {
+    if (state.knownNames.length === 0) return false;
+
+    log.info(
+      `migrating ${state.knownNames.length} names` +
+        ` from state.json to LevelDB`,
+    );
+    await store.importState(state);
+
+    // Rename to .bak so we don't re-migrate
+    const bakPath = statePath + ".bak";
+    await rename(statePath, bakPath);
+    log.info(`state.json renamed to state.json.bak`);
+    return true;
+  }
+
+  async function restoreState(): Promise<void> {
+    // Check if LevelDB store has data
+    let names = await store.getNames();
+    if (names.size === 0) {
+      // Try migrating from state.json
+      await migrateFromStateJson();
+      names = await store.getNames();
+    }
+
+    for (const n of names) {
       knownNames.add(n);
     }
 
@@ -844,34 +964,30 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     // If available, it has full chain history.
     const hasIndex = await loadHistoryIndex();
 
-    if (state.tips) {
-      for (const [name, cidStr] of Object.entries(state.tips)) {
-        // Use persisted lastSeenAt if available,
-        // otherwise 0 so restored tips don't
-        // inflate prune timestamps.
-        const ts = state.lastSeenAt?.[name] ?? 0;
-        // Always add tip — if index had it, dedup
-        // handles it. If index was missing, this
-        // ensures at least the tip is tracked.
-        history.add(name, CID.parse(cidStr), ts);
-      }
+    const tips = await store.getTips();
+    const seenMap = await store.getLastSeenAll();
+    const appMap = await store.getAppIds();
+    const resMap = await store.getLastResolvedAll();
+
+    for (const [name, cidStr] of tips) {
+      const ts = seenMap.get(name) ?? 0;
+      history.add(name, CID.parse(cidStr), ts);
     }
-    if (state.nameToAppId) {
-      for (const [name, appId] of Object.entries(state.nameToAppId)) {
-        nameToAppId.set(name, appId);
-      }
+    for (const [name, appId] of appMap) {
+      nameToAppId.set(name, appId);
     }
-    if (state.lastSeenAt) {
-      for (const [name, ts] of Object.entries(state.lastSeenAt)) {
-        lastSeenAt.set(name, ts);
-      }
+    for (const [name, ts] of seenMap) {
+      lastSeenAt.set(name, ts);
     }
-    // Backfill lastSeenAt for names from old state
-    // files that don't have it — use 0 so they get
-    // pruned on next cycle.
+    for (const [name, ts] of resMap) {
+      lastResolvedAt.set(name, ts);
+    }
+    // Backfill lastSeenAt for names that don't have
+    // it — use 0 so they get pruned on next cycle.
     for (const name of knownNames) {
       if (!lastSeenAt.has(name)) {
         lastSeenAt.set(name, 0);
+        persistMutation(() => store.setLastSeen(name, 0));
       }
     }
     // Seed the schedule queue from restored state
@@ -1024,20 +1140,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
   }
 
-  async function persistState(): Promise<void> {
+  async function persistHistoryIndex(): Promise<void> {
     const start = Date.now();
-    const tips: Record<string, string> = {};
-    for (const name of knownNames) {
-      const tip = history.getTip(name);
-      if (tip) tips[name] = tip;
-    }
-    await saveState(statePath, {
-      knownNames: [...knownNames],
-      tips,
-      nameToAppId: Object.fromEntries(nameToAppId),
-      lastSeenAt: Object.fromEntries(lastSeenAt),
-    });
-    // Persist history index alongside state
     try {
       await saveHistoryIndex();
     } catch (err) {
@@ -1064,6 +1168,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         stateWriteCount,
         ipnsThrottleAcquired: tm.acquired,
         ipnsThrottleRejected: tm.rejected,
+        stalePruned,
       };
     },
 
@@ -1072,7 +1177,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     },
 
     async start(): Promise<void> {
-      await restoreState();
+      try {
+        await restoreState();
+      } catch (err) {
+        await store.close().catch(() => {});
+        throw err;
+      }
       await pruneIfNeeded();
 
       // Backfill history index from blockstore
@@ -1103,12 +1213,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         }, 5 * 60_000);
       }
 
-      // Periodic state persistence as safety net
+      // Periodic history index persistence
       persistInterval = setInterval(() => {
         if (dirty && !stopped) {
           dirty = false;
-          persistState().catch((err) => {
-            log.warn("periodic persist failed:", err);
+          persistHistoryIndex().catch((err) => {
+            log.warn("periodic history persist failed:", err);
           });
         }
       }, PERSIST_INTERVAL_MS);
@@ -1150,7 +1260,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       if (thinSweepInterval) {
         clearInterval(thinSweepInterval);
       }
-      await persistState();
+      await persistHistoryIndex();
+      try {
+        await store.close();
+      } catch {
+        // Already closed (double-stop) — fine
+      }
     },
 
     onAnnouncement(
@@ -1162,13 +1277,19 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     ): void {
       knownNames.add(ipnsName);
       if (appId) nameToAppId.set(ipnsName, appId);
+      persistMutation(async () => {
+        await store.addName(ipnsName);
+        if (appId) await store.setAppId(ipnsName, appId);
+      });
 
       // Only refresh lastSeenAt for non-pinner
       // announcements (writer/reader activity).
       // Pinner re-announces are supply signals and
       // must NOT keep docs alive indefinitely.
       if (!fromPinner) {
-        lastSeenAt.set(ipnsName, Date.now());
+        const now = Date.now();
+        lastSeenAt.set(ipnsName, now);
+        persistMutation(() => store.setLastSeen(ipnsName, now));
         // Reset monotonic guarantee on new activity
         // so it recalculates from fresh lastSeenAt.
         guaranteedUntil.delete(ipnsName);
@@ -1328,19 +1449,24 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
       // Store block
       await storeBlock(cid, block);
+      const now = Date.now();
       knownNames.add(ipnsName);
-      lastSeenAt.set(ipnsName, Date.now());
+      lastSeenAt.set(ipnsName, now);
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
       snapshotsIngested++;
 
+      // Write-through to LevelDB immediately — HTTP
+      // ingest is rare and caller needs crash safety.
+      await store.addName(ipnsName);
+      await store.setTip(ipnsName, cid.toString());
+      await store.setLastSeen(ipnsName, now);
+
       // Thin old versions after ingesting new one
       await thinVersionHistory(ipnsName);
 
-      // Persist immediately — HTTP ingest is rare
-      // and the caller needs crash safety (no 5s
-      // debounce window where state could be lost).
-      await persistState();
+      // Persist history index
+      await persistHistoryIndex();
 
       return true;
     },

@@ -25,12 +25,16 @@ import {
   releaseHelia,
   getHeliaPubsub,
   getHelia,
+  isHeliaLive,
 } from "./helia.js";
 import { acquireNodeRegistry } from "./node-registry.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createDoc, populateMeta } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
+import { createDocPersistence } from "./persistence.js";
+import type { DocPersistence } from "./persistence.js";
+import { loadIdentity } from "./identity.js";
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -45,6 +49,13 @@ export interface PokapaliConfig {
   signalingUrls?: string[];
   bootstrapPeers?: string[];
   rtc?: SyncOptions["peerOpts"];
+  /**
+   * Enable IndexedDB persistence for Yjs state and
+   * IPFS blocks. Defaults to true. Set to false to
+   * disable (e.g. for cold-start testing via
+   * ?noCache=1).
+   */
+  persistence?: boolean;
 }
 
 export interface PokapaliApp {
@@ -61,10 +72,36 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   const primaryChannel = options.primaryChannel ?? channels[0];
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
+  const persistenceEnabled = options.persistence !== false;
+
+  // Identity keypair — loaded once, cached for app
+  // lifetime. Always present (identity is always-on).
+  let identityPromise: Promise<Ed25519KeyPair> | null = null;
+  function getIdentity(): Promise<Ed25519KeyPair> {
+    if (!identityPromise) {
+      identityPromise = loadIdentity(appId);
+    }
+    return identityPromise;
+  }
 
   return {
     async create(): Promise<Doc> {
-      await acquireHelia({ bootstrapPeers });
+      const identity = await getIdentity();
+
+      // Layer B: persistent blockstore for Helia.
+      // Only create when Helia doesn't exist yet —
+      // acquireHelia ignores blockstore on ref-count
+      // increment, so opening one would leak an IDB
+      // connection.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let blockstore: any;
+      if (persistenceEnabled && !isHeliaLive()) {
+        const { IDBBlockstore } = await import("blockstore-idb");
+        const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
+        await bs.open();
+        blockstore = bs;
+      }
+      await acquireHelia({ bootstrapPeers, blockstore });
       try {
         const pubsub = getHeliaPubsub() as unknown as PubSubLike;
         acquireNodeRegistry(pubsub, () => getHelia());
@@ -85,9 +122,25 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         const signingKey = await ed25519KeyPairFromSeed(docKeys.ipnsKeyBytes);
         const ipnsName = bytesToHex(signingKey.publicKey);
 
+        // Layer A: y-indexeddb persistence per subdoc
+        let docPersistence: DocPersistence | null = null;
+        const skipOrigins = new Set<object>();
+
         const subdocManager = createSubdocManager(ipnsName, channels, {
           primaryNamespace: primaryChannel,
+          skipOrigins: persistenceEnabled ? skipOrigins : undefined,
         });
+
+        if (persistenceEnabled) {
+          docPersistence = createDocPersistence(subdocManager, channels);
+          for (const p of docPersistence.providers) {
+            skipOrigins.add(p);
+          }
+          if (blockstore) {
+            const bs = blockstore;
+            docPersistence.closeBlockstore = () => bs.close();
+          }
+        }
 
         const syncManager = setupNamespaceRooms(
           ipnsName,
@@ -159,6 +212,8 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           syncOpts,
           pubsub,
           roomDiscovery,
+          persistence: docPersistence,
+          identity,
         });
       } catch (err) {
         await releaseHelia();
@@ -183,7 +238,19 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         return this.open(fwd.newUrl);
       }
 
-      await acquireHelia({ bootstrapPeers });
+      const identity = await getIdentity();
+
+      // Layer B: persistent blockstore for Helia.
+      // Skip when Helia already exists (see create()).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let blockstore: any;
+      if (persistenceEnabled && !isHeliaLive()) {
+        const { IDBBlockstore } = await import("blockstore-idb");
+        const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
+        await bs.open();
+        blockstore = bs;
+      }
+      await acquireHelia({ bootstrapPeers, blockstore });
       try {
         const pubsub = getHeliaPubsub() as unknown as PubSubLike;
         acquireNodeRegistry(pubsub, () => getHelia());
@@ -200,9 +267,25 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
         const cap = inferCapability(keys, channels);
 
+        // Layer A: y-indexeddb persistence per subdoc
+        let docPersistence: DocPersistence | null = null;
+        const skipOrigins = new Set<object>();
+
         const subdocManager = createSubdocManager(ipnsName, channels, {
           primaryNamespace: primaryChannel,
+          skipOrigins: persistenceEnabled ? skipOrigins : undefined,
         });
+
+        if (persistenceEnabled) {
+          docPersistence = createDocPersistence(subdocManager, channels);
+          for (const p of docPersistence.providers) {
+            skipOrigins.add(p);
+          }
+          if (blockstore) {
+            const bs = blockstore;
+            docPersistence.closeBlockstore = () => bs.close();
+          }
+        }
 
         const chKeys = keys.channelKeys ?? {};
         const syncManager = setupNamespaceRooms(
@@ -269,6 +352,9 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           pubsub,
           roomDiscovery,
           performInitialResolve: !!keys.readKey,
+          persistence: docPersistence,
+          hasCachedState: persistenceEnabled,
+          identity,
         });
       } catch (err) {
         await releaseHelia();
@@ -308,13 +394,20 @@ export type {
   SaveState,
   SnapshotEvent,
   VersionInfo,
+  ParticipantInfo,
 } from "./create-doc.js";
 
 export type { Feed } from "./sources.js";
 
 export type { RotateResult } from "./doc-rotate.js";
 
-export type { GossipActivity, LoadingState } from "./facts.js";
+export type {
+  GossipActivity,
+  LoadingState,
+  VersionHistory,
+  VersionHistoryEntry,
+  VersionEntryStatus,
+} from "./facts.js";
 
 export { fetchVersionHistory } from "./fetch-version-history.js";
 export type { VersionEntry, VersionTier } from "./fetch-version-history.js";

@@ -214,9 +214,9 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     join(config.storagePath, "blockstore"),
   );
   await rawBlockstore.open();
-  // blockstore-fs@3 get() returns AsyncGenerator,
-  // not Uint8Array. Wrap to match the interface
-  // Helia expects.
+  // blockstore-fs@3 get() returns AsyncGenerator
+  // <Uint8Array>, not Promise<Uint8Array>. Wrap to
+  // match the Blockstore interface Helia expects.
   const blockstore = {
     ...rawBlockstore,
     open: () => rawBlockstore.open(),
@@ -225,31 +225,19 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     has: (k: CID) => rawBlockstore.has(k),
     delete: (k: CID) => rawBlockstore.delete(k),
     async get(key: CID): Promise<Uint8Array> {
-      const result = await rawBlockstore.get(key);
-      // FsBlockstore@3 may return AsyncGenerator
-      if (
-        result &&
-        typeof (result as any)[Symbol.asyncIterator] === "function"
-      ) {
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of result as any) {
-          chunks.push(chunk);
-        }
-        const total = chunks.reduce((s, c) => s + c.length, 0);
-        const merged = new Uint8Array(total);
-        let offset = 0;
-        for (const c of chunks) {
-          merged.set(c, offset);
-          offset += c.length;
-        }
-        return merged;
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of rawBlockstore.get(key)) {
+        chunks.push(chunk);
       }
-      // If get() returned a plain Uint8Array
-      // (future version fix), use it directly.
-      if (result instanceof Uint8Array) {
-        return result;
+      if (chunks.length === 1) return chunks[0];
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
       }
-      throw new Error("unexpected blockstore.get return type");
+      return merged;
     },
   };
 
@@ -738,11 +726,11 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         .getSubscribers(t)
         .map((p: any) => `${t}:${p.toString().slice(-8)}`),
     );
-    // Check internal mesh state
-    const mesh = (pubsub as any).mesh as Map<string, Set<string>> | undefined;
-    const meshInfo = mesh
-      ? [...mesh.entries()].map(([t, s]) => `${t}:${s.size}`)
-      : "no-mesh";
+    // Check mesh state via public getMeshPeers API
+    const meshInfo = gsTopics.map((t: string) => {
+      const mp = pubsub.getMeshPeers?.(t);
+      return mp ? `${t}:${mp.length}` : `${t}:?`;
+    });
     log.debug(
       `${conns.length} conns,`,
       `${peers.length} peers,`,
@@ -762,12 +750,14 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     for (const topic of gsTopics) {
       const subs = pubsub.getSubscribers(topic);
       if (subs.length === 0) continue;
-      const topicMesh = mesh?.get(topic);
+      const topicMeshPeers = new Set(
+        (pubsub.getMeshPeers?.(topic) ?? []).map((p: any) => p.toString()),
+      );
       const topicBackoff = backoffMap?.get(topic);
       const details = subs.map((p: any) => {
         const id = p.toString();
         const short = id.slice(-8);
-        const inMesh = topicMesh?.has(id) ? "M" : "-";
+        const inMesh = topicMeshPeers.has(id) ? "M" : "-";
         const hasStream = streamsOut?.has(id) ? "S" : "!S";
         const score = gs.score?.score?.(id) ?? "?";
         const bo = topicBackoff?.has(id)
