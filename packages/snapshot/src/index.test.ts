@@ -6,6 +6,7 @@ import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,
   generateIdentityKeypair,
+  encryptSubdoc,
   signBytes,
   verifySignature,
 } from "@pokapali/crypto";
@@ -371,6 +372,35 @@ describe("@pokapali/snapshot", () => {
         payloadBytes,
       );
       expect(valid).toBe(false);
+    });
+
+    it("rejects publisher without publisherSig", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+      const subdocs = {
+        doc: await encryptSubdoc(readKey, new Uint8Array([1])),
+      };
+
+      // Hand-craft a block with publisher but no
+      // publisherSig, then sign it with the doc key.
+      // This simulates an attacker claiming a publisher
+      // identity without proving it.
+      const payload = {
+        subdocs,
+        prev: null,
+        seq: 0,
+        ts: 1000,
+        publicKey: signingKey.publicKey,
+        publisher: identity.publicKey,
+      };
+      const payloadBytes = dagCbor.encode(payload);
+      const signature = await signBytes(signingKey, payloadBytes);
+      const block = dagCbor.encode({
+        ...payload,
+        signature,
+      });
+
+      expect(await validateStructure(block)).toBe(false);
     });
   });
 
