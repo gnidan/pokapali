@@ -2,7 +2,13 @@ import { describe, it, expect } from "vitest";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import * as dagCbor from "@ipld/dag-cbor";
-import { deriveDocKeys, ed25519KeyPairFromSeed } from "@pokapali/crypto";
+import {
+  deriveDocKeys,
+  ed25519KeyPairFromSeed,
+  generateIdentityKeypair,
+  signBytes,
+  verifySignature,
+} from "@pokapali/crypto";
 import {
   encodeSnapshot,
   decodeSnapshot,
@@ -249,6 +255,122 @@ describe("@pokapali/snapshot", () => {
       const node = decodeSnapshot(second);
       expect(node.prev).toBeDefined();
       expect(node.prev!.toString()).toBe(prevCid.toString());
+    });
+  });
+
+  describe("publisher attribution", () => {
+    it("encodes snapshot with publisher fields", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+      const subdocs = {
+        doc: new Uint8Array([1, 2, 3]),
+      };
+
+      const encoded = await encodeSnapshot(
+        subdocs,
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+      const node = decodeSnapshot(encoded);
+
+      expect(node.publisher).toEqual(identity.publicKey);
+      expect(node.publisherSig).toBeInstanceOf(Uint8Array);
+      expect(node.publisherSig!.length).toBe(64);
+    });
+
+    it("validates publisher signature", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+
+      expect(await validateStructure(encoded)).toBe(true);
+    });
+
+    it("rejects tampered publisher sig", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+
+      const node = decodeSnapshot(encoded);
+      // Tamper with publisherSig
+      const tampered = new Uint8Array(node.publisherSig!);
+      tampered[0] ^= 0xff;
+      node.publisherSig = tampered;
+
+      // Re-encode with tampered publisherSig — doc sig
+      // won't match either
+      const reEncoded = dagCbor.encode(node);
+      expect(await validateStructure(reEncoded)).toBe(false);
+    });
+
+    it("works without publisher (backward compat)", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+
+      // No identity keypair passed
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+      );
+      const node = decodeSnapshot(encoded);
+
+      expect(node.publisher).toBeUndefined();
+      expect(node.publisherSig).toBeUndefined();
+      expect(await validateStructure(encoded)).toBe(true);
+    });
+
+    it("doc signature covers publisher fields", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+      const node = decodeSnapshot(encoded);
+
+      // Strip publisher fields — doc sig should fail
+      const stripped = { ...node };
+      delete (stripped as Record<string, unknown>).publisher;
+      delete (stripped as Record<string, unknown>).publisherSig;
+      const { signature, ...payloadFields } = stripped;
+      const payloadBytes = dagCbor.encode(payloadFields);
+      const valid = await verifySignature(
+        node.publicKey,
+        node.signature,
+        payloadBytes,
+      );
+      expect(valid).toBe(false);
     });
   });
 
