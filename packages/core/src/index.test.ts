@@ -154,7 +154,7 @@ describe("@pokapali/core", () => {
     const doc = await lib.create();
     expect(doc.capability.isAdmin).toBe(true);
     expect(doc.capability.canPushSnapshots).toBe(true);
-    expect(doc.capability.namespaces).toEqual(new Set(["content", "comments"]));
+    expect(doc.capability.channels).toEqual(new Set(["content", "comments"]));
     doc.destroy();
   });
 
@@ -188,7 +188,7 @@ describe("@pokapali/core", () => {
     const reader = await lib.open(readUrl);
     expect(reader.capability.isAdmin).toBe(false);
     expect(reader.capability.canPushSnapshots).toBe(false);
-    expect(reader.capability.namespaces.size).toBe(0);
+    expect(reader.capability.channels.size).toBe(0);
     expect(reader.urls.admin).toBeNull();
     expect(reader.urls.write).toBeNull();
     reader.destroy();
@@ -232,13 +232,13 @@ describe("@pokapali/core", () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     const url = await doc.invite({
-      namespaces: ["comments"],
+      channels: ["comments"],
     });
     expect(url).toContain("https://example.com/doc/");
 
     const parsed = await parseUrl(url);
     const cap = inferCapability(parsed.keys, OPTS.channels);
-    expect(cap.namespaces).toEqual(new Set(["comments"]));
+    expect(cap.channels).toEqual(new Set(["comments"]));
     expect(cap.canPushSnapshots).toBe(false);
     expect(cap.isAdmin).toBe(false);
     doc.destroy();
@@ -265,7 +265,7 @@ describe("@pokapali/core", () => {
 
     // With mock sync status "connected",
     // status should be "synced".
-    expect(doc.status).toBe("synced");
+    expect(doc.status.getSnapshot()).toBe("synced");
     doc.destroy();
   });
 
@@ -276,12 +276,12 @@ describe("@pokapali/core", () => {
     // After create(), _meta writes trigger dirty.
     // Push to clear.
     await doc.publish();
-    expect(doc.saveState).toBe("saved");
+    expect(doc.saveState.getSnapshot()).toBe("saved");
 
     // Edit a subdoc to trigger dirty
     const content = doc.channel("content");
     content.getMap("test").set("key", "value");
-    expect(doc.saveState).toBe("dirty");
+    expect(doc.saveState.getSnapshot()).toBe("dirty");
     doc.destroy();
   });
 
@@ -291,7 +291,7 @@ describe("@pokapali/core", () => {
 
     // Push snapshot to clear dirty state
     await doc.publish();
-    expect(doc.saveState).toBe("saved");
+    expect(doc.saveState.getSnapshot()).toBe("saved");
 
     const states: SaveState[] = [];
     doc.on("save", (s: SaveState) => {
@@ -391,6 +391,26 @@ describe("@pokapali/core", () => {
       expect(h[1].seq).toBe(1);
       // CIDs differ
       expect(h[0].cid.toString()).not.toBe(h[1].cid.toString());
+      doc.destroy();
+    });
+
+    it("versionHistory falls back to local chain", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      await doc.publish();
+      const content = doc.channel("content");
+      content.getMap("test").set("k", "v");
+      await doc.publish();
+      content.getMap("test").set("k", "v2");
+      await doc.publish();
+
+      // No pinner URLs → falls back to local
+      const h = await doc.versionHistory();
+      expect(h).toHaveLength(3);
+      expect(h[0].seq).toBe(3);
+      expect(h[1].seq).toBe(2);
+      expect(h[2].seq).toBe(1);
       doc.destroy();
     });
   });

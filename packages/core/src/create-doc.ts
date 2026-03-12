@@ -15,19 +15,23 @@ import type {
   SyncOptions,
   PubSubLike,
 } from "@pokapali/sync";
+import { decodeSnapshot } from "@pokapali/snapshot";
 import { CID } from "multiformats/cid";
 import { getHelia, releaseHelia } from "./helia.js";
-import { publishIPNS } from "./ipns-helpers.js";
-import { announceSnapshot, MAX_INLINE_BLOCK_BYTES } from "./announce.js";
+import { publishIPNS, resolveIPNS, watchIPNS } from "./ipns-helpers.js";
+import {
+  announceTopic,
+  announceSnapshot,
+  parseAnnouncement,
+  parseGuaranteeResponse,
+  publishGuaranteeQuery,
+  base64ToUint8,
+  MAX_INLINE_BLOCK_BYTES,
+} from "./announce.js";
 import { uploadBlock } from "./block-upload.js";
+import { fetchBlock as fetchBlockFromNetwork } from "./fetch-block.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
-import { createSnapshotWatcher } from "./snapshot-watcher.js";
-import type {
-  SnapshotWatcher,
-  LoadingState,
-  GossipActivity,
-} from "./snapshot-watcher.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -40,14 +44,53 @@ import { buildDiagnostics } from "./doc-diagnostics.js";
 import type { Diagnostics } from "./doc-diagnostics.js";
 import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
+import { fetchVersionHistory } from "./fetch-version-history.js";
+import type { VersionEntry } from "./fetch-version-history.js";
+import {
+  createAsyncQueue,
+  scan,
+  merge,
+  reannounceFacts,
+  createFeed,
+} from "./sources.js";
+import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
+import { reduce } from "./reducers.js";
+import { initialDocState, bestGuarantee, EMPTY_SET } from "./facts.js";
+import type {
+  Fact,
+  DocState,
+  DocStatus,
+  SaveState,
+  DocRole,
+  SyncStatus,
+  LoadingState,
+  GossipActivity,
+} from "./facts.js";
+import { runInterpreter } from "./interpreter.js";
+import type { EffectHandlers } from "./interpreter.js";
 
 const log = createLogger("core");
 
-export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
+const REANNOUNCE_MS = 15_000;
+const GUARANTEE_INITIAL_DELAY_MS = 3_000;
+const GUARANTEE_REQUERY_MS = 5 * 60_000;
 
-export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
+export type { DocStatus, SaveState, DocRole };
 
-export type DocRole = "admin" | "writer" | "reader";
+export interface VersionInfo {
+  cid: CID;
+  seq: number;
+  ackedBy: ReadonlySet<string>;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
+
+export interface SnapshotEvent {
+  cid: CID;
+  seq: number;
+  ts: number;
+  isLocal: boolean;
+}
 
 export interface DocUrls {
   readonly admin: string | null;
@@ -68,9 +111,10 @@ export interface Doc {
   /** Role derived from capability. */
   readonly role: DocRole;
   invite(grant: CapabilityGrant): Promise<string>;
-  readonly status: DocStatus;
-  /** Persistence state (dirty → saving → saved). */
-  readonly saveState: SaveState;
+  /** Reactive status feed (useSyncExternalStore). */
+  readonly status: Feed<DocStatus>;
+  /** Reactive save-state feed (useSyncExternalStore). */
+  readonly saveState: Feed<SaveState>;
   /** Peer IDs of relays discovered for this app. */
   readonly relays: ReadonlySet<string>;
   /** Sum of all Y.Doc state vector clocks. */
@@ -91,6 +135,13 @@ export interface Doc {
   /** Latest retain-until timestamp across all
    *  pinners for the current CID, or null if none. */
   readonly retainUntil: number | null;
+  /** CID of the current chain tip, or null if no
+   *  snapshot has been created/applied yet. */
+  readonly tipCid: CID | null;
+  /** Reactive tip feed (useSyncExternalStore). */
+  readonly tip: Feed<VersionInfo | null>;
+  /** Reactive loading feed (useSyncExternalStore). */
+  readonly loading: Feed<LoadingState>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -102,14 +153,14 @@ export interface Doc {
   rotate(): Promise<RotateResult>;
   on(event: "status", cb: (status: DocStatus) => void): void;
   on(event: "publish-needed", cb: () => void): void;
-  on(event: "snapshot", cb: () => void): void;
+  on(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
   on(event: "loading", cb: (state: LoadingState) => void): void;
   on(event: "ack", cb: (peerId: string) => void): void;
   on(event: "save", cb: (state: SaveState) => void): void;
   on(event: "node-change", cb: () => void): void;
   off(event: "status", cb: (status: DocStatus) => void): void;
   off(event: "publish-needed", cb: () => void): void;
-  off(event: "snapshot", cb: () => void): void;
+  off(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
   off(event: "loading", cb: (state: LoadingState) => void): void;
   off(event: "ack", cb: (peerId: string) => void): void;
   off(event: "save", cb: (state: SaveState) => void): void;
@@ -126,6 +177,9 @@ export interface Doc {
       ts: number;
     }>
   >;
+  /** Fetch version history from pinners (via HTTP),
+   *  falling back to local chain walking. */
+  versionHistory(): Promise<VersionEntry[]>;
   loadVersion(cid: CID): Promise<Record<string, Y.Doc>>;
   destroy(): void;
 }
@@ -153,8 +207,6 @@ export interface DocParams {
   performInitialResolve?: boolean;
 }
 
-type SyncStatus = "connecting" | "connected" | "disconnected";
-
 function computeStatus(
   syncStatus: SyncStatus,
   awarenessConnected: boolean,
@@ -176,6 +228,44 @@ function computeSaveState(isDirty: boolean, isSaving: boolean): SaveState {
   return "saved";
 }
 
+// ── Loading state derivation from DocState ──────
+
+function deriveLoadingState(state: DocState): LoadingState {
+  if (state.ipnsStatus.phase === "resolving") {
+    return {
+      status: "resolving",
+      startedAt: state.ipnsStatus.startedAt,
+    };
+  }
+  for (const entry of state.chain.entries.values()) {
+    if (entry.blockStatus === "fetching" && entry.fetchStartedAt) {
+      return {
+        status: "fetching",
+        cid: entry.cid.toString(),
+        startedAt: entry.fetchStartedAt,
+      };
+    }
+  }
+  for (const entry of state.chain.entries.values()) {
+    if (entry.blockStatus === "failed") {
+      return {
+        status: "failed",
+        cid: entry.cid.toString(),
+        error: entry.lastError ?? "unknown",
+      };
+    }
+  }
+  return { status: "idle" };
+}
+
+function loadingStateChanged(a: LoadingState, b: LoadingState): boolean {
+  if (a.status !== b.status) return true;
+  if ("cid" in a && "cid" in b && a.cid !== b.cid) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Populate the _meta subdoc with initial signing
  * key and namespace authorization entries.
@@ -184,14 +274,14 @@ function computeSaveState(isDirty: boolean, isSaving: boolean): SaveState {
 export function populateMeta(
   metaDoc: Y.Doc,
   signingPublicKey: Uint8Array,
-  namespaceKeys: Record<string, Uint8Array>,
+  channelKeys: Record<string, Uint8Array>,
 ) {
   const canPush = metaDoc.getArray<Uint8Array>("canPushSnapshots");
   canPush.push([signingPublicKey]);
   const authorized = metaDoc.getMap("authorized");
-  for (const [ns, key] of Object.entries(namespaceKeys)) {
+  for (const [ch, key] of Object.entries(channelKeys)) {
     const arr = new Y.Array<Uint8Array>();
-    authorized.set(ns, arr);
+    authorized.set(ch, arr);
     arr.push([key]);
   }
 }
@@ -252,7 +342,7 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
-  // --- Status tracking (3 inputs) ---
+  // --- Status tracking (fallback for no-interpreter) --
   let gossipActivity: GossipActivity = "inactive";
   let isSaving = false;
 
@@ -271,6 +361,7 @@ export function createDoc(params: DocParams): Doc {
     );
     if (next !== lastStatus) {
       lastStatus = next;
+      statusFeed._update(next);
       emit("status", next);
     }
   }
@@ -279,6 +370,7 @@ export function createDoc(params: DocParams): Doc {
     const next = computeSaveState(subdocManager.isDirty, isSaving);
     if (next !== lastSaveState) {
       lastSaveState = next;
+      saveStateFeed._update(next);
       emit("save", next);
     }
   }
@@ -295,14 +387,71 @@ export function createDoc(params: DocParams): Doc {
     return sum;
   }
 
+  // --- Interpreter state ---
+  let interpreterState: DocState | null = null;
+  let factQueue: AsyncQueue<Fact> | null = null;
+  let interpreterAc: AbortController | null = null;
+  let lastLocalPublishCid: string | null = null;
+  let lastEmittedAcks = new Set<string>();
+  let lastEmittedGuarantees = new Map<
+    string,
+    { guaranteeUntil: number; retainUntil: number }
+  >();
+  // --- Feeds ---
+  const statusFeed: WritableFeed<DocStatus> = createFeed<DocStatus>(lastStatus);
+  const saveStateFeed: WritableFeed<SaveState> =
+    createFeed<SaveState>(lastSaveState);
+  let lastTipInfo: VersionInfo | null = null;
+  const tipFeed: WritableFeed<VersionInfo | null> =
+    createFeed<VersionInfo | null>(null, (a, b) => {
+      if (a === b) return true;
+      if (!a || !b) return false;
+      return (
+        a.cid.equals(b.cid) &&
+        a.seq === b.seq &&
+        a.ackedBy === b.ackedBy &&
+        a.guaranteeUntil === b.guaranteeUntil &&
+        a.retainUntil === b.retainUntil
+      );
+    });
+  const loadingFeed: WritableFeed<LoadingState> = createFeed<LoadingState>(
+    { status: "idle" },
+    (a, b) => !loadingStateChanged(a, b),
+  );
+
+  // --- Event bridges ---
+  // Status and saveState are always computed
+  // locally (synchronous). The interpreter also
+  // tracks them internally but the local tracking
+  // is authoritative for getters and events.
+
   subdocManager.on("dirty", () => {
     checkSaveState();
     emit("publish-needed");
     awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
+    factQueue?.push({
+      type: "content-dirty",
+      ts: Date.now(),
+      clockSum: computeClockSum(),
+    });
   });
 
-  syncManager.onStatusChange(() => checkStatus());
-  awarenessRoom.onStatusChange(() => checkStatus());
+  syncManager.onStatusChange(() => {
+    checkStatus();
+    factQueue?.push({
+      type: "sync-status-changed",
+      ts: Date.now(),
+      status: syncManager.status,
+    });
+  });
+  awarenessRoom.onStatusChange(() => {
+    checkStatus();
+    factQueue?.push({
+      type: "awareness-status-changed",
+      ts: Date.now(),
+      connected: awarenessRoom.connected,
+    });
+  });
 
   // If the subdoc is already dirty (e.g. _meta was
   // populated before we registered), fire the event
@@ -313,6 +462,11 @@ export function createDoc(params: DocParams): Doc {
     queueMicrotask(() => {
       checkSaveState();
       emit("publish-needed");
+      factQueue?.push({
+        type: "content-dirty",
+        ts: Date.now(),
+        clockSum: computeClockSum(),
+      });
     });
   }
 
@@ -331,13 +485,12 @@ export function createDoc(params: DocParams): Doc {
   // Also forward node-registry changes as doc events.
   // When caps messages include addresses, feed them
   // to roomDiscovery so we can dial new relays.
+  let fireGuaranteeQuery: (() => void) | null = null;
   const knownPinnerPids = new Set<string>();
   const nodeChangeHandler = () => {
     emit("node-change");
     const reg = getNodeRegistry();
     if (reg) {
-      // Fire guarantee query when a new pinner
-      // appears in node-registry caps.
       let newPinner = false;
       for (const node of reg.nodes.values()) {
         if (
@@ -346,10 +499,15 @@ export function createDoc(params: DocParams): Doc {
         ) {
           knownPinnerPids.add(node.peerId);
           newPinner = true;
+          factQueue?.push({
+            type: "pinner-discovered",
+            ts: Date.now(),
+            peerId: node.peerId,
+          });
         }
       }
-      if (newPinner && snapshotWatcher) {
-        snapshotWatcher.queryGuarantees();
+      if (newPinner && fireGuaranteeQuery) {
+        fireGuaranteeQuery();
       }
     }
     if (!params.roomDiscovery) return;
@@ -386,87 +544,448 @@ export function createDoc(params: DocParams): Doc {
     log.warn("topology sharing init skipped:", (err as Error)?.message ?? err);
   }
 
-  // Snapshot watching: announce subscription, IPNS
-  // polling, re-announce for writers, initial resolve.
-  let snapshotWatcher: SnapshotWatcher | null = null;
+  // ── Interpreter setup ─────────────────────────
+  let stopIPNSWatch: (() => void) | null = null;
+  let initialQueryTimer: ReturnType<typeof setTimeout> | null = null;
+  let guaranteeQueryInterval: ReturnType<typeof setInterval> | null = null;
+
   if (readKey && params.pubsub && params.appId) {
     const rk = readKey;
-    log.debug(
-      "announce setup: pubsub=" + !!params.pubsub + " appId=" + params.appId,
-    );
-    snapshotWatcher = createSnapshotWatcher({
-      appId: params.appId,
+    const pubsub = params.pubsub;
+    const appId = params.appId;
+    const ipnsPublicKeyBytes = hexToBytes(ipnsName);
+
+    log.debug("interpreter setup: pubsub=" + !!pubsub + " appId=" + appId);
+
+    interpreterAc = new AbortController();
+    const { signal } = interpreterAc;
+    factQueue = createAsyncQueue<Fact>(signal);
+
+    const role: DocRole = cap.isAdmin
+      ? "admin"
+      : cap.channels.size > 0
+        ? "writer"
+        : "reader";
+
+    const init = initialDocState({
       ipnsName,
-      pubsub: params.pubsub,
-      getHelia: () => getHelia(),
-      isWriter: cap.canPushSnapshots,
-      ipnsPublicKeyBytes: hexToBytes(ipnsName),
-      performInitialResolve: params.performInitialResolve,
-      httpUrls: getHttpUrls,
-      onSnapshot: async (cid) => {
+      role,
+      channels,
+      appId,
+    });
+    interpreterState = init;
+
+    // --- GossipSub subscription + fact bridge ---
+    const topic = announceTopic(appId);
+    pubsub.subscribe(topic);
+    factQueue.push({
+      type: "gossip-subscribed",
+      ts: Date.now(),
+    });
+
+    const fq = factQueue;
+    const gossipHandler = (evt: CustomEvent) => {
+      const { detail } = evt;
+      if (detail?.topic !== topic) return;
+
+      // Liveness fact for every message
+      fq.push({
+        type: "gossip-message",
+        ts: Date.now(),
+      });
+
+      // Check guarantee response first
+      const gResp = parseGuaranteeResponse(detail.data);
+      if (gResp && gResp.ipnsName === ipnsName) {
+        try {
+          fq.push({
+            type: "guarantee-received",
+            ts: Date.now(),
+            peerId: gResp.peerId,
+            cid: CID.parse(gResp.cid),
+            guaranteeUntil: gResp.guaranteeUntil ?? 0,
+            retainUntil: gResp.retainUntil ?? 0,
+          });
+        } catch {
+          // CID parse failure — skip
+        }
+        return;
+      }
+
+      const ann = parseAnnouncement(detail.data);
+      if (!ann || ann.ipnsName !== ipnsName) return;
+
+      // Ack handling
+      if (ann.ack) {
+        try {
+          fq.push({
+            type: "ack-received",
+            ts: Date.now(),
+            cid: CID.parse(ann.cid),
+            peerId: ann.ack.peerId,
+          });
+        } catch {
+          // CID parse failure — skip
+        }
+        if (
+          ann.ack.guaranteeUntil !== undefined ||
+          ann.ack.retainUntil !== undefined
+        ) {
+          try {
+            fq.push({
+              type: "guarantee-received",
+              ts: Date.now(),
+              peerId: ann.ack.peerId,
+              cid: CID.parse(ann.cid),
+              guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
+              retainUntil: ann.ack.retainUntil ?? 0,
+            });
+          } catch {
+            // CID parse failure — skip
+          }
+        }
+      }
+
+      // CID discovery from announcement
+      try {
+        const cid = CID.parse(ann.cid);
+        let block: Uint8Array | undefined;
+        if (ann.block) {
+          try {
+            block = base64ToUint8(ann.block);
+            // Store inline block for getBlock()
+            snapshotLC.putBlock(ann.cid, block);
+            const helia = getHelia();
+            Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+          } catch {
+            // decode failure — skip inline block
+          }
+        }
+        fq.push({
+          type: "cid-discovered",
+          ts: Date.now(),
+          cid,
+          source: "gossipsub",
+          block,
+          seq: ann.seq,
+        });
+      } catch {
+        // CID parse failure — skip
+      }
+    };
+
+    pubsub.addEventListener("message", gossipHandler as EventListener);
+
+    // --- Reannounce source ---
+    const reannounceSource = reannounceFacts(REANNOUNCE_MS, signal);
+
+    // --- Scan pipeline ---
+    const stateStream = scan(merge(factQueue, reannounceSource), reduce, init);
+
+    // --- State capture + derived events ---
+    async function* captureState(
+      stream: AsyncIterable<{
+        prev: DocState;
+        next: DocState;
+        fact: Fact;
+      }>,
+    ) {
+      for await (const item of stream) {
+        interpreterState = item.next;
+
+        // Update tip feed (cached to avoid
+        // allocations when nothing changed)
+        const tip = item.next.chain.tip;
+        if (tip) {
+          const entry = item.next.chain.entries.get(tip.toString());
+          const seq = entry?.seq ?? 0;
+          const ackedBy = entry?.ackedBy ?? EMPTY_SET;
+          const g = bestGuarantee(item.next.chain);
+          if (
+            !lastTipInfo ||
+            !lastTipInfo.cid.equals(tip) ||
+            lastTipInfo.seq !== seq ||
+            lastTipInfo.ackedBy !== ackedBy ||
+            lastTipInfo.guaranteeUntil !== g.guaranteeUntil ||
+            lastTipInfo.retainUntil !== g.retainUntil
+          ) {
+            lastTipInfo = {
+              cid: tip,
+              seq,
+              ackedBy,
+              guaranteeUntil: g.guaranteeUntil,
+              retainUntil: g.retainUntil,
+            };
+          }
+          tipFeed._update(lastTipInfo);
+        } else {
+          if (lastTipInfo !== null) {
+            lastTipInfo = null;
+          }
+          tipFeed._update(null);
+        }
+
+        // Derived loading state — feed handles dedup
+        const prevLoading = loadingFeed.getSnapshot();
+        const newLoading = deriveLoadingState(item.next);
+        loadingFeed._update(newLoading);
+        if (loadingStateChanged(prevLoading, newLoading)) {
+          emit("loading", newLoading);
+          // Ready check: if loading finished
+          // without applying a snapshot, mount
+          // the editor anyway.
+          if (
+            (newLoading.status === "idle" || newLoading.status === "failed") &&
+            !readyResolved &&
+            !item.next.chain.tip
+          ) {
+            markReady();
+          }
+        }
+        yield item;
+      }
+    }
+
+    // --- Effect handlers ---
+    const effects: EffectHandlers = {
+      fetchBlock: async (cid) => {
+        try {
+          const helia = getHelia();
+          const block = await fetchBlockFromNetwork(helia, cid, {
+            httpUrls: getHttpUrls(),
+          });
+          snapshotLC.putBlock(cid.toString(), block);
+          return block;
+        } catch {
+          return null;
+        }
+      },
+
+      getBlock: (cid) => {
+        return snapshotLC.getBlock(cid.toString()) ?? null;
+      },
+
+      applySnapshot: async (cid, block) => {
+        // Put block in helia blockstore so
+        // applyRemote finds it immediately.
+        const helia = getHelia();
+        await Promise.resolve(helia.blockstore.put(cid, block));
+        snapshotLC.putBlock(cid.toString(), block);
+
         const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) =>
           subdocManager.applySnapshot(plaintext),
         );
+
         if (applied) {
           snapshotLC.setLastIpnsSeq(computeClockSum());
-          // Track the loaded CID for ack matching so
-          // guarantee responses from pinners that
-          // already hold this snapshot set
-          // ackedCurrentCid.
-          snapshotWatcher?.trackCidForAcks(cid.toString());
-          emit("snapshot");
-          markReady();
+        }
+
+        // Return seq from block metadata
+        const node = decodeSnapshot(block);
+        return { seq: node.seq };
+      },
+
+      decodeBlock: (block) => {
+        try {
+          const node = decodeSnapshot(block);
+          return {
+            prev: node.prev ?? undefined,
+            seq: node.seq,
+          };
+        } catch {
+          return {};
         }
       },
-    });
 
-    snapshotWatcher.on("guarantee-query", () => {
-      emit("guarantee-query");
-    });
-    snapshotWatcher.on("ack", (peerId) => {
-      emit("ack", peerId);
-    });
-    snapshotWatcher.on("gossip-activity", (activity) => {
-      gossipActivity = activity;
-      checkStatus();
-      emit("gossip-activity", activity);
-    });
-    snapshotWatcher.on("fetch-state", (state) => {
-      emit("loading", state);
-      // If we return to idle or hit permanent
-      // failure without ever applying a snapshot,
-      // the document is as ready as it gets —
-      // mount the editor so the user sees status
-      // indicators instead of a blank loading
-      // screen.
-      if (
-        (state.status === "idle" || state.status === "failed") &&
-        !readyResolved &&
-        !snapshotWatcher?.hasAppliedSnapshot
-      ) {
-        markReady();
-      }
-    });
+      announce: (cid, block, seq) => {
+        if (block.length > MAX_INLINE_BLOCK_BYTES) {
+          const urls = getHttpUrls();
+          if (urls.length > 0) {
+            uploadBlock(cid, block, urls).catch((err) => {
+              log.warn("announce upload failed:", err);
+            });
+          }
+          announceSnapshot(pubsub, appId, ipnsName, cid.toString(), seq).catch(
+            (err) => {
+              log.warn("announce failed:", err);
+            },
+          );
+        } else {
+          announceSnapshot(
+            pubsub,
+            appId,
+            ipnsName,
+            cid.toString(),
+            seq,
+            block,
+          ).catch((err) => {
+            log.warn("announce failed:", err);
+          });
+        }
+      },
 
-    // Periodically re-announce the latest snapshot
-    // so pinners and new peers discover it even if
-    // the original writer is offline.
-    snapshotWatcher.startReannounce(
-      () => snapshotLC.prev,
-      (cidStr) => snapshotLC.getBlock(cidStr),
-      () => snapshotLC.lastIpnsSeq,
+      markReady: () => markReady(),
+
+      emitSnapshotApplied: (cid, seq) => {
+        const cidStr = cid.toString();
+        if (cidStr === lastLocalPublishCid) {
+          lastLocalPublishCid = null;
+          return;
+        }
+        emit("snapshot", {
+          cid,
+          seq,
+          ts: Date.now(),
+          isLocal: false,
+        } satisfies SnapshotEvent);
+      },
+
+      emitAck: (_cid, ackedBy) => {
+        for (const pid of ackedBy) {
+          if (!lastEmittedAcks.has(pid)) {
+            emit("ack", pid);
+          }
+        }
+        lastEmittedAcks = new Set(ackedBy);
+      },
+
+      emitGossipActivity: (activity) => {
+        gossipActivity = activity;
+        checkStatus();
+        emit("gossip-activity", activity);
+      },
+
+      emitLoading: () => {
+        // Loading state is derived in
+        // captureState — this is a no-op.
+      },
+
+      emitGuarantee: (_cid, guarantees) => {
+        for (const [pid, g] of guarantees) {
+          const prev = lastEmittedGuarantees.get(pid);
+          if (
+            !prev ||
+            prev.guaranteeUntil !== g.guaranteeUntil ||
+            prev.retainUntil !== g.retainUntil
+          ) {
+            emit("ack", pid);
+          }
+        }
+        lastEmittedGuarantees = new Map(guarantees);
+      },
+
+      // Status and saveState are tracked locally
+      // (synchronous). The interpreter's derived
+      // values are redundant — local handlers
+      // already fire events.
+      emitStatus: () => {},
+      emitSaveState: () => {},
+    };
+
+    // --- Run interpreter ---
+    runInterpreter(captureState(stateStream), effects, factQueue, signal).catch(
+      (err) => {
+        if (!signal.aborted) {
+          log.warn("interpreter error:", err);
+        }
+      },
     );
 
-    // Immediately re-announce when a new relay
-    // connects so its pinner discovers the latest
-    // snapshot without waiting for the interval.
+    // --- IPNS initial resolve ---
+    if (params.performInitialResolve) {
+      fq.push({
+        type: "ipns-resolve-started",
+        ts: Date.now(),
+      });
+      (async () => {
+        try {
+          const helia = getHelia();
+          const tipCid = await resolveIPNS(helia, ipnsPublicKeyBytes);
+          if (signal.aborted) return;
+          if (tipCid) {
+            log.info("IPNS resolved:", tipCid.toString());
+            fq.push({
+              type: "cid-discovered",
+              ts: Date.now(),
+              cid: tipCid,
+              source: "ipns",
+            });
+          }
+          fq.push({
+            type: "ipns-resolve-completed",
+            ts: Date.now(),
+            cid: tipCid,
+          });
+        } catch (err) {
+          log.warn("initial IPNS resolve failed:", err);
+          fq.push({
+            type: "ipns-resolve-completed",
+            ts: Date.now(),
+            cid: null,
+          });
+        }
+      })();
+    }
+
+    // --- IPNS polling ---
+    stopIPNSWatch = watchIPNS(
+      getHelia(),
+      ipnsPublicKeyBytes,
+      (cid) => {
+        if (!signal.aborted) {
+          fq.push({
+            type: "cid-discovered",
+            ts: Date.now(),
+            cid,
+            source: "ipns",
+          });
+        }
+      },
+      {
+        onPollStart: () => {
+          if (!signal.aborted) {
+            fq.push({
+              type: "ipns-resolve-started",
+              ts: Date.now(),
+            });
+          }
+        },
+      },
+    );
+
+    // --- Guarantee queries ---
+    fireGuaranteeQuery = () => {
+      publishGuaranteeQuery(pubsub, appId, ipnsName).catch((err) => {
+        log.warn("guarantee query failed:", err);
+      });
+    };
+
+    // Initial delay (3s) for mesh formation
+    initialQueryTimer = setTimeout(() => {
+      initialQueryTimer = null;
+      if (!signal.aborted) {
+        fireGuaranteeQuery!();
+      }
+    }, GUARANTEE_INITIAL_DELAY_MS);
+
+    // Periodic re-query
+    guaranteeQueryInterval = setInterval(() => {
+      if (!signal.aborted) {
+        fireGuaranteeQuery!();
+      }
+    }, GUARANTEE_REQUERY_MS);
+
+    // --- Relay connect → push fact ---
     if (params.roomDiscovery) {
       const rd = params.roomDiscovery;
-      const sw = snapshotWatcher;
       const connectHandler = (evt: CustomEvent) => {
         const pid = evt.detail?.toString?.() ?? "";
         if (rd.relayPeerIds.has(pid)) {
-          sw.reannounceNow();
+          fq.push({
+            type: "relay-connected",
+            ts: Date.now(),
+            peerId: pid,
+          });
         }
       };
       const helia = getHelia();
@@ -475,10 +994,32 @@ export function createDoc(params: DocParams): Doc {
         helia.libp2p.removeEventListener("peer:connect", connectHandler);
       };
     }
+
+    // Cleanup GossipSub on abort
+    signal.addEventListener(
+      "abort",
+      () => {
+        pubsub.removeEventListener("message", gossipHandler as EventListener);
+        pubsub.unsubscribe(topic);
+      },
+      { once: true },
+    );
   }
 
   function teardown() {
     destroyed = true;
+    // Interpreter cleanup
+    interpreterAc?.abort();
+    if (initialQueryTimer) {
+      clearTimeout(initialQueryTimer);
+    }
+    if (guaranteeQueryInterval) {
+      clearInterval(guaranteeQueryInterval);
+    }
+    if (stopIPNSWatch) {
+      stopIPNSWatch();
+      stopIPNSWatch = null;
+    }
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
@@ -487,7 +1028,6 @@ export function createDoc(params: DocParams): Doc {
     } catch (err) {
       log.warn("off('change') cleanup error:", (err as Error)?.message ?? err);
     }
-    snapshotWatcher?.destroy();
     params.roomDiscovery?.stop();
     syncManager.destroy();
     awarenessRoom.destroy();
@@ -544,17 +1084,17 @@ export function createDoc(params: DocParams): Doc {
 
     get role(): DocRole {
       if (cap.isAdmin) return "admin";
-      if (cap.namespaces.size > 0) return "writer";
+      if (cap.channels.size > 0) return "writer";
       return "reader";
     },
 
     async invite(grant: CapabilityGrant): Promise<string> {
       assertNotDestroyed();
-      if (grant.namespaces) {
-        for (const ns of grant.namespaces) {
-          if (!cap.namespaces.has(ns)) {
+      if (grant.channels) {
+        for (const ch of grant.channels) {
+          if (!cap.channels.has(ch)) {
             throw new Error(
-              `Cannot grant "${ns}" ` + "— not in own capability",
+              `Cannot grant "${ch}" ` + "— not in own capability",
             );
           }
         }
@@ -568,17 +1108,8 @@ export function createDoc(params: DocParams): Doc {
       return buildUrl(origin, ipnsName, narrowed);
     },
 
-    get status(): DocStatus {
-      return computeStatus(
-        syncManager.status,
-        awarenessRoom.connected,
-        gossipActivity,
-      );
-    },
-
-    get saveState(): SaveState {
-      return computeSaveState(subdocManager.isDirty, isSaving);
-    },
+    status: statusFeed as Feed<DocStatus>,
+    saveState: saveStateFeed as Feed<SaveState>,
 
     get relays(): ReadonlySet<string> {
       return params.roomDiscovery?.relayPeerIds ?? new Set();
@@ -593,32 +1124,48 @@ export function createDoc(params: DocParams): Doc {
     },
 
     get latestAnnouncedSeq(): number {
-      return snapshotWatcher?.latestAnnouncedSeq ?? 0;
+      return interpreterState?.chain.maxSeq ?? 0;
     },
 
     get loadingState(): LoadingState {
-      return (
-        snapshotWatcher?.fetchState ?? {
-          status: "idle",
-        }
-      );
+      return loadingFeed.getSnapshot();
     },
 
     get hasAppliedSnapshot(): boolean {
-      return snapshotWatcher?.hasAppliedSnapshot ?? false;
+      return (
+        interpreterState?.chain.tip !== null &&
+        interpreterState?.chain.tip !== undefined
+      );
     },
 
     get ackedBy(): ReadonlySet<string> {
-      return snapshotWatcher?.ackedBy ?? new Set();
+      if (!interpreterState?.chain.tip) {
+        return EMPTY_SET;
+      }
+      const entry = interpreterState.chain.entries.get(
+        interpreterState.chain.tip.toString(),
+      );
+      return entry?.ackedBy ?? EMPTY_SET;
     },
 
     get guaranteeUntil(): number | null {
-      return snapshotWatcher?.guaranteeUntil ?? null;
+      if (!interpreterState) return null;
+      const g = bestGuarantee(interpreterState.chain);
+      return g.guaranteeUntil || null;
     },
 
     get retainUntil(): number | null {
-      return snapshotWatcher?.retainUntil ?? null;
+      if (!interpreterState) return null;
+      const g = bestGuarantee(interpreterState.chain);
+      return g.retainUntil || null;
     },
+
+    get tipCid(): CID | null {
+      return snapshotLC.prev;
+    },
+
+    tip: tipFeed as Feed<VersionInfo | null>,
+    loading: loadingFeed as Feed<LoadingState>,
 
     ready(): Promise<void> {
       return readyPromise;
@@ -629,30 +1176,83 @@ export function createDoc(params: DocParams): Doc {
       if (!cap.canPushSnapshots || !signingKey || !readKey) {
         return;
       }
+
       isSaving = true;
       checkSaveState();
+      factQueue?.push({
+        type: "publish-started",
+        ts: Date.now(),
+      });
 
       const plaintext = subdocManager.encodeAll();
       const clockSum = this.clockSum;
-      const { cid, block } = await snapshotLC.push(
-        plaintext,
-        readKey,
-        signingKey,
-        clockSum,
-      );
+      let pushResult;
+      try {
+        pushResult = await snapshotLC.push(
+          plaintext,
+          readKey,
+          signingKey,
+          clockSum,
+        );
+      } catch (err) {
+        isSaving = false;
+        checkSaveState();
+        factQueue?.push({
+          type: "publish-failed",
+          ts: Date.now(),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+      const { cid, block } = pushResult;
+
+      // Store block for getBlock() and chain
+      snapshotLC.putBlock(cid.toString(), block);
+
+      // Suppress the interpreter's
+      // emitSnapshotApplied for this CID since
+      // we emit the local snapshot event below.
+      lastLocalPublishCid = cid.toString();
 
       isSaving = false;
       checkSaveState();
-      emit("snapshot");
 
-      // Reset ack tracking synchronously so the UI
-      // clears immediately and early acks aren't
-      // dropped.
-      snapshotWatcher?.trackCidForAcks(cid.toString());
+      // Push chain entry + tip + success facts
+      if (factQueue) {
+        factQueue.push({
+          type: "cid-discovered",
+          ts: Date.now(),
+          cid,
+          source: "gossipsub",
+          block,
+          seq: pushResult.seq,
+        });
+        factQueue.push({
+          type: "tip-advanced",
+          ts: Date.now(),
+          cid,
+          seq: pushResult.seq,
+        });
+        factQueue.push({
+          type: "publish-succeeded",
+          ts: Date.now(),
+          cid,
+          seq: pushResult.seq,
+        });
+      }
 
-      // Persist to Helia + publish IPNS + announce.
-      // Fire-and-forget: don't block the UI on slow
-      // DHT operations.
+      emit("snapshot", {
+        cid,
+        seq: pushResult.seq,
+        ts: Date.now(),
+        isLocal: true,
+      } satisfies SnapshotEvent);
+
+      // Persist to Helia + publish IPNS.
+      // Fire-and-forget: don't block the UI on
+      // slow DHT operations.
+      // Announce is handled by the interpreter
+      // via the publish-succeeded fact.
       const cidShort = cid.toString().slice(0, 16);
       log.info("publish: cid=" + cidShort + "... clockSum=" + clockSum);
       (async () => {
@@ -661,37 +1261,9 @@ export function createDoc(params: DocParams): Doc {
         await Promise.resolve(helia.blockstore.put(cid, block));
         log.debug("blockstore.put done," + " publishing IPNS...");
         await publishIPNS(helia, keys.ipnsKeyBytes!, cid, clockSum);
-        log.debug("IPNS published, announcing...");
-        if (params.appId && params.pubsub) {
-          if (block.length > MAX_INLINE_BLOCK_BYTES) {
-            // Large block: upload via HTTP, then
-            // announce without inline data.
-            const urls = getHttpUrls();
-            if (urls.length > 0) {
-              await uploadBlock(cid, block, urls);
-            }
-            await announceSnapshot(
-              params.pubsub,
-              params.appId,
-              ipnsName,
-              cid.toString(),
-              clockSum,
-              // omit block — too large for GossipSub
-            );
-          } else {
-            await announceSnapshot(
-              params.pubsub,
-              params.appId,
-              ipnsName,
-              cid.toString(),
-              clockSum,
-              block,
-            );
-          }
-          log.debug("announce sent");
-        }
+        log.debug("IPNS published");
       })().catch((err: unknown) => {
-        log.error("IPNS publish/announce failed:", err);
+        log.error("IPNS publish failed:", err);
       });
     },
 
@@ -733,8 +1305,20 @@ export function createDoc(params: DocParams): Doc {
 
     diagnostics(): Diagnostics {
       assertNotDestroyed();
+      const tip = interpreterState?.chain.tip;
+      const tipEntry = tip
+        ? interpreterState?.chain.entries.get(tip.toString())
+        : undefined;
+      const g = interpreterState
+        ? bestGuarantee(interpreterState.chain)
+        : { guaranteeUntil: 0, retainUntil: 0 };
       return buildDiagnostics({
-        snapshotWatcher,
+        ackedBy: tipEntry?.ackedBy ?? EMPTY_SET,
+        latestAnnouncedSeq: this.latestAnnouncedSeq,
+        loadingState: this.loadingState,
+        hasAppliedSnapshot: this.hasAppliedSnapshot,
+        guaranteeUntil: g.guaranteeUntil || null,
+        retainUntil: g.retainUntil || null,
         roomDiscovery: params.roomDiscovery,
         awareness: awarenessRoom.awareness,
         clockSum: computeClockSum(),
@@ -750,6 +1334,13 @@ export function createDoc(params: DocParams): Doc {
     async history() {
       assertNotDestroyed();
       return snapshotLC.history();
+    },
+
+    async versionHistory(): Promise<VersionEntry[]> {
+      assertNotDestroyed();
+      return fetchVersionHistory(getHttpUrls(), ipnsName, () =>
+        snapshotLC.history(),
+      );
     },
 
     async loadVersion(cid: CID) {

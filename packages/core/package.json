@@ -34,8 +34,8 @@
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
     "@helia/ipns": "^8.0.0",
-    "@libp2p/crypto": "^5.0.0",
     "@ipld/dag-cbor": "^9.2.0",
+    "@libp2p/crypto": "^5.0.0",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
     "@pokapali/capability": "0.0.0",
     "@pokapali/crypto": "0.0.0",
@@ -50,6 +50,7 @@
     "yjs": "^13.6.0"
   },
   "devDependencies": {
+    "fast-check": "^4.6.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

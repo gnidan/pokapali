@@ -18,14 +18,14 @@ export interface DocKeys {
   readKey: CryptoKey;
   ipnsKeyBytes: Uint8Array;
   rotationKey: Uint8Array;
-  namespaceKeys: Record<string, Uint8Array>;
+  channelKeys: Record<string, Uint8Array>;
   awarenessRoomPassword: string;
 }
 
 export async function deriveDocKeys(
   adminSecret: string,
   appId: string,
-  namespaces: string[],
+  channels: string[],
 ): Promise<DocKeys> {
   const raw = new TextEncoder().encode(adminSecret);
   const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, [
@@ -70,9 +70,9 @@ export async function deriveDocKeys(
   const awarenessRoomBytes = await deriveBits("awareness-room");
   const awarenessRoomPassword = bytesToHex(awarenessRoomBytes);
 
-  const namespaceKeys: Record<string, Uint8Array> = Object.fromEntries(
+  const channelKeys: Record<string, Uint8Array> = Object.fromEntries(
     await Promise.all(
-      namespaces.map(async (ns) => [ns, await deriveBits(`ns:${ns}`)]),
+      channels.map(async (ch) => [ch, await deriveBits(`ns:${ch}`)]),
     ),
   );
 
@@ -80,7 +80,7 @@ export async function deriveDocKeys(
     readKey,
     ipnsKeyBytes,
     rotationKey,
-    namespaceKeys,
+    channelKeys,
     awarenessRoomPassword,
   };
 }

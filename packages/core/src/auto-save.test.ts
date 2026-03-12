@@ -4,11 +4,12 @@ import { createAutoSaver } from "./auto-save.js";
 // Minimal mock of CollabDoc for auto-save purposes.
 function mockDoc(opts?: { canPush?: boolean; saveState?: string }) {
   const listeners = new Map<string, Set<(...args: any[]) => void>>();
+  const sv = opts?.saveState ?? "saved";
   return {
     capability: {
       canPushSnapshots: opts?.canPush ?? true,
     },
-    saveState: opts?.saveState ?? "saved",
+    saveState: { getSnapshot: () => sv },
     publish: vi.fn().mockResolvedValue(undefined),
     on(event: string, fn: (...args: any[]) => void) {
       if (!listeners.has(event)) {
@@ -79,7 +80,7 @@ describe("createAutoSaver", () => {
   });
 
   it("debounces publish-needed into one" + " publish call", async () => {
-    const doc = mockDoc();
+    const doc = mockDoc({ saveState: "dirty" });
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 500,
     });
@@ -98,7 +99,7 @@ describe("createAutoSaver", () => {
   });
 
   it("resets debounce timer on each new" + " event", async () => {
-    const doc = mockDoc();
+    const doc = mockDoc({ saveState: "dirty" });
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 500,
     });
@@ -119,7 +120,7 @@ describe("createAutoSaver", () => {
   });
 
   it("does not crash when publish" + " rejects", async () => {
-    const doc = mockDoc();
+    const doc = mockDoc({ saveState: "dirty" });
     doc.publish.mockRejectedValue(new Error("network error"));
     const cleanup = createAutoSaver(doc as any, {
       debounceMs: 100,

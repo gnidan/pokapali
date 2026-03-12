@@ -62,11 +62,57 @@ export function deriveHttpUrl(
   wssMultiaddr: string,
   httpsPort: number,
 ): string | undefined {
-  // Match /dns4/<host>/tcp/... or /dns6/<host>/tcp/...
-  const m = wssMultiaddr.match(/\/(dns[46])\/([^/]+)\/tcp/);
-  if (!m) return undefined;
-  const host = m[2];
-  return `https://${host}:${httpsPort}`;
+  // Prefer /sni/<host>/ — autoTLS uses this format
+  // on ip4/ip6 addrs with the .libp2p.direct hostname.
+  const sni = wssMultiaddr.match(/\/sni\/([^/]+)\//);
+  if (sni) return `https://${sni[1]}:${httpsPort}`;
+  // Fallback: /dns4/<host>/tcp/... or /dns6/<host>/tcp/...
+  const dns = wssMultiaddr.match(/\/(dns[46])\/([^/]+)\/tcp/);
+  if (dns) return `https://${dns[2]}:${httpsPort}`;
+  return undefined;
+}
+
+/**
+ * Derive httpUrl from the TLS cert SAN and relay's
+ * public IP. Used when SNI multiaddr isn't registered
+ * yet at cert provision time.
+ *
+ * Cert SAN: *.k51qzi...libp2p.direct
+ * Public IP: 144.202.54.236 (from /ip4/ multiaddrs)
+ * Result: https://144-202-54-236.k51qzi...libp2p.direct:4443
+ */
+export function deriveHttpUrlFromCert(
+  certPem: string,
+  multiaddrs: string[],
+  httpsPort: number,
+): string | undefined {
+  // Extract wildcard domain from cert SAN.
+  // PEM is base64-encoded — decode to DER bytes
+  // where the domain appears as raw ASCII text.
+  let domain: string | undefined;
+  try {
+    const lines = certPem.split("\n").filter((l) => !l.startsWith("-----"));
+    const der = Buffer.from(lines.join(""), "base64");
+    const text = der.toString("latin1");
+    const m = text.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
+    if (m) domain = m[1];
+  } catch {
+    // Not a valid PEM — try raw match as fallback
+    const m = certPem.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
+    if (m) domain = m[1];
+  }
+  if (!domain) return undefined;
+
+  // Find our public IPv4 from non-circuit multiaddrs
+  const ipMatch = multiaddrs
+    .filter((a) => !a.includes("/p2p-circuit/"))
+    .map((a) => a.match(/^\/ip4\/((?:\d+\.){3}\d+)\//))
+    .find((m) => m && !m[1].startsWith("127."));
+  if (!ipMatch) return undefined;
+
+  const ip = ipMatch[1];
+  const dashed = ip.replace(/\./g, "-");
+  return `https://${dashed}.${domain}:${httpsPort}`;
 }
 
 async function loadOrCreateKey(storagePath: string): Promise<PrivateKey> {

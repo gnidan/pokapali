@@ -651,4 +651,128 @@ describe("startBlockServer", () => {
     expect(res.status).toBe(204);
     expect(res.headers["access-control-allow-methods"]).toBe("GET, POST");
   });
+
+  // --- History endpoint tests ---
+
+  it("returns history for an IPNS name", async () => {
+    const now = Date.now();
+    startBlock({
+      getHistory: async () => [
+        { cid: "cid-old", ts: now - 2000 },
+        { cid: "cid-new", ts: now },
+      ],
+    });
+    const name = "aa".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body.totalVersions).toBe(2);
+    expect(body.versions).toHaveLength(2);
+    // Newest first
+    expect(body.versions[0].cid).toBe("cid-new");
+    expect(body.versions[1].cid).toBe("cid-old");
+    // Has seq numbers
+    expect(body.versions[0].seq).toBe(2);
+    expect(body.versions[1].seq).toBe(1);
+  });
+
+  it("paginates history with limit and before", async () => {
+    const now = Date.now();
+    const records = Array.from({ length: 10 }, (_, i) => ({
+      cid: `cid-${i}`,
+      ts: now - (9 - i) * 1000,
+    }));
+    startBlock({
+      getHistory: async () => records,
+    });
+    const name = "bb".repeat(32);
+
+    // Limit to 3
+    const res1 = await fetchHttps(port, "GET", `/history/${name}?limit=3`);
+    const body1 = JSON.parse(res1.body.toString());
+    expect(body1.versions).toHaveLength(3);
+    expect(body1.totalVersions).toBe(10);
+
+    // before=5 gets entries with seq < 5
+    const res2 = await fetchHttps(
+      port,
+      "GET",
+      `/history/${name}?before=5&limit=2`,
+    );
+    const body2 = JSON.parse(res2.body.toString());
+    expect(body2.versions).toHaveLength(2);
+    expect(body2.versions[0].seq).toBeLessThan(5);
+  });
+
+  it("returns empty versions for unknown name", async () => {
+    startBlock({
+      getHistory: async () => [],
+    });
+    const name = "cc".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+    expect(body.versions).toEqual([]);
+    expect(body.totalVersions).toBe(0);
+  });
+
+  it("returns 404 when no getHistory configured", async () => {
+    startBlock(); // no getHistory
+    const name = "dd".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("includes tier and retentionPolicy when configured", async () => {
+    const now = Date.now();
+    const MS_PER_DAY = 86400000;
+    const policy = {
+      fullResolutionMs: 7 * MS_PER_DAY,
+      hourlyRetentionMs: 14 * MS_PER_DAY,
+      dailyRetentionMs: 30 * MS_PER_DAY,
+    };
+    startBlock({
+      getHistory: async () => [
+        { cid: "cid-tip", ts: now },
+        { cid: "cid-full", ts: now - 3 * MS_PER_DAY },
+        {
+          cid: "cid-hourly",
+          ts: now - 10 * MS_PER_DAY,
+        },
+        {
+          cid: "cid-daily",
+          ts: now - 20 * MS_PER_DAY,
+        },
+      ],
+      retentionPolicy: policy,
+    });
+    const name = "ee".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body.toString());
+
+    expect(body.retentionPolicy).toEqual(policy);
+    expect(body.totalVersions).toBe(4);
+
+    const v = body.versions;
+    expect(v[0].tier).toBe("tip");
+    expect(v[0].expiresAt).toBeNull();
+    expect(v[1].tier).toBe("full");
+    expect(v[1].expiresAt).toBeTypeOf("number");
+    expect(v[2].tier).toBe("hourly");
+    expect(v[3].tier).toBe("daily");
+  });
+
+  it("omits tier fields when no retentionPolicy", async () => {
+    const now = Date.now();
+    startBlock({
+      getHistory: async () => [{ cid: "cid-a", ts: now }],
+    });
+    const name = "ff".repeat(32);
+    const res = await fetchHttps(port, "GET", `/history/${name}`);
+    const body = JSON.parse(res.body.toString());
+    expect(body.retentionPolicy).toBeUndefined();
+    expect(body.versions[0].tier).toBeUndefined();
+    expect(body.versions[0].expiresAt).toBeUndefined();
+  });
 });

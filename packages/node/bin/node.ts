@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 
 import { createPinner } from "../src/index.js";
-import { startRelay, deriveHttpUrl } from "../src/relay.js";
+import {
+  startRelay,
+  deriveHttpUrl,
+  deriveHttpUrlFromCert,
+} from "../src/relay.js";
 import { startHttpServer, startBlockServer } from "../src/http.js";
 import {
   announceTopic,
   parseAnnouncement,
   base64ToUint8,
 } from "@pokapali/core/announce";
+import { CID } from "multiformats/cid";
 import { createLogger, setLogLevel } from "@pokapali/log";
 import type { LogLevel } from "@pokapali/log";
 import type { Server as HttpsServer } from "node:https";
@@ -32,11 +37,22 @@ Options:
   --announce <addr1,addr2>    Public multiaddrs to announce
   --delegated-routing <url>   Delegated routing endpoint
                               (default: delegated-ipfs.dev)
+  --retention-full <ms>       Full-resolution retention
+                              (default: 7d = 604800000)
+  --retention-hourly <ms>     Hourly retention
+                              (default: 14d = 1209600000)
+  --retention-daily <ms>      Daily retention
+                              (default: 30d = 2592000000)
   --log-level <level>         debug, info, warn, error
   --help                      Show this help message
 
 At least one of --relay or --pin is required.`);
 }
+
+const MS_PER_DAY = 24 * 60 * 60_000;
+const DEFAULT_RETENTION_FULL_MS = 7 * MS_PER_DAY;
+const DEFAULT_RETENTION_HOURLY_MS = 14 * MS_PER_DAY;
+const DEFAULT_RETENTION_DAILY_MS = 30 * MS_PER_DAY;
 
 interface ParsedArgs {
   port: number;
@@ -50,6 +66,9 @@ interface ParsedArgs {
   announceAddrs: string[];
   delegatedRoutingUrl: string | null;
   logLevel: LogLevel | null;
+  retentionFullMs: number;
+  retentionHourlyMs: number;
+  retentionDailyMs: number;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -64,6 +83,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   let announceAddrs: string[] = [];
   let delegatedRoutingUrl: string | null = null;
   let logLevel: LogLevel | null = null;
+  let retentionFullMs = DEFAULT_RETENTION_FULL_MS;
+  let retentionHourlyMs = DEFAULT_RETENTION_HOURLY_MS;
+  let retentionDailyMs = DEFAULT_RETENTION_DAILY_MS;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -112,6 +134,24 @@ function parseArgs(argv: string[]): ParsedArgs {
         process.exit(1);
       }
       logLevel = val as LogLevel;
+    } else if (arg === "--retention-full" && argv[i + 1]) {
+      retentionFullMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionFullMs)) {
+        console.error(`invalid --retention-full: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--retention-hourly" && argv[i + 1]) {
+      retentionHourlyMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionHourlyMs)) {
+        console.error(`invalid --retention-hourly: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--retention-daily" && argv[i + 1]) {
+      retentionDailyMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionDailyMs)) {
+        console.error(`invalid --retention-daily: "${argv[i]}"`);
+        process.exit(1);
+      }
     }
   }
 
@@ -136,6 +176,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     announceAddrs,
     delegatedRoutingUrl,
     logLevel,
+    retentionFullMs,
+    retentionHourlyMs,
+    retentionDailyMs,
   };
 }
 
@@ -159,6 +202,9 @@ async function main() {
     announceAddrs,
     delegatedRoutingUrl,
     logLevel,
+    retentionFullMs,
+    retentionHourlyMs,
+    retentionDailyMs,
   } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
@@ -206,6 +252,11 @@ async function main() {
         corsOrigin,
         rateLimitRpm,
         trustProxy,
+        retentionPolicy: {
+          fullResolutionMs: retentionFullMs,
+          hourlyRetentionMs: retentionHourlyMs,
+          dailyRetentionMs: retentionDailyMs,
+        },
         getBlock: async (cid) => {
           try {
             const has = await blockstore.has(cid);
@@ -218,18 +269,51 @@ async function main() {
         putBlock: async (cid, bytes) => {
           await blockstore.put(cid, bytes);
         },
+        // Lazy check — pinner may not be created yet
+        // when block server launches on existing cert.
+        getHistory:
+          pinApps.length > 0
+            ? async (ipnsName) => {
+                if (!pinner) return [];
+                const records = pinner.history.getHistory(ipnsName);
+                // Filter to blocks we still have
+                const verified = [];
+                for (const r of records) {
+                  try {
+                    const cid = CID.parse(r.cid);
+                    if (await blockstore.has(cid)) {
+                      verified.push(r);
+                    }
+                  } catch {
+                    // Skip unparseable CIDs
+                  }
+                }
+                return verified;
+              }
+            : undefined,
       });
 
-      // Derive httpUrl from WSS multiaddr
+      // Derive httpUrl: try SNI multiaddr first, then
+      // fall back to extracting hostname from cert SAN.
+      // At cert provision time, libp2p may not yet have
+      // the SNI multiaddr registered.
       const wssAddr = relayHandle!
         .multiaddrs()
-        .find((a) => a.includes("/tls/"));
-      if (wssAddr) {
-        const url = deriveHttpUrl(wssAddr, httpsPort);
-        if (url) {
-          relayHandle!.httpUrl = url;
-          log.info(`block endpoint: ${url}`);
-        }
+        .find((a) => a.includes("/tls/") && !a.includes("/p2p-circuit/"));
+      let url = wssAddr ? deriveHttpUrl(wssAddr, httpsPort) : undefined;
+
+      // Fallback: derive from cert SAN + relay IP
+      if (!url) {
+        url = deriveHttpUrlFromCert(
+          cert.cert,
+          relayHandle!.multiaddrs(),
+          httpsPort,
+        );
+      }
+
+      if (url) {
+        relayHandle!.httpUrl = url;
+        log.info(`block endpoint: ${url}`);
       }
     };
 
@@ -283,6 +367,11 @@ async function main() {
       helia: relayHandle?.helia,
       pubsub,
       peerId,
+      retentionConfig: {
+        fullResolutionMs: retentionFullMs,
+        hourlyRetentionMs: retentionHourlyMs,
+        dailyRetentionMs: retentionDailyMs,
+      },
     });
     await pinner.start();
     log.info(`pinner started for: ${pinApps.join(", ")}`);

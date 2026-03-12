@@ -119,9 +119,13 @@ describe("@pokapali/node", () => {
 
   it("tracks history for ingested snapshots", async () => {
     const secret = generateAdminSecret();
+    const now = Date.now();
 
     for (let i = 1; i <= 3; i++) {
-      const block = await makeKeysAndSnapshot(secret, { seq: i, ts: 1000 + i });
+      const block = await makeKeysAndSnapshot(secret, {
+        seq: i,
+        ts: now - (3 - i) * 1000,
+      });
       await pinner.ingest("name1", block);
     }
 
@@ -132,23 +136,31 @@ describe("@pokapali/node", () => {
   it("prunes old snapshots but keeps tip", async () => {
     const secret = generateAdminSecret();
     const now = Date.now();
-    const old = now - 25 * 60 * 60 * 1000;
+    // 15 days ago — past 14-day retention
+    const old = now - 15 * 24 * 60 * 60 * 1000;
 
-    const block1 = await makeKeysAndSnapshot(secret, { seq: 1, ts: old });
+    const block1 = await makeKeysAndSnapshot(secret, {
+      seq: 1,
+      ts: old,
+    });
     const block2 = await makeKeysAndSnapshot(secret, {
       seq: 2,
       ts: old + 1000,
     });
-    const block3 = await makeKeysAndSnapshot(secret, { seq: 3, ts: now });
+    const block3 = await makeKeysAndSnapshot(secret, {
+      seq: 3,
+      ts: now,
+    });
 
     await pinner.ingest("name1", block1);
     await pinner.ingest("name1", block2);
     await pinner.ingest("name1", block3);
 
+    // block1 already thinned during ingest (same
+    // daily bucket as block2, block2 is newer).
+    // prune() removes block2 (>14d, not tip).
     const removed = pinner.history.prune(now);
-    // block1 and block2 are >24h old,
-    // block3 is the tip and recent
-    expect(removed).toHaveLength(2);
+    expect(removed).toHaveLength(1);
 
     const remaining = pinner.history.getHistory("name1");
     expect(remaining).toHaveLength(1);
@@ -156,6 +168,37 @@ describe("@pokapali/node", () => {
     // Tip is still present
     const tip = pinner.history.getTip("name1");
     expect(tip).not.toBeNull();
+  });
+
+  it("thins old versions on ingest", async () => {
+    const secret = generateAdminSecret();
+    const now = Date.now();
+    const DAY = 24 * 60 * 60_000;
+
+    // Ingest 3 snapshots: two from 10 days ago
+    // (same hour bucket), one recent (tip)
+    const block1 = await makeKeysAndSnapshot(secret, {
+      seq: 1,
+      ts: now - 10 * DAY,
+    });
+    const block2 = await makeKeysAndSnapshot(secret, {
+      seq: 2,
+      ts: now - 10 * DAY + 1000,
+    });
+    const block3 = await makeKeysAndSnapshot(secret, {
+      seq: 3,
+      ts: now,
+    });
+
+    await pinner.ingest("name1", block1);
+    await pinner.ingest("name1", block2);
+    await pinner.ingest("name1", block3);
+
+    // Thinning during ingest should keep only the
+    // latest per hour bucket. block1 and block2 are
+    // in the same hour, so block1 is removed.
+    const history = pinner.history.getHistory("name1");
+    expect(history).toHaveLength(2); // block2 + block3
   });
 
   it("persists and restores state", async () => {

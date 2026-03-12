@@ -6,11 +6,11 @@ export interface CapabilityKeys {
   ipnsKeyBytes?: Uint8Array;
   rotationKey?: Uint8Array;
   awarenessRoomPassword?: string;
-  namespaceKeys?: Record<string, Uint8Array>;
+  channelKeys?: Record<string, Uint8Array>;
 }
 
 export interface Capability {
-  namespaces: Set<string>;
+  channels: Set<string>;
   canPushSnapshots: boolean;
   isAdmin: boolean;
 }
@@ -47,8 +47,11 @@ export async function encodeFragment(keys: CapabilityKeys): Promise<string> {
   if (keys.awarenessRoomPassword) {
     entries.push(["a", new TextEncoder().encode(keys.awarenessRoomPassword)]);
   }
-  if (keys.namespaceKeys) {
-    for (const [name, key] of Object.entries(keys.namespaceKeys)) {
+  // Wire format uses "n:" prefix for channel keys
+  // (historical — kept for backward compatibility).
+  const chKeys = keys.channelKeys;
+  if (chKeys) {
+    for (const [name, key] of Object.entries(chKeys)) {
       entries.push([`n:${name}`, key]);
     }
   }
@@ -101,7 +104,7 @@ export async function decodeFragment(
   }
 
   const keys: CapabilityKeys = {};
-  const namespaceKeys: Record<string, Uint8Array> = {};
+  const channelKeys: Record<string, Uint8Array> = {};
   let offset = 1;
 
   while (offset < buf.length) {
@@ -142,13 +145,14 @@ export async function decodeFragment(
     } else if (label === "a") {
       keys.awarenessRoomPassword = new TextDecoder().decode(value);
     } else if (label.startsWith("n:")) {
-      namespaceKeys[label.slice(2)] = value;
+      // Wire format "n:" → channelKeys
+      channelKeys[label.slice(2)] = value;
     }
     // ignore unknown labels for forward compat
   }
 
-  if (Object.keys(namespaceKeys).length > 0) {
-    keys.namespaceKeys = namespaceKeys;
+  if (Object.keys(channelKeys).length > 0) {
+    keys.channelKeys = channelKeys;
   }
 
   return keys;
@@ -156,19 +160,19 @@ export async function decodeFragment(
 
 export function inferCapability(
   keys: CapabilityKeys,
-  namespaces: string[],
+  channels: string[],
 ): Capability {
   const writable = new Set<string>();
-  if (keys.namespaceKeys) {
-    for (const ns of namespaces) {
-      if (ns in keys.namespaceKeys) {
-        writable.add(ns);
+  if (keys.channelKeys) {
+    for (const ch of channels) {
+      if (ch in keys.channelKeys) {
+        writable.add(ch);
       }
     }
   }
 
   return {
-    namespaces: writable,
+    channels: writable,
     canPushSnapshots: !!keys.ipnsKeyBytes,
     isAdmin: !!keys.rotationKey,
   };
@@ -210,7 +214,7 @@ export async function parseUrl(url: string): Promise<ParsedUrl> {
 }
 
 export interface CapabilityGrant {
-  namespaces?: string[];
+  channels?: string[];
   canPushSnapshots?: boolean;
 }
 
@@ -235,16 +239,16 @@ export function narrowCapability(
 
   // rotationKey never narrowed (admin only)
 
-  // namespace keys: only those in the grant
-  if (grant.namespaces && keys.namespaceKeys) {
+  // channel keys: only those in the grant
+  if (grant.channels && keys.channelKeys) {
     const narrowed: Record<string, Uint8Array> = {};
-    for (const ns of grant.namespaces) {
-      if (ns in keys.namespaceKeys) {
-        narrowed[ns] = keys.namespaceKeys[ns];
+    for (const ch of grant.channels) {
+      if (ch in keys.channelKeys) {
+        narrowed[ch] = keys.channelKeys[ch];
       }
     }
     if (Object.keys(narrowed).length > 0) {
-      result.namespaceKeys = narrowed;
+      result.channelKeys = narrowed;
     }
   }
 

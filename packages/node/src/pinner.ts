@@ -15,8 +15,9 @@ import type { AnnouncePubSub, AnnouncementAck } from "@pokapali/core/announce";
 import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
-import type { HistoryTracker } from "./history.js";
+import type { HistoryTracker, RetentionConfig } from "./history.js";
 import { loadState, saveState } from "./state.js";
+import { readFile, writeFile } from "node:fs/promises";
 import { createLogger } from "@pokapali/log";
 import type { Helia } from "helia";
 
@@ -33,10 +34,19 @@ const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
 
 // Two-phase guarantee model:
-// Phase 1: active re-announcing (7 days from last activity)
-const GUARANTEE_DURATION_MS = 7 * 24 * 60 * 60_000;
+// Phase 1: active re-announcing (load-sensitive, see
+//   guaranteeDuration() below)
 // Phase 2: block retention (14 days from last activity)
 const RETENTION_DURATION_MS = 14 * 24 * 60 * 60_000;
+
+// Version thinning sweep interval (6 hours)
+const THIN_SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
+
+const DEFAULT_RETENTION: RetentionConfig = {
+  fullResolutionMs: 7 * 24 * 60 * 60_000,
+  hourlyRetentionMs: 14 * 24 * 60 * 60_000,
+  dailyRetentionMs: 30 * 24 * 60 * 60_000,
+};
 
 // Continuous scheduling constants
 const BASE_INTERVAL_MS = 30_000;
@@ -63,6 +73,8 @@ export interface PinnerConfig {
   pubsub?: AnnouncePubSub;
   /** Stable peer ID for ack attribution. */
   peerId?: string;
+  /** Version retention tiers for thinning. */
+  retentionConfig?: RetentionConfig;
 }
 
 export interface PinnerMetrics {
@@ -105,7 +117,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   const rateLimiter = createRateLimiter(rateLimits);
   const history = createHistoryTracker();
   const statePath = config.storagePath + "/state.json";
+  const historyIndexPath = config.storagePath + "/history-index.json";
   const helia = config.helia;
+  const retention = config.retentionConfig ?? DEFAULT_RETENTION;
 
   // In-memory block store as fallback when no Helia
   const memBlocks = new Map<string, Uint8Array>();
@@ -226,8 +240,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     const seen = lastSeenAt.get(ipnsName) ?? 0;
     const age = now - seen;
 
-    // Past guarantee window — don't re-announce
-    if (age >= GUARANTEE_DURATION_MS) {
+    // Past retention window — don't re-announce
+    if (age >= RETENTION_DURATION_MS) {
       return MAX_INTERVAL_MS;
     }
 
@@ -240,12 +254,22 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     return Math.max(1, Math.floor((BASE_INTERVAL_MS * 0.8) / perDocEma));
   }
 
+  const DAY = 24 * 60 * 60_000;
+
+  function guaranteeDuration(): number {
+    const util = scheduledDocCount / maxActiveDocs();
+    if (util <= 0.5) return 7 * DAY;
+    if (util <= 0.7) return 5 * DAY;
+    if (util <= 0.9) return 3 * DAY;
+    return 1 * DAY;
+  }
+
   function issueGuarantee(ipnsName: string): {
     guaranteeUntil: number;
     retainUntil: number;
   } {
     const seen = lastSeenAt.get(ipnsName) ?? Date.now();
-    const calculated = seen + GUARANTEE_DURATION_MS;
+    const calculated = seen + guaranteeDuration();
     const existing = guaranteedUntil.get(ipnsName) ?? 0;
     // Monotonic: never shorten a promise
     const guarantee = Math.max(calculated, existing);
@@ -271,6 +295,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   let scheduleInterval: ReturnType<typeof setInterval> | null = null;
   let persistInterval: ReturnType<typeof setInterval> | null = null;
   let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let thinSweepInterval: ReturnType<typeof setInterval> | null = null;
   let dirty = false;
 
   // Counters for /metrics endpoint
@@ -728,17 +753,20 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
 
     for (const name of toPrune) {
-      // Delete block from blockstore
-      const tipCid = history.getTip(name);
-      if (tipCid && helia) {
-        try {
-          const cid = CID.parse(tipCid);
-          await helia.blockstore.delete(cid);
-        } catch (err) {
-          log.warn(
-            "blockstore delete failed for" + ` ${name.slice(0, 12)}...:`,
-            (err as Error).message,
-          );
+      // Delete ALL blocks for this doc, not just tip
+      const entry = history.getEntry(name);
+      if (entry && helia) {
+        for (const snap of entry.snapshots) {
+          try {
+            const cid = CID.parse(snap.cid);
+            await helia.blockstore.delete(cid);
+          } catch {
+            // Block already missing — fine
+          }
+        }
+      } else if (entry) {
+        for (const snap of entry.snapshots) {
+          memBlocks.delete(snap.cid);
         }
       }
 
@@ -758,17 +786,50 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
   }
 
+  async function loadHistoryIndex(): Promise<boolean> {
+    try {
+      const raw = await readFile(historyIndexPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object") {
+        history.loadJSON(data);
+        log.info(
+          `loaded history index:` + ` ${history.allNames().length} names`,
+        );
+        return true;
+      }
+    } catch {
+      // No index file or corrupt — will backfill
+    }
+    return false;
+  }
+
+  async function saveHistoryIndex(): Promise<void> {
+    await writeFile(
+      historyIndexPath,
+      JSON.stringify(history.toJSON()),
+      "utf-8",
+    );
+  }
+
   async function restoreState(): Promise<void> {
     const state = await loadState(statePath);
     for (const n of state.knownNames) {
       knownNames.add(n);
     }
+
+    // Try loading persisted history index first.
+    // If available, it has full chain history.
+    const hasIndex = await loadHistoryIndex();
+
     if (state.tips) {
       for (const [name, cidStr] of Object.entries(state.tips)) {
         // Use persisted lastSeenAt if available,
         // otherwise 0 so restored tips don't
         // inflate prune timestamps.
         const ts = state.lastSeenAt?.[name] ?? 0;
+        // Always add tip — if index had it, dedup
+        // handles it. If index was missing, this
+        // ensures at least the tip is tracked.
         history.add(name, CID.parse(cidStr), ts);
       }
     }
@@ -800,6 +861,146 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
   }
 
+  const BACKFILL_CONCURRENCY = 10;
+
+  /**
+   * Walk the snapshot chain from each tip CID to
+   * populate the history tracker with all blocks
+   * in the local blockstore. Runs as background
+   * task — does not block startup.
+   */
+  async function backfillHistory(): Promise<void> {
+    if (!helia) return;
+
+    // Collect names that need backfill: those where
+    // history only has 1 entry (the tip from state)
+    // and the tip block has a prev pointer.
+    const candidates: Array<{
+      name: string;
+      tipCid: string;
+    }> = [];
+    for (const name of knownNames) {
+      const entries = history.getHistory(name);
+      const tip = history.getTip(name);
+      // Only backfill if we have exactly 1 entry
+      // (the tip). If index was loaded, names with
+      // full history will have >1 entries already.
+      if (tip && entries.length <= 1) {
+        candidates.push({ name, tipCid: tip });
+      }
+    }
+
+    if (candidates.length === 0) return;
+    log.info(`backfill: walking chains for` + ` ${candidates.length} names`);
+
+    let walked = 0;
+    let blocksFound = 0;
+    let errors = 0;
+    let idx = 0;
+
+    async function worker(): Promise<void> {
+      while (true) {
+        const i = idx++;
+        if (i >= candidates.length) break;
+        const { name, tipCid } = candidates[i];
+        try {
+          const cid = CID.parse(tipCid);
+          // Read the tip block to find prev pointer
+          let current: CID | null = cid;
+          // Skip the tip itself (already in history)
+          const tipBlock = await helia!.blockstore.get(current);
+          const tipNode = decodeSnapshot(tipBlock);
+          current = tipNode.prev;
+
+          // Walk backwards through the chain
+          while (current !== null) {
+            if (stopped) return;
+            try {
+              const has = await helia!.blockstore.has(current);
+              if (!has) break; // block not in store
+              const block = await helia!.blockstore.get(current);
+              const node = decodeSnapshot(block);
+              history.add(name, current, node.ts);
+              blocksFound++;
+              current = node.prev;
+            } catch {
+              break; // corrupt or missing block
+            }
+          }
+          walked++;
+        } catch {
+          errors++;
+        }
+      }
+    }
+
+    const workers = Array.from({ length: BACKFILL_CONCURRENCY }, () =>
+      worker(),
+    );
+    await Promise.allSettled(workers);
+
+    log.info(
+      `backfill done: ${walked} chains,` +
+        ` ${blocksFound} blocks found,` +
+        ` ${errors} errors`,
+    );
+
+    // Persist updated history index
+    if (blocksFound > 0) {
+      try {
+        await saveHistoryIndex();
+        log.info("backfill: history index saved");
+      } catch (err) {
+        log.warn("backfill: index save failed:", (err as Error).message);
+      }
+    }
+  }
+
+  /**
+   * Thin version history for a single doc: keep tip,
+   * one-per-hour in hourly tier, one-per-day in daily
+   * tier, prune beyond daily retention. Deletes
+   * removed blocks from blockstore.
+   */
+  async function thinVersionHistory(ipnsName: string): Promise<number> {
+    const removed = history.thinSnapshots(ipnsName, retention);
+    if (removed.length === 0) return 0;
+
+    if (helia) {
+      for (const cid of removed) {
+        try {
+          await helia.blockstore.delete(cid);
+        } catch {
+          // Block already missing — fine
+        }
+      }
+    } else {
+      for (const cid of removed) {
+        memBlocks.delete(cid.toString());
+      }
+    }
+    markDirty();
+    return removed.length;
+  }
+
+  /**
+   * Sweep all known names, thinning version history.
+   * Runs periodically (every 6h).
+   */
+  async function thinSweep(): Promise<void> {
+    let totalRemoved = 0;
+    for (const name of knownNames) {
+      if (stopped) break;
+      totalRemoved += await thinVersionHistory(name);
+    }
+    if (totalRemoved > 0) {
+      log.info(
+        `thin sweep: removed ${totalRemoved} blocks` +
+          ` across ${knownNames.size} docs`,
+      );
+    }
+  }
+
   async function persistState(): Promise<void> {
     const start = Date.now();
     const tips: Record<string, string> = {};
@@ -813,6 +1014,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       nameToAppId: Object.fromEntries(nameToAppId),
       lastSeenAt: Object.fromEntries(lastSeenAt),
     });
+    // Persist history index alongside state
+    try {
+      await saveHistoryIndex();
+    } catch (err) {
+      log.warn("history index save failed:", (err as Error).message);
+    }
     lastPersistMs = Date.now() - start;
     stateWriteCount++;
   }
@@ -841,6 +1048,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     async start(): Promise<void> {
       await restoreState();
       await pruneIfNeeded();
+
+      // Backfill history index from blockstore
+      // chains. Fire and forget — doesn't block.
+      if (helia && knownNames.size > 0) {
+        track(backfillHistory());
+      }
 
       // Resolve all persisted names on startup
       if (helia && knownNames.size > 0) {
@@ -874,6 +1087,11 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         }
       }, PERSIST_INTERVAL_MS);
 
+      // Periodic version thinning sweep
+      thinSweepInterval = setInterval(() => {
+        track(thinSweep());
+      }, THIN_SWEEP_INTERVAL_MS);
+
       // Schedule queue processor
       if (config.pubsub) {
         scheduleInterval = setInterval(() => {
@@ -902,6 +1120,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       }
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
+      }
+      if (thinSweepInterval) {
+        clearInterval(thinSweepInterval);
       }
       await persistState();
     },
@@ -976,6 +1197,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
                   g.retainUntil,
                 );
                 lastAckedCid.set(ipnsName, cidStr);
+                // Thin old versions after new ingest
+                await thinVersionHistory(ipnsName);
                 markDirty();
                 log.debug(
                   `acked` +
@@ -1084,6 +1307,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
       snapshotsIngested++;
+
+      // Thin old versions after ingesting new one
+      await thinVersionHistory(ipnsName);
 
       // Persist immediately — HTTP ingest is rare
       // and the caller needs crash safety (no 5s
