@@ -465,7 +465,7 @@ describe("@pokapali/core", () => {
 
       const hash = await sha256.digest(new Uint8Array([1, 2, 3]));
       const fakeCid = CID.createV1(0x71, hash);
-      await expect(doc.loadVersion(fakeCid)).rejects.toThrow(/Unknown CID/);
+      await expect(doc.loadVersion(fakeCid)).rejects.toThrow(/not found/i);
       doc.destroy();
     });
   });

@@ -205,6 +205,11 @@ describe("partial history / gap handling (Item 5)", () => {
 
   it("loadVersion throws cleanly for" + " missing block", async () => {
     const { readKey, signingKey } = await makeKeys();
+
+    // fetchBlock rejects — block not available
+    // anywhere
+    vi.mocked(fetchBlock).mockRejectedValue(new Error("Not found"));
+
     const lc = createSnapshotLifecycle({
       getHelia: () => mockHelia as any,
     });
@@ -225,7 +230,7 @@ describe("partial history / gap handling (Item 5)", () => {
     );
 
     await expect(lc.loadVersion(fakeCid, readKey)).rejects.toThrow(
-      "Unknown CID",
+      "Block not found",
     );
   });
 
@@ -271,7 +276,7 @@ describe("partial history / gap handling (Item 5)", () => {
   });
 
   it(
-    "loadVersion falls back to blockstore" + " for non-local blocks",
+    "loadVersion falls back to fetchBlock" + " for non-local blocks",
     async () => {
       const { readKey, signingKey } = await makeKeys();
 
@@ -286,21 +291,17 @@ describe("partial history / gap handling (Item 5)", () => {
       );
       const cid = await blockToCid(block);
 
-      // Mock helia blockstore to return it
-      const heliaWithBlock = {
-        blockstore: {
-          put: vi.fn().mockResolvedValue(undefined),
-          get: vi.fn().mockResolvedValue(block),
-        },
-      };
+      // fetchBlock returns the block (simulates
+      // blockstore retry or HTTP fallback)
+      vi.mocked(fetchBlock).mockResolvedValue(block);
 
       const lc = createSnapshotLifecycle({
-        getHelia: () => heliaWithBlock as any,
+        getHelia: () => mockHelia as any,
       });
 
       const docs = await lc.loadVersion(cid, readKey);
       expect(docs).toHaveProperty("content");
-      expect(heliaWithBlock.blockstore.get).toHaveBeenCalledWith(cid);
+      expect(fetchBlock).toHaveBeenCalled();
     },
   );
 
