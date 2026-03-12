@@ -7,6 +7,7 @@ const pkgs = ["core", "crypto", "capability", "subdocs", "snapshot", "sync"];
 export default defineConfig(({ command }) => ({
   server: { port: 3141 },
   base: command === "build" ? "/pokapali/" : "/",
+  build: { target: "es2020" },
   plugins: [react()],
   resolve: {
     alias: Object.fromEntries(
