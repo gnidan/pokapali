@@ -1103,7 +1103,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     },
 
     async start(): Promise<void> {
-      await restoreState();
+      try {
+        await restoreState();
+      } catch (err) {
+        await store.close().catch(() => {});
+        throw err;
+      }
       await pruneIfNeeded();
 
       // Backfill history index from blockstore

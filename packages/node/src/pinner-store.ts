@@ -103,19 +103,12 @@ export async function createPinnerStore(path: string): Promise<PinnerStore> {
   }
 
   async function removeName(name: string): Promise<void> {
-    const keys = [
-      Key(PREFIX_KN + name),
-      Key(PREFIX_TIP + name),
-      Key(PREFIX_APP + name),
-      Key(PREFIX_SEEN + name),
-    ];
-    for (const k of keys) {
-      try {
-        await ds.delete(k);
-      } catch {
-        // Key might not exist — fine
-      }
-    }
+    const batch = ds.batch();
+    batch.delete(Key(PREFIX_KN + name));
+    batch.delete(Key(PREFIX_TIP + name));
+    batch.delete(Key(PREFIX_APP + name));
+    batch.delete(Key(PREFIX_SEEN + name));
+    await batch.commit();
   }
 
   async function hasName(name: string): Promise<boolean> {
