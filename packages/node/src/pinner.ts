@@ -806,17 +806,34 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     // Stale-resolve pruning: names within retention
     // window but with no GossipSub activity AND no
     // successful IPNS resolve for staleResolveMs.
+    //
+    // First-run grace: names that have NEVER been
+    // resolved (lastResolvedAt=0, new field) use a
+    // shorter 12h threshold. This handles the initial
+    // deploy where lastResolvedAt hasn't been
+    // populated yet but stale names have recent
+    // lastSeenAt from pre-fromPinner re-announces.
+    const NEVER_RESOLVED_GRACE_MS = 12 * 60 * 60_000;
     if (staleResolveMs > 0) {
       const pruneSet = new Set(toPrune);
       for (const name of knownNames) {
         if (pruneSet.has(name)) continue;
         const seen = lastSeenAt.get(name) ?? 0;
         const resolved = lastResolvedAt.get(name) ?? 0;
-        const seenStale = seen + staleResolveMs < now;
-        const resolveStale = resolved + staleResolveMs < now;
-        if (seenStale && resolveStale) {
-          toPrune.push(name);
-          staleCount++;
+        if (resolved === 0) {
+          // Never resolved — use shorter threshold
+          const seenStale = seen + NEVER_RESOLVED_GRACE_MS < now;
+          if (seenStale) {
+            toPrune.push(name);
+            staleCount++;
+          }
+        } else {
+          const seenStale = seen + staleResolveMs < now;
+          const resolveStale = resolved + staleResolveMs < now;
+          if (seenStale && resolveStale) {
+            toPrune.push(name);
+            staleCount++;
+          }
         }
       }
     }
