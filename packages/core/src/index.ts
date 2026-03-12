@@ -307,7 +307,10 @@ export type {
   DocStatus,
   SaveState,
   SnapshotEvent,
+  VersionInfo,
 } from "./create-doc.js";
+
+export type { Feed } from "./sources.js";
 
 export type { RotateResult } from "./doc-rotate.js";
 

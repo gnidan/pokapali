@@ -47,10 +47,16 @@ import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
-import { createAsyncQueue, scan, merge, reannounceFacts } from "./sources.js";
-import type { AsyncQueue } from "./sources.js";
+import {
+  createAsyncQueue,
+  scan,
+  merge,
+  reannounceFacts,
+  createFeed,
+} from "./sources.js";
+import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
 import { reduce } from "./reducers.js";
-import { initialDocState, bestGuarantee } from "./facts.js";
+import { initialDocState, bestGuarantee, EMPTY_SET } from "./facts.js";
 import type { Fact, DocState } from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
@@ -66,6 +72,14 @@ export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
 export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
 
 export type DocRole = "admin" | "writer" | "reader";
+
+export interface VersionInfo {
+  cid: CID;
+  seq: number;
+  ackedBy: ReadonlySet<string>;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
 
 export interface SnapshotEvent {
   cid: CID;
@@ -119,6 +133,11 @@ export interface Doc {
   /** CID of the current chain tip, or null if no
    *  snapshot has been created/applied yet. */
   readonly tipCid: CID | null;
+  /** Reactive feeds for useSyncExternalStore. */
+  readonly statusFeed: Feed<DocStatus>;
+  readonly saveStateFeed: Feed<SaveState>;
+  readonly tipFeed: Feed<VersionInfo | null>;
+  readonly loadingFeed: Feed<LoadingState>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -340,6 +359,7 @@ export function createDoc(params: DocParams): Doc {
     );
     if (next !== lastStatus) {
       lastStatus = next;
+      statusFeed._update(next);
       emit("status", next);
     }
   }
@@ -348,6 +368,7 @@ export function createDoc(params: DocParams): Doc {
     const next = computeSaveState(subdocManager.isDirty, isSaving);
     if (next !== lastSaveState) {
       lastSaveState = next;
+      saveStateFeed._update(next);
       emit("save", next);
     }
   }
@@ -377,6 +398,28 @@ export function createDoc(params: DocParams): Doc {
   let lastLoadingState: LoadingState = {
     status: "idle",
   };
+
+  // --- Feeds ---
+  const statusFeed: WritableFeed<DocStatus> = createFeed<DocStatus>(lastStatus);
+  const saveStateFeed: WritableFeed<SaveState> =
+    createFeed<SaveState>(lastSaveState);
+  let lastTipInfo: VersionInfo | null = null;
+  const tipFeed: WritableFeed<VersionInfo | null> =
+    createFeed<VersionInfo | null>(null, (a, b) => {
+      if (a === b) return true;
+      if (!a || !b) return false;
+      return (
+        a.cid.equals(b.cid) &&
+        a.seq === b.seq &&
+        a.ackedBy === b.ackedBy &&
+        a.guaranteeUntil === b.guaranteeUntil &&
+        a.retainUntil === b.retainUntil
+      );
+    });
+  const loadingFeed: WritableFeed<LoadingState> = createFeed<LoadingState>(
+    lastLoadingState,
+    (a, b) => !loadingStateChanged(a, b),
+  );
 
   // --- Event bridges ---
   // Status and saveState are always computed
@@ -651,8 +694,42 @@ export function createDoc(params: DocParams): Doc {
     ) {
       for await (const item of stream) {
         interpreterState = item.next;
+
+        // Update tip feed (cached to avoid
+        // allocations when nothing changed)
+        const tip = item.next.chain.tip;
+        if (tip) {
+          const entry = item.next.chain.entries.get(tip.toString());
+          const seq = entry?.seq ?? 0;
+          const ackedBy = entry?.ackedBy ?? EMPTY_SET;
+          const g = bestGuarantee(item.next.chain);
+          if (
+            !lastTipInfo ||
+            !lastTipInfo.cid.equals(tip) ||
+            lastTipInfo.seq !== seq ||
+            lastTipInfo.ackedBy !== ackedBy ||
+            lastTipInfo.guaranteeUntil !== g.guaranteeUntil ||
+            lastTipInfo.retainUntil !== g.retainUntil
+          ) {
+            lastTipInfo = {
+              cid: tip,
+              seq,
+              ackedBy,
+              guaranteeUntil: g.guaranteeUntil,
+              retainUntil: g.retainUntil,
+            };
+          }
+          tipFeed._update(lastTipInfo);
+        } else {
+          if (lastTipInfo !== null) {
+            lastTipInfo = null;
+          }
+          tipFeed._update(null);
+        }
+
         // Derived loading state
         const newLoading = deriveLoadingState(item.next);
+        loadingFeed._update(newLoading);
         if (loadingStateChanged(lastLoadingState, newLoading)) {
           lastLoadingState = newLoading;
           emit("loading", newLoading);
@@ -1058,14 +1135,7 @@ export function createDoc(params: DocParams): Doc {
     },
 
     get latestAnnouncedSeq(): number {
-      if (!interpreterState) return 0;
-      let max = 0;
-      for (const e of interpreterState.chain.entries.values()) {
-        if (e.seq != null && e.seq > max) {
-          max = e.seq;
-        }
-      }
-      return max;
+      return interpreterState?.chain.maxSeq ?? 0;
     },
 
     get loadingState(): LoadingState {
@@ -1084,12 +1154,12 @@ export function createDoc(params: DocParams): Doc {
 
     get ackedBy(): ReadonlySet<string> {
       if (!interpreterState?.chain.tip) {
-        return new Set();
+        return EMPTY_SET;
       }
       const entry = interpreterState.chain.entries.get(
         interpreterState.chain.tip.toString(),
       );
-      return entry?.ackedBy ?? new Set();
+      return entry?.ackedBy ?? EMPTY_SET;
     },
 
     get guaranteeUntil(): number | null {
@@ -1107,6 +1177,11 @@ export function createDoc(params: DocParams): Doc {
     get tipCid(): CID | null {
       return snapshotLC.prev;
     },
+
+    statusFeed,
+    saveStateFeed,
+    tipFeed,
+    loadingFeed,
 
     ready(): Promise<void> {
       return readyPromise;
@@ -1254,7 +1329,7 @@ export function createDoc(params: DocParams): Doc {
         ? bestGuarantee(interpreterState.chain)
         : { guaranteeUntil: 0, retainUntil: 0 };
       return buildDiagnostics({
-        ackedBy: tipEntry?.ackedBy ?? new Set<string>(),
+        ackedBy: tipEntry?.ackedBy ?? EMPTY_SET,
         latestAnnouncedSeq: this.latestAnnouncedSeq,
         loadingState: this.loadingState,
         hasAppliedSnapshot: this.hasAppliedSnapshot,

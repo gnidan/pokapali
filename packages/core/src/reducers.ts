@@ -21,6 +21,7 @@ import type {
   CidSource,
   IpnsResolutionStatus,
 } from "./facts.js";
+import { EMPTY_SET, EMPTY_GUARANTEES } from "./facts.js";
 
 // ------------------------------------------------
 // Constants
@@ -112,8 +113,12 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
         (fact.seq != null && existing.seq == null) ||
         (fact.snapshotTs != null && existing.ts == null);
       if (!changed) return state;
+      const mergedSeq = existing.seq ?? fact.seq;
+      const mergeMaxSeq =
+        mergedSeq != null ? Math.max(state.maxSeq, mergedSeq) : state.maxSeq;
       return withNewestFetched({
         ...state,
+        maxSeq: mergeMaxSeq,
         entries: mapSet(state.entries, key, {
           ...existing,
           discoveredVia: existing.discoveredVia.has(fact.source)
@@ -127,8 +132,11 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
     }
 
     // New CID
+    const newMaxSeq =
+      fact.seq != null ? Math.max(state.maxSeq, fact.seq) : state.maxSeq;
     return withNewestFetched({
       ...state,
+      maxSeq: newMaxSeq,
       entries: mapSet(state.entries, key, {
         cid: fact.cid,
         seq: fact.seq,
@@ -136,8 +144,8 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
         discoveredVia: new Set([fact.source]),
         blockStatus: fact.block ? "fetched" : "unknown",
         fetchAttempt: 0,
-        guarantees: new Map(),
-        ackedBy: new Set(),
+        guarantees: EMPTY_GUARANTEES,
+        ackedBy: EMPTY_SET,
       }),
     });
   }
@@ -151,12 +159,20 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
   }
 
   if (fact.type === "block-fetched") {
-    let next = updateEntry(state, fact.cid, (e) => ({
-      ...e,
-      blockStatus: "fetched" as const,
-      prev: fact.prev,
-      seq: e.seq ?? fact.seq,
-    }));
+    const existing = state.entries.get(fact.cid.toString());
+    const resolvedSeq = existing?.seq ?? fact.seq;
+    const fetchMaxSeq =
+      resolvedSeq != null ? Math.max(state.maxSeq, resolvedSeq) : state.maxSeq;
+    let next = updateEntry(
+      { ...state, maxSeq: fetchMaxSeq },
+      fact.cid,
+      (e) => ({
+        ...e,
+        blockStatus: "fetched" as const,
+        prev: fact.prev,
+        seq: e.seq ?? fact.seq,
+      }),
+    );
     // Chain walk: discover prev CID
     if (fact.prev) {
       const prevKey = fact.prev.toString();
@@ -168,8 +184,8 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
             discoveredVia: new Set<CidSource>(["chain-walk"]),
             blockStatus: "unknown",
             fetchAttempt: 0,
-            guarantees: new Map(),
-            ackedBy: new Set(),
+            guarantees: EMPTY_GUARANTEES,
+            ackedBy: EMPTY_SET,
           }),
         };
       }
@@ -187,6 +203,9 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
   }
 
   if (fact.type === "tip-advanced") {
+    const tipEntry = state.entries.get(fact.cid.toString());
+    const tipSeq = tipEntry?.seq ?? fact.seq;
+    const tipMaxSeq = Math.max(state.maxSeq, tipSeq);
     return withNewestFetched({
       ...updateEntry(state, fact.cid, (e) => ({
         ...e,
@@ -195,6 +214,7 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
       })),
       tip: fact.cid,
       applying: null,
+      maxSeq: tipMaxSeq,
     });
   }
 
