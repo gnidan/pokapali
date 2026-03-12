@@ -10,7 +10,7 @@ import {
 } from "@pokapali/snapshot";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
-import { fetchBlock } from "./fetch-block.js";
+import { fetchBlock, ensureUint8Array } from "./fetch-block.js";
 import type { BlockGetter } from "./fetch-block.js";
 
 const log = createLogger("snapshot-lifecycle");
@@ -147,9 +147,10 @@ export function createSnapshotLifecycle(
           const ctrl = new AbortController();
           const timer = setTimeout(() => ctrl.abort(), 5_000);
           try {
-            const block = await helia.blockstore.get(cid, {
+            const raw = await helia.blockstore.get(cid, {
               signal: ctrl.signal,
             });
+            const block = ensureUint8Array(raw);
             blocks.set(cid.toString(), block);
             return block;
           } finally {
@@ -215,7 +216,7 @@ export function createSnapshotLifecycle(
       if (!block) {
         try {
           const helia = options.getHelia();
-          block = await helia.blockstore.get(cid);
+          block = ensureUint8Array(await helia.blockstore.get(cid));
         } catch {
           throw new Error("Unknown CID: " + cid.toString());
         }
