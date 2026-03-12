@@ -831,6 +831,11 @@ export function createDoc(params: DocParams): Doc {
             httpUrls: getHttpUrls(),
           });
           snapshotLC.putBlock(cid.toString(), block);
+          // Persist to IDB so history survives
+          // page reloads.
+          if (helia.blockstore.put) {
+            Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+          }
           return block;
         } catch {
           return null;
