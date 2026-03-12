@@ -95,6 +95,14 @@ vi.mock("./persistence.js", () => ({
   })),
 }));
 
+vi.mock("./identity.js", () => ({
+  loadIdentity: vi.fn(async () => ({
+    publicKey: new Uint8Array(32),
+    privateKey: new Uint8Array(32),
+  })),
+  signParticipant: vi.fn(async () => "mocksig"),
+}));
+
 vi.mock("@pokapali/snapshot", async () => {
   const actual =
     await vi.importActual<typeof import("@pokapali/snapshot")>(

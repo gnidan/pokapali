@@ -34,6 +34,7 @@ import { createDoc, populateMeta } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
 import { createDocPersistence } from "./persistence.js";
 import type { DocPersistence } from "./persistence.js";
+import { loadIdentity } from "./identity.js";
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -73,8 +74,20 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   const bootstrapPeers = options.bootstrapPeers;
   const persistenceEnabled = options.persistence !== false;
 
+  // Identity keypair — loaded once, cached for app
+  // lifetime. Always present (identity is always-on).
+  let identityPromise: Promise<Ed25519KeyPair> | null = null;
+  function getIdentity(): Promise<Ed25519KeyPair> {
+    if (!identityPromise) {
+      identityPromise = loadIdentity(appId);
+    }
+    return identityPromise;
+  }
+
   return {
     async create(): Promise<Doc> {
+      const identity = await getIdentity();
+
       // Layer B: persistent blockstore for Helia.
       // Only create when Helia doesn't exist yet —
       // acquireHelia ignores blockstore on ref-count
@@ -200,6 +213,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           pubsub,
           roomDiscovery,
           persistence: docPersistence,
+          identity,
         });
       } catch (err) {
         await releaseHelia();
@@ -223,6 +237,8 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         }
         return this.open(fwd.newUrl);
       }
+
+      const identity = await getIdentity();
 
       // Layer B: persistent blockstore for Helia.
       // Skip when Helia already exists (see create()).
@@ -338,6 +354,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           performInitialResolve: !!keys.readKey,
           persistence: docPersistence,
           hasCachedState: persistenceEnabled,
+          identity,
         });
       } catch (err) {
         await releaseHelia();
@@ -377,6 +394,7 @@ export type {
   SaveState,
   SnapshotEvent,
   VersionInfo,
+  ParticipantInfo,
 } from "./create-doc.js";
 
 export type { Feed } from "./sources.js";

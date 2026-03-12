@@ -4,6 +4,27 @@ import { createLogger } from "@pokapali/log";
 
 const log = createLogger("fetch-block");
 
+/**
+ * Coerce a value to a plain Uint8Array. Handles
+ * Buffer, ArrayBuffer, and typed-array subclasses
+ * that fail `instanceof Uint8Array` in dag-cbor.
+ */
+export function ensureUint8Array(
+  data: Uint8Array | ArrayBuffer | ArrayBufferView,
+): Uint8Array {
+  if (data instanceof Uint8Array && data.constructor === Uint8Array) {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  // Fallback: copy
+  return new Uint8Array(data as Uint8Array);
+}
+
 const DEFAULT_RETRIES = 6;
 const DEFAULT_BASE_MS = 2_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -45,10 +66,14 @@ export async function fetchBlock(
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
-        const block: Uint8Array = await helia.blockstore.get(cid, {
+        const raw = await helia.blockstore.get(cid, {
           signal: ctrl.signal,
         });
-        return block;
+        // IDBBlockstore may return a Buffer or
+        // ArrayBuffer-backed view that fails
+        // dag-cbor's instanceof Uint8Array check.
+        // Coerce to a plain Uint8Array.
+        return ensureUint8Array(raw);
       } finally {
         clearTimeout(timer);
       }

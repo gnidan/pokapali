@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("./fetch-block.js", () => ({
-  fetchBlock: vi.fn(),
-}));
+vi.mock("./fetch-block.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./fetch-block.js")>();
+  return {
+    ...actual,
+    fetchBlock: vi.fn(),
+  };
+});
 
 import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
 import { fetchBlock } from "./fetch-block.js";

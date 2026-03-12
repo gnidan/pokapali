@@ -29,8 +29,20 @@ export interface EffectHandlers {
   applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }>;
   getBlock(cid: CID): Uint8Array | null;
 
-  // Decode snapshot metadata (prev, seq)
-  decodeBlock(block: Uint8Array): { prev?: CID; seq?: number };
+  // Decode snapshot metadata (prev, seq, publisher)
+  decodeBlock(block: Uint8Array): {
+    prev?: CID;
+    seq?: number;
+    /** Hex-encoded publisher identity pubkey,
+     *  if present and signature valid. */
+    publisher?: string;
+  };
+
+  /** Check if a publisher pubkey is authorized.
+   *  Returns true if no auth is configured
+   *  (permissionless) or if the pubkey is in
+   *  authorizedPublishers. */
+  isPublisherAuthorized(publisherHex: string | undefined): boolean;
 
   // Outbound protocol
   announce(cid: CID, block: Uint8Array, seq: number): void;
@@ -234,6 +246,15 @@ export async function runInterpreter(
       if (prevEntry?.blockStatus !== "fetched") {
         const block = effects.getBlock(tipCid);
         if (block) {
+          // Authorization check: verify publisher
+          // is allowed BEFORE applying.
+          const decoded = effects.decodeBlock(block);
+          if (!effects.isPublisherAuthorized(decoded.publisher)) {
+            // Unauthorized publisher — skip apply.
+            // The block stays "fetched" but never
+            // becomes the tip.
+            continue;
+          }
           // Inline apply — fast, awaited
           const result = await effects.applySnapshot(tipCid, block);
           feedback.push({

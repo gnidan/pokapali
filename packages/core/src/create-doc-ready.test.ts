@@ -79,6 +79,10 @@ vi.mock("./persistence.js", () => ({
   createDocPersistence: vi.fn(),
 }));
 
+vi.mock("./identity.js", () => ({
+  signParticipant: vi.fn(async () => "mocksig"),
+}));
+
 // Mock interpreter to crash immediately
 vi.mock("./interpreter.js", () => ({
   runInterpreter: vi.fn(async () => {
