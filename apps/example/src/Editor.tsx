@@ -68,6 +68,19 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     doc.publish().catch(() => {});
   }, [doc, canSave]);
 
+  // Ctrl+S / Cmd+S to publish
+  useEffect(() => {
+    if (!canSave) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        doSave();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canSave, doSave]);
+
   // Auto-save: beforeunload, visibilitychange,
   // debounced snapshot-recommended
   useEffect(() => {
