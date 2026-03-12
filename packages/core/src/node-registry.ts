@@ -173,9 +173,7 @@ export function createNodeRegistry(
   function getConnectedPeerIds(): Set<string> {
     try {
       const helia = getHelia();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lp2p = (helia as any).libp2p;
-      const conns = lp2p.getConnections();
+      const conns = helia.libp2p.getConnections();
       const pids = new Set<string>();
       for (const conn of conns) {
         pids.add(conn.remotePeer.toString());
