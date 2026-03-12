@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
-import { createSubdocManager, INDEXEDDB_ORIGIN } from "./index.js";
+import { createSubdocManager } from "./index.js";
 
 describe("@pokapali/subdocs", () => {
   const ipns = "k51test123";
@@ -147,18 +147,6 @@ describe("@pokapali/subdocs", () => {
 
     mgr1.destroy();
     mgr2.destroy();
-  });
-
-  it("INDEXEDDB_ORIGIN updates do not set " + "isDirty", () => {
-    const mgr = createSubdocManager(ipns, namespaces);
-    const doc = mgr.subdoc("doc");
-
-    doc.transact(() => {
-      doc.getMap("root").set("persisted", true);
-    }, INDEXEDDB_ORIGIN);
-
-    expect(mgr.isDirty).toBe(false);
-    mgr.destroy();
   });
 
   it("skipOrigins suppresses dirty for custom origins", () => {

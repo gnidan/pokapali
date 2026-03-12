@@ -12,7 +12,9 @@ export interface HeliaOptions {
    *  browser persistence). Defaults to in-memory.
    *  Typed loosely to avoid interface-blockstore
    *  version conflicts between helia and
-   *  blockstore-idb. */
+   *  blockstore-idb.
+   *  TODO(#20): revisit when helia and blockstore-idb
+   *  align on interface-blockstore version */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   blockstore?: any;
 }
@@ -151,6 +153,16 @@ export function getHelia(): Helia {
     throw new Error("No Helia instance exists");
   }
   return sharedHelia;
+}
+
+/**
+ * True when a shared Helia instance already exists.
+ * Callers should skip creating a new blockstore when
+ * this returns true — acquireHelia will ignore the
+ * blockstore option and just increment the ref count.
+ */
+export function isHeliaLive(): boolean {
+  return sharedHelia !== null;
 }
 
 /**

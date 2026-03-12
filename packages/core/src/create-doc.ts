@@ -331,10 +331,21 @@ export function createDoc(params: DocParams): Doc {
   // state — the user can start editing immediately
   // while IPNS resolution + chain fetch continues
   // in the background.
+  //
+  // Note: hasCachedState is true whenever persistence
+  // is enabled, even on first open (empty DB).
+  // y-indexeddb can't distinguish "synced with data"
+  // from "synced with nothing," so first-open shows
+  // a brief blank editor until IPNS resolves. This
+  // is acceptable — the alternative (blocking on
+  // IPNS) is much slower on repeat visits.
   if (params.hasCachedState && params.persistence) {
-    params.persistence.whenSynced.then(() => {
-      markReady();
-    });
+    params.persistence.whenSynced.then(
+      () => markReady(),
+      // IDB failure is non-fatal — degrade to
+      // in-memory, IPNS path will markReady later.
+      () => markReady(),
+    );
   }
 
   function getHttpUrls(): string[] {
@@ -905,6 +916,10 @@ export function createDoc(params: DocParams): Doc {
       (err) => {
         if (!signal.aborted) {
           log.warn("interpreter error:", err);
+          // Ensure ready() resolves even if the
+          // interpreter crashes — otherwise the doc
+          // hangs permanently with no recovery path.
+          markReady();
         }
       },
     );
