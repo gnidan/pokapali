@@ -49,6 +49,80 @@ export interface BlockGetter {
   };
 }
 
+/**
+ * Helper: single offline blockstore.get attempt.
+ * Returns the block or undefined on miss.
+ */
+async function tryOffline(
+  helia: BlockGetter,
+  cid: CID,
+  timeoutMs: number,
+): Promise<Uint8Array | undefined> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const raw = await helia.blockstore.get(cid, {
+        signal: ctrl.signal,
+        offline: true,
+      });
+      const block = ensureUint8Array(raw);
+      if (block.length === 0) return undefined;
+      return block;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Helper: try HTTP block endpoints. Returns the
+ * block or undefined if all fail / 404.
+ */
+async function tryHttp(
+  cid: CID,
+  urls: string[],
+): Promise<Uint8Array | undefined> {
+  const cidStr = cid.toString();
+  for (const baseUrl of urls) {
+    try {
+      const resp = await fetch(`${baseUrl}/block/${cidStr}`, {
+        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+      });
+      if (!resp.ok) continue;
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      if (bytes.length === 0) {
+        log.debug("empty block from HTTP", baseUrl);
+        continue;
+      }
+      const hash = await sha256.digest(bytes);
+      const verified = CID.createV1(cid.code, hash);
+      if (!verified.equals(cid)) {
+        log.warn("HTTP block CID mismatch from", baseUrl);
+        continue;
+      }
+      return bytes;
+    } catch (err) {
+      log.debug("HTTP fallback failed for", baseUrl, err);
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Fetch a block with layered fallback:
+ *
+ *  1. Offline IDB check — instant if cached
+ *  2. HTTP pinner endpoints — fast network fetch
+ *  3. Helia bitswap (no offline flag) — slow but
+ *     reliable last resort with retry + backoff
+ *
+ * Phase 3 is the only phase that retries. Phases 1
+ * and 2 are single-shot fast checks.
+ */
 export async function fetchBlock(
   helia: BlockGetter,
   cid: CID,
@@ -57,14 +131,25 @@ export async function fetchBlock(
   const retries = options?.retries ?? DEFAULT_RETRIES;
   const baseMs = options?.baseMs ?? DEFAULT_BASE_MS;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const cidShort = cid.toString().slice(0, 16) + "...";
 
-  let blockstoreErr: unknown;
+  // Phase 1: offline IDB — instant local check.
+  // Skips Helia's bitswap/gateway network layer.
+  const cached = await tryOffline(helia, cid, timeoutMs);
+  if (cached) return cached;
 
-  // Phase 1: blockstore (IDB) — offline only.
-  // Helia's NetworkedStorage triggers bitswap/gateway
-  // fetches on miss; offline: true skips that so we
-  // fail fast and fall through to our own HTTP
-  // fallback which is faster and more reliable.
+  // Phase 2: HTTP pinner endpoints — fast network.
+  const urls = options?.httpUrls ?? [];
+  if (urls.length > 0) {
+    const httpBlock = await tryHttp(cid, urls);
+    if (httpBlock) return httpBlock;
+  }
+
+  // Phase 3: Helia bitswap — slow last resort.
+  // Without offline flag, Helia's NetworkedStorage
+  // triggers bitswap + trustless gateway retrieval.
+  // Retry with exponential backoff.
+  let lastErr: unknown;
   for (let i = 0; i <= retries; i++) {
     try {
       const ctrl = new AbortController();
@@ -72,12 +157,7 @@ export async function fetchBlock(
       try {
         const raw = await helia.blockstore.get(cid, {
           signal: ctrl.signal,
-          offline: true,
         });
-        // IDBBlockstore may return a Buffer or
-        // ArrayBuffer-backed view that fails
-        // dag-cbor's instanceof Uint8Array check.
-        // Coerce to a plain Uint8Array.
         const block = ensureUint8Array(raw);
         if (block.length === 0) {
           throw new Error("empty block from blockstore");
@@ -87,49 +167,17 @@ export async function fetchBlock(
         clearTimeout(timer);
       }
     } catch (err) {
-      blockstoreErr = err;
+      lastErr = err;
       if (i < retries) {
         const delay = baseMs * 2 ** i;
         log.debug(
-          `retry ${i + 1}/${retries}` + ` in ${delay}ms for`,
-          cid.toString().slice(0, 16) + "...",
+          `bitswap retry ${i + 1}/${retries}` + ` in ${delay}ms for`,
+          cidShort,
         );
         await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
 
-  // Phase 2: HTTP fallback
-  const urls = options?.httpUrls ?? [];
-  if (urls.length > 0) {
-    const cidStr = cid.toString();
-    for (const baseUrl of urls) {
-      try {
-        const resp = await fetch(`${baseUrl}/block/${cidStr}`, {
-          signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-        });
-        if (!resp.ok) continue;
-        const bytes = new Uint8Array(await resp.arrayBuffer());
-        if (bytes.length === 0) {
-          log.debug("empty block from HTTP", baseUrl);
-          continue;
-        }
-
-        // Verify content integrity
-        const hash = await sha256.digest(bytes);
-        const verified = CID.createV1(cid.code, hash);
-        if (!verified.equals(cid)) {
-          log.warn("HTTP block CID mismatch from", baseUrl);
-          continue;
-        }
-
-        return bytes;
-      } catch (err) {
-        log.debug("HTTP fallback failed for", baseUrl, err);
-        continue;
-      }
-    }
-  }
-
-  throw blockstoreErr;
+  throw lastErr;
 }
