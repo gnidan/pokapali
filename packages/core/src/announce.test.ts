@@ -118,6 +118,49 @@ describe("parseAnnouncement", () => {
     });
     expect(result?.ack?.peerId).toBe("peer123");
   });
+
+  it("rejects messages exceeding MAX_MESSAGE_BYTES", () => {
+    // 2MB+ message should be rejected before parsing
+    const huge = new Uint8Array(2 * 1024 * 1024 + 1);
+    const json = JSON.stringify({
+      ipnsName: "abc",
+      cid: "bafyfoo",
+    });
+    const encoded = new TextEncoder().encode(json);
+    // Fill beginning with valid JSON, rest with padding
+    huge.set(encoded, 0);
+    expect(parseAnnouncement(huge)).toBeNull();
+  });
+
+  it("rejects announcements with oversized inline block", () => {
+    // Block field decodes to > 1MB
+    const bigBlock = new Uint8Array(1024 * 1024 + 1);
+    // base64 encode it
+    let binary = "";
+    for (let i = 0; i < bigBlock.length; i++) {
+      binary += String.fromCharCode(bigBlock[i]);
+    }
+    const b64 = btoa(binary);
+    const data = new TextEncoder().encode(
+      JSON.stringify({
+        ipnsName: "abc",
+        cid: "bafyfoo",
+        block: b64,
+      }),
+    );
+    const result = parseAnnouncement(data);
+    // Block stripped but announcement kept for CID
+    expect(result).not.toBeNull();
+    expect(result!.block).toBeUndefined();
+    expect(result!.cid).toBe("bafyfoo");
+  });
+});
+
+describe("parseGuaranteeResponse (size limits)", () => {
+  it("rejects oversized guarantee responses", () => {
+    const huge = new Uint8Array(2 * 1024 * 1024 + 1);
+    expect(parseGuaranteeResponse(huge)).toBeNull();
+  });
 });
 
 describe("publishGuaranteeQuery", () => {
