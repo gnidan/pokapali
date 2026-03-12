@@ -195,6 +195,11 @@ export function createSnapshotLifecycle(
             const verified = CIDClass.createV1(cid.code, hash);
             if (!verified.equals(cid)) continue;
             blocks.set(cid.toString(), bytes);
+            // Persist to blockstore for next reload
+            const h = options.getHelia();
+            if (h.blockstore.put) {
+              Promise.resolve(h.blockstore.put(cid, bytes)).catch(() => {});
+            }
             return bytes;
           } catch {
             continue;
@@ -238,8 +243,8 @@ export function createSnapshotLifecycle(
       let block: Uint8Array | undefined =
         cached && cached.length > 0 ? cached : undefined;
       if (!block) {
+        const helia = options.getHelia();
         try {
-          const helia = options.getHelia();
           block = await fetchBlock(helia, cid, {
             httpUrls: options.httpUrls?.(),
             retries: 2,
@@ -249,6 +254,10 @@ export function createSnapshotLifecycle(
           throw new Error("Block not found: " + cid.toString());
         }
         blocks.set(cid.toString(), block);
+        // Persist to blockstore for next reload
+        if (helia.blockstore.put) {
+          Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+        }
       }
       const node = decodeSnapshot(block);
       const plaintext = await decryptSnapshot(node, readKey);
