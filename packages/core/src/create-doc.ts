@@ -696,40 +696,11 @@ export function createDoc(params: DocParams): Doc {
       const ann = parseAnnouncement(detail.data);
       if (!ann || ann.ipnsName !== ipnsName) return;
 
-      // Ack handling
-      if (ann.ack) {
-        try {
-          fq.push({
-            type: "ack-received",
-            ts: Date.now(),
-            cid: CID.parse(ann.cid),
-            peerId: ann.ack.peerId,
-          });
-        } catch {
-          // CID parse failure — skip
-        }
-        if (
-          ann.ack.guaranteeUntil !== undefined ||
-          ann.ack.retainUntil !== undefined
-        ) {
-          try {
-            fq.push({
-              type: "guarantee-received",
-              ts: Date.now(),
-              peerId: ann.ack.peerId,
-              cid: CID.parse(ann.cid),
-              guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
-              retainUntil: ann.ack.retainUntil ?? 0,
-            });
-          } catch {
-            // CID parse failure — skip
-          }
-        }
-      }
-
-      // CID discovery from announcement
+      // CID discovery FIRST — the chain entry must
+      // exist before ack/guarantee facts reference it.
+      let cid: CID | undefined;
       try {
-        const cid = CID.parse(ann.cid);
+        cid = CID.parse(ann.cid);
         let block: Uint8Array | undefined;
         if (ann.block) {
           try {
@@ -752,6 +723,30 @@ export function createDoc(params: DocParams): Doc {
         });
       } catch {
         // CID parse failure — skip
+      }
+
+      // Ack/guarantee facts AFTER discovery so the
+      // reducer's updateEntry finds the chain entry.
+      if (ann.ack && cid) {
+        fq.push({
+          type: "ack-received",
+          ts: Date.now(),
+          cid,
+          peerId: ann.ack.peerId,
+        });
+        if (
+          ann.ack.guaranteeUntil !== undefined ||
+          ann.ack.retainUntil !== undefined
+        ) {
+          fq.push({
+            type: "guarantee-received",
+            ts: Date.now(),
+            peerId: ann.ack.peerId,
+            cid,
+            guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
+            retainUntil: ann.ack.retainUntil ?? 0,
+          });
+        }
       }
     };
 
