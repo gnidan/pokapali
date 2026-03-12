@@ -1,6 +1,6 @@
 import type { Awareness } from "y-protocols/awareness";
 import type { RoomDiscovery } from "./peer-discovery.js";
-import type { LoadingState } from "./snapshot-watcher.js";
+import type { LoadingState } from "./facts.js";
 import type { TopologyEdge } from "./topology-graph.js";
 import { getHelia } from "./helia.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -38,7 +38,7 @@ export interface Diagnostics {
   maxPeerClockSum: number;
   latestAnnouncedSeq: number;
   ipnsSeq: number | null;
-  loadingState: import("./snapshot-watcher.js").LoadingState;
+  loadingState: LoadingState;
   hasAppliedSnapshot: boolean;
   /** Peer IDs of pinners that acked the latest CID. */
   ackedBy: string[];

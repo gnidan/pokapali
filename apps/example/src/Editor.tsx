@@ -24,7 +24,7 @@ import {
 import { capitalize } from "./utils";
 
 export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
-  const [status, setStatus] = useState<DocStatus>(doc.status);
+  const [status, setStatus] = useState<DocStatus>(doc.status.getSnapshot());
   const [showShare, setShowShare] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [previewVersion, setPreviewVersion] = useState<{
@@ -32,7 +32,9 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     ydoc: YDoc;
   } | null>(null);
   const [showEncryption, setShowEncryption] = useState(false);
-  const [saveState, setSaveState] = useState<SaveState>(doc.saveState);
+  const [saveState, setSaveState] = useState<SaveState>(
+    doc.saveState.getSnapshot(),
+  );
   const [ackCount, setAckCount] = useState(doc.ackedBy.size);
   const [lastPublished, setLastPublished] = useState(Date.now());
   const [updateFlash, setUpdateFlash] = useState(false);
@@ -76,7 +78,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     // Re-read live status on awareness activity so the
     // indicator reacts even if a y-webrtc status event
     // was missed (e.g. silent reconnect).
-    const refreshStatus = () => setStatus(doc.status);
+    const refreshStatus = () => setStatus(doc.status.getSnapshot());
     const onSaveState = (s: SaveState) => setSaveState(s);
     const onSnapshotApplied = () => {
       setLastPublished(Date.now());
@@ -101,7 +103,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     // Catch any transition between the initial
     // useState and this subscription.
     refreshStatus();
-    setSaveState(doc.saveState);
+    setSaveState(doc.saveState.getSnapshot());
 
     return () => {
       doc.off("status", onStatus);

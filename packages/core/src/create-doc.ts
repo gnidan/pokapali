@@ -32,7 +32,6 @@ import { uploadBlock } from "./block-upload.js";
 import { fetchBlock as fetchBlockFromNetwork } from "./fetch-block.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
-import type { LoadingState, GossipActivity } from "./snapshot-watcher.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -57,7 +56,7 @@ import {
 import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
 import { reduce } from "./reducers.js";
 import { initialDocState, bestGuarantee, EMPTY_SET } from "./facts.js";
-import type { Fact, DocState } from "./facts.js";
+import type { Fact, DocState, LoadingState, GossipActivity } from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
 
@@ -107,9 +106,10 @@ export interface Doc {
   /** Role derived from capability. */
   readonly role: DocRole;
   invite(grant: CapabilityGrant): Promise<string>;
-  readonly status: DocStatus;
-  /** Persistence state (dirty → saving → saved). */
-  readonly saveState: SaveState;
+  /** Reactive status feed (useSyncExternalStore). */
+  readonly status: Feed<DocStatus>;
+  /** Reactive save-state feed (useSyncExternalStore). */
+  readonly saveState: Feed<SaveState>;
   /** Peer IDs of relays discovered for this app. */
   readonly relays: ReadonlySet<string>;
   /** Sum of all Y.Doc state vector clocks. */
@@ -133,11 +133,10 @@ export interface Doc {
   /** CID of the current chain tip, or null if no
    *  snapshot has been created/applied yet. */
   readonly tipCid: CID | null;
-  /** Reactive feeds for useSyncExternalStore. */
-  readonly statusFeed: Feed<DocStatus>;
-  readonly saveStateFeed: Feed<SaveState>;
-  readonly tipFeed: Feed<VersionInfo | null>;
-  readonly loadingFeed: Feed<LoadingState>;
+  /** Reactive tip feed (useSyncExternalStore). */
+  readonly tip: Feed<VersionInfo | null>;
+  /** Reactive loading feed (useSyncExternalStore). */
+  readonly loading: Feed<LoadingState>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -395,10 +394,6 @@ export function createDoc(params: DocParams): Doc {
     string,
     { guaranteeUntil: number; retainUntil: number }
   >();
-  let lastLoadingState: LoadingState = {
-    status: "idle",
-  };
-
   // --- Feeds ---
   const statusFeed: WritableFeed<DocStatus> = createFeed<DocStatus>(lastStatus);
   const saveStateFeed: WritableFeed<SaveState> =
@@ -417,7 +412,7 @@ export function createDoc(params: DocParams): Doc {
       );
     });
   const loadingFeed: WritableFeed<LoadingState> = createFeed<LoadingState>(
-    lastLoadingState,
+    { status: "idle" },
     (a, b) => !loadingStateChanged(a, b),
   );
 
@@ -727,11 +722,11 @@ export function createDoc(params: DocParams): Doc {
           tipFeed._update(null);
         }
 
-        // Derived loading state
+        // Derived loading state — feed handles dedup
+        const prevLoading = loadingFeed.getSnapshot();
         const newLoading = deriveLoadingState(item.next);
         loadingFeed._update(newLoading);
-        if (loadingStateChanged(lastLoadingState, newLoading)) {
-          lastLoadingState = newLoading;
+        if (loadingStateChanged(prevLoading, newLoading)) {
           emit("loading", newLoading);
           // Ready check: if loading finished
           // without applying a snapshot, mount
@@ -1110,17 +1105,8 @@ export function createDoc(params: DocParams): Doc {
       return buildUrl(origin, ipnsName, narrowed);
     },
 
-    get status(): DocStatus {
-      return computeStatus(
-        syncManager.status,
-        awarenessRoom.connected,
-        gossipActivity,
-      );
-    },
-
-    get saveState(): SaveState {
-      return computeSaveState(subdocManager.isDirty, isSaving);
-    },
+    status: statusFeed as Feed<DocStatus>,
+    saveState: saveStateFeed as Feed<SaveState>,
 
     get relays(): ReadonlySet<string> {
       return params.roomDiscovery?.relayPeerIds ?? new Set();
@@ -1139,10 +1125,7 @@ export function createDoc(params: DocParams): Doc {
     },
 
     get loadingState(): LoadingState {
-      if (interpreterState) {
-        return deriveLoadingState(interpreterState);
-      }
-      return { status: "idle" };
+      return loadingFeed.getSnapshot();
     },
 
     get hasAppliedSnapshot(): boolean {
@@ -1178,10 +1161,8 @@ export function createDoc(params: DocParams): Doc {
       return snapshotLC.prev;
     },
 
-    statusFeed,
-    saveStateFeed,
-    tipFeed,
-    loadingFeed,
+    tip: tipFeed as Feed<VersionInfo | null>,
+    loading: loadingFeed as Feed<LoadingState>,
 
     ready(): Promise<void> {
       return readyPromise;

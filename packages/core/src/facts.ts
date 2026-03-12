@@ -160,6 +160,18 @@ export type SyncStatus = "connecting" | "connected" | "disconnected";
 
 export type GossipActivity = "inactive" | "subscribed" | "receiving";
 
+export type LoadingState =
+  | { status: "idle" }
+  | { status: "resolving"; startedAt: number }
+  | { status: "fetching"; cid: string; startedAt: number }
+  | {
+      status: "retrying";
+      cid: string;
+      attempt: number;
+      nextRetryAt: number;
+    }
+  | { status: "failed"; cid: string; error: string };
+
 // ------------------------------------------------
 // State interfaces
 // ------------------------------------------------
