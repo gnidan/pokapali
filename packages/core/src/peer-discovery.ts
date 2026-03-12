@@ -12,7 +12,7 @@ const DIAL_TIMEOUT_MS = 10_000;
 const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
 const RECONNECT_BASE_DELAY_MS = 5_000;
-const MAX_RECONNECT_ATTEMPTS = 8;
+const MAX_RECONNECT_DELAY_MS = 120_000;
 // Tag value for relay peers. Protects from connection
 // pruning (pruner drops lowest-value peers first)
 // without using KEEP_ALIVE (which triggers libp2p's
@@ -337,11 +337,10 @@ export function startRoomDiscovery(
   //
   // We tag relays (not KEEP_ALIVE) for pruning
   // protection. Our own handler manages reconnection
-  // with exponential backoff. Relays stay in
-  // relayPeerIds during the reconnect window so
+  // with exponential backoff capped at 120s. Retries
+  // indefinitely — relays stay in relayPeerIds so
   // they remain visible in diagnostics and relay
-  // sharing. Only fully untracked after all attempts
-  // are exhausted.
+  // sharing.
 
   const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const reconnectAttempts = new Map<string, number>();
@@ -359,17 +358,11 @@ export function startRoomDiscovery(
     if (stopped) return;
 
     const attempts = reconnectAttempts.get(pid) ?? 0;
-    if (attempts >= MAX_RECONNECT_ATTEMPTS) {
-      log.info(
-        `relay ...${short} disconnected,`,
-        `max attempts reached — removing`,
-      );
-      reconnectAttempts.delete(pid);
-      untrackRelay(pid);
-      return;
-    }
 
-    const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts);
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts),
+      MAX_RECONNECT_DELAY_MS,
+    );
     log.info(
       `relay ...${short} disconnected,`,
       `redial in ${delay / 1000}s`,
