@@ -156,13 +156,13 @@ export function createSnapshotLifecycle(
       if (!prev) return [];
 
       const getter = async (cid: CID) => {
-        // 1. In-memory blocks (always available for
-        //    locally-pushed snapshots)
-        const cached = blocks.get(cid.toString());
-        if (cached && cached.length > 0) return cached;
+        const cidStr = cid.toString();
 
-        // 2. Blockstore (IDB) — offline only so Helia
-        //    doesn't trigger bitswap/gateway fetches.
+        // 1. In-memory cache
+        const mem = blocks.get(cidStr);
+        if (mem && mem.length > 0) return mem;
+
+        // 2. Offline IDB check (fast, no network)
         try {
           const helia = options.getHelia();
           const ctrl = new AbortController();
@@ -173,23 +173,22 @@ export function createSnapshotLifecycle(
               offline: true,
             });
             const block = ensureUint8Array(raw);
-            if (block.length === 0) {
-              throw new Error("empty block");
+            if (block.length > 0) {
+              blocks.set(cidStr, block);
+              return block;
             }
-            blocks.set(cid.toString(), block);
-            return block;
           } finally {
             clearTimeout(timer);
           }
         } catch {
-          // blockstore miss — try HTTP
+          // IDB miss — continue
         }
 
-        // 3. HTTP block endpoints (pinner / relay)
+        // 3. HTTP pinner endpoints (fast network)
         const urls = options.httpUrls?.() ?? [];
         for (const baseUrl of urls) {
           try {
-            const resp = await fetch(`${baseUrl}/block/${cid.toString()}`, {
+            const resp = await fetch(`${baseUrl}/block/${cidStr}`, {
               signal: AbortSignal.timeout(5_000),
             });
             if (!resp.ok) continue;
@@ -198,8 +197,7 @@ export function createSnapshotLifecycle(
             const hash = await sha256.digest(bytes);
             const verified = CIDClass.createV1(cid.code, hash);
             if (!verified.equals(cid)) continue;
-            blocks.set(cid.toString(), bytes);
-            // Persist to blockstore for next reload
+            blocks.set(cidStr, bytes);
             const h = options.getHelia();
             if (h.blockstore.put) {
               Promise.resolve(h.blockstore.put(cid, bytes)).catch(
@@ -212,7 +210,33 @@ export function createSnapshotLifecycle(
           }
         }
 
-        throw new Error("Block not found: " + cid.toString());
+        // 4. Bitswap last resort (slow but reliable)
+        try {
+          const helia = options.getHelia();
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 15_000);
+          try {
+            const raw = await helia.blockstore.get(cid, {
+              signal: ctrl.signal,
+            });
+            const block = ensureUint8Array(raw);
+            if (block.length > 0) {
+              blocks.set(cidStr, block);
+              if (helia.blockstore.put) {
+                Promise.resolve(helia.blockstore.put(cid, block)).catch(
+                  (err: unknown) => log.warn("blockstore.put failed:", err),
+                );
+              }
+              return block;
+            }
+          } finally {
+            clearTimeout(timer);
+          }
+        } catch {
+          // bitswap failed
+        }
+
+        throw new Error("Block not found: " + cidStr);
       };
 
       const entries: Array<{
