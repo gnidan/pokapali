@@ -19,6 +19,7 @@ import {
 import type { Fact, DocState, ChainEntry } from "./facts.js";
 import { reduce } from "./reducers.js";
 import { createAsyncQueue } from "./sources.js";
+import type { AsyncQueue } from "./sources.js";
 
 // --- Helpers ---
 
@@ -1166,7 +1167,8 @@ describe("interpreter wake-up scheduling", () => {
         connectivity: {
           ...state.connectivity,
           gossip: {
-            activity: "silent",
+            activity: "inactive",
+            subscribed: false,
             lastMessageAt: 0,
           },
         },
