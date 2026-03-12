@@ -63,4 +63,21 @@ describe("createDocPersistence", () => {
     }
     expect(result.providers.size).toBe(0);
   });
+
+  it("destroy() calls closeBlockstore when set", async () => {
+    const mockSubdocManager = {
+      subdoc: vi.fn(() => ({ guid: "g" })),
+    } as any;
+
+    MockProvider.mockClear();
+    const result = createDocPersistence(mockSubdocManager, ["content"]);
+
+    const closeFn = vi.fn(() => Promise.resolve());
+    result.closeBlockstore = closeFn;
+
+    result.destroy();
+    // closeBlockstore is fire-and-forget
+    await Promise.resolve();
+    expect(closeFn).toHaveBeenCalledTimes(1);
+  });
 });

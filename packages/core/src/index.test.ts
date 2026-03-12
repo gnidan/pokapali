@@ -30,6 +30,7 @@ vi.mock("./helia.js", () => ({
       removeEventListener: vi.fn(),
     },
   })),
+  isHeliaLive: vi.fn(() => false),
   _resetHeliaState: vi.fn(),
 }));
 

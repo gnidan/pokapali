@@ -25,6 +25,7 @@ import {
   releaseHelia,
   getHeliaPubsub,
   getHelia,
+  isHeliaLive,
 } from "./helia.js";
 import { acquireNodeRegistry } from "./node-registry.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
@@ -74,10 +75,14 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
   return {
     async create(): Promise<Doc> {
-      // Layer B: persistent blockstore for Helia
+      // Layer B: persistent blockstore for Helia.
+      // Only create when Helia doesn't exist yet —
+      // acquireHelia ignores blockstore on ref-count
+      // increment, so opening one would leak an IDB
+      // connection.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let blockstore: any;
-      if (persistenceEnabled) {
+      if (persistenceEnabled && !isHeliaLive()) {
         const { IDBBlockstore } = await import("blockstore-idb");
         const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
         await bs.open();
@@ -117,6 +122,10 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           docPersistence = createDocPersistence(subdocManager, channels);
           for (const p of docPersistence.providers) {
             skipOrigins.add(p);
+          }
+          if (blockstore) {
+            const bs = blockstore;
+            docPersistence.closeBlockstore = () => bs.close();
           }
         }
 
@@ -215,10 +224,11 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         return this.open(fwd.newUrl);
       }
 
-      // Layer B: persistent blockstore for Helia
+      // Layer B: persistent blockstore for Helia.
+      // Skip when Helia already exists (see create()).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let blockstore: any;
-      if (persistenceEnabled) {
+      if (persistenceEnabled && !isHeliaLive()) {
         const { IDBBlockstore } = await import("blockstore-idb");
         const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
         await bs.open();
@@ -254,6 +264,10 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           docPersistence = createDocPersistence(subdocManager, channels);
           for (const p of docPersistence.providers) {
             skipOrigins.add(p);
+          }
+          if (blockstore) {
+            const bs = blockstore;
+            docPersistence.closeBlockstore = () => bs.close();
           }
         }
 

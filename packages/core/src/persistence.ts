@@ -18,8 +18,15 @@ export interface DocPersistence {
   readonly whenSynced: Promise<void>;
   /** Provider instances (for skipOrigins). */
   readonly providers: Set<IndexeddbPersistence>;
-  /** Tear down all providers. */
+  /** Tear down all providers and close blockstore. */
   destroy(): void;
+  /**
+   * Optional callback to close the IDBBlockstore.
+   * Set by the caller after construction since the
+   * blockstore is created separately from the
+   * y-indexeddb providers.
+   */
+  closeBlockstore?: () => Promise<void>;
 }
 
 /**
@@ -47,7 +54,7 @@ export function createDocPersistence(
     () => {},
   );
 
-  return {
+  const handle: DocPersistence = {
     whenSynced,
     providers,
     destroy() {
@@ -55,6 +62,8 @@ export function createDocPersistence(
         p.destroy();
       }
       providers.clear();
+      handle.closeBlockstore?.().catch(() => {});
     },
   };
+  return handle;
 }
