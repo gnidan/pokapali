@@ -79,6 +79,21 @@ vi.mock("@pokapali/sync", () => ({
   })),
 }));
 
+vi.mock("blockstore-idb", () => ({
+  IDBBlockstore: vi.fn(() => ({
+    open: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+vi.mock("./persistence.js", () => ({
+  createDocPersistence: vi.fn(() => ({
+    whenSynced: Promise.resolve(),
+    providers: new Set(),
+    destroy: vi.fn(),
+  })),
+}));
+
 vi.mock("@pokapali/snapshot", async () => {
   const actual =
     await vi.importActual<typeof import("@pokapali/snapshot")>(
