@@ -280,13 +280,13 @@ describe("interpreter pipeline integration", () => {
 
       // fetchBlock called for the original CID
       expect(effects.fetchBlock).toHaveBeenCalledWith(cid);
-      // prev CID discovered via chain-walk should NOT
-      // auto-fetch (chain-walk is not an auto-fetch
-      // source)
+      // prev CID discovered via chain-walk SHOULD
+      // auto-fetch (chain-walk is now an auto-fetch
+      // source for history building)
       const fetchCalls = (effects.fetchBlock as ReturnType<typeof vi.fn>).mock
         .calls;
       const fetchedCids = fetchCalls.map((c: CID[]) => c[0].toString());
-      expect(fetchedCids).not.toContain(prevCid.toString());
+      expect(fetchedCids).toContain(prevCid.toString());
     },
   );
 

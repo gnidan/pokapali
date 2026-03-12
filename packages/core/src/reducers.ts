@@ -171,6 +171,7 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
         blockStatus: "fetched" as const,
         prev: fact.prev,
         seq: e.seq ?? fact.seq,
+        ts: e.ts ?? fact.snapshotTs,
       }),
     );
     // Chain walk: discover prev CID

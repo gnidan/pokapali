@@ -29,10 +29,11 @@ export interface EffectHandlers {
   applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }>;
   getBlock(cid: CID): Uint8Array | null;
 
-  // Decode snapshot metadata (prev, seq, publisher)
+  // Decode snapshot metadata (prev, seq, ts, publisher)
   decodeBlock(block: Uint8Array): {
     prev?: CID;
     seq?: number;
+    snapshotTs?: number;
     /** Hex-encoded publisher identity pubkey,
      *  if present and signature valid. */
     publisher?: string;
@@ -74,6 +75,7 @@ const AUTO_FETCH_SOURCES: ReadonlySet<CidSource> = new Set([
   "gossipsub",
   "ipns",
   "reannounce",
+  "chain-walk",
 ]);
 
 export function shouldAutoFetch(entry: ChainEntry): boolean {
@@ -111,6 +113,7 @@ function dispatchFetch(
           block,
           prev: decoded.prev,
           seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
         });
       } else {
         feedback.push({
@@ -235,6 +238,27 @@ export async function runInterpreter(
       if (!shouldAutoFetch(entry)) continue;
 
       dispatchFetch(entry.cid, entry, effects, feedback);
+    }
+
+    // --- Decode inline blocks for chain discovery ---
+    // When cid-discovered arrives with an inline
+    // block, the reducer marks it "fetched" but
+    // doesn't extract prev/ts. Emit a synthetic
+    // block-fetched so the reducer discovers the
+    // chain-walk prev link.
+    if (fact.type === "cid-discovered" && fact.block) {
+      const decoded = effects.decodeBlock(fact.block);
+      if (decoded.prev || decoded.snapshotTs) {
+        feedback.push({
+          type: "block-fetched",
+          ts: Date.now(),
+          cid: fact.cid,
+          block: fact.block,
+          prev: decoded.prev,
+          seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
+        });
+      }
     }
 
     // --- Apply newest fetched CID as tip ---

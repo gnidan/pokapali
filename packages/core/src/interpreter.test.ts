@@ -157,7 +157,7 @@ describe("shouldAutoFetch", () => {
     expect(shouldAutoFetch(entry)).toBe(true);
   });
 
-  it("returns false for chain-walk source", async () => {
+  it("returns true for chain-walk source", async () => {
     const cid = await fakeCid(1);
     const entry: ChainEntry = {
       cid,
@@ -167,7 +167,7 @@ describe("shouldAutoFetch", () => {
       guarantees: new Map(),
       ackedBy: new Set(),
     };
-    expect(shouldAutoFetch(entry)).toBe(false);
+    expect(shouldAutoFetch(entry)).toBe(true);
   });
 
   it("returns false for pinner-index source", async () => {
@@ -292,10 +292,10 @@ describe("interpreter fetch dispatch", () => {
     expect((failed as any).error).toBe("network");
   });
 
-  it("does not fetch chain-walk CIDs", async () => {
+  it("auto-fetches chain-walk CIDs", async () => {
     // chain-walk CIDs are discovered via
-    // block-fetched prev field. We simulate
-    // the state directly.
+    // block-fetched prev field. They should be
+    // auto-fetched to build the full history.
     const cidA = await fakeCid(1);
     const cidB = await fakeCid(2);
 
@@ -325,12 +325,12 @@ describe("interpreter fetch dispatch", () => {
       },
     );
 
-    // fetchBlock called for cidB (gossipsub)
-    // but NOT for cidA (chain-walk)
+    // fetchBlock called for both cidB (gossipsub)
+    // AND cidA (chain-walk auto-fetch)
     const calls = (effects.fetchBlock as ReturnType<typeof vi.fn>).mock.calls;
     const fetchedCids = calls.map((c: CID[]) => c[0].toString());
     expect(fetchedCids).toContain(cidB.toString());
-    expect(fetchedCids).not.toContain(cidA.toString());
+    expect(fetchedCids).toContain(cidA.toString());
   });
 
   it("does not fetch if entry was already " + "unknown in prev", async () => {

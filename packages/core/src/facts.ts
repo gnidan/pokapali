@@ -40,6 +40,7 @@ export type Fact =
       block: Uint8Array;
       prev?: CID;
       seq?: number;
+      snapshotTs?: number;
     }
   | {
       type: "block-fetch-failed";
