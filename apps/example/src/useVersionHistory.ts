@@ -111,6 +111,10 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
 
     doc.ready().then(fetchHistory);
 
+    // Fallback: fetch after 60s even if doc.ready()
+    // hasn't resolved (matches Editor's timeout).
+    const timeout = setTimeout(fetchHistory, 60_000);
+
     const onSnapshot = (e: { cid: unknown; seq: number; ts: number }) => {
       if (cancelRef.current) return;
       // If we haven't fetched yet, trigger fetch now
@@ -141,6 +145,7 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
 
     return () => {
       cancelRef.current = true;
+      clearTimeout(timeout);
       doc.off("snapshot", onSnapshot);
       doc.off("node-change", onNodeChange);
     };
