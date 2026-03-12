@@ -399,7 +399,7 @@ describe("createSnapshotLifecycle", () => {
     });
 
     it(
-      "loadVersion works when blockstore " + "returns ArrayBuffer",
+      "loadVersion works when fetchBlock returns " + "coerced ArrayBuffer data",
       async () => {
         const readKey = await crypto.subtle.generateKey(
           { name: "AES-GCM", length: 256 },
@@ -426,26 +426,18 @@ describe("createSnapshotLifecycle", () => {
         const hash = await sha256.digest(block);
         const cid = CID.createV1(0x71, hash);
 
-        // Blockstore returns ArrayBuffer
-        const arrayBuffer = block.buffer.slice(
-          block.byteOffset,
-          block.byteOffset + block.byteLength,
-        );
-        const heliaWithAB = {
-          blockstore: {
-            put: vi.fn(),
-            get: vi.fn().mockResolvedValue(arrayBuffer),
-          },
-        };
+        // loadVersion now uses fetchBlock (not direct
+        // blockstore.get). Simulate fetchBlock returning
+        // a Uint8Array that was coerced from ArrayBuffer
+        // (the ensureUint8Array path in fetchBlock).
+        vi.mocked(fetchBlock).mockResolvedValue(block);
 
         const lc = createSnapshotLifecycle({
-          getHelia: () => heliaWithAB as any,
+          getHelia: () => mockHelia as any,
         });
 
-        // loadVersion() calls blockstore.get() directly
-        // then decodeSnapshot + decryptSnapshot. If the
-        // ArrayBuffer is not normalized, Y.applyUpdate()
-        // will receive non-Uint8Array data.
+        // loadVersion() calls fetchBlock, then
+        // decodeSnapshot + decryptSnapshot + Y.applyUpdate.
         const result = await lc.loadVersion(cid, readKey);
         expect(result.content).toBeDefined();
       },
