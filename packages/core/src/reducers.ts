@@ -194,12 +194,14 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
   }
 
   if (fact.type === "block-fetch-failed") {
-    return updateEntry(state, fact.cid, (e) => ({
-      ...e,
-      blockStatus: "failed",
-      fetchAttempt: fact.attempt,
-      lastError: fact.error,
-    }));
+    return withNewestFetched(
+      updateEntry(state, fact.cid, (e) => ({
+        ...e,
+        blockStatus: "failed",
+        fetchAttempt: fact.attempt,
+        lastError: fact.error,
+      })),
+    );
   }
 
   if (fact.type === "tip-advanced") {
