@@ -109,87 +109,16 @@ describe("snapshot event payload (Item 3)", () => {
 
     expect(result).toBe(true);
     // After applyRemote, the lifecycle should
-    // track the CID for history walking
-    const history = await lc.history();
-    // The applied snapshot should be walkable
-    // if it becomes the prev for next push
-    expect(history.length).toBeGreaterThanOrEqual(0);
+    // track the CID — verify via getBlock
+    const stored = lc.getBlock(cid.toString());
+    expect(stored).toBeDefined();
+    expect(stored!.length).toBeGreaterThan(0);
   });
 });
 
-describe("deep history chain (Item 4)", () => {
-  const mockHelia = {
-    blockstore: {
-      put: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockRejectedValue(new Error("Not found")),
-    },
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("walks a chain of 10+ versions correctly", async () => {
-    const { readKey, signingKey } = await makeKeys();
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
-
-    const pushResults = [];
-    for (let i = 1; i <= 12; i++) {
-      const result = await lc.push(
-        {
-          content: new Uint8Array([i]),
-        },
-        readKey,
-        signingKey,
-        i * 10,
-      );
-      pushResults.push(result);
-    }
-
-    const entries = await lc.history();
-    expect(entries).toHaveLength(12);
-
-    // Newest first
-    expect(entries[0].seq).toBe(12);
-    expect(entries[11].seq).toBe(1);
-
-    // All seqs present and ordered descending
-    for (let i = 0; i < entries.length; i++) {
-      expect(entries[i].seq).toBe(12 - i);
-    }
-
-    // All CIDs match push results (reversed)
-    for (let i = 0; i < entries.length; i++) {
-      expect(entries[i].cid.toString()).toBe(
-        pushResults[11 - i].cid.toString(),
-      );
-    }
-  });
-
-  it("all entries have valid timestamps", async () => {
-    const { readKey, signingKey } = await makeKeys();
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
-
-    for (let i = 0; i < 10; i++) {
-      await lc.push(
-        { content: new Uint8Array([i]) },
-        readKey,
-        signingKey,
-        i * 100,
-      );
-    }
-
-    const entries = await lc.history();
-    for (const entry of entries) {
-      expect(entry.ts).toBeGreaterThan(0);
-      expect(typeof entry.ts).toBe("number");
-    }
-  });
-});
+// Deep history chain tests moved to
+// facts.test.ts — versionHistory(chain) is the
+// canonical history derivation now.
 
 describe("partial history / gap handling (Item 5)", () => {
   const mockHelia = {
@@ -254,25 +183,30 @@ describe("partial history / gap handling (Item 5)", () => {
     expect(docs.content.getText("content").toString()).toBe("hello");
   });
 
-  it("history stops at broken chain link", async () => {
+  it("push builds a chain of versions", async () => {
     const { readKey, signingKey } = await makeKeys();
     const lc = createSnapshotLifecycle({
       getHelia: () => mockHelia as any,
     });
 
     // Push 5 versions
+    const results = [];
     for (let i = 1; i <= 5; i++) {
-      await lc.push(
-        { content: new Uint8Array([i]) },
-        readKey,
-        signingKey,
-        i * 10,
+      results.push(
+        await lc.push(
+          { content: new Uint8Array([i]) },
+          readKey,
+          signingKey,
+          i * 10,
+        ),
       );
     }
 
-    // Verify full chain is walkable
-    const entries = await lc.history();
-    expect(entries).toHaveLength(5);
+    // Verify chain linkage via prev pointers
+    expect(results[0].prev).toBeNull();
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i].prev!.toString()).toBe(results[i - 1].cid.toString());
+    }
   });
 
   it(
@@ -337,10 +271,6 @@ describe("partial history / gap handling (Item 5)", () => {
         20,
       );
       expect(result2.seq).toBe(2);
-
-      // History should still work
-      const entries = await lc.history();
-      expect(entries).toHaveLength(2);
 
       // loadVersion of valid CID still works
       const docs = await lc.loadVersion(result.cid, readKey);

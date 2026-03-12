@@ -57,11 +57,17 @@ import {
   createFeed,
 } from "./sources.js";
 import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
-import { reduce } from "./reducers.js";
-import { initialDocState, bestGuarantee, EMPTY_SET } from "./facts.js";
+import { reduce, reduceChain } from "./reducers.js";
+import {
+  initialDocState,
+  bestGuarantee,
+  versionHistory,
+  EMPTY_SET,
+} from "./facts.js";
 import type {
   Fact,
   DocState,
+  ChainState,
   DocStatus,
   SaveState,
   DocRole,
@@ -447,6 +453,12 @@ export function createDoc(params: DocParams): Doc {
   // --- Interpreter state ---
   let interpreterState: DocState | null = null;
   let factQueue: AsyncQueue<Fact> | null = null;
+
+  // Local chain state maintained synchronously by
+  // publish(). Lets history() return immediately
+  // without waiting for the async interpreter
+  // pipeline.
+  let localChain: ChainState | null = null;
   let interpreterAc: AbortController | null = null;
   let lastLocalPublishCid: string | null = null;
   let lastEmittedAcks = new Set<string>();
@@ -820,6 +832,7 @@ export function createDoc(params: DocParams): Doc {
             markReady();
           }
         }
+
         yield item;
       }
     }
@@ -882,6 +895,7 @@ export function createDoc(params: DocParams): Doc {
           return {
             prev: node.prev ?? undefined,
             seq: node.seq,
+            snapshotTs: node.ts,
             publisher,
           };
         } catch {
@@ -1325,28 +1339,65 @@ export function createDoc(params: DocParams): Doc {
       isSaving = false;
       checkSaveState();
 
-      // Push chain entry + tip + success facts
+      // Build the facts that describe this publish.
+      const now = Date.now();
+      const cidDiscovered: Fact = {
+        type: "cid-discovered",
+        ts: now,
+        cid,
+        source: "gossipsub",
+        block,
+        seq: pushResult.seq,
+        snapshotTs: now,
+      };
+      const blockFetched: Fact = {
+        type: "block-fetched",
+        ts: now,
+        cid,
+        block,
+        prev: pushResult.prev ?? undefined,
+        seq: pushResult.seq,
+        snapshotTs: now,
+      };
+      const tipAdvanced: Fact = {
+        type: "tip-advanced",
+        ts: now,
+        cid,
+        seq: pushResult.seq,
+      };
+      const publishSucceeded: Fact = {
+        type: "publish-succeeded",
+        ts: now,
+        cid,
+        seq: pushResult.seq,
+      };
+
+      // Synchronously advance localChain so
+      // history() works without waiting for the
+      // async interpreter pipeline.
+      const base =
+        localChain ??
+        interpreterState?.chain ??
+        initialDocState({
+          ipnsName,
+          role: this.role,
+          channels,
+          appId: params.appId,
+        }).chain;
+      localChain = [
+        cidDiscovered,
+        blockFetched,
+        tipAdvanced,
+        publishSucceeded,
+      ].reduce(reduceChain, base);
+
+      // Push to interpreter for side effects
+      // (announce, acks, gossip, etc.)
       if (factQueue) {
-        factQueue.push({
-          type: "cid-discovered",
-          ts: Date.now(),
-          cid,
-          source: "gossipsub",
-          block,
-          seq: pushResult.seq,
-        });
-        factQueue.push({
-          type: "tip-advanced",
-          ts: Date.now(),
-          cid,
-          seq: pushResult.seq,
-        });
-        factQueue.push({
-          type: "publish-succeeded",
-          ts: Date.now(),
-          cid,
-          seq: pushResult.seq,
-        });
+        factQueue.push(cidDiscovered);
+        factQueue.push(blockFetched);
+        factQueue.push(tipAdvanced);
+        factQueue.push(publishSucceeded);
       }
 
       emit("snapshot", {
@@ -1441,14 +1492,41 @@ export function createDoc(params: DocParams): Doc {
 
     async history() {
       assertNotDestroyed();
-      return snapshotLC.history();
+      const chain = localChain ?? interpreterState?.chain;
+      if (!chain) return [];
+      return versionHistory(chain);
     },
 
     async versionHistory(): Promise<VersionEntry[]> {
       assertNotDestroyed();
-      return fetchVersionHistory(getHttpUrls(), ipnsName, () =>
-        snapshotLC.history(),
+      const chainFallback = async () => {
+        const chain = localChain ?? interpreterState?.chain;
+        if (!chain) return [];
+        return versionHistory(chain);
+      };
+      const entries = await fetchVersionHistory(
+        getHttpUrls(),
+        ipnsName,
+        chainFallback,
       );
+      // Integrate pinner-discovered CIDs into
+      // chain state so future calls use state.
+      if (factQueue) {
+        for (const e of entries) {
+          const key = e.cid.toString();
+          if (!interpreterState?.chain.entries.has(key)) {
+            factQueue.push({
+              type: "cid-discovered",
+              ts: Date.now(),
+              cid: e.cid,
+              source: "pinner-index",
+              seq: e.seq,
+              snapshotTs: e.ts,
+            });
+          }
+        }
+      }
+      return entries;
     },
 
     async loadVersion(cid: CID) {
@@ -1456,7 +1534,24 @@ export function createDoc(params: DocParams): Doc {
       if (!readKey) {
         throw new Error("No readKey available");
       }
-      return snapshotLC.loadVersion(cid, readKey);
+      const result = await snapshotLC.loadVersion(cid, readKey);
+      // Integrate fetched block into chain state
+      // so the reducer knows about it.
+      if (factQueue) {
+        const key = cid.toString();
+        const entry = interpreterState?.chain.entries.get(key);
+        if (!entry || entry.blockStatus === "unknown") {
+          const block = snapshotLC.getBlock(key);
+          factQueue.push({
+            type: "cid-discovered",
+            ts: Date.now(),
+            cid,
+            source: "chain-walk",
+            block: block ?? undefined,
+          });
+        }
+      }
+      return result;
     },
 
     get identityPubkey(): string | null {
