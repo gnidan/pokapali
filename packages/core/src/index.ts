@@ -31,6 +31,8 @@ import { startRoomDiscovery } from "./peer-discovery.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createDoc, populateMeta } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
+import { createDocPersistence } from "./persistence.js";
+import type { DocPersistence } from "./persistence.js";
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -45,6 +47,13 @@ export interface PokapaliConfig {
   signalingUrls?: string[];
   bootstrapPeers?: string[];
   rtc?: SyncOptions["peerOpts"];
+  /**
+   * Enable IndexedDB persistence for Yjs state and
+   * IPFS blocks. Defaults to true. Set to false to
+   * disable (e.g. for cold-start testing via
+   * ?noCache=1).
+   */
+  persistence?: boolean;
 }
 
 export interface PokapaliApp {
@@ -61,10 +70,20 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   const primaryChannel = options.primaryChannel ?? channels[0];
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
+  const persistenceEnabled = options.persistence !== false;
 
   return {
     async create(): Promise<Doc> {
-      await acquireHelia({ bootstrapPeers });
+      // Layer B: persistent blockstore for Helia
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let blockstore: any;
+      if (persistenceEnabled) {
+        const { IDBBlockstore } = await import("blockstore-idb");
+        const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
+        await bs.open();
+        blockstore = bs;
+      }
+      await acquireHelia({ bootstrapPeers, blockstore });
       try {
         const pubsub = getHeliaPubsub() as unknown as PubSubLike;
         acquireNodeRegistry(pubsub, () => getHelia());
@@ -85,9 +104,21 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         const signingKey = await ed25519KeyPairFromSeed(docKeys.ipnsKeyBytes);
         const ipnsName = bytesToHex(signingKey.publicKey);
 
+        // Layer A: y-indexeddb persistence per subdoc
+        let docPersistence: DocPersistence | null = null;
+        const skipOrigins = new Set<object>();
+
         const subdocManager = createSubdocManager(ipnsName, channels, {
           primaryNamespace: primaryChannel,
+          skipOrigins: persistenceEnabled ? skipOrigins : undefined,
         });
+
+        if (persistenceEnabled) {
+          docPersistence = createDocPersistence(subdocManager, channels);
+          for (const p of docPersistence.providers) {
+            skipOrigins.add(p);
+          }
+        }
 
         const syncManager = setupNamespaceRooms(
           ipnsName,
@@ -159,6 +190,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           syncOpts,
           pubsub,
           roomDiscovery,
+          persistence: docPersistence,
         });
       } catch (err) {
         await releaseHelia();
@@ -183,7 +215,16 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         return this.open(fwd.newUrl);
       }
 
-      await acquireHelia({ bootstrapPeers });
+      // Layer B: persistent blockstore for Helia
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let blockstore: any;
+      if (persistenceEnabled) {
+        const { IDBBlockstore } = await import("blockstore-idb");
+        const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
+        await bs.open();
+        blockstore = bs;
+      }
+      await acquireHelia({ bootstrapPeers, blockstore });
       try {
         const pubsub = getHeliaPubsub() as unknown as PubSubLike;
         acquireNodeRegistry(pubsub, () => getHelia());
@@ -200,9 +241,21 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
         const cap = inferCapability(keys, channels);
 
+        // Layer A: y-indexeddb persistence per subdoc
+        let docPersistence: DocPersistence | null = null;
+        const skipOrigins = new Set<object>();
+
         const subdocManager = createSubdocManager(ipnsName, channels, {
           primaryNamespace: primaryChannel,
+          skipOrigins: persistenceEnabled ? skipOrigins : undefined,
         });
+
+        if (persistenceEnabled) {
+          docPersistence = createDocPersistence(subdocManager, channels);
+          for (const p of docPersistence.providers) {
+            skipOrigins.add(p);
+          }
+        }
 
         const chKeys = keys.channelKeys ?? {};
         const syncManager = setupNamespaceRooms(
@@ -269,6 +322,8 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           pubsub,
           roomDiscovery,
           performInitialResolve: !!keys.readKey,
+          persistence: docPersistence,
+          hasCachedState: persistenceEnabled,
         });
       } catch (err) {
         await releaseHelia();

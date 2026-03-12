@@ -8,6 +8,13 @@ const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
 
 export interface HeliaOptions {
   bootstrapPeers?: string[];
+  /** Optional blockstore (e.g. IDBBlockstore for
+   *  browser persistence). Defaults to in-memory.
+   *  Typed loosely to avoid interface-blockstore
+   *  version conflicts between helia and
+   *  blockstore-idb. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  blockstore?: any;
 }
 
 type HeliaWithPubsub = Helia<
@@ -99,8 +106,14 @@ export async function acquireHelia(
   };
 
   const BOOTSTRAP_TIMEOUT_MS = 30_000;
+  const heliaOpts: Parameters<typeof createHelia>[0] = {
+    libp2p: libp2pOptions,
+  };
+  if (_options?.blockstore) {
+    heliaOpts.blockstore = _options.blockstore;
+  }
   const helia = (await Promise.race([
-    createHelia({ libp2p: libp2pOptions }),
+    createHelia(heliaOpts),
     new Promise<never>((_, reject) =>
       setTimeout(
         () => reject(new Error("Helia bootstrap timed out")),

@@ -160,4 +160,23 @@ describe("@pokapali/subdocs", () => {
     expect(mgr.isDirty).toBe(false);
     mgr.destroy();
   });
+
+  it("skipOrigins suppresses dirty for custom origins", () => {
+    const providerInstance = { name: "mock-provider" };
+    const skip = new Set<object>([providerInstance]);
+    const mgr = createSubdocManager(ipns, namespaces, { skipOrigins: skip });
+    const doc = mgr.subdoc("doc");
+
+    // Update with provider origin — not dirty
+    doc.transact(() => {
+      doc.getMap("root").set("from-idb", true);
+    }, providerInstance);
+    expect(mgr.isDirty).toBe(false);
+
+    // Update with no origin — dirty
+    doc.getMap("root").set("user-edit", true);
+    expect(mgr.isDirty).toBe(true);
+
+    mgr.destroy();
+  });
 });

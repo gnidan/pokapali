@@ -31,6 +31,7 @@ import {
 import { uploadBlock } from "./block-upload.js";
 import { fetchBlock as fetchBlockFromNetwork } from "./fetch-block.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
+import type { DocPersistence } from "./persistence.js";
 import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
@@ -205,6 +206,13 @@ export interface DocParams {
   pubsub?: PubSubLike;
   roomDiscovery?: RoomDiscovery;
   performInitialResolve?: boolean;
+  /** y-indexeddb persistence handle — destroyed on
+   *  doc teardown. */
+  persistence?: DocPersistence | null;
+  /** True when persistence is enabled and cached
+   *  state may exist in IndexedDB. Triggers early
+   *  markReady() after y-indexeddb sync. */
+  hasCachedState?: boolean;
 }
 
 function computeStatus(
@@ -316,6 +324,17 @@ export function createDoc(params: DocParams): Doc {
 
   if (!params.performInitialResolve) {
     markReady();
+  }
+
+  // When persistence is enabled on open(), resolve
+  // ready early once y-indexeddb has synced cached
+  // state — the user can start editing immediately
+  // while IPNS resolution + chain fetch continues
+  // in the background.
+  if (params.hasCachedState && params.persistence) {
+    params.persistence.whenSynced.then(() => {
+      markReady();
+    });
   }
 
   function getHttpUrls(): string[] {
@@ -1028,6 +1047,7 @@ export function createDoc(params: DocParams): Doc {
       log.warn("off('change') cleanup error:", (err as Error)?.message ?? err);
     }
     params.roomDiscovery?.stop();
+    params.persistence?.destroy();
     syncManager.destroy();
     awarenessRoom.destroy();
     subdocManager.destroy();
