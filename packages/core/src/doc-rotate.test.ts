@@ -31,7 +31,7 @@ vi.mock("@pokapali/capability", () => ({
   inferCapability: vi.fn(() => ({
     isAdmin: true,
     canPushSnapshots: true,
-    channels: ["content"],
+    channels: new Set(["content"]),
   })),
   narrowCapability: vi.fn((keys: unknown, _opts: unknown) => keys),
   buildUrl: vi.fn(async () => "https://example.com"),
@@ -78,7 +78,7 @@ function baseContext(overrides?: Partial<RotateContext>): RotateContext {
     cap: {
       isAdmin: true,
       canPushSnapshots: true,
-      channels: ["content"],
+      channels: new Set(["content"]),
     },
     keys: {
       readKey: {} as CryptoKey,
@@ -115,7 +115,7 @@ describe("rotateDoc", () => {
       cap: {
         isAdmin: false,
         canPushSnapshots: false,
-        channels: ["content"],
+        channels: new Set(["content"]),
       },
     });
 
