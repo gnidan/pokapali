@@ -50,6 +50,33 @@ mode." The encryption keys are derived from the URL
 fragment via HKDF, so possessing a URL is both necessary
 and sufficient to read the content.
 
+## State is derived, not mutated
+
+Document state is never modified in place. All state
+flows from an append-only log of typed **facts** (events
+that happened) through pure **reducers** (functions that
+compute the next state from the current state and a
+fact). A single **interpreter** dispatches side effects
+(network I/O, block fetching) and feeds results back as
+new facts.
+
+This means:
+
+- State at any point is reproducible from the fact log
+- Reducers are trivially testable (pure functions, no
+  I/O)
+- Side effects are isolated to one module
+  (`interpreter.ts`), injected via `EffectHandlers`
+- The system can be validated by running two
+  interpreters in parallel and comparing their output
+  (shadow mode, used during the migration)
+
+The fact-stream architecture replaced a previous design
+with 14+ mutable variables scattered across a watcher
+module, three separate notification mechanisms, and no
+clear state machine. The replacement has zero mutable
+state — additive facts, pure reducers, derived views.
+
 ## Local-first, network-enhanced
 
 Editing is local. Yjs CRDTs resolve conflicts
