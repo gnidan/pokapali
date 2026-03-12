@@ -96,6 +96,39 @@ describe("createIpnsThrottle", () => {
     // No timeout = pass
   });
 
+  it("serializes concurrent acquire() callers", async () => {
+    vi.useFakeTimers();
+    // Rate: 2/sec. Drain bucket, then 5 concurrent
+    // acquire() calls. They should resolve one at a
+    // time (~500ms apart), NOT all at once.
+    const throttle = createIpnsThrottle(2);
+
+    // Drain bucket
+    throttle.tryAcquire();
+    throttle.tryAcquire();
+
+    const resolved: number[] = [];
+    const promises = Array.from({ length: 5 }, (_, i) =>
+      throttle.acquire().then(() => {
+        resolved.push(Date.now());
+      }),
+    );
+
+    // After 500ms, exactly 1 should have resolved
+    // (1 token refilled at 2/sec)
+    await vi.advanceTimersByTimeAsync(500);
+    expect(resolved).toHaveLength(1);
+
+    // After another 500ms, 2 total
+    await vi.advanceTimersByTimeAsync(500);
+    expect(resolved).toHaveLength(2);
+
+    // After 1500ms more (3s total from drain), all 5
+    await vi.advanceTimersByTimeAsync(1500);
+    await Promise.all(promises);
+    expect(resolved).toHaveLength(5);
+  });
+
   it("tracks metrics", () => {
     const throttle = createIpnsThrottle(5);
 

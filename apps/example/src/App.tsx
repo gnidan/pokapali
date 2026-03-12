@@ -21,11 +21,14 @@ function getApp() {
   if (import.meta.hot?.data.app) {
     return import.meta.hot.data.app as ReturnType<typeof pokapali>;
   }
+  const noCache =
+    new URLSearchParams(window.location.search).get("noCache") === "1";
   const instance = pokapali({
     appId: "pokapali-example",
     channels: ["content"],
     origin:
       window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
+    persistence: !noCache,
   });
   if (import.meta.hot) {
     import.meta.hot.data.app = instance;
@@ -55,7 +58,16 @@ function RecentDocsList({
     return () => clearInterval(id);
   }, []);
 
-  if (docs.length === 0) return null;
+  if (docs.length === 0) {
+    return (
+      <div className="empty-state">
+        <p>
+          End-to-end encrypted, no sign-up required. Create a document and share
+          the link to start collaborating.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="recent-docs">

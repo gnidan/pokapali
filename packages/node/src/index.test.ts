@@ -78,6 +78,7 @@ describe("@pokapali/node", () => {
   });
 
   it("enforces rate limiting", async () => {
+    await pinner.stop();
     const p = await createPinner({
       appIds: ["test-app"],
       storagePath: tmpDir,
@@ -103,6 +104,7 @@ describe("@pokapali/node", () => {
   });
 
   it("rejects oversized blocks", async () => {
+    await pinner.stop();
     const p = await createPinner({
       appIds: ["test-app"],
       storagePath: tmpDir,
@@ -223,6 +225,7 @@ describe("@pokapali/node", () => {
   });
 
   it("rate limits are per IPNS name", async () => {
+    await pinner.stop();
     const p = await createPinner({
       appIds: ["test-app"],
       storagePath: tmpDir,
