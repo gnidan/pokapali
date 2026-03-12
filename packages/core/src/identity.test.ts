@@ -134,4 +134,32 @@ describe("signParticipant", () => {
     expect(sig.length % 2).toBe(0);
     expect(/^[0-9a-f]+$/.test(sig)).toBe(true);
   });
+
+  it(
+    "different docIds sign different " +
+      "payloads (cross-doc replay prevention)",
+    async () => {
+      const { signBytes } = await import("@pokapali/crypto");
+      const kp = await loadIdentity("replay-test");
+
+      await signParticipant(kp, "doc-a");
+      const call1Data = vi.mocked(signBytes).mock.calls.at(-1)![1];
+
+      await signParticipant(kp, "doc-b");
+      const call2Data = vi.mocked(signBytes).mock.calls.at(-1)![1];
+
+      // Payloads include docId → differ
+      const dec = new TextDecoder();
+      expect(dec.decode(call1Data)).toContain("doc-a");
+      expect(dec.decode(call2Data)).toContain("doc-b");
+      expect(dec.decode(call1Data)).not.toBe(dec.decode(call2Data));
+    },
+  );
+
+  it("same keypair + same docId produces " + "same signature", async () => {
+    const kp = await loadIdentity("stable-test");
+    const sig1 = await signParticipant(kp, "doc-x");
+    const sig2 = await signParticipant(kp, "doc-x");
+    expect(sig1).toBe(sig2);
+  });
 });
