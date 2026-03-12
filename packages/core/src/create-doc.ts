@@ -215,7 +215,6 @@ export interface Doc {
 export interface ParticipantInfo {
   pubkey: string;
   displayName?: string;
-  verified: boolean;
 }
 
 export interface DocParams {
@@ -1631,14 +1630,6 @@ export function createDoc(params: DocParams): Doc {
         result.set(clientId, {
           pubkey: p.pubkey,
           displayName: p.displayName,
-          // Signature verification is deferred to
-          // consumers who need it — awareness is
-          // unsigned transport, so we mark verified
-          // based on structural presence only.
-          // Full verification requires async
-          // ed25519 verify which doesn't fit the
-          // synchronous getter pattern.
-          verified: true,
         });
       }
       return result;
