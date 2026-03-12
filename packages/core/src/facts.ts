@@ -367,3 +367,24 @@ export function bestGuarantee(chain: ChainState): BestGuarantee {
   }
   return { guaranteeUntil: g, retainUntil: r };
 }
+
+/** Tolerance for clock skew between peers (5 min). */
+export const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * Check whether a guarantee timestamp is still active,
+ * accounting for clock skew between peers.
+ *
+ * A pinner whose clock is ahead will issue guarantees
+ * that appear to expire early from the browser's
+ * perspective. The tolerance window prevents false
+ * "expired" status from minor clock drift.
+ */
+export function isGuaranteeActive(
+  guaranteeUntil: number,
+  now?: number,
+): boolean {
+  if (guaranteeUntil === 0) return false;
+  const t = now ?? Date.now();
+  return guaranteeUntil + CLOCK_SKEW_TOLERANCE_MS > t;
+}

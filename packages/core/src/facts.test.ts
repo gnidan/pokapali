@@ -13,6 +13,8 @@ import {
   initialDocState,
   versionHistory,
   bestGuarantee,
+  isGuaranteeActive,
+  CLOCK_SKEW_TOLERANCE_MS,
   INITIAL_CHAIN,
   INITIAL_CONNECTIVITY,
   INITIAL_CONTENT,
@@ -263,5 +265,44 @@ describe("bestGuarantee", () => {
       guaranteeUntil: 0,
       retainUntil: 0,
     });
+  });
+});
+
+describe("CLOCK_SKEW_TOLERANCE_MS", () => {
+  it("is 5 minutes", () => {
+    expect(CLOCK_SKEW_TOLERANCE_MS).toBe(5 * 60 * 1000);
+  });
+});
+
+describe("isGuaranteeActive", () => {
+  it("returns true when guarantee is in the future", () => {
+    const now = Date.now();
+    expect(isGuaranteeActive(now + 60_000, now)).toBe(true);
+  });
+
+  it("returns false when guarantee expired", () => {
+    const now = Date.now();
+    expect(isGuaranteeActive(now - 600_000, now)).toBe(false);
+  });
+
+  it("returns true within tolerance window", () => {
+    const now = Date.now();
+    // Expired 3 min ago — within 5 min tolerance
+    expect(isGuaranteeActive(now - 3 * 60_000, now)).toBe(true);
+  });
+
+  it("returns false beyond tolerance window", () => {
+    const now = Date.now();
+    // Expired 6 min ago — beyond 5 min tolerance
+    expect(isGuaranteeActive(now - 6 * 60_000, now)).toBe(false);
+  });
+
+  it("returns false for zero timestamp", () => {
+    expect(isGuaranteeActive(0, Date.now())).toBe(false);
+  });
+
+  it("uses Date.now() when now not provided", () => {
+    // Far future — should be active
+    expect(isGuaranteeActive(Date.now() + 3_600_000)).toBe(true);
   });
 });
