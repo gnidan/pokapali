@@ -21,17 +21,45 @@ export interface IpnsThrottle {
   metrics(): { acquired: number; rejected: number };
 }
 
+interface Waiter {
+  resolve: () => void;
+  reject: (err: unknown) => void;
+  cleanup?: () => void;
+}
+
 export function createIpnsThrottle(ratePerSec: number): IpnsThrottle {
   let tokens = ratePerSec;
   let lastRefill = Date.now();
   let acquired = 0;
   let rejected = 0;
+  const waiters: Waiter[] = [];
+  let drainTimer: ReturnType<typeof setTimeout> | null = null;
 
   function refill(): void {
     const now = Date.now();
     const elapsed = (now - lastRefill) / 1000;
     tokens = Math.min(ratePerSec, tokens + elapsed * ratePerSec);
     lastRefill = now;
+  }
+
+  function drainWaiters(): void {
+    refill();
+    while (tokens >= 1 && waiters.length > 0) {
+      tokens -= 1;
+      acquired++;
+      const w = waiters.shift()!;
+      w.cleanup?.();
+      w.resolve();
+    }
+    // Schedule next drain if waiters remain
+    if (drainTimer !== null) {
+      clearTimeout(drainTimer);
+      drainTimer = null;
+    }
+    if (waiters.length > 0) {
+      const waitMs = ((1 - tokens) / ratePerSec) * 1000;
+      drainTimer = setTimeout(drainWaiters, waitMs);
+    }
   }
 
   function tryAcquire(): boolean {
@@ -57,27 +85,31 @@ export function createIpnsThrottle(ratePerSec: number): IpnsThrottle {
       return;
     }
 
-    // Wait for next token
-    const waitMs = ((1 - tokens) / ratePerSec) * 1000;
-
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        signal?.removeEventListener("abort", onAbort);
-        tokens = 0;
-        lastRefill = Date.now();
-        acquired++;
-        resolve();
-      }, waitMs);
+      const waiter: Waiter = { resolve, reject };
 
-      function onAbort() {
-        clearTimeout(timer);
-        rejected++;
-        reject(signal!.reason ?? new Error("aborted"));
+      if (signal) {
+        function onAbort() {
+          const idx = waiters.indexOf(waiter);
+          if (idx !== -1) waiters.splice(idx, 1);
+          rejected++;
+          reject(signal!.reason ?? new Error("aborted"));
+        }
+        signal.addEventListener("abort", onAbort, {
+          once: true,
+        });
+        waiter.cleanup = () => {
+          signal.removeEventListener("abort", onAbort);
+        };
       }
 
-      signal?.addEventListener("abort", onAbort, {
-        once: true,
-      });
+      waiters.push(waiter);
+
+      // Schedule drain if this is the first waiter
+      if (waiters.length === 1 && drainTimer === null) {
+        const waitMs = ((1 - tokens) / ratePerSec) * 1000;
+        drainTimer = setTimeout(drainWaiters, waitMs);
+      }
     });
   }
 
