@@ -124,6 +124,11 @@ export async function announceAck(
   await pubsub.publish(topic, data);
 }
 
+// Max inbound message size (2MB). A 1MB block becomes
+// ~1.33MB base64, plus JSON envelope. 2MB gives
+// headroom while rejecting obvious abuse.
+export const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
+
 /**
  * Parse a raw announcement message payload.
  *
@@ -131,12 +136,27 @@ export async function announceAck(
  */
 export function parseAnnouncement(data: Uint8Array): Announcement | null {
   try {
+    if (data.length > MAX_MESSAGE_BYTES) return null;
+
     const text = new TextDecoder().decode(data);
     const obj = JSON.parse(text);
-    if (typeof obj.ipnsName === "string" && typeof obj.cid === "string") {
-      return obj as Announcement;
+    if (typeof obj.ipnsName !== "string" || typeof obj.cid !== "string") {
+      return null;
     }
-    return null;
+
+    // Validate inline block size after base64 decode.
+    // base64 output is ~4/3 of input, so check the
+    // encoded length as a fast approximation first.
+    if (typeof obj.block === "string") {
+      const approxBytes = (obj.block.length * 3) / 4;
+      if (approxBytes > MAX_INLINE_BLOCK_BYTES) {
+        // Strip oversized block — still return the
+        // announcement so the CID is tracked.
+        delete obj.block;
+      }
+    }
+
+    return obj as Announcement;
   } catch {
     return null;
   }
@@ -182,6 +202,8 @@ export function parseGuaranteeResponse(
   data: Uint8Array,
 ): GuaranteeResponse | null {
   try {
+    if (data.length > MAX_MESSAGE_BYTES) return null;
+
     const text = new TextDecoder().decode(data);
     const obj = JSON.parse(text);
     if (
