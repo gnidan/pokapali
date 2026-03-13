@@ -103,6 +103,18 @@ checks between them.
 commit SHA. The workflow logs each node's current
 commit at the start for reference.
 
+**First-time setup:** Run the setup script to
+generate a deploy key, install it on all nodes,
+and configure GH secrets:
+
+```bash
+bin/deploy-setup.sh
+```
+
+This uses `gh` CLI to set `DEPLOY_SSH_KEY` and
+`DEPLOY_KNOWN_HOSTS` secrets programmatically.
+Requires `gh` auth and SSH access to all nodes.
+
 **Manual deploy** (if GHA is unavailable):
 
 ```bash
