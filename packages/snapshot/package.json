@@ -1,11 +1,14 @@
 {
   "name": "@pokapali/snapshot",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "files": [
-    "dist"
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "!dist/src/**/*.test.*"
   ],
   "publishConfig": {
     "access": "public"
@@ -16,12 +19,6 @@
       "default": "./dist/src/index.js"
     }
   },
-  "files": [
-    "dist/src/**/*.js",
-    "dist/src/**/*.d.ts",
-    "dist/src/**/*.js.map",
-    "!dist/src/**/*.test.*"
-  ],
   "scripts": {
     "build": "tsc --build",
     "prepublishOnly": "npm run build",
@@ -29,7 +26,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@pokapali/crypto": "0.0.0",
+    "@pokapali/crypto": "0.1.0-alpha.0",
     "@ipld/dag-cbor": "^9.2.0",
     "multiformats": "^13.3.0"
   },
