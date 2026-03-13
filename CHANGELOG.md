@@ -7,6 +7,38 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] — 2026-03-13
+
+### Added
+
+- Scenario-driven Playwright E2E test suite: 20 new tests
+  covering share flow, comments UI, version history,
+  publish/save, connection status, and error states
+  (#92, #96, #97, #98, #99)
+- `createTestRelay()` in @pokapali/test-utils — minimal
+  libp2p node for fast E2E testing, <30ms startup (#95)
+- `data-testid` attributes on 7 UI components for
+  reliable E2E selectors (#93)
+- `bootstrapPeers` URL parameter in example app for
+  test relay injection (#94)
+- Per-package git tags (`@pokapali/pkg@version`) and
+  targeted publish workflow (#100)
+- Systematic audit: 10 P1, ~50 P2, ~38 P3 findings
+  across 7 categories (#101)
+
+### Changed
+
+- `yjs` moved from dependency to peerDependency in
+  core, sync, and subdocs — prevents duplicate Yjs
+  instances and silent CRDT corruption (#104)
+- E2E test infrastructure: IDB isolation, port
+  randomization, timeout rationalization (#92)
+
+### Fixed
+
+- `Capability` and `CapabilityGrant` types now
+  re-exported from @pokapali/core (#102)
+
 ## [0.1.0-alpha.1] — 2026-03-13
 
 ### Added
