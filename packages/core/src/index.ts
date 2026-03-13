@@ -446,3 +446,5 @@ export type {
   AwarenessTopology,
   AwarenessKnownNode,
 } from "./topology-sharing.js";
+
+export type { Capability, CapabilityGrant } from "@pokapali/capability";
