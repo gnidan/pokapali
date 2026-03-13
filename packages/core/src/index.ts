@@ -395,6 +395,7 @@ export type {
   SnapshotEvent,
   VersionInfo,
   ParticipantInfo,
+  ClientIdentityInfo,
 } from "./create-doc.js";
 
 export type { Feed } from "./sources.js";

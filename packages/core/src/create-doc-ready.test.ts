@@ -7,6 +7,8 @@ import { describe, it, expect, vi } from "vitest";
 // Mock all heavy dependencies
 vi.mock("@pokapali/crypto", () => ({
   hexToBytes: vi.fn(() => new Uint8Array(32)),
+  bytesToHex: vi.fn(() => "00".repeat(32)),
+  verifySignature: vi.fn(async () => true),
 }));
 
 vi.mock("@pokapali/snapshot", () => ({
@@ -81,6 +83,10 @@ vi.mock("./identity.js", () => ({
   signParticipant: vi.fn(async () => "mocksig"),
 }));
 
+vi.mock("./fetch-tip.js", () => ({
+  fetchTipFromPinners: vi.fn(async () => null),
+}));
+
 // Mock interpreter to crash immediately
 vi.mock("./interpreter.js", () => ({
   runInterpreter: vi.fn(async () => {
@@ -96,6 +102,9 @@ function mockSubdocManager() {
     getMap: vi.fn(() => ({
       set: vi.fn(),
       size: 0,
+      observe: vi.fn(),
+      unobserve: vi.fn(),
+      entries: vi.fn(() => []),
     })),
     guid: "test:_meta",
     on: vi.fn(),

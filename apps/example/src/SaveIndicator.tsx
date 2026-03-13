@@ -15,6 +15,8 @@ function saveLabel(saveState: SaveState, ackCount: number): string {
       return "Saving\u2026";
     case "unpublished":
       return "Publish now";
+    case "save-error":
+      return "Save failed";
   }
 }
 

@@ -316,6 +316,28 @@ async function main() {
                 return verified;
               }
             : undefined,
+        // Lazy check — pinner may not be created yet
+        // when block server launches on existing cert.
+        getTipData:
+          pinApps.length > 0
+            ? async (ipnsName) => {
+                if (!pinner) return null;
+                return pinner.getTipData(ipnsName);
+              }
+            : undefined,
+        getGuarantee:
+          pinApps.length > 0
+            ? (ipnsName) => {
+                if (!pinner) return null;
+                return pinner.getGuarantee(ipnsName);
+              }
+            : undefined,
+        recordActivity:
+          pinApps.length > 0
+            ? (ipnsName) => {
+                pinner?.recordActivity(ipnsName);
+              }
+            : undefined,
       });
 
       // Derive httpUrl: try SNI multiaddr first, then

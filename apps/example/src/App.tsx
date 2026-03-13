@@ -25,7 +25,7 @@ function getApp() {
     new URLSearchParams(window.location.search).get("noCache") === "1";
   const instance = pokapali({
     appId: "pokapali-example",
-    channels: ["content"],
+    channels: ["content", "comments"],
     origin:
       window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
     persistence: !noCache,
