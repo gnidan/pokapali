@@ -65,13 +65,28 @@ export function createAnchorFromSelection(
   };
 }
 
+function tryChannel(doc: Doc, name: string): Y.Doc | null {
+  try {
+    return doc.channel(name);
+  } catch {
+    return null;
+  }
+}
+
 // ── Main hook ────────────────────────────────────
 
 export function useComments(doc: Doc) {
   const [instance, setInstance] = useState<Comments<CommentData> | null>(null);
 
   useEffect(() => {
-    const commentsDoc = doc.channel("comments");
+    let commentsDoc: Y.Doc;
+    try {
+      commentsDoc = doc.channel("comments");
+    } catch {
+      // Old docs created before comments channel
+      // existed — comments are unavailable.
+      return;
+    }
     const contentDoc = doc.channel("content");
 
     const c = comments<CommentData>(commentsDoc, contentDoc, {
@@ -151,6 +166,6 @@ export function useComments(doc: Doc) {
     reopenComment,
     deleteComment,
     /** Raw comments doc for anchor resolution. */
-    commentsDoc: instance ? doc.channel("comments") : null,
+    commentsDoc: instance ? tryChannel(doc, "comments") : null,
   };
 }
