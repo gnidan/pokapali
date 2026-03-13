@@ -31,4 +31,4 @@ data, signature, publicKey)`** — Ed25519 sign/verify
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Key Derivation](../../docs/architecture.md)
+- [Architecture — Key Derivation](../../docs/internals/architecture.md)

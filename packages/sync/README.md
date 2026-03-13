@@ -32,4 +32,4 @@ signaling servers required.
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture](../../docs/architecture.md)
+- [Architecture](../../docs/internals/architecture.md)

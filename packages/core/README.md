@@ -68,7 +68,7 @@ doc2.destroy();
 ```
 
 See
-[examples/getting-started/](../../examples/getting-started/)
+[examples/getting-started/](../../docs/examples/getting-started/)
 for runnable create and open scripts.
 
 ## API
@@ -186,6 +186,7 @@ unless you are building server infrastructure.
 
 ## Links
 
-- [Getting Started Guide](../../docs/guide.md)
-- [Architecture](../../docs/architecture.md)
-- [Examples](../../examples/getting-started/)
+- [Getting Started](../../docs/getting-started.md)
+- [Full API Guide](../../docs/guide.md)
+- [Architecture](../../docs/internals/architecture.md)
+- [Examples](../../docs/examples/getting-started/)

@@ -32,4 +32,4 @@ This package handles serialization and provides
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Capability URLs](../../docs/architecture.md)
+- [Architecture — Capability URLs](../../docs/internals/architecture.md)

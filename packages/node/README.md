@@ -42,4 +42,4 @@ npx pokapali \
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Pinning Servers](../../docs/architecture.md)
+- [Architecture — Pinning Servers](../../docs/internals/architecture.md)
