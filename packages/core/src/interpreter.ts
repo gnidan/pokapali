@@ -230,6 +230,14 @@ export async function runInterpreter(
     if (signal.aborted) break;
 
     // --- Fetch newly-unknown CIDs ---
+    // Compute max seq once for cache tip check.
+    let maxSeq = -1;
+    for (const e of next.chain.entries.values()) {
+      if (e.seq !== undefined && e.seq > maxSeq) {
+        maxSeq = e.seq;
+      }
+    }
+
     for (const entry of next.chain.entries.values()) {
       if (entry.blockStatus !== "unknown") continue;
       const key = entry.cid.toString();
@@ -237,8 +245,17 @@ export async function runInterpreter(
       // Only fetch if entry just became unknown
       // (new discovery or retry reset)
       if (prevEntry?.blockStatus === "unknown") continue;
-      // Only auto-fetch tip-candidate sources
-      if (!shouldAutoFetch(entry)) continue;
+      // Only auto-fetch tip-candidate sources.
+      // Exception: cache-sourced entries that are
+      // the newest seq get fetched so the editor
+      // has its block on reload.
+      if (!shouldAutoFetch(entry)) {
+        const isNewestCached =
+          entry.discoveredVia.has("cache") &&
+          entry.seq !== undefined &&
+          entry.seq === maxSeq;
+        if (!isNewestCached) continue;
+      }
 
       // Fast path: if the block is already cached
       // locally (e.g. from a prior publish or
