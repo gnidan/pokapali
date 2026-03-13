@@ -28,7 +28,12 @@ const app = pokapali({
 //    The URL encodes your access level (admin,
 //    write, or read).
 const doc = await app.open(url);
-console.log("Opened doc (role: %s)", doc.role);
+const role = doc.capability.isAdmin
+  ? "admin"
+  : doc.capability.canPushSnapshots
+    ? "writer"
+    : "reader";
+console.log("Opened doc (role: %s)", role);
 
 // 3. Wait for meaningful state to arrive.
 //    ready() resolves once content is available
