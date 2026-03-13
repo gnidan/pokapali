@@ -39,10 +39,9 @@ describe("fetchTipFromPinners", () => {
       json: async () => ({
         cid: cid.toString(),
         block: uint8ToBase64(block),
+        peerId: "12D3KooW-pinner1",
         seq: 5,
         ts: 1710000000000,
-        guaranteeUntil: 1710086400000,
-        retainUntil: 1710172800000,
       }),
     });
 
@@ -56,8 +55,7 @@ describe("fetchTipFromPinners", () => {
     expect(result!.block).toEqual(block);
     expect(result!.seq).toBe(5);
     expect(result!.ts).toBe(1710000000000);
-    expect(result!.guaranteeUntil).toBe(1710086400000);
-    expect(result!.retainUntil).toBe(1710172800000);
+    expect(result!.peerId).toBe("12D3KooW-pinner1");
 
     // Verify URL construction
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -95,11 +93,12 @@ describe("fetchTipFromPinners", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("skips malformed response (missing cid)", async () => {
+  it("skips malformed response " + "(missing cid)", async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         block: "AQID",
+        peerId: "12D3KooW-p1",
         seq: 1,
       }),
     });
@@ -111,12 +110,32 @@ describe("fetchTipFromPinners", () => {
     expect(result).toBeNull();
   });
 
-  it("skips malformed response (missing block)", async () => {
+  it("skips malformed response " + "(missing block)", async () => {
     const cid = await makeCid(new Uint8Array([1, 2]));
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         cid: cid.toString(),
+        peerId: "12D3KooW-p1",
+        seq: 1,
+      }),
+    });
+
+    const result = await fetchTipFromPinners(
+      ["https://pinner1.example.com"],
+      "abc123",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("skips malformed response " + "(missing peerId)", async () => {
+    const block = new Uint8Array([1, 2]);
+    const cid = await makeCid(block);
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        cid: cid.toString(),
+        block: uint8ToBase64(block),
         seq: 1,
       }),
     });
@@ -134,6 +153,7 @@ describe("fetchTipFromPinners", () => {
       json: async () => ({
         cid: "not-a-valid-cid",
         block: "AQID",
+        peerId: "12D3KooW-p1",
         seq: 1,
       }),
     });
@@ -160,6 +180,7 @@ describe("fetchTipFromPinners", () => {
       json: async () => ({
         cid: cid.toString(),
         block: uint8ToBase64(block),
+        peerId: "12D3KooW-p2",
         seq: 3,
         ts: 1000,
       }),
@@ -184,6 +205,7 @@ describe("fetchTipFromPinners", () => {
       json: async () => ({
         cid: cid.toString(),
         block: uint8ToBase64(block),
+        peerId: "12D3KooW-p1",
       }),
     });
 
@@ -194,7 +216,7 @@ describe("fetchTipFromPinners", () => {
     expect(result!.ts).toBeGreaterThanOrEqual(before);
   });
 
-  it("omits guarantee fields when not present", async () => {
+  it("includes guarantee fields " + "when present", async () => {
     const block = new Uint8Array([7]);
     const cid = await makeCid(block);
 
@@ -203,12 +225,38 @@ describe("fetchTipFromPinners", () => {
       json: async () => ({
         cid: cid.toString(),
         block: uint8ToBase64(block),
+        peerId: "12D3KooW-pinner-a",
+        seq: 1,
+        ts: 1000,
+        guaranteeUntil: 9999,
+        retainUntil: 8888,
+      }),
+    });
+
+    const result = await fetchTipFromPinners(["https://p.example.com"], "abc");
+    expect(result).not.toBeNull();
+    expect(result!.peerId).toBe("12D3KooW-pinner-a");
+    expect(result!.guaranteeUntil).toBe(9999);
+    expect(result!.retainUntil).toBe(8888);
+  });
+
+  it("omits guarantee fields " + "when not in response", async () => {
+    const block = new Uint8Array([8]);
+    const cid = await makeCid(block);
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        cid: cid.toString(),
+        block: uint8ToBase64(block),
+        peerId: "12D3KooW-p1",
         seq: 1,
         ts: 1000,
       }),
     });
 
     const result = await fetchTipFromPinners(["https://p.example.com"], "abc");
+    expect(result).not.toBeNull();
     expect(result!.guaranteeUntil).toBeUndefined();
     expect(result!.retainUntil).toBeUndefined();
   });
