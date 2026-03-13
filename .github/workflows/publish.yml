@@ -2,7 +2,17 @@ name: Publish
 
 on:
   push:
-    tags: ["**"]
+    tags: ["publish/**"]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package directory name (e.g. core, crypto)"
+        required: true
+        type: string
+      version:
+        description: "Version to verify (e.g. 0.1.0-alpha.2)"
+        required: true
+        type: string
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -11,25 +21,28 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/@pokapali/')
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Parse tag
-        id: tag
+      - name: Parse inputs
+        id: pkg
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          # Tag format: @pokapali/<name>@<version>
-          PKG="${TAG%@[0-9]*}"
-          VERSION="${TAG##*@}"
-          DIR="${PKG#@pokapali/}"
-          echo "package=$PKG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tag format: publish/<dir>/<version>
+            TAG="${GITHUB_REF#refs/tags/publish/}"
+            DIR="${TAG%%/*}"
+            VERSION="${TAG#*/}"
+          else
+            # workflow_dispatch
+            DIR="${{ inputs.package }}"
+            VERSION="${{ inputs.version }}"
+          fi
           echo "dir=$DIR" >> "$GITHUB_OUTPUT"
-          echo "Publishing $PKG@$VERSION from packages/$DIR"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing @pokapali/$DIR@$VERSION"
 
       - uses: actions/setup-node@v4
         with:
@@ -47,13 +60,13 @@ jobs:
 
       - name: Verify version
         run: |
-          ACTUAL=$(node -p "require('./packages/${{ steps.tag.outputs.dir }}/package.json').version")
-          if [ "$ACTUAL" != "${{ steps.tag.outputs.version }}" ]; then
-            echo "Version mismatch: package.json=$ACTUAL tag=${{ steps.tag.outputs.version }}"
+          ACTUAL=$(node -p "require('./packages/${{ steps.pkg.outputs.dir }}/package.json').version")
+          if [ "$ACTUAL" != "${{ steps.pkg.outputs.version }}" ]; then
+            echo "Version mismatch: package.json=$ACTUAL tag=${{ steps.pkg.outputs.version }}"
             exit 1
           fi
 
       - name: Publish
-        run: npm publish -w packages/${{ steps.tag.outputs.dir }} --access public
+        run: npm publish -w packages/${{ steps.pkg.outputs.dir }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -41,6 +41,7 @@ The script:
 4. Updates internal `@pokapali/*` dependency versions
 5. Runs `npm install` to sync the lockfile
 6. Creates a single commit
+7. Creates per-package git tags (`publish/<dir>/<version>`)
 
 ## Publishing
 
@@ -48,9 +49,20 @@ Packages are published to npm under the `@pokapali` scope.
 Private packages (`load-test`, `example`) are never
 published.
 
+**Automated (preferred):** Push tags created by the
+version-bump script. Each tag triggers a GitHub Actions
+workflow that builds, tests, and publishes that package.
+
 ```bash
-# Dry run first
-npm publish --dry-run --workspaces
-# Publish all public packages
-npm publish --workspaces --access public
+# After version-bump.mjs, push commit + tags
+git push origin main publish/core/0.1.0-alpha.1 ...
+```
+
+**Manual dispatch:** Trigger from the Actions tab using
+`workflow_dispatch` with a package name and version.
+
+**Manual CLI:**
+
+```bash
+npm publish -w packages/core --access public
 ```

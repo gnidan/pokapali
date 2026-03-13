@@ -18,7 +18,7 @@
 // --all bumps every publishable package to the same version
 // (useful for initial release).
 //
-// Creates per-package git tags (e.g. @pokapali/core@0.1.0)
+// Creates per-package git tags (e.g. publish/core/0.1.0)
 // that trigger the publish workflow.
 //
 // Rule: version bumps must be single commits on main.
@@ -260,7 +260,11 @@ const bumped = [...toBump].map((name) => packages.get(name).dir).join(", ");
 run(`git commit -m "chore: bump ${bumped} to ${version}"`);
 
 // Create per-package tags for publish workflow
-const tags = [...toBump].map((name) => `${name}@${version}`);
+// Format: publish/<dir>/<version> (no @ to avoid GHA issues)
+const tags = [...toBump].map((name) => {
+  const { dir } = packages.get(name);
+  return `publish/${dir}/${version}`;
+});
 for (const tag of tags) {
   run(`git tag "${tag}"`);
   console.log(`  tagged ${tag}`);
@@ -268,5 +272,5 @@ for (const tag of tags) {
 
 console.log(`\nDone. Review with: git log -1 --stat`);
 console.log(
-  `Push with: git push origin main ${tags.map((t) => `"${t}"`).join(" ")}`,
+  `Push with: git push origin main ${tags.join(" ")}`,
 );
