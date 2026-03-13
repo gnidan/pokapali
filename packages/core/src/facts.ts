@@ -19,7 +19,8 @@ export type CidSource =
   | "ipns"
   | "reannounce"
   | "chain-walk"
-  | "pinner-index";
+  | "pinner-index"
+  | "cache";
 
 export type Fact =
   // --- Chain discovery ---

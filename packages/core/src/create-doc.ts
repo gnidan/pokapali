@@ -35,6 +35,8 @@ import type { RoomDiscovery } from "./peer-discovery.js";
 import type { DocPersistence } from "./persistence.js";
 import { createBlockResolver } from "./block-resolver.js";
 import { createSnapshotCodec } from "./snapshot-codec.js";
+import { readVersionCache, writeVersionCache } from "./version-cache.js";
+import type { CachedVersionEntry } from "./version-cache.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -505,10 +507,41 @@ export function createDoc(params: DocParams): Doc {
     EMPTY_VERSION_HISTORY,
   );
 
+  let versionCacheTimer: ReturnType<typeof setTimeout> | null = null;
+  const VERSION_CACHE_DEBOUNCE_MS = 500;
+
+  function flushVersionCache(): void {
+    if (versionCacheTimer) {
+      clearTimeout(versionCacheTimer);
+      versionCacheTimer = null;
+    }
+    const { entries } = versionsFeed.getSnapshot();
+    if (entries.length === 0) return;
+    const cached: CachedVersionEntry[] = entries.map((e) => ({
+      cid: e.cid.toString(),
+      seq: e.seq,
+      ts: e.ts,
+    }));
+    writeVersionCache(ipnsName, cached).catch((err) => {
+      log.debug("version cache flush failed:", err);
+    });
+  }
+
+  function scheduleVersionCacheWrite(): void {
+    if (versionCacheTimer) {
+      clearTimeout(versionCacheTimer);
+    }
+    versionCacheTimer = setTimeout(
+      flushVersionCache,
+      VERSION_CACHE_DEBOUNCE_MS,
+    );
+  }
+
   function updateVersionsFeed(): void {
     versionsFeed._update(
       deriveVersionHistory(interpreterState?.chain ?? null, localChain),
     );
+    scheduleVersionCacheWrite();
   }
 
   // --- Event bridges ---
@@ -691,6 +724,32 @@ export function createDoc(params: DocParams): Doc {
     });
     interpreterState = init;
 
+    const fq = factQueue;
+
+    // --- Hydrate version index from IDB cache ---
+    readVersionCache(ipnsName)
+      .then((cached) => {
+        if (!cached || destroyed) return;
+        for (const e of cached.entries) {
+          try {
+            fq.push({
+              type: "cid-discovered",
+              ts: e.ts,
+              cid: CID.parse(e.cid),
+              source: "cache",
+              seq: e.seq,
+              snapshotTs: e.ts,
+            });
+          } catch {
+            // skip unparseable CIDs
+          }
+        }
+        log.debug("hydrated " + cached.entries.length + " cached versions");
+      })
+      .catch((err) => {
+        log.debug("version cache hydration failed:", err);
+      });
+
     // --- GossipSub subscription + fact bridge ---
     const topic = announceTopic(appId);
     pubsub.subscribe(topic);
@@ -698,8 +757,6 @@ export function createDoc(params: DocParams): Doc {
       type: "gossip-subscribed",
       ts: Date.now(),
     });
-
-    const fq = factQueue;
     const gossipHandler = (evt: CustomEvent) => {
       const { detail } = evt;
       if (detail?.topic !== topic) return;
@@ -1132,6 +1189,8 @@ export function createDoc(params: DocParams): Doc {
 
   function teardown() {
     destroyed = true;
+    // Flush version cache before cleanup
+    flushVersionCache();
     // Interpreter cleanup
     interpreterAc?.abort();
     if (initialQueryTimer) {
