@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createAnchor, resolveAnchor } from "./anchor.js";
+import {
+  anchorFromRelativePositions,
+  createAnchor,
+  resolveAnchor,
+} from "./anchor.js";
 
 function makeContentDoc(text: string): Y.Doc {
   const doc = new Y.Doc();
@@ -18,6 +22,51 @@ describe("anchor", () => {
       expect(anchor.end).toBeInstanceOf(Uint8Array);
       expect(anchor.start.length).toBeGreaterThan(0);
       expect(anchor.end.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("anchorFromRelativePositions", () => {
+    it("produces same result as createAnchor", () => {
+      const doc = makeContentDoc("hello world");
+      const text = doc.getText("default");
+      const startRelPos = Y.createRelativePositionFromTypeIndex(text, 0);
+      const endRelPos = Y.createRelativePositionFromTypeIndex(text, 5);
+
+      const a1 = createAnchor(doc, 0, 5);
+      const a2 = anchorFromRelativePositions(startRelPos, endRelPos);
+
+      expect(a2.start).toEqual(a1.start);
+      expect(a2.end).toEqual(a1.end);
+    });
+
+    it("works with XmlFragment positions", () => {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment("default");
+      frag.insert(0, [new Y.XmlText("para one")]);
+      frag.insert(1, [new Y.XmlText("para two")]);
+
+      const startRelPos = Y.createRelativePositionFromTypeIndex(frag, 0);
+      const endRelPos = Y.createRelativePositionFromTypeIndex(frag, 2);
+
+      const anchor = anchorFromRelativePositions(startRelPos, endRelPos);
+
+      expect(anchor.start).toBeInstanceOf(Uint8Array);
+      expect(anchor.end).toBeInstanceOf(Uint8Array);
+
+      // Resolve against the same doc/fragment.
+      const absStart = Y.createAbsolutePositionFromRelativePosition(
+        Y.decodeRelativePosition(anchor.start),
+        doc,
+      );
+      const absEnd = Y.createAbsolutePositionFromRelativePosition(
+        Y.decodeRelativePosition(anchor.end),
+        doc,
+      );
+
+      expect(absStart).not.toBeNull();
+      expect(absEnd).not.toBeNull();
+      expect(absStart!.index).toBe(0);
+      expect(absEnd!.index).toBe(2);
     });
   });
 

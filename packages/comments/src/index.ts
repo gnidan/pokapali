@@ -9,6 +9,7 @@
 import * as Y from "yjs";
 import { createLogger } from "@pokapali/log";
 import {
+  anchorFromRelativePositions,
   createAnchor as createAnchorImpl,
   getContentType,
   resolveAnchor,
@@ -26,6 +27,7 @@ import {
 import { verifyAuthor } from "./verify.js";
 import type { ClientIdMapping, ClientIdentityInfo } from "./verify.js";
 
+export { anchorFromRelativePositions };
 export type {
   Anchor,
   ResolvedAnchor,
