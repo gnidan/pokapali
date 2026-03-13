@@ -1,6 +1,8 @@
 /**
  * Yjs-level sync harness for testing multi-peer
- * scenarios. Synchronous — no timers, no flakiness.
+ * scenarios. Synchronous by default — no timers,
+ * no flakiness. Optionally adds configurable
+ * latency simulation for realistic delay testing.
  */
 
 import * as Y from "yjs";
@@ -31,13 +33,32 @@ export interface TestNetwork {
    * (identical state vectors for each channel).
    */
   isConverged(): boolean;
+  /**
+   * Wait for all pending delayed updates to be
+   * delivered. Resolves immediately when no latency
+   * is configured or no updates are in flight.
+   */
+  settle(): Promise<void>;
   /** Clean up all docs and observers. */
   destroy(): void;
+}
+
+export interface LatencyOptions {
+  /** Base delay in milliseconds. */
+  ms: number;
+  /**
+   * Random jitter range in milliseconds.
+   * Actual delay = ms + random(-jitter, +jitter).
+   * Clamped to >= 0.
+   */
+  jitter?: number;
 }
 
 export interface TestNetworkOptions {
   /** Channel names each peer will have. */
   channels: string[];
+  /** Optional latency simulation. */
+  latency?: LatencyOptions;
 }
 
 // ── Implementation ───────────────────────────────
@@ -53,10 +74,17 @@ function linkKey(a: string, b: string): LinkKey {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
+function computeDelay(lat: LatencyOptions): number {
+  const jitter = lat.jitter ?? 0;
+  const offset = jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0;
+  return Math.max(0, lat.ms + offset);
+}
+
 export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
-  const { channels } = options;
+  const { channels, latency } = options;
   const peers = new Map<string, PeerState>();
   const connected = new Set<LinkKey>();
+  const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
   let destroyed = false;
 
   function assertAlive() {
@@ -107,6 +135,32 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
     syncOne(b, a);
   }
 
+  /**
+   * Apply an update, either immediately or after
+   * a latency delay.
+   */
+  function deliverUpdate(
+    target: Y.Doc,
+    update: Uint8Array,
+    origin: string,
+    key: LinkKey,
+  ) {
+    if (!latency) {
+      if (!connected.has(key)) return;
+      Y.applyUpdate(target, update, origin);
+      return;
+    }
+
+    const delay = computeDelay(latency);
+    const timer = setTimeout(() => {
+      pendingTimers.delete(timer);
+      if (destroyed) return;
+      if (!connected.has(key)) return;
+      Y.applyUpdate(target, update, origin);
+    }, delay);
+    pendingTimers.add(timer);
+  }
+
   /** Set up live sync observers between two peers. */
   function connect(aName: string, bName: string) {
     const key = linkKey(aName, bName);
@@ -116,7 +170,7 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
     const a = peers.get(aName)!;
     const b = peers.get(bName)!;
 
-    // Initial sync.
+    // Initial sync is always immediate.
     syncPair(a, b);
 
     // Live sync via update observers.
@@ -126,14 +180,12 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
 
       aDoc.on("update", function handler(update: Uint8Array, origin: unknown) {
         if (origin === bName) return;
-        if (!connected.has(key)) return;
-        Y.applyUpdate(bDoc, update, aName);
+        deliverUpdate(bDoc, update, aName, key);
       });
 
       bDoc.on("update", function handler(update: Uint8Array, origin: unknown) {
         if (origin === aName) return;
-        if (!connected.has(key)) return;
-        Y.applyUpdate(aDoc, update, bName);
+        deliverUpdate(aDoc, update, bName, key);
       });
     }
   }
@@ -190,7 +242,6 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
 
     partition(...groups) {
       assertAlive();
-      // Disconnect all cross-group links.
       const peerNames = [...peers.keys()];
       for (let i = 0; i < peerNames.length; i++) {
         for (let j = i + 1; j < peerNames.length; j++) {
@@ -234,9 +285,29 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
       return true;
     },
 
+    settle() {
+      if (destroyed || pendingTimers.size === 0) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        const check = () => {
+          if (destroyed || pendingTimers.size === 0) {
+            resolve();
+          } else {
+            setTimeout(check, 1);
+          }
+        };
+        setTimeout(check, 1);
+      });
+    },
+
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      for (const timer of pendingTimers) {
+        clearTimeout(timer);
+      }
+      pendingTimers.clear();
       for (const state of peers.values()) {
         for (const doc of state.docs.values()) {
           doc.destroy();
