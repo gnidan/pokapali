@@ -13,6 +13,12 @@ import { SharePanel } from "./SharePanel";
 import { VersionHistory } from "./VersionHistory";
 import { VersionPreviewOverlay } from "./VersionPreviewOverlay";
 import { useVersionHistory } from "./useVersionHistory";
+import { CommentSidebar } from "./CommentSidebar";
+import { useComments, createAnchorFromSelection } from "./useComments";
+import {
+  CommentHighlight,
+  rebuildCommentDecorations,
+} from "./commentHighlight";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -32,6 +38,11 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
   const [showShare, setShowShare] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
+    null,
+  );
+  const [hasSelection, setHasSelection] = useState(false);
   const [previewVersion, setPreviewVersion] = useState<{
     entry: VersionEntry;
     ydoc: YDoc;
@@ -58,6 +69,16 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   // Preload version history on doc open so the
   // drawer opens instantly when the user clicks History.
   const versionHistory = useVersionHistory(doc);
+
+  const {
+    comments: commentList,
+    addComment,
+    addReply,
+    resolveComment,
+    reopenComment,
+    deleteComment,
+    commentsDoc,
+  } = useComments(doc);
 
   const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
@@ -148,11 +169,35 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
               },
               render: renderCursor,
             }),
+            CommentHighlight.configure({
+              commentsDoc: commentsDoc ?? null,
+              contentDoc,
+              activeCommentId: selectedCommentId,
+            }),
           ]
         : [StarterKit.configure({ history: false })],
     },
-    [doc, shouldMount],
+    [doc, shouldMount, commentsDoc],
   );
+
+  // Track editor selection for "Comment on selection"
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => {
+      const { from, to } = editor.state.selection;
+      setHasSelection(from !== to);
+    };
+    editor.on("selectionUpdate", update);
+    return () => {
+      editor.off("selectionUpdate", update);
+    };
+  }, [editor]);
+
+  // Rebuild comment decorations when comments change
+  useEffect(() => {
+    if (!editor?.view) return;
+    rebuildCommentDecorations(editor.view);
+  }, [editor, commentList]);
 
   useEffect(() => {
     const displayName = user.name || "Anonymous";
@@ -233,6 +278,25 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const closePreview = useCallback(() => {
     setPreviewVersion(null);
   }, []);
+
+  const handleAddComment = useCallback(
+    (content: string) => {
+      if (!editor) return;
+      const { from, to } = editor.state.selection;
+      if (from === to) return;
+      const anchor = createAnchorFromSelection(editor, from, to);
+      if (!anchor) return;
+      addComment(content, anchor);
+    },
+    [editor, addComment],
+  );
+
+  const handleAddReply = useCallback(
+    (parentId: string, content: string) => {
+      addReply(parentId, content);
+    },
+    [addReply],
+  );
 
   useEffect(() => {
     if (showShare && sharePanelRef.current) {
@@ -356,6 +420,17 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         >
           {showHistory ? "Hide history" : "History"}
         </button>
+        <button
+          className="toggle-comments"
+          onClick={() => setShowComments((s) => !s)}
+          aria-expanded={showComments}
+          aria-label={showComments ? "Hide comments" : "Open comments"}
+        >
+          {showComments ? "Hide comments" : "Comments"}
+          {commentList.length > 0 && (
+            <span className="comment-count-badge">{commentList.length}</span>
+          )}
+        </button>
       </div>
 
       {showShare && <SharePanel ref={sharePanelRef} doc={doc} />}
@@ -396,6 +471,22 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             onClose={() => setShowHistory(false)}
             onPreview={handleVersionPreview}
             onClosePreview={closePreview}
+          />
+        )}
+
+        {showComments && (
+          <CommentSidebar
+            comments={commentList}
+            myPubkey={doc.identityPubkey}
+            hasSelection={hasSelection}
+            onAddComment={handleAddComment}
+            onAddReply={handleAddReply}
+            onResolve={resolveComment}
+            onReopen={reopenComment}
+            onDelete={deleteComment}
+            onClose={() => setShowComments(false)}
+            selectedId={selectedCommentId}
+            onSelect={setSelectedCommentId}
           />
         )}
       </div>
