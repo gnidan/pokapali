@@ -19,7 +19,7 @@
   },
   "license": "MIT",
   "lint-staged": {
-    "*.{ts,tsx,js,jsx}": [
+    "*.{ts,tsx,js,jsx,mjs}": [
       "prettier --write",
       "eslint --fix"
     ],
