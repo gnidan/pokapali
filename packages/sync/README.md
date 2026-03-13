@@ -1,7 +1,8 @@
 # @pokapali/sync
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/sync
+```
 
 WebRTC room setup for real-time Yjs sync. Creates one
 y-webrtc room per writable namespace (password-protected

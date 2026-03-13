@@ -1,7 +1,8 @@
 # @pokapali/core
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/core
+```
 
 Main integration layer for Pokapali. Provides the
 `pokapali` factory for creating and opening collaborative

@@ -1,7 +1,8 @@
 # @pokapali/subdocs
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/subdocs
+```
 
 Yjs subdocument manager with namespace isolation. Creates
 and manages one `Y.Doc` per namespace, tracks dirty state
