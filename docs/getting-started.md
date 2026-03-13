@@ -113,7 +113,8 @@ function StatusBadge({ doc }) {
 ```
 
 Available feeds: `doc.status`, `doc.saveState`,
-`doc.tip`, `doc.loading`, `doc.versions`.
+`doc.tip`, `doc.loading`, `doc.versions`,
+`doc.clientIdMapping`.
 
 ## Clean up
 

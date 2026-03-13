@@ -282,7 +282,7 @@ doc.on("save", (state) => {
 });
 ```
 
-**Additional events** for network visualization:
+Other events:
 
 ```ts
 // Block fetch progress (IPNS resolve, block fetch)
@@ -290,14 +290,6 @@ doc.on("loading", (state) => {
   // state.status: "idle" | "resolving" |
   //   "fetching" | "retrying" | "failed"
 });
-
-// GossipSub activity changes
-doc.on("gossip-activity", (activity) => {
-  // "inactive" | "subscribed" | "receiving"
-});
-
-// Outbound guarantee query sent to pinners
-doc.on("guarantee-query", () => {});
 
 // Pinner acknowledged current snapshot
 doc.on("ack", (peerId) => {});
@@ -584,7 +576,7 @@ preserving the current content:
 
 ```ts
 const result = await doc.rotate();
-// result.doc — new Doc with fresh keys
+// result.newDoc — new Doc with fresh keys
 // result.forwardingRecord — signed redirect from
 //   old IPNS name to new one
 ```

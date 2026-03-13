@@ -38,7 +38,8 @@ These APIs work but may change shape:
 
 - `LoadingState`, `VersionHistory`,
   `VersionHistoryEntry`, `VersionEntryStatus`
-- `GossipActivity`, `ParticipantInfo`
+- `GossipActivity`, `ParticipantInfo`,
+  `ClientIdentityInfo`
 - `fetchVersionHistory()`, `VersionEntry`,
   `VersionTier`
 - `createAutoSaver()`, `AutoSaveOptions`
