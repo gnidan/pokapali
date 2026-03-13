@@ -66,3 +66,48 @@ git push origin main publish/core/0.1.0-alpha.1 ...
 ```bash
 npm publish -w packages/core --access public
 ```
+
+## Deploying Relays
+
+Relay nodes are deployed via GitHub Actions. The
+workflow reads node configuration from
+`deploy/nodes.json` and deploys in rolling batches
+with health checks between each batch.
+
+**Automated (preferred):** Trigger from the Actions
+tab → "Deploy Relays" → Run workflow.
+
+Inputs:
+
+- **commit** — target SHA (default: latest main)
+- **skip_nodes** — comma-separated names to exclude
+- **dry_run** — log commands without executing
+
+**Node configuration:** Edit `deploy/nodes.json` to
+add, remove, or reorder nodes. Each batch deploys
+in parallel; batches run sequentially with health
+checks between them.
+
+```json
+{
+  "batches": [
+    {
+      "name": "batch-1",
+      "nodes": [{ "name": "chi", "host": "1.2.3.4", "role": "pinner" }]
+    }
+  ]
+}
+```
+
+**Rollback:** Re-run the workflow with the previous
+commit SHA. The workflow logs each node's current
+commit at the start for reference.
+
+**Manual deploy** (if GHA is unavailable):
+
+```bash
+bin/deploy-node.sh root <ip> /opt/pokapali \
+  pokapali-node <commit>
+bin/health-check.sh root <ip> /opt/pokapali \
+  pokapali-node <commit> 3000 15 4 20
+```
