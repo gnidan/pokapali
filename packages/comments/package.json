@@ -19,7 +19,8 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc --build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@pokapali/log": "0.1.0-alpha.2"

@@ -19,7 +19,8 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc --build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
