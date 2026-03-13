@@ -53,10 +53,8 @@ vi.mock("./peer-discovery.js", () => ({
   startRoomDiscovery: vi.fn(),
 }));
 
-vi.mock("./snapshot-lifecycle.js", () => ({
-  createSnapshotLifecycle: vi.fn(() => ({
-    putBlock: vi.fn(),
-    getBlock: vi.fn(),
+vi.mock("./snapshot-codec.js", () => ({
+  createSnapshotCodec: vi.fn(() => ({
     applyRemote: vi.fn(),
     push: vi.fn(),
     prev: null,

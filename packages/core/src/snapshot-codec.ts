@@ -9,19 +9,14 @@ import {
 } from "@pokapali/snapshot";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
-import { fetchBlock } from "./fetch-block.js";
-import type { BlockGetter } from "./fetch-block.js";
+import type { BlockResolver } from "./block-resolver.js";
 
-const log = createLogger("snapshot-lifecycle");
+const log = createLogger("snapshot-codec");
 
 const DAG_CBOR_CODE = 0x71;
 
-export interface SnapshotLifecycleOptions {
-  getHelia: () => BlockGetter;
-  /** Dynamic getter for HTTP block endpoint URLs
-   *  (from node registry caps). Used as fallback
-   *  when blockstore retries fail. */
-  httpUrls?: () => string[];
+export interface SnapshotCodecOptions {
+  resolver: BlockResolver;
 }
 
 export interface PushResult {
@@ -31,7 +26,7 @@ export interface PushResult {
   block: Uint8Array;
 }
 
-export interface SnapshotLifecycle {
+export interface SnapshotCodec {
   push(
     plaintext: Record<string, Uint8Array>,
     readKey: CryptoKey,
@@ -48,24 +43,21 @@ export interface SnapshotLifecycle {
 
   loadVersion(cid: CID, readKey: CryptoKey): Promise<Record<string, Y.Doc>>;
 
-  getBlock(cidStr: string): Uint8Array | undefined;
-  putBlock(cidStr: string, block: Uint8Array): void;
-
   readonly prev: CID | null;
   readonly seq: number;
   readonly lastIpnsSeq: number | null;
   setLastIpnsSeq(seq: number): void;
 }
 
-export function createSnapshotLifecycle(
-  options: SnapshotLifecycleOptions,
-): SnapshotLifecycle {
+export function createSnapshotCodec(
+  options: SnapshotCodecOptions,
+): SnapshotCodec {
   let seq = 1;
   let prev: CID | null = null;
   let lastIpnsSeq: number | null = null;
-  const blocks = new Map<string, Uint8Array>();
   const decodedVersions = new Map<string, Record<string, Y.Doc>>();
   let lastAppliedCid: string | null = null;
+  const resolver = options.resolver;
 
   return {
     async push(
@@ -96,9 +88,8 @@ export function createSnapshotLifecycle(
       const hash = await sha256.digest(block);
       const cid = CIDClass.createV1(DAG_CBOR_CODE, hash);
 
-      const cidStr = cid.toString();
-      blocks.set(cidStr, block);
-      lastAppliedCid = cidStr;
+      resolver.put(cid, block);
+      lastAppliedCid = cid.toString();
       lastIpnsSeq = clockSum;
 
       prev = cid;
@@ -116,27 +107,20 @@ export function createSnapshotLifecycle(
       const cidStr = cid.toString();
       if (cidStr === lastAppliedCid) return false;
 
-      const helia = options.getHelia();
-      const block = await fetchBlock(helia, cid, {
-        httpUrls: options.httpUrls?.(),
-      });
-      if (block.length === 0) {
-        log.warn("empty block for", cidStr);
+      const block = await resolver.get(cid);
+      if (!block || block.length === 0) {
+        log.warn("block not found for", cidStr);
         return false;
       }
 
       const node = decodeSnapshot(block);
       const plaintext = await decryptSnapshot(node, readKey);
 
-      blocks.set(cidStr, block);
-
-      // Serve the validated block to other peers
-      // via bitswap.
-      if (helia.blockstore.put) {
-        Promise.resolve(helia.blockstore.put(cid, block)).catch(
-          (err: unknown) => log.warn("blockstore.put failed:", err),
-        );
-      }
+      // resolver.put() already happened inside
+      // resolver.get() when it fetched the block.
+      // Explicit put ensures memory cache is warm
+      // if the block came from an external caller.
+      resolver.put(cid, block);
 
       onApply(plaintext);
 
@@ -159,28 +143,11 @@ export function createSnapshotLifecycle(
       const decoded = decodedVersions.get(cidStr);
       if (decoded) return decoded;
 
-      const cached = blocks.get(cidStr);
-      let block: Uint8Array | undefined =
-        cached && cached.length > 0 ? cached : undefined;
-      if (!block) {
-        const helia = options.getHelia();
-        try {
-          block = await fetchBlock(helia, cid, {
-            httpUrls: options.httpUrls?.(),
-            retries: 2,
-            baseMs: 1_000,
-          });
-        } catch {
-          throw new Error("Block not found: " + cidStr);
-        }
-        blocks.set(cidStr, block);
-        // Persist to blockstore for next reload
-        if (helia.blockstore.put) {
-          Promise.resolve(helia.blockstore.put(cid, block)).catch(
-            (err: unknown) => log.warn("blockstore.put failed:", err),
-          );
-        }
+      const block = await resolver.get(cid);
+      if (!block || block.length === 0) {
+        throw new Error("Block not found: " + cidStr);
       }
+
       const node = decodeSnapshot(block);
       const plaintext = await decryptSnapshot(node, readKey);
       const result: Record<string, Y.Doc> = {};
@@ -191,16 +158,6 @@ export function createSnapshotLifecycle(
       }
       decodedVersions.set(cidStr, result);
       return result;
-    },
-
-    getBlock(cidStr) {
-      return blocks.get(cidStr);
-    },
-
-    putBlock(cidStr, block) {
-      if (block.length > 0) {
-        blocks.set(cidStr, block);
-      }
     },
 
     get prev() {

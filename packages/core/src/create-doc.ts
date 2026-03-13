@@ -31,10 +31,10 @@ import {
   MAX_INLINE_BLOCK_BYTES,
 } from "./announce.js";
 import { uploadBlock } from "./block-upload.js";
-import { fetchBlock as fetchBlockFromNetwork } from "./fetch-block.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { DocPersistence } from "./persistence.js";
-import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
+import { createBlockResolver } from "./block-resolver.js";
+import { createSnapshotCodec } from "./snapshot-codec.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -395,9 +395,12 @@ export function createDoc(params: DocParams): Doc {
     return urls;
   }
 
-  const snapshotLC = createSnapshotLifecycle({
+  const resolver = createBlockResolver({
     getHelia: () => getHelia(),
     httpUrls: getHttpUrls,
+  });
+  const snapshotLC = createSnapshotCodec({
+    resolver,
   });
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
@@ -735,12 +738,7 @@ export function createDoc(params: DocParams): Doc {
         if (ann.block) {
           try {
             block = base64ToUint8(ann.block);
-            // Store inline block for getBlock()
-            snapshotLC.putBlock(ann.cid, block);
-            const helia = getHelia();
-            Promise.resolve(helia.blockstore.put(cid, block)).catch(
-              (err: unknown) => log.warn("blockstore.put failed:", err),
-            );
+            resolver.put(cid, block);
           } catch {
             // decode failure — skip inline block
           }
@@ -864,35 +862,15 @@ export function createDoc(params: DocParams): Doc {
     // --- Effect handlers ---
     const effects: EffectHandlers = {
       fetchBlock: async (cid) => {
-        try {
-          const helia = getHelia();
-          const block = await fetchBlockFromNetwork(helia, cid, {
-            httpUrls: getHttpUrls(),
-          });
-          snapshotLC.putBlock(cid.toString(), block);
-          // Persist to IDB so history survives
-          // page reloads.
-          if (helia.blockstore.put) {
-            Promise.resolve(helia.blockstore.put(cid, block)).catch(
-              (err: unknown) => log.warn("blockstore.put failed:", err),
-            );
-          }
-          return block;
-        } catch {
-          return null;
-        }
+        return resolver.get(cid);
       },
 
       getBlock: (cid) => {
-        return snapshotLC.getBlock(cid.toString()) ?? null;
+        return resolver.getCached(cid);
       },
 
       applySnapshot: async (cid, block) => {
-        // Put block in helia blockstore so
-        // applyRemote finds it immediately.
-        const helia = getHelia();
-        await Promise.resolve(helia.blockstore.put(cid, block));
-        snapshotLC.putBlock(cid.toString(), block);
+        resolver.put(cid, block);
 
         const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) =>
           subdocManager.applySnapshot(plaintext),
@@ -1353,8 +1331,8 @@ export function createDoc(params: DocParams): Doc {
       }
       const { cid, block } = pushResult;
 
-      // Store block for getBlock() and chain
-      snapshotLC.putBlock(cid.toString(), block);
+      // Store block via resolver (memory + IDB)
+      resolver.put(cid, block);
 
       // Suppress the interpreter's
       // emitSnapshotApplied for this CID since
@@ -1436,18 +1414,14 @@ export function createDoc(params: DocParams): Doc {
         isLocal: true,
       } satisfies SnapshotEvent);
 
-      // Persist to Helia + publish IPNS.
-      // Fire-and-forget: don't block the UI on
-      // slow DHT operations.
-      // Announce is handled by the interpreter
-      // via the publish-succeeded fact.
+      // Publish IPNS — fire-and-forget. Block is
+      // already persisted via resolver.put() above.
+      // Announce is handled by the interpreter via
+      // the publish-succeeded fact.
       const cidShort = cid.toString().slice(0, 16);
       log.info("publish: cid=" + cidShort + "... clockSum=" + clockSum);
       (async () => {
         const helia = getHelia();
-        log.debug("blockstore.put...", cidShort + "...");
-        await Promise.resolve(helia.blockstore.put(cid, block));
-        log.debug("blockstore.put done," + " publishing IPNS...");
         await publishIPNS(helia, keys.ipnsKeyBytes!, cid, clockSum);
         log.debug("IPNS published");
       })().catch((err: unknown) => {
@@ -1576,7 +1550,7 @@ export function createDoc(params: DocParams): Doc {
         const key = cid.toString();
         const entry = interpreterState?.chain.entries.get(key);
         if (!entry || entry.blockStatus === "unknown") {
-          const block = snapshotLC.getBlock(key);
+          const block = resolver.getCached(cid);
           factQueue.push({
             type: "cid-discovered",
             ts: Date.now(),
