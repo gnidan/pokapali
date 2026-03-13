@@ -271,6 +271,13 @@ for (const tag of tags) {
 }
 
 console.log(`\nDone. Review with: git log -1 --stat`);
+console.log("Push with: git push origin main");
+// Tags must be pushed individually — GitHub Actions
+// only fires one workflow when multiple tags are pushed
+// in a single git push command.
 console.log(
-  `Push with: git push origin main ${tags.join(" ")}`,
+  "Then push tags individually to trigger publish:",
 );
+for (const tag of tags) {
+  console.log(`  git push origin ${tag}`);
+}
