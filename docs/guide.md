@@ -668,49 +668,30 @@ for highlighting "you are here" in a version list.
 
 ### Listing versions
 
-**Recommended — `versionHistory()`:**
+**Recommended — `doc.versions` Feed:**
+
+The `doc.versions` Feed (see section 9) provides
+reactive version history that updates automatically as
+snapshots are discovered and chain-walked. This is the
+primary API for version listing.
+
+**`versionHistory()` (async, one-shot):**
 
 ```ts
 const versions = await doc.versionHistory();
 // Array<{ cid: CID; seq: number; ts: number }>
 ```
 
-Returns versions **newest-first**. Automatically queries
-connected pinners' HTTP history endpoints, falling back
-to a local chain walk if no pinners are reachable. This
-is the best way to get a complete version list —
-pinners track every snapshot they've seen, so the list
-isn't truncated by missing intermediate blocks.
+Returns versions **newest-first**. Queries connected
+pinners' HTTP history endpoints, falling back to a
+local chain walk if no pinners are reachable.
 
-**Low-level — `history()`:**
+**`history()` (deprecated):**
 
-```ts
-const versions = await doc.history();
-// Array<{ cid: CID; seq: number; ts: number }>
-```
-
-Walks the local snapshot chain from the current tip.
-Uses a three-tier block resolution strategy:
-
-1. **In-memory cache** — blocks from locally-pushed
-   snapshots
-2. **Helia blockstore** — blocks from GossipSub or
-   prior fetches (5s timeout)
-3. **HTTP fallback** — fetches from pinner/relay
-   `httpUrl` endpoints, verifying the response hash
-   against the requested CID
-
-If a block is still missing after all three tiers,
-the walk stops gracefully — the returned list may be
-shorter than the full chain but never throws.
-
-Each entry contains:
-
-| Field | Type     | Description                       |
-| ----- | -------- | --------------------------------- |
-| `cid` | `CID`    | Content-addressed block ID        |
-| `seq` | `number` | Yjs clock sum at time of snapshot |
-| `ts`  | `number` | Unix timestamp (ms)               |
+Use `doc.versions` or `versionHistory()` instead.
+`history()` walks the local chain only and does not
+benefit from HTTP block resolution. It will be removed
+in a future release.
 
 ### Snapshot event
 
