@@ -86,11 +86,12 @@ export function useComments(doc: Doc) {
     };
   }, [doc]);
 
-  const commentList = useFeed(
-    instance?.feed ?? {
-      getSnapshot: () => [] as Comment<CommentData>[],
-      subscribe: () => () => {},
-    },
+  const emptyFeed = {
+    getSnapshot: (): Comment<CommentData>[] => [],
+    subscribe: () => () => {},
+  };
+  const commentList: Comment<CommentData>[] = useFeed(
+    instance?.feed ?? emptyFeed,
   );
 
   const addComment = useCallback(
