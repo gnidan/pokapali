@@ -147,10 +147,11 @@ doc.urls.read; // read only
 
 // Reactive state via Feed (useSyncExternalStore-
 // compatible)
-doc.statusFeed; // Feed<DocStatus>
-doc.saveStateFeed; // Feed<SaveState>
-doc.tipFeed; // Feed<VersionInfo | null>
-doc.loadingFeed; // Feed<LoadingState>
+doc.status; // Feed<DocStatus>
+doc.saveState; // Feed<SaveState>
+doc.tip; // Feed<VersionInfo | null>
+doc.loading; // Feed<LoadingState>
+doc.versions; // Feed<VersionHistory>
 
 // Synchronous getters (current snapshot)
 doc.status; // "connecting" | "synced" | ...
@@ -286,10 +287,11 @@ for how these modules compose.
 
 ### Snapshot & persistence
 
-| Module                  | Purpose                                                  |
-| ----------------------- | -------------------------------------------------------- |
-| `snapshot-lifecycle.ts` | Chain state, push, applyRemote                           |
-| `fetch-block.ts`        | Multi-tier block resolution (blockstore → HTTP fallback) |
+| Module              | Purpose                                                                        |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `snapshot-codec.ts` | Snapshot encode/decode/decrypt, chain tip state (prev/seq), version loading    |
+| `block-resolver.ts` | Unified block resolution: memory → IDB → HTTP. Single read/write interface     |
+| `fetch-block.ts`    | Low-level block fetch with retry/backoff (blockstore → HTTP). Used by resolver |
 
 ### Networking & discovery
 
