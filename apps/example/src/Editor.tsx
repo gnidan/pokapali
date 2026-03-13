@@ -43,6 +43,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     null,
   );
   const [hasSelection, setHasSelection] = useState(false);
+  const selectionRef = useRef<{ from: number; to: number }>({
+    from: 0,
+    to: 0,
+  });
   const [previewVersion, setPreviewVersion] = useState<{
     entry: VersionEntry;
     ydoc: YDoc;
@@ -185,6 +189,9 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     if (!editor) return;
     const update = () => {
       const { from, to } = editor.state.selection;
+      if (from !== to) {
+        selectionRef.current = { from, to };
+      }
       setHasSelection(from !== to);
     };
     editor.on("selectionUpdate", update);
@@ -282,7 +289,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const handleAddComment = useCallback(
     (content: string) => {
       if (!editor) return;
-      const { from, to } = editor.state.selection;
+      // Use stored selection — the live selection is
+      // lost when the user clicks into the comment
+      // textarea.
+      const { from, to } = selectionRef.current;
       if (from === to) return;
       const anchor = createAnchorFromSelection(editor, from, to);
       if (!anchor) return;
