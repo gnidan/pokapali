@@ -183,6 +183,8 @@ export interface Doc {
    *  peer-reported relays (awareness), and
    *  relay-to-relay edges (node-registry). */
   topologyGraph(): TopologyGraph;
+  /** @deprecated Use `doc.versions` Feed or
+   *  `versionHistory()` instead. */
   history(): Promise<
     Array<{
       cid: CID;
@@ -1493,6 +1495,8 @@ export function createDoc(params: DocParams): Doc {
       return buildTopologyGraph(this.diagnostics(), awarenessRoom.awareness);
     },
 
+    /** @deprecated Use `doc.versions` Feed or
+     *  `versionHistory()` instead. */
     async history() {
       assertNotDestroyed();
       const { entries } = versionsFeed.getSnapshot();
