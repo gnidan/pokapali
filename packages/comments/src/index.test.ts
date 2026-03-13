@@ -510,6 +510,57 @@ describe("comments()", () => {
     });
   });
 
+  describe("XmlFragment content type", () => {
+    it("anchors resolve against XmlFragment", () => {
+      const commentsDoc = new Y.Doc();
+      const contentDoc = new Y.Doc();
+      const frag = contentDoc.getXmlFragment("default");
+      frag.insert(0, [new Y.XmlText("para one")]);
+      frag.insert(1, [new Y.XmlText("para two")]);
+      frag.insert(2, [new Y.XmlText("para three")]);
+
+      const c = comments<TestData>(commentsDoc, contentDoc, {
+        author: "alice-pubkey",
+        clientIdMapping: createFeed(new Map()),
+        contentType: frag,
+      });
+
+      const id = c.add({
+        content: "about first two paras",
+        anchor: c.createAnchor(0, 2),
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      expect(list).toHaveLength(1);
+      const anchor = list[0].anchor!;
+      expect(anchor.status).toBe("resolved");
+      if (anchor.status === "resolved") {
+        expect(anchor.start).toBe(0);
+        expect(anchor.end).toBe(2);
+      }
+      c.destroy();
+    });
+
+    it("defaults to Y.Text when contentType omitted", () => {
+      const { c } = setup();
+      c.add({
+        content: "uses default text",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      const anchor = list[0].anchor!;
+      expect(anchor.status).toBe("resolved");
+      if (anchor.status === "resolved") {
+        expect(anchor.start).toBe(0);
+        expect(anchor.end).toBe(5);
+      }
+      c.destroy();
+    });
+  });
+
   describe("CRDT sync", () => {
     it("syncs comments across two docs", () => {
       const doc1 = new Y.Doc();
