@@ -7,6 +7,8 @@ export default defineConfig({
   testMatch: "**/*.e2e.ts",
   timeout: 30_000,
   retries: 0,
+  globalSetup: "./e2e-global-setup.ts",
+  globalTeardown: "./e2e-global-teardown.ts",
   use: {
     baseURL: `http://localhost:${port}`,
     headless: true,
