@@ -40,12 +40,13 @@ jobs:
           chmod 600 ~/.ssh/deploy-key
           echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
             > ~/.ssh/known_hosts
-          cat >> ~/.ssh/config <<EOF
+          cat >> ~/.ssh/config <<'SSHEOF'
           Host *
             IdentityFile ~/.ssh/deploy-key
-            StrictHostKeyChecking yes
+            StrictHostKeyChecking accept-new
             ConnectTimeout 15
-          EOF
+          SSHEOF
+          sed -i 's/^          //' ~/.ssh/config
 
       - name: Resolve target commit
         id: target
@@ -114,23 +115,26 @@ jobs:
 
           # --- Preflight: capture current state ---
           echo "=== Preflight: Current Node State ==="
-          ALL_NODES=$(jq -r \
-            '.batches[].nodes[].name' "$CONFIG")
-          for NODE_NAME in $ALL_NODES; do
-            if should_skip "$NODE_NAME"; then
-              continue
-            fi
-            HOST=$(jq -r \
-              ".batches[].nodes[] |
-               select(.name==\"$NODE_NAME\") |
-               .host" "$CONFIG")
-            CURRENT=$(ssh -o ConnectTimeout=15 \
-              "$USER@$HOST" \
-              "cd $REPO_PATH && git rev-parse HEAD" \
-              2>/dev/null || echo "unreachable")
-            echo "  $NODE_NAME ($HOST):" \
-              "${CURRENT:0:7}"
-          done
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "  [DRY RUN] Skipping SSH preflight"
+          else
+            ALL_NODES=$(jq -r \
+              '.batches[].nodes[].name' "$CONFIG")
+            for NODE_NAME in $ALL_NODES; do
+              if should_skip "$NODE_NAME"; then
+                continue
+              fi
+              HOST=$(jq -r \
+                ".batches[].nodes[] |
+                 select(.name==\"$NODE_NAME\") |
+                 .host" "$CONFIG")
+              CURRENT=$(ssh "$USER@$HOST" \
+                "cd $REPO_PATH && git rev-parse HEAD" \
+                2>/dev/null || echo "unreachable")
+              echo "  $NODE_NAME ($HOST):" \
+                "${CURRENT:0:7}"
+            done
+          fi
           echo ""
 
           # --- Rolling deploy ---
@@ -184,11 +188,13 @@ jobs:
 
             # Wait for all deploys in batch
             DEPLOY_FAILED=false
-            for pid in "${PIDS[@]:-}"; do
-              if ! wait "$pid"; then
-                DEPLOY_FAILED=true
-              fi
-            done
+            if [ ${#PIDS[@]} -gt 0 ]; then
+              for pid in "${PIDS[@]}"; do
+                if ! wait "$pid"; then
+                  DEPLOY_FAILED=true
+                fi
+              done
+            fi
 
             if [ "$DEPLOY_FAILED" = "true" ]; then
               echo "::error::Deploy failed in" \
