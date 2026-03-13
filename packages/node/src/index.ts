@@ -2,6 +2,8 @@ export type {
   PinnerConfig,
   Pinner,
   PinnerMetrics,
+  TipData,
+  GuaranteeData,
 } from "./pinner.js";
 
 export { createPinner } from "./pinner.js";
@@ -20,8 +22,13 @@ export {
 } from "./relay.js";
 export { announceTopic } from "@pokapali/core/announce";
 
-export type { HttpConfig } from "./http.js";
-export { startHttpServer } from "./http.js";
+export type {
+  HttpConfig,
+  HttpsConfig,
+  TipResponse,
+  GuaranteeResponse,
+} from "./http.js";
+export { startHttpServer, startBlockServer } from "./http.js";
 
 export type { RateLimiterConfig, RateLimiter } from "./rate-limiter.js";
 export { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";

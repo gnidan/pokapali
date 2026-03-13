@@ -1,74 +1,178 @@
 #!/usr/bin/env node
 
 import { createPinner } from "../src/index.js";
-import { startRelay } from "../src/relay.js";
-import { startHttpServer } from "../src/http.js";
+import {
+  startRelay,
+  deriveHttpUrl,
+  deriveHttpUrlFromCert,
+} from "../src/relay.js";
+import { startHttpServer, startBlockServer } from "../src/http.js";
 import {
   announceTopic,
   parseAnnouncement,
   base64ToUint8,
 } from "@pokapali/core/announce";
-import {
-  createLogger,
-  setLogLevel,
-} from "@pokapali/log";
+import { CID } from "multiformats/cid";
+import { createLogger, setLogLevel } from "@pokapali/log";
 import type { LogLevel } from "@pokapali/log";
+import type { Server as HttpsServer } from "node:https";
 
 const log = createLogger("node");
 
-const VALID_LOG_LEVELS: LogLevel[] = [
-  "debug", "info", "warn", "error",
-];
+const VALID_LOG_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
-function parseArgs(argv: string[]): {
+function printHelp(): void {
+  console.log(`\
+Usage: pokapali-node [options]
+
+Options:
+  --storage-path <path>       Storage directory (required)
+  --relay                     Run as relay node
+  --pin <app1,app2,...>       Pin snapshots for app IDs
+  --port <number>             HTTP admin port (default: 3000)
+  --https-port <number>       HTTPS block server port (default: 4443)
+  --cors-origin <origins>     CORS origins (default: "*")
+  --rate-limit-rpm <number>   Block requests/min per IP (default: 60)
+  --trust-proxy               Trust X-Forwarded-For for rate limiting
+  --announce <addr1,addr2>    Public multiaddrs to announce
+  --delegated-routing <url>   Delegated routing endpoint
+                              (default: delegated-ipfs.dev)
+  --retention-full <ms>       Full-resolution retention
+                              (default: 7d = 604800000)
+  --retention-hourly <ms>     Hourly retention
+                              (default: 14d = 1209600000)
+  --retention-daily <ms>      Daily retention
+                              (default: 30d = 2592000000)
+  --ipns-rate-limit <n>       Max IPNS requests/sec to
+                              delegated routing (default: 10)
+  --stale-resolve-days <n>    Drop names with no activity
+                              and no resolve for N days
+                              (default: 3, 0 = disable)
+  --log-level <level>         debug, info, warn, error
+  --help                      Show this help message
+
+At least one of --relay or --pin is required.`);
+}
+
+const MS_PER_DAY = 24 * 60 * 60_000;
+const DEFAULT_RETENTION_FULL_MS = 7 * MS_PER_DAY;
+const DEFAULT_RETENTION_HOURLY_MS = 14 * MS_PER_DAY;
+const DEFAULT_RETENTION_DAILY_MS = 30 * MS_PER_DAY;
+
+interface ParsedArgs {
   port: number;
+  httpsPort: number;
+  corsOrigin: string;
+  rateLimitRpm: number;
+  trustProxy: boolean;
   storagePath: string;
   relay: boolean;
   pinApps: string[];
   announceAddrs: string[];
+  delegatedRoutingUrl: string | null;
   logLevel: LogLevel | null;
-} {
+  retentionFullMs: number;
+  retentionHourlyMs: number;
+  retentionDailyMs: number;
+  ipnsRateLimit: number;
+  staleResolveDays: number;
+}
+
+function parseArgs(argv: string[]): ParsedArgs {
   let port = 3000;
+  let httpsPort = 4443;
+  let corsOrigin = "*";
+  let rateLimitRpm = 60;
+  let trustProxy = false;
   let storagePath = "";
   let relay = false;
   let pinApps: string[] = [];
   let announceAddrs: string[] = [];
+  let delegatedRoutingUrl: string | null = null;
   let logLevel: LogLevel | null = null;
+  let retentionFullMs = DEFAULT_RETENTION_FULL_MS;
+  let retentionHourlyMs = DEFAULT_RETENTION_HOURLY_MS;
+  let retentionDailyMs = DEFAULT_RETENTION_DAILY_MS;
+  let ipnsRateLimit = 10;
+  let staleResolveDays = 3;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--port" && argv[i + 1]) {
+    if (arg === "--help") {
+      printHelp();
+      process.exit(0);
+    } else if (arg === "--port" && argv[i + 1]) {
       port = parseInt(argv[++i], 10);
-    } else if (
-      arg === "--storage-path" && argv[i + 1]
-    ) {
+      if (Number.isNaN(port)) {
+        console.error(`invalid --port value: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--https-port" && argv[i + 1]) {
+      httpsPort = parseInt(argv[++i], 10);
+      if (Number.isNaN(httpsPort)) {
+        console.error(`invalid --https-port value: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--cors-origin" && argv[i + 1]) {
+      corsOrigin = argv[++i];
+    } else if (arg === "--rate-limit-rpm" && argv[i + 1]) {
+      rateLimitRpm = parseInt(argv[++i], 10);
+      if (Number.isNaN(rateLimitRpm)) {
+        console.error(`invalid --rate-limit-rpm: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--trust-proxy") {
+      trustProxy = true;
+    } else if (arg === "--storage-path" && argv[i + 1]) {
       storagePath = argv[++i];
     } else if (arg === "--relay") {
       relay = true;
     } else if (arg === "--pin" && argv[i + 1]) {
-      pinApps = argv[++i]
-        .split(",")
-        .map((s) => s.trim());
-    } else if (
-      arg === "--announce" && argv[i + 1]
-    ) {
-      announceAddrs = argv[++i]
-        .split(",")
-        .map((s) => s.trim());
-    } else if (
-      arg === "--log-level" && argv[i + 1]
-    ) {
+      pinApps = argv[++i].split(",").map((s) => s.trim());
+    } else if (arg === "--announce" && argv[i + 1]) {
+      announceAddrs = argv[++i].split(",").map((s) => s.trim());
+    } else if (arg === "--delegated-routing" && argv[i + 1]) {
+      delegatedRoutingUrl = argv[++i];
+    } else if (arg === "--log-level" && argv[i + 1]) {
       const val = argv[++i];
-      if (
-        !VALID_LOG_LEVELS.includes(val as LogLevel)
-      ) {
+      if (!VALID_LOG_LEVELS.includes(val as LogLevel)) {
         console.error(
-          `invalid --log-level "${val}".`
-          + ` Valid: ${VALID_LOG_LEVELS.join(", ")}`,
+          `invalid --log-level "${val}".` +
+            ` Valid: ${VALID_LOG_LEVELS.join(", ")}`,
         );
         process.exit(1);
       }
       logLevel = val as LogLevel;
+    } else if (arg === "--retention-full" && argv[i + 1]) {
+      retentionFullMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionFullMs)) {
+        console.error(`invalid --retention-full: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--retention-hourly" && argv[i + 1]) {
+      retentionHourlyMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionHourlyMs)) {
+        console.error(`invalid --retention-hourly: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--retention-daily" && argv[i + 1]) {
+      retentionDailyMs = parseInt(argv[++i], 10);
+      if (Number.isNaN(retentionDailyMs)) {
+        console.error(`invalid --retention-daily: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--ipns-rate-limit" && argv[i + 1]) {
+      ipnsRateLimit = parseInt(argv[++i], 10);
+      if (Number.isNaN(ipnsRateLimit) || ipnsRateLimit < 1) {
+        console.error(`invalid --ipns-rate-limit: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--stale-resolve-days" && argv[i + 1]) {
+      staleResolveDays = parseInt(argv[++i], 10);
+      if (Number.isNaN(staleResolveDays) || staleResolveDays < 0) {
+        console.error(`invalid --stale-resolve-days:` + ` "${argv[i]}"`);
+        process.exit(1);
+      }
     }
   }
 
@@ -77,15 +181,27 @@ function parseArgs(argv: string[]): {
     process.exit(1);
   }
   if (!relay && pinApps.length === 0) {
-    console.error(
-      "at least one of --relay or --pin is required",
-    );
+    console.error("at least one of --relay or --pin" + " is required");
     process.exit(1);
   }
 
   return {
-    port, storagePath, relay, pinApps,
-    announceAddrs, logLevel,
+    port,
+    httpsPort,
+    corsOrigin,
+    rateLimitRpm,
+    trustProxy,
+    storagePath,
+    relay,
+    pinApps,
+    announceAddrs,
+    delegatedRoutingUrl,
+    logLevel,
+    retentionFullMs,
+    retentionHourlyMs,
+    retentionDailyMs,
+    ipnsRateLimit,
+    staleResolveDays,
   };
 }
 
@@ -98,8 +214,22 @@ async function main() {
   });
 
   const {
-    port, storagePath, relay, pinApps,
-    announceAddrs, logLevel,
+    port,
+    httpsPort,
+    corsOrigin,
+    rateLimitRpm,
+    trustProxy,
+    storagePath,
+    relay,
+    pinApps,
+    announceAddrs,
+    delegatedRoutingUrl,
+    logLevel,
+    retentionFullMs,
+    retentionHourlyMs,
+    retentionDailyMs,
+    ipnsRateLimit,
+    staleResolveDays,
   } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
@@ -107,27 +237,21 @@ async function main() {
     setLogLevel(logLevel);
   }
 
-  const modes = [
-    relay ? "relay" : "",
-    pinApps.length > 0 ? "pin" : "",
-  ].filter(Boolean).join("+");
+  const modes = [relay ? "relay" : "", pinApps.length > 0 ? "pin" : ""]
+    .filter(Boolean)
+    .join("+");
   log.info(`starting (${modes})`);
   log.info(`  storage: ${storagePath}`);
 
-  let relayHandle: Awaited<
-    ReturnType<typeof startRelay>
-  > | null = null;
-  let pinner: Awaited<
-    ReturnType<typeof createPinner>
-  > | null = null;
+  let relayHandle: Awaited<ReturnType<typeof startRelay>> | null = null;
+  let pinner: Awaited<ReturnType<typeof createPinner>> | null = null;
 
   if (relay) {
     relayHandle = await startRelay({
       storagePath,
       announceAddrs,
-      pinAppIds: pinApps.length > 0
-        ? pinApps
-        : undefined,
+      pinAppIds: pinApps.length > 0 ? pinApps : undefined,
+      delegatedRoutingUrl: delegatedRoutingUrl ?? undefined,
     });
     log.info("relay started");
     for (const ma of relayHandle.multiaddrs()) {
@@ -135,9 +259,149 @@ async function main() {
     }
   }
 
+  // Start HTTPS block server when cert arrives
+  let blockServer: HttpsServer | null = null;
+  if (relayHandle) {
+    // Check if cert is already available
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const autoTLSSvc = (relayHandle.helia.libp2p.services as any).autoTLS;
+    const existingCert = autoTLSSvc?.certificate;
+
+    const launchBlockServer = (cert: { key: string; cert: string }) => {
+      if (blockServer) return; // already started
+      const blockstore = relayHandle!.helia.blockstore;
+      blockServer = startBlockServer({
+        port: httpsPort,
+        key: cert.key,
+        cert: cert.cert,
+        corsOrigin,
+        rateLimitRpm,
+        trustProxy,
+        retentionPolicy: {
+          fullResolutionMs: retentionFullMs,
+          hourlyRetentionMs: retentionHourlyMs,
+          dailyRetentionMs: retentionDailyMs,
+        },
+        getBlock: async (cid) => {
+          try {
+            const has = await blockstore.has(cid);
+            if (!has) return null;
+            return await blockstore.get(cid);
+          } catch {
+            return null;
+          }
+        },
+        putBlock: async (cid, bytes) => {
+          await blockstore.put(cid, bytes);
+        },
+        // Lazy check — pinner may not be created yet
+        // when block server launches on existing cert.
+        getHistory:
+          pinApps.length > 0
+            ? async (ipnsName) => {
+                if (!pinner) return [];
+                const records = pinner.history.getHistory(ipnsName);
+                // Filter to blocks we still have
+                const verified = [];
+                for (const r of records) {
+                  try {
+                    const cid = CID.parse(r.cid);
+                    if (await blockstore.has(cid)) {
+                      verified.push(r);
+                    }
+                  } catch {
+                    // Skip unparseable CIDs
+                  }
+                }
+                return verified;
+              }
+            : undefined,
+        // Lazy check — pinner may not be created yet
+        // when block server launches on existing cert.
+        getTipData:
+          pinApps.length > 0
+            ? async (ipnsName) => {
+                if (!pinner) return null;
+                return pinner.getTipData(ipnsName);
+              }
+            : undefined,
+        getGuarantee:
+          pinApps.length > 0
+            ? (ipnsName) => {
+                if (!pinner) return null;
+                return pinner.getGuarantee(ipnsName);
+              }
+            : undefined,
+        recordActivity:
+          pinApps.length > 0
+            ? (ipnsName) => {
+                pinner?.recordActivity(ipnsName);
+              }
+            : undefined,
+      });
+
+      // Derive httpUrl: try SNI multiaddr first, then
+      // fall back to extracting hostname from cert SAN.
+      // At cert provision time, libp2p may not yet have
+      // the SNI multiaddr registered.
+      const wssAddr = relayHandle!
+        .multiaddrs()
+        .find((a) => a.includes("/tls/") && !a.includes("/p2p-circuit/"));
+      let url = wssAddr ? deriveHttpUrl(wssAddr, httpsPort) : undefined;
+
+      // Fallback: derive from cert SAN + relay IP
+      if (!url) {
+        url = deriveHttpUrlFromCert(
+          cert.cert,
+          relayHandle!.multiaddrs(),
+          httpsPort,
+        );
+      }
+
+      if (url) {
+        relayHandle!.httpUrl = url;
+        log.info(`block endpoint: ${url}`);
+      }
+    };
+
+    if (existingCert?.key && existingCert?.cert) {
+      launchBlockServer(existingCert);
+    }
+
+    relayHandle.helia.libp2p.addEventListener(
+      "certificate:provision",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (evt: any) => {
+        const cert = evt.detail;
+        if (cert?.key && cert?.cert) {
+          launchBlockServer(cert);
+        }
+      },
+    );
+
+    // Handle cert renewal — swap server
+    relayHandle.helia.libp2p.addEventListener(
+      "certificate:renew",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (evt: any) => {
+        const cert = evt.detail;
+        if (!cert?.key || !cert?.cert) return;
+        log.info("cert renewed, restarting block server");
+        const old = blockServer;
+        blockServer = null;
+        if (old) {
+          old.close();
+          old.closeAllConnections();
+        }
+        launchBlockServer(cert);
+      },
+    );
+  }
+
   // Extract pubsub from relay for pinner ack support
   const pubsub = relayHandle
-    ? (relayHandle.helia.libp2p.services as any).pubsub
+    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (relayHandle.helia.libp2p.services as any).pubsub
     : undefined;
   const peerId = relayHandle
     ? relayHandle.helia.libp2p.peerId.toString()
@@ -150,11 +414,16 @@ async function main() {
       helia: relayHandle?.helia,
       pubsub,
       peerId,
+      ipnsRateLimit,
+      staleResolveDays,
+      retentionConfig: {
+        fullResolutionMs: retentionFullMs,
+        hourlyRetentionMs: retentionHourlyMs,
+        dailyRetentionMs: retentionDailyMs,
+      },
     });
     await pinner.start();
-    log.info(
-      `pinner started for: ${pinApps.join(", ")}`,
-    );
+    log.info(`pinner started for: ${pinApps.join(", ")}`);
 
     // Wire GossipSub announcements to pinner
     if (relayHandle) {
@@ -164,19 +433,13 @@ async function main() {
       }
       pubsub.addEventListener(
         "message",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (evt: any) => {
-          const appId = topicToApp.get(
-            evt.detail.topic,
-          );
+          const appId = topicToApp.get(evt.detail.topic);
           if (!appId) return;
-          // Try parsing as announcement first
-          const msg = parseAnnouncement(
-            evt.detail.data,
-          );
+          const msg = parseAnnouncement(evt.detail.data);
           if (msg && !msg.ack) {
-            const blockData = msg.block
-              ? base64ToUint8(msg.block)
-              : undefined;
+            const blockData = msg.block ? base64ToUint8(msg.block) : undefined;
             pinner!.onAnnouncement(
               msg.ipnsName,
               msg.cid,
@@ -189,27 +452,20 @@ async function main() {
 
           // Check for guarantee query
           try {
-            const text = new TextDecoder().decode(
-              evt.detail.data,
-            );
+            const text = new TextDecoder().decode(evt.detail.data);
             const obj = JSON.parse(text);
             if (
               obj?.type === "guarantee-query" &&
               typeof obj.ipnsName === "string"
             ) {
-              pinner!.onGuaranteeQuery(
-                obj.ipnsName,
-                appId,
-              );
+              pinner!.onGuaranteeQuery(obj.ipnsName, appId);
             }
           } catch {
             // Not valid JSON — ignore
           }
         },
       );
-      log.info(
-        "wired GossipSub announcements to pinner",
-      );
+      log.info("wired GossipSub announcements to pinner");
     }
   }
 
@@ -226,6 +482,11 @@ async function main() {
   async function shutdown() {
     log.info("shutting down...");
     server.close();
+    server.closeAllConnections();
+    if (blockServer) {
+      blockServer.close();
+      blockServer.closeAllConnections();
+    }
     if (pinner) {
       await pinner.flush();
       await pinner.stop();

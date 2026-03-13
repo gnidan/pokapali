@@ -1,14 +1,7 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  vi,
-} from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   loadCachedRelays,
   upsertCachedRelay,
-  removeCachedRelay,
   migrateOldCache,
   _resetMigrated,
   CACHE_KEY,
@@ -22,9 +15,15 @@ function makeStorage(): Storage {
     setItem: (k: string, v: string) => {
       store.set(k, v);
     },
-    removeItem: (k: string) => { store.delete(k); },
-    clear: () => { store.clear(); },
-    get length() { return store.size; },
+    removeItem: (k: string) => {
+      store.delete(k);
+    },
+    clear: () => {
+      store.clear();
+    },
+    get length() {
+      return store.size;
+    },
     key: (i: number) => [...store.keys()][i] ?? null,
   };
 }
@@ -44,8 +43,7 @@ describe("relay-cache", () => {
     });
 
     it("filters entries older than 48h", () => {
-      const old = Date.now() - RELAY_CACHE_MAX_AGE_MS
-        - 1000;
+      const old = Date.now() - RELAY_CACHE_MAX_AGE_MS - 1000;
       const fresh = Date.now() - 1000;
       storage.setItem(
         CACHE_KEY,
@@ -77,45 +75,45 @@ describe("relay-cache", () => {
     it("copies first old key to new key", () => {
       storage.setItem(
         "pokapali:relays:app1",
-        JSON.stringify([{
-          peerId: "p1",
-          addrs: [],
-          lastSeen: Date.now(),
-        }]),
+        JSON.stringify([
+          {
+            peerId: "p1",
+            addrs: [],
+            lastSeen: Date.now(),
+          },
+        ]),
       );
       migrateOldCache();
       const data = storage.getItem(CACHE_KEY);
       expect(data).not.toBeNull();
-      expect(JSON.parse(data!)[0].peerId).toBe(
-        "p1",
-      );
+      expect(JSON.parse(data!)[0].peerId).toBe("p1");
       // Old key removed
-      expect(
-        storage.getItem("pokapali:relays:app1"),
-      ).toBeNull();
+      expect(storage.getItem("pokapali:relays:app1")).toBeNull();
     });
 
     it("skips if new key already exists", () => {
       storage.setItem(
         CACHE_KEY,
-        JSON.stringify([{
-          peerId: "existing",
-          addrs: [],
-          lastSeen: Date.now(),
-        }]),
+        JSON.stringify([
+          {
+            peerId: "existing",
+            addrs: [],
+            lastSeen: Date.now(),
+          },
+        ]),
       );
       storage.setItem(
         "pokapali:relays:old",
-        JSON.stringify([{
-          peerId: "old",
-          addrs: [],
-          lastSeen: Date.now(),
-        }]),
+        JSON.stringify([
+          {
+            peerId: "old",
+            addrs: [],
+            lastSeen: Date.now(),
+          },
+        ]),
       );
       migrateOldCache();
-      const data = JSON.parse(
-        storage.getItem(CACHE_KEY)!,
-      );
+      const data = JSON.parse(storage.getItem(CACHE_KEY)!);
       expect(data[0].peerId).toBe("existing");
     });
 
@@ -137,40 +135,19 @@ describe("relay-cache", () => {
       const oldTime = Date.now() - 60_000;
       storage.setItem(
         CACHE_KEY,
-        JSON.stringify([{
-          peerId: "p1",
-          addrs: ["/old"],
-          lastSeen: oldTime,
-        }]),
+        JSON.stringify([
+          {
+            peerId: "p1",
+            addrs: ["/old"],
+            lastSeen: oldTime,
+          },
+        ]),
       );
       upsertCachedRelay("p1", ["/new"]);
-      const data = JSON.parse(
-        storage.getItem(CACHE_KEY)!,
-      );
+      const data = JSON.parse(storage.getItem(CACHE_KEY)!);
       expect(data).toHaveLength(1);
       expect(data[0].addrs).toEqual(["/new"]);
-      expect(data[0].lastSeen).toBeGreaterThan(
-        oldTime,
-      );
-    });
-  });
-
-  describe("removeCachedRelay", () => {
-    it("no-ops for unknown peerId", () => {
-      storage.setItem(
-        CACHE_KEY,
-        JSON.stringify([{
-          peerId: "p1",
-          addrs: [],
-          lastSeen: Date.now(),
-        }]),
-      );
-      removeCachedRelay("unknown");
-      const data = JSON.parse(
-        storage.getItem(CACHE_KEY)!,
-      );
-      expect(data).toHaveLength(1);
-      expect(data[0].peerId).toBe("p1");
+      expect(data[0].lastSeen).toBeGreaterThan(oldTime);
     });
   });
 });

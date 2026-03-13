@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
+import { createRateLimiter, createIpRateLimiter } from "./rate-limiter.js";
 
 describe("RateLimiter", () => {
   it("allows snapshots within limits", () => {
@@ -61,5 +61,37 @@ describe("RateLimiter", () => {
 
     expect(limiter.check("name1", 100, now + 1).allowed).toBe(false);
     expect(limiter.check("name2", 100, now + 1).allowed).toBe(true);
+  });
+});
+
+describe("IpRateLimiter", () => {
+  it("allows requests within limit", () => {
+    const limiter = createIpRateLimiter(3);
+    const now = 1_000_000;
+    expect(limiter.check("1.2.3.4", now)).toBe(true);
+  });
+
+  it("denies after exceeding rpm", () => {
+    const limiter = createIpRateLimiter(2);
+    const now = 1_000_000;
+    limiter.record("1.2.3.4", now);
+    limiter.record("1.2.3.4", now + 100);
+    expect(limiter.check("1.2.3.4", now + 200)).toBe(false);
+  });
+
+  it("allows after window expires", () => {
+    const limiter = createIpRateLimiter(1);
+    const now = 1_000_000;
+    limiter.record("1.2.3.4", now);
+    // 60s + 1ms later
+    expect(limiter.check("1.2.3.4", now + 60_001)).toBe(true);
+  });
+
+  it("tracks IPs independently", () => {
+    const limiter = createIpRateLimiter(1);
+    const now = 1_000_000;
+    limiter.record("1.2.3.4", now);
+    expect(limiter.check("1.2.3.4", now + 1)).toBe(false);
+    expect(limiter.check("5.6.7.8", now + 1)).toBe(true);
   });
 });

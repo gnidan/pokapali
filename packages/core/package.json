@@ -1,9 +1,18 @@
 {
   "name": "@pokapali/core",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "!dist/src/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "exports": {
     ".": {
@@ -14,9 +23,13 @@
       "types": "./dist/src/announce.d.ts",
       "default": "./dist/src/announce.js"
     },
-    "./snapshot-lifecycle": {
-      "types": "./dist/src/snapshot-lifecycle.d.ts",
-      "default": "./dist/src/snapshot-lifecycle.js"
+    "./block-upload": {
+      "types": "./dist/src/block-upload.d.ts",
+      "default": "./dist/src/block-upload.js"
+    },
+    "./snapshot-codec": {
+      "types": "./dist/src/snapshot-codec.d.ts",
+      "default": "./dist/src/snapshot-codec.js"
     },
     "./ipns-helpers": {
       "types": "./dist/src/ipns-helpers.d.ts",
@@ -25,27 +38,30 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "prepublishOnly": "npm run build",
     "test": "vitest run"
   },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
     "@helia/ipns": "^8.0.0",
-    "@libp2p/crypto": "^5.0.0",
     "@ipld/dag-cbor": "^9.2.0",
+    "@libp2p/crypto": "^5.0.0",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
-    "@pokapali/capability": "0.0.0",
-    "@pokapali/crypto": "0.0.0",
-    "@pokapali/log": "0.0.0",
-    "@pokapali/snapshot": "0.0.0",
-    "@pokapali/subdocs": "0.0.0",
-    "@pokapali/sync": "0.0.0",
+    "@pokapali/capability": "0.1.0-alpha.0",
+    "@pokapali/crypto": "0.1.0-alpha.0",
+    "@pokapali/log": "0.1.0-alpha.0",
+    "@pokapali/snapshot": "0.1.0-alpha.0",
+    "@pokapali/subdocs": "0.1.0-alpha.0",
+    "@pokapali/sync": "0.1.0-alpha.0",
     "helia": "^5.1.0",
     "multiformats": "^13.3.0",
+    "blockstore-idb": "3.0.1",
     "y-indexeddb": "^9.0.12",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.0"
   },
   "devDependencies": {
+    "fast-check": "^4.6.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

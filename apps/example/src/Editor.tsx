@@ -1,29 +1,38 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
-import type {
-  Doc,
-  DocStatus,
-  SaveState,
-} from "@pokapali/core";
+import * as Y from "yjs";
+import type { Doc as YDoc } from "yjs";
+import type { Doc, VersionEntry } from "@pokapali/core";
+import { createAutoSaver, docIdFromUrl } from "@pokapali/core";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — y-prosemirror has no type declarations
 import {
-  createAutoSaver,
-  docIdFromUrl,
-} from "@pokapali/core";
+  absolutePositionToRelativePosition,
+  ySyncPluginKey,
+} from "y-prosemirror";
 import { StatusIndicator } from "./StatusIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
-import {
-  LockIcon,
-  EncryptionInfo,
-} from "./EncryptionInfo";
+import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
 import { SharePanel } from "./SharePanel";
+import { VersionHistory } from "./VersionHistory";
+import { VersionPreviewOverlay } from "./VersionPreviewOverlay";
+import { useVersionHistory } from "./useVersionHistory";
+import { CommentSidebar } from "./CommentSidebar";
+import { CommentPopover } from "./CommentPopover";
+import { useComments } from "./useComments";
+import type { Anchor } from "./pendingAnchorHighlight";
+import {
+  PendingAnchorHighlight,
+  setPendingAnchorDecoration,
+  clearPendingAnchorDecoration,
+} from "./pendingAnchorHighlight";
+import {
+  CommentHighlight,
+  rebuildCommentDecorations,
+} from "./commentHighlight";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -33,33 +42,29 @@ import {
   type StoredUser,
 } from "./UserIdentity";
 import { capitalize } from "./utils";
+import { useFeed } from "./useFeed";
 
-export function EditorView({
-  doc,
-  onBack,
-}: {
-  doc: Doc;
-  onBack: () => void;
-}) {
-  const [status, setStatus] = useState<DocStatus>(
-    doc.status,
-  );
+export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
+  const status = useFeed(doc.status);
+  const saveState = useFeed(doc.saveState);
+  const tipInfo = useFeed(doc.tip);
+  const ackCount = tipInfo?.ackedBy.size ?? 0;
+
   const [showShare, setShowShare] = useState(false);
-  const [showEncryption, setShowEncryption] =
-    useState(false);
-  const [saveState, setSaveState] = useState<SaveState>(
-    doc.saveState,
+  const [showHistory, setShowHistory] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
+    null,
   );
-  const [ackCount, setAckCount] = useState(
-    doc.ackedBy.size,
-  );
-  const [lastPublished, setLastPublished] = useState(
-    Date.now(),
-  );
+  const [pendingAnchor, setPendingAnchor] = useState<Anchor | null>(null);
+  const [previewVersion, setPreviewVersion] = useState<{
+    entry: VersionEntry;
+    ydoc: YDoc;
+  } | null>(null);
+  const [showEncryption, setShowEncryption] = useState(false);
+  const [lastPublished, setLastPublished] = useState(Date.now());
   const [updateFlash, setUpdateFlash] = useState(false);
-  const flashTimer = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [user, setUser] = useState<StoredUser>(loadUser);
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -68,17 +73,28 @@ export function EditorView({
   const metaDoc = doc.channel("_meta");
   const docMap = metaDoc.getMap("doc");
   const [docTitle, setDocTitle] = useState(
-    () =>
-      (docMap.get("title") as string) || "Untitled",
+    () => (docMap.get("title") as string) || "Untitled",
   );
-  const [editingTitle, setEditingTitle] =
-    useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const titleBtnRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
 
-  const isReadOnly =
-    !doc.capability.namespaces.has("content");
+  // Preload version history on doc open so the
+  // drawer opens instantly when the user clicks History.
+  const versionHistory = useVersionHistory(doc);
+
+  const {
+    comments: commentList,
+    addComment,
+    addReply,
+    resolveComment,
+    reopenComment,
+    deleteComment,
+    commentsDoc,
+  } = useComments(doc);
+
+  const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
   const role = doc.role;
 
@@ -87,6 +103,19 @@ export function EditorView({
     doc.publish().catch(() => {});
   }, [doc, canSave]);
 
+  // Ctrl+S / Cmd+S to publish
+  useEffect(() => {
+    if (!canSave) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        doSave();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canSave, doSave]);
+
   // Auto-save: beforeunload, visibilitychange,
   // debounced snapshot-recommended
   useEffect(() => {
@@ -94,51 +123,21 @@ export function EditorView({
   }, [doc]);
 
   useEffect(() => {
-    const onStatus = (s: DocStatus) => setStatus(s);
-    // Re-read live status on awareness activity so the
-    // indicator reacts even if a y-webrtc status event
-    // was missed (e.g. silent reconnect).
-    const refreshStatus = () => setStatus(doc.status);
-    const onSaveState = (s: SaveState) =>
-      setSaveState(s);
     const onSnapshotApplied = () => {
       setLastPublished(Date.now());
       setUpdateFlash(true);
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
-      flashTimer.current = setTimeout(
-        () => setUpdateFlash(false),
-        2_000,
-      );
-      refreshStatus();
+      flashTimer.current = setTimeout(() => setUpdateFlash(false), 2_000);
     };
-    const onAck = () => {
-      setAckCount(doc.ackedBy.size);
-      refreshStatus();
-    };
-    doc.on("status", onStatus);
-    doc.on("save", onSaveState);
     doc.on("snapshot", onSnapshotApplied);
-    doc.on("ack", onAck);
-    const awareness = doc.awareness;
-    awareness.on("change", refreshStatus);
-
-    // Catch any transition between the initial
-    // useState and this subscription.
-    refreshStatus();
-    setSaveState(doc.saveState);
 
     return () => {
-      doc.off("status", onStatus);
-      doc.off("save", onSaveState);
       doc.off("snapshot", onSnapshotApplied);
-      doc.off("ack", onAck);
-      awareness.off("change", refreshStatus);
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
-      doc.destroy();
     };
   }, [doc]);
 
@@ -165,8 +164,7 @@ export function EditorView({
   // Writers always show the editor — they don't need
   // to wait for a snapshot load. Readers wait for
   // ready (snapshot loaded) or synced (peer connected).
-  const showEditor =
-    !isReadOnly || ready || status === "synced";
+  const showEditor = !isReadOnly || ready || status === "synced";
 
   const editor = useEditor(
     {
@@ -185,11 +183,46 @@ export function EditorView({
               },
               render: renderCursor,
             }),
+            CommentHighlight.configure({
+              commentsDoc: commentsDoc ?? null,
+              contentDoc,
+              activeCommentId: selectedCommentId,
+            }),
+            PendingAnchorHighlight,
           ]
         : [StarterKit.configure({ history: false })],
     },
-    [doc, shouldMount],
+    [doc, shouldMount, commentsDoc],
   );
+
+  const handlePopoverComment = useCallback(() => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+
+    const syncState = ySyncPluginKey.getState(editor.state);
+    if (!syncState?.mapping) return;
+
+    const { type, mapping } = syncState;
+    const startRel = absolutePositionToRelativePosition(from, type, mapping);
+    const endRel = absolutePositionToRelativePosition(to, type, mapping);
+    if (!startRel || !endRel) return;
+
+    const anchor: Anchor = {
+      start: Y.encodeRelativePosition(startRel),
+      end: Y.encodeRelativePosition(endRel),
+    };
+
+    setPendingAnchor(anchor);
+    setPendingAnchorDecoration(editor.view, anchor);
+    setShowComments(true);
+  }, [editor]);
+
+  // Rebuild comment decorations when comments change
+  useEffect(() => {
+    if (!editor?.view) return;
+    rebuildCommentDecorations(editor.view);
+  }, [editor, commentList]);
 
   useEffect(() => {
     const displayName = user.name || "Anonymous";
@@ -208,22 +241,17 @@ export function EditorView({
     });
   }, []);
 
-  const handleNameKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        (e.target as HTMLInputElement).blur();
-      }
-    },
-    [],
-  );
+  const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      (e.target as HTMLInputElement).blur();
+    }
+  }, []);
 
   // Sync title from _meta subdoc
   const docId = docIdFromUrl(doc.urls.best);
   useEffect(() => {
     const observer = () => {
-      const t =
-        (docMap.get("title") as string) ||
-        "Untitled";
+      const t = (docMap.get("title") as string) || "Untitled";
       setDocTitle(t);
       if (t !== "Untitled") {
         updateRecentTitle(docId, t);
@@ -245,14 +273,11 @@ export function EditorView({
     });
   }, [docMap, docTitle]);
 
-  const handleTitleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        (e.target as HTMLInputElement).blur();
-      }
-    },
-    [],
-  );
+  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      (e.target as HTMLInputElement).blur();
+    }
+  }, []);
 
   useEffect(() => {
     if (editingName && nameRef.current) {
@@ -268,11 +293,51 @@ export function EditorView({
     }
   }, [editingTitle]);
 
+  const handleVersionPreview = useCallback(
+    (entry: VersionEntry, ydoc: YDoc) => {
+      setPreviewVersion({ entry, ydoc });
+    },
+    [],
+  );
+
+  const closePreview = useCallback(() => {
+    setPreviewVersion(null);
+  }, []);
+
+  const handleAddComment = useCallback(
+    (content: string) => {
+      if (!pendingAnchor) return;
+      addComment(content, pendingAnchor);
+      setPendingAnchor(null);
+      if (editor?.view) {
+        clearPendingAnchorDecoration(editor.view);
+      }
+    },
+    [editor, addComment, pendingAnchor],
+  );
+
+  const handleAddReply = useCallback(
+    (parentId: string, content: string) => {
+      addReply(parentId, content);
+    },
+    [addReply],
+  );
+
   useEffect(() => {
     if (showShare && sharePanelRef.current) {
       sharePanelRef.current.focus();
     }
   }, [showShare]);
+
+  // Must be last-declared effect: React runs
+  // cleanups in declaration order, so all other
+  // effect cleanups (listeners, observers, timers)
+  // run while doc is still alive.
+  useEffect(() => {
+    return () => {
+      doc.destroy();
+    };
+  }, [doc]);
 
   return (
     <div className="app">
@@ -292,9 +357,7 @@ export function EditorView({
             value={docTitle}
             placeholder="Untitled"
             aria-label="Document title"
-            onChange={(e) =>
-              setDocTitle(e.target.value)
-            }
+            onChange={(e) => setDocTitle(e.target.value)}
             onBlur={commitTitle}
             onKeyDown={handleTitleKeyDown}
             maxLength={80}
@@ -302,15 +365,8 @@ export function EditorView({
         ) : (
           <button
             ref={titleBtnRef}
-            className={
-              "doc-title" +
-              (isReadOnly ? " read-only" : "")
-            }
-            onClick={
-              isReadOnly
-                ? undefined
-                : () => setEditingTitle(true)
-            }
+            className={"doc-title" + (isReadOnly ? " read-only" : "")}
+            onClick={isReadOnly ? undefined : () => setEditingTitle(true)}
             title={docTitle || "Untitled"}
             aria-label={`Document: ${docTitle || "Untitled"}`}
             disabled={isReadOnly}
@@ -321,25 +377,17 @@ export function EditorView({
         <span className="encryption-wrap">
           <button
             className="encryption-btn"
-            onClick={() =>
-              setShowEncryption((s) => !s)
-            }
+            onClick={() => setShowEncryption((s) => !s)}
             aria-label="Encryption info"
             title="End-to-end encrypted"
           >
             <LockIcon size={14} />
           </button>
           {showEncryption && (
-            <EncryptionInfo
-              onClose={() =>
-                setShowEncryption(false)
-              }
-            />
+            <EncryptionInfo onClose={() => setShowEncryption(false)} />
           )}
         </span>
-        <span className={`badge ${role}`}>
-          {capitalize(role)}
-        </span>
+        <span className={`badge ${role}`}>{capitalize(role)}</span>
         {editingName ? (
           <input
             ref={nameRef}
@@ -377,47 +425,98 @@ export function EditorView({
             onPublish={doSave}
           />
         ) : (
-          <LastUpdated
-            timestamp={lastPublished}
-            flash={updateFlash}
-          />
+          <LastUpdated timestamp={lastPublished} flash={updateFlash} />
         )}
         <button
           className="toggle-share"
           onClick={() => setShowShare((s) => !s)}
           aria-expanded={showShare}
-          aria-label={
-            showShare
-              ? "Hide share panel"
-              : "Open share panel"
-          }
+          aria-label={showShare ? "Hide share panel" : "Open share panel"}
         >
           {showShare ? "Hide share" : "Share"}
         </button>
+        <button
+          className="toggle-history"
+          onClick={() => setShowHistory((s) => !s)}
+          aria-expanded={showHistory}
+          aria-label={
+            showHistory ? "Hide version history" : "Open version history"
+          }
+        >
+          {showHistory ? "Hide history" : "History"}
+        </button>
+        <button
+          className="toggle-comments"
+          onClick={() => setShowComments((s) => !s)}
+          aria-expanded={showComments}
+          aria-label={showComments ? "Hide comments" : "Open comments"}
+        >
+          {showComments ? "Hide comments" : "Comments"}
+          {commentList.length > 0 && (
+            <span className="comment-count-badge">{commentList.length}</span>
+          )}
+        </button>
       </div>
 
-      {showShare && (
-        <SharePanel
-          ref={sharePanelRef}
-          doc={doc}
-        />
-      )}
+      {showShare && <SharePanel ref={sharePanelRef} doc={doc} />}
 
-      <div className="editor-container">
-        {showEditor ? (
-          <>
-            {isReadOnly && (
-              <div className="read-only-banner">
-                Read-only — you cannot edit
-                this document.
-              </div>
-            )}
-            <EditorContent editor={editor} />
-          </>
-        ) : (
-          <div className="loading-doc">
-            Loading…
-          </div>
+      <div className="editor-area">
+        <div
+          className="editor-container"
+          style={previewVersion ? { visibility: "hidden" } : undefined}
+        >
+          {showEditor ? (
+            <>
+              {isReadOnly && (
+                <div className="read-only-banner">
+                  Read-only — you cannot edit this document.
+                </div>
+              )}
+              <EditorContent editor={editor} />
+            </>
+          ) : (
+            <div className="loading-doc">Loading…</div>
+          )}
+        </div>
+
+        {!isReadOnly && !pendingAnchor && (
+          <CommentPopover onComment={handlePopoverComment} />
+        )}
+
+        {previewVersion && (
+          <VersionPreviewOverlay
+            doc={doc}
+            liveEditor={editor}
+            entry={previewVersion.entry}
+            ydoc={previewVersion.ydoc}
+            onClose={closePreview}
+          />
+        )}
+
+        {showHistory && (
+          <VersionHistory
+            doc={doc}
+            history={versionHistory}
+            onClose={() => setShowHistory(false)}
+            onPreview={handleVersionPreview}
+            onClosePreview={closePreview}
+          />
+        )}
+
+        {showComments && (
+          <CommentSidebar
+            comments={commentList}
+            myPubkey={doc.identityPubkey}
+            hasPendingAnchor={pendingAnchor != null}
+            onAddComment={handleAddComment}
+            onAddReply={handleAddReply}
+            onResolve={resolveComment}
+            onReopen={reopenComment}
+            onDelete={deleteComment}
+            onClose={() => setShowComments(false)}
+            selectedId={selectedCommentId}
+            onSelect={setSelectedCommentId}
+          />
         )}
       </div>
 

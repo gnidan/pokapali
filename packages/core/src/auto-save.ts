@@ -23,16 +23,15 @@ export function createAutoSaver(
     return () => {};
   }
 
-  const debounceMs =
-    options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-  let timer: ReturnType<typeof setTimeout> | null =
-    null;
+  const debounceMs = options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   function doSave() {
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
+    if (doc.saveState.getSnapshot() !== "dirty") return;
     doc.publish().catch(() => {});
   }
 
@@ -42,7 +41,7 @@ export function createAutoSaver(
   }
 
   function onBeforeUnload(e: BeforeUnloadEvent) {
-    if (doc.saveState === "dirty") {
+    if (doc.saveState.getSnapshot() === "dirty") {
       e.preventDefault();
     }
   }
@@ -50,41 +49,23 @@ export function createAutoSaver(
   function onVisibilityChange() {
     if (
       document.visibilityState === "hidden" &&
-      doc.saveState === "dirty"
+      doc.saveState.getSnapshot() === "dirty"
     ) {
       doSave();
     }
   }
 
-  doc.on(
-    "publish-needed",
-    onSnapshotRecommended,
-  );
-  window.addEventListener(
-    "beforeunload",
-    onBeforeUnload,
-  );
-  document.addEventListener(
-    "visibilitychange",
-    onVisibilityChange,
-  );
+  doc.on("publish-needed", onSnapshotRecommended);
+  window.addEventListener("beforeunload", onBeforeUnload);
+  document.addEventListener("visibilitychange", onVisibilityChange);
 
   return () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
-    doc.off(
-      "publish-needed",
-      onSnapshotRecommended,
-    );
-    window.removeEventListener(
-      "beforeunload",
-      onBeforeUnload,
-    );
-    document.removeEventListener(
-      "visibilitychange",
-      onVisibilityChange,
-    );
+    doc.off("publish-needed", onSnapshotRecommended);
+    window.removeEventListener("beforeunload", onBeforeUnload);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }

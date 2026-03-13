@@ -8,6 +8,7 @@
   "references": [
     { "path": "../log" },
     { "path": "../crypto" },
-    { "path": "../snapshot" }
+    { "path": "../snapshot" },
+    { "path": "../core" }
   ]
 }

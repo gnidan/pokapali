@@ -24,12 +24,16 @@ const app = pokapali({
 ```
 
 **Options:**
-- `appId` — identifier for your app (used for relay
-  discovery and room names)
-- `channels` — named data channels for your doc
-  (e.g. `["content"]`, `["text", "canvas"]`)
-- `origin` — origin + path prefix for generating
-  shareable URLs
+
+| Option           | Type       | Required | Default         | Description                                                                                                                                                                                        |
+| ---------------- | ---------- | -------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `appId`          | `string`   | No       | `""`            | App identifier used for relay discovery, GossipSub topic namespacing, and HKDF key derivation. Public — not a secret. Different apps with the same `appId` share pinners and relay infrastructure. |
+| `channels`       | `string[]` | **Yes**  | —               | Named data channels. Each becomes its own `Y.Doc` with independent write access. E.g. `["content"]`, `["text", "comments"]`.                                                                       |
+| `primaryChannel` | `string`   | No       | `channels[0]`   | Which channel gates `_meta` room access. Peers who can write to the primary channel can modify access allowlists. Usually the main content channel.                                                |
+| `origin`         | `string`   | **Yes**  | —               | Origin + path prefix for generating shareable URLs (e.g. `window.location.origin` or `"https://example.com/app"`).                                                                                 |
+| `rtc`            | `object`   | No       | —               | WebRTC peer connection options passed to `simple-peer` (e.g. custom ICE servers).                                                                                                                  |
+| `signalingUrls`  | `string[]` | No       | `[]`            | Additional WebSocket signaling server URLs. Empty by default — signaling uses GossipSub via libp2p, not WebSocket servers.                                                                         |
+| `bootstrapPeers` | `string[]` | No       | libp2p defaults | Override libp2p bootstrap peer multiaddrs. Rarely needed — the defaults connect to the public libp2p network.                                                                                      |
 
 ### 2. Create or open a document
 
@@ -92,9 +96,9 @@ Every document has up to three URLs with different access
 levels:
 
 ```ts
-doc.urls.admin;  // full control (null if not admin)
-doc.urls.write;  // edit + publish (null if read-only)
-doc.urls.read;   // view only (always available)
+doc.urls.admin; // full control (null if not admin)
+doc.urls.write; // edit + publish (null if read-only)
+doc.urls.read; // view only (always available)
 ```
 
 URLs are self-contained capability tokens — the hash
@@ -104,9 +108,9 @@ access the document at that level without a server.
 **Check capabilities:**
 
 ```ts
-doc.capability.isAdmin;        // boolean
+doc.capability.isAdmin; // boolean
 doc.capability.canPushSnapshots; // boolean
-doc.capability.channels;       // Set<string>
+doc.capability.channels; // Set<string>
 ```
 
 **Generate invite links:**
@@ -123,7 +127,90 @@ const readInvite = await doc.invite({
 });
 ```
 
-### 6. Persistence with snapshots
+### 6. Identity and publisher authorization
+
+Every device automatically gets an Ed25519 identity
+keypair, scoped per `appId`. No configuration needed —
+identity is a built-in property of being a peer.
+
+```ts
+// Your device's identity public key (hex)
+doc.identityPubkey; // string | null
+```
+
+**Publisher attribution:** Every snapshot includes the
+publisher's identity public key and signature. This is
+always present — you can see who published each version
+without enabling any authorization.
+
+**Participant awareness:** All connected peers
+broadcast their identity via the awareness protocol.
+Access current participants:
+
+```ts
+const participants = doc.participants;
+// ReadonlyMap<number, ParticipantInfo>
+// clientId → { pubkey: string, displayName?: string }
+
+for (const [clientId, info] of participants) {
+  console.log(info.pubkey, info.displayName);
+}
+```
+
+Apps can set a display name via awareness before
+opening or creating a doc:
+
+```ts
+doc.awareness.setLocalStateField("user", {
+  name: "Alice",
+});
+```
+
+The `displayName` in `ParticipantInfo` comes from the
+app-provided awareness `user.name` field — unsigned,
+for display only.
+
+#### Permissionless vs authorized mode
+
+By default, documents are **permissionless** — anyone
+with write access can publish snapshots. Publisher
+attribution is informational only.
+
+Admins can enable **authorized mode** by adding
+identity public keys to the publisher allowlist:
+
+```ts
+// Enable authorization (admin only)
+doc.authorize(alicePubkey);
+doc.authorize(bobPubkey);
+
+// Revoke a publisher
+doc.deauthorize(bobPubkey);
+
+// Check current allowlist
+doc.authorizedPublishers;
+// ReadonlySet<string> (hex pubkeys)
+```
+
+Once `authorizedPublishers` is non-empty, readers
+reject snapshots from unlisted publishers. Snapshots
+from before auth was enabled (no publisher field) are
+also rejected.
+
+**Key points:**
+
+- `authorize()` / `deauthorize()` require admin
+  capability — non-admins get an error
+- Auth changes propagate via Yjs sync (eventually
+  consistent across peers)
+- The doc creator's identity is **not** auto-added —
+  the admin explicitly chooses when to enable auth
+  and who to authorize
+- Pinners store all snapshots regardless (they can't
+  decrypt `_meta` to check authorization). Enforcement
+  is reader-side only.
+
+### 7. Persistence with snapshots
 
 Pokapali persists document state to IPFS as encrypted
 snapshots, published via IPNS. This means a document can
@@ -139,13 +226,24 @@ doc.on("publish-needed", () => {
   doc.publish();
 });
 
-// Listen for remote snapshots being applied
-doc.on("snapshot", () => {
-  console.log("Received update from IPNS");
+// Listen for snapshots (local publishes + remote)
+doc.on("snapshot", ({ cid, seq, ts, isLocal }) => {
+  if (isLocal) {
+    console.log("Published snapshot:", cid.toString());
+  } else {
+    console.log("Received remote snapshot:", cid);
+  }
 });
 ```
 
-### 7. Document status
+**Block distribution:** Snapshots up to 1 MB are
+distributed inline via GossipSub announcements. Larger
+snapshots (1–6 MB) are uploaded to connected pinners
+via HTTP POST and fetched by readers via HTTP GET. This
+is transparent — `publish()` and snapshot fetching
+handle it automatically.
+
+### 8. Document status
 
 Pokapali separates connectivity from persistence:
 
@@ -179,7 +277,124 @@ doc.on("save", (state) => {
 });
 ```
 
-### 8. Node diagnostics
+**Additional events** for network visualization:
+
+```ts
+// Block fetch progress (IPNS resolve, block fetch)
+doc.on("loading", (state) => {
+  // state.status: "idle" | "resolving" |
+  //   "fetching" | "retrying" | "failed"
+});
+
+// GossipSub activity changes
+doc.on("gossip-activity", (activity) => {
+  // "inactive" | "subscribed" | "receiving"
+});
+
+// Outbound guarantee query sent to pinners
+doc.on("guarantee-query", () => {});
+
+// Pinner acknowledged current snapshot
+doc.on("ack", (peerId) => {});
+
+// Infrastructure node discovered or changed
+doc.on("node-change", () => {});
+```
+
+### 9. Reactive Feeds
+
+For framework integration (especially React), each
+status property has a corresponding `Feed<T>` that
+works directly with `useSyncExternalStore`:
+
+```ts
+import { useSyncExternalStore } from "react";
+
+// Status indicator
+function StatusBadge({ doc }) {
+  const status = useSyncExternalStore(
+    doc.status.subscribe,
+    doc.status.getSnapshot,
+  );
+  return <span className={status}>{status}</span>;
+}
+
+// Save state indicator
+function SaveIndicator({ doc }) {
+  const saveState = useSyncExternalStore(
+    doc.saveState.subscribe,
+    doc.saveState.getSnapshot,
+  );
+  return <span>{saveState}</span>;
+}
+```
+
+Available Feeds:
+
+| Feed            | Type                        | Changes when                              |
+| --------------- | --------------------------- | ----------------------------------------- |
+| `doc.status`    | `Feed<DocStatus>`           | Connectivity changes                      |
+| `doc.saveState` | `Feed<SaveState>`           | Publish starts/completes, content dirtied |
+| `doc.tip`       | `Feed<VersionInfo \| null>` | New snapshot applied                      |
+| `doc.loading`   | `Feed<LoadingState>`        | IPNS resolving, block fetching            |
+| `doc.versions`  | `Feed<VersionHistory>`      | Chain walk progress, new snapshots        |
+
+Each Feed has an equality gate that prevents spurious
+notifications — high-frequency events like GossipSub
+awareness messages don't trigger re-renders on
+unrelated Feeds.
+
+`Feed<T>` interface:
+
+```ts
+interface Feed<T> {
+  getSnapshot(): T;
+  subscribe(cb: () => void): () => void;
+}
+```
+
+No wrapper hook needed. The interface is designed to
+match `useSyncExternalStore` exactly.
+
+**Version history Feed:**
+
+`doc.versions` provides reactive version history that
+updates as the chain walk progresses:
+
+```ts
+function VersionList({ doc }) {
+  const { entries, walking } = useSyncExternalStore(
+    doc.versions.subscribe,
+    doc.versions.getSnapshot,
+  );
+
+  return (
+    <ul>
+      {entries.map((v) => (
+        <li key={v.cid.toString()}>
+          v{v.seq} — {v.status}
+        </li>
+      ))}
+      {walking && <li>Loading older versions…</li>}
+    </ul>
+  );
+}
+```
+
+Each `VersionHistoryEntry` has:
+
+| Field    | Type                                   | Description              |
+| -------- | -------------------------------------- | ------------------------ |
+| `cid`    | `CID`                                  | Content-addressed block  |
+| `seq`    | `number`                               | Snapshot sequence number |
+| `ts`     | `number`                               | Unix timestamp (ms)      |
+| `status` | `"available" \| "loading" \| "failed"` | Block fetch status       |
+
+The `walking` flag is `true` while the chain walk is
+in progress (entries with pending block fetches). Use
+it to show a loading indicator.
+
+### 10. Node diagnostics and topology
 
 `doc.diagnostics()` returns detailed network info
 including discovered nodes with their roles:
@@ -189,8 +404,9 @@ const info = doc.diagnostics();
 
 // info.nodes: NodeInfo[]
 // Each node has:
-//   peerId, short, connected, roles,
-//   ackedCurrentCid, lastSeenAt
+//   peerId, short, connected, roles, rolesConfirmed,
+//   ackedCurrentCid, lastSeenAt, neighbors,
+//   browserCount
 
 // Check for connected pinners
 const hasPinner = info.nodes.some(
@@ -208,7 +424,29 @@ both) via GossipSub. Use this to show users whether
 their changes will be persisted remotely — if no pinner
 is connected, warn them.
 
-### 9. Auto-save
+**Topology graph** — `doc.topologyGraph()` returns a
+`TopologyGraph` with `nodes` and `edges` suitable for
+rendering a network visualization:
+
+```ts
+const topo = doc.topologyGraph();
+
+// topo.nodes: TopologyNode[]
+//   id, kind ("self" | "relay" | "pinner" |
+//     "relay+pinner" | "browser"),
+//   label, connected, roles, clientId?,
+//   ackedCurrentCid?, browserCount?
+
+// topo.edges: TopologyGraphEdge[]
+//   source, target, connected
+```
+
+The graph merges local diagnostics, node-registry data,
+and awareness state from remote peers, giving a
+whole-network view even of nodes not directly connected
+to you.
+
+### 11. Auto-save
 
 The `createAutoSaver` utility handles snapshot publishing
 automatically on visibility change, beforeunload, and
@@ -224,7 +462,7 @@ const cleanup = createAutoSaver(doc);
 useEffect(() => createAutoSaver(doc), [doc]);
 ```
 
-### 10. Cleanup
+### 12. Cleanup
 
 Always destroy when done to release WebRTC connections,
 awareness rooms, and the shared Helia instance:
@@ -237,14 +475,10 @@ doc.destroy();
 
 ```tsx
 import { useEffect } from "react";
-import {
-  useEditor, EditorContent
-} from "@tiptap/react";
+import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Collaboration
-  from "@tiptap/extension-collaboration";
-import CollaborationCursor
-  from "@tiptap/extension-collaboration-cursor";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 
 function Editor({ doc }) {
   const ydoc = doc.channel("content");
@@ -328,30 +562,212 @@ const BASE = "/my-app";
 
 function isDocUrl(url) {
   const parsed = new URL(url);
-  return parsed.pathname.startsWith(BASE + "/doc/")
-    && parsed.hash.length > 1;
+  return parsed.pathname.startsWith(BASE + "/doc/") && parsed.hash.length > 1;
 }
 
 // Auto-open on page load
 if (isDocUrl(window.location.href)) {
-  const doc = await app.open(
-    window.location.href
-  );
+  const doc = await app.open(window.location.href);
 }
 ```
 
-## Version History
+## Document Rotation
+
+Admins can rotate a document's identity — generating
+new keys, a new IPNS name, and new URLs while
+preserving the current content:
 
 ```ts
-const versions = await doc.history();
-// [{ cid, seq, ts }, ...]
+const result = await doc.rotate();
+// result.doc — new Doc with fresh keys
+// result.forwardingRecord — signed redirect from
+//   old IPNS name to new one
+```
 
-// Load a specific version
-const channels = await doc.loadVersion(
-  versions[0].cid
-);
+**What `rotate()` does:**
+
+1. Generates a new `adminSecret` and derives all new
+   keys (IPNS keypair, read key, channel access keys)
+2. Copies current document state to the new identity
+3. Creates new admin/write/read URLs
+4. Stores a `rotationKey`-signed forwarding record so
+   peers following the old IPNS name discover the new
+   location
+
+**When to use it:**
+
+- **Revoking access** — after removing a collaborator,
+  rotate so the old URLs stop working
+- **Recovering from a compromised `ipnsKey`** — if an
+  attacker can publish to the IPNS name, rotating
+  gives you a clean identity
+- **Seq freeze recovery** — if an attacker publishes
+  `seq = 2^64 - 1` to freeze the IPNS pointer,
+  rotation is the only recovery path
+
+**Requirements:** Admin capability (has `rotationKey`).
+The old document continues to exist — rotation creates
+a new identity, it doesn't delete the old one.
+
+## Loading State Machine
+
+`doc.loading` (or `doc.on("loading", ...)`) reports
+the snapshot fetch lifecycle as a discriminated union:
+
+```
+  ┌──────────────────────────────────────────┐
+  │                                          │
+  ▼                                          │
+idle ──→ resolving ──→ fetching ──→ idle     │
+                          │                  │
+                          ▼                  │
+                       retrying ─────────────┘
+                          │
+                          ▼
+                       failed
+```
+
+| State       | Fields                          | Entered when                                             |
+| ----------- | ------------------------------- | -------------------------------------------------------- |
+| `idle`      | —                               | Snapshot applied, or new doc with no remote state        |
+| `resolving` | `startedAt`                     | IPNS poll begins (readers on `open()`)                   |
+| `fetching`  | `cid`, `startedAt`              | CID received from announcement or IPNS resolve           |
+| `retrying`  | `cid`, `attempt`, `nextRetryAt` | Block fetch failed; re-triggered on next discovery event |
+| `failed`    | `cid`, `error`                  | Fetch exhausted (no more discovery events)               |
+
+Writers skip `resolving` — they receive snapshots via
+GossipSub announcements, which provide the CID
+directly. Readers start with IPNS resolution.
+
+Retries are event-driven: a failed fetch is retried
+when the CID is re-discovered via GossipSub re-announce
+(15s) or IPNS poll (30s). There is no fixed retry
+count or interval.
+
+On `failed`, the library calls `markReady()` so the
+editor mounts with whatever state is available (local
+IndexedDB or partial sync) rather than blocking
+forever.
+
+## Version History
+
+Pokapali tracks a chain of snapshots — each publish
+creates a new version linked to the previous one. You
+can browse past versions and load any snapshot as an
+independent set of `Y.Doc`s.
+
+### Current tip
+
+```ts
+doc.tipCid; // CID | null
+```
+
+The CID of the most recently published snapshot, or
+`null` if the document has never been published. Useful
+for highlighting "you are here" in a version list.
+
+### Listing versions
+
+**Recommended — `doc.versions` Feed:**
+
+The `doc.versions` Feed (see section 9) provides
+reactive version history that updates automatically as
+snapshots are discovered and chain-walked. This is the
+primary API for version listing.
+
+**`versionHistory()` (async, one-shot):**
+
+```ts
+const versions = await doc.versionHistory();
+// Array<{ cid: CID; seq: number; ts: number }>
+```
+
+Returns versions **newest-first**. Queries connected
+pinners' HTTP history endpoints, falling back to a
+local chain walk if no pinners are reachable.
+
+**`history()` (deprecated):**
+
+Use `doc.versions` or `versionHistory()` instead.
+`history()` walks the local chain only and does not
+benefit from HTTP block resolution. It will be removed
+in a future release.
+
+### Snapshot event
+
+```ts
+doc.on("snapshot", (info) => {
+  // info.cid     — CID of the snapshot
+  // info.seq     — Yjs clock sum
+  // info.ts      — Unix timestamp (ms)
+  // info.isLocal — true if published by this client
+});
+```
+
+Fires on both local publishes and remote snapshot
+application.
+
+### Loading a version
+
+```ts
+const channels = await doc.loadVersion(versions[0].cid);
 // Record<string, Y.Doc> — one Y.Doc per channel
 ```
+
+Returns an independent `Y.Doc` for each channel,
+containing the full state at that snapshot. These are
+copies — modifying them does not affect the live
+document.
+
+### Restoring a version
+
+Restore creates a **new version** — it does not revert
+or discard later versions. The snapshot chain is
+append-only (CIDs are content hashes), so history is
+immutable.
+
+The restore strategy depends on your content type and
+editor. Core provides `loadVersion()` as the primitive;
+your app applies the old content as new CRDT operations.
+
+**Tiptap / ProseMirror (XmlFragment):**
+
+```ts
+import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+
+async function restoreVersion(doc, editor, cid) {
+  const old = await doc.loadVersion(cid);
+  const frag = old["content"].getXmlFragment("default");
+  const json = yXmlFragmentToProsemirrorJSON(frag);
+  editor.commands.setContent(json);
+  await doc.publish();
+}
+```
+
+`setContent()` is a single ProseMirror transaction —
+atomic replace with no intermediate empty state.
+Yjs translates it into new delete+insert operations
+that propagate correctly to all peers.
+
+**Plain Y.Text:**
+
+```ts
+async function restoreVersion(doc, cid) {
+  const old = await doc.loadVersion(cid);
+  const oldText = old["content"].getText("main").toString();
+  const current = doc.channel("content").getText("main");
+  current.delete(0, current.length);
+  current.insert(0, oldText);
+  await doc.publish();
+}
+```
+
+**Why not `Y.applyUpdate()`?** Applying an old Yjs
+state update to the current doc _merges_ rather than
+_replaces_ — the old state is a subset of the current
+state, so it's a no-op or creates merge artifacts.
+You must read old content and write it as new CRDT
+operations.
 
 ## Tips
 
@@ -372,3 +788,13 @@ const channels = await doc.loadVersion(
 - **Monitor node health** with
   `doc.diagnostics().nodes` to warn users when no
   pinners are connected.
+- **Large documents** (over 1 MB serialized) require at
+  least one pinner with HTTP block upload support. The
+  library handles this automatically — blocks that
+  exceed the 1 MB GossipSub inline limit are uploaded
+  via HTTP POST and fetched via HTTP GET.
+- **Topology visualization** — use `doc.topologyGraph()`
+  combined with the network events (`snapshot`, `ack`,
+  `loading`, `gossip-activity`, `guarantee-query`) to
+  build a live network map showing data flow between
+  your app and infrastructure nodes.

@@ -1,27 +1,35 @@
 import { createHelia, libp2pDefaults } from "helia";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
-import {
-  pubsubPeerDiscovery,
-} from "@libp2p/pubsub-peer-discovery";
+import { pubsubPeerDiscovery } from "@libp2p/pubsub-peer-discovery";
 import type { Helia } from "helia";
 import type { Libp2p, PubSub } from "@libp2p/interface";
 
-const DISCOVERY_TOPIC =
-  "pokapali._peer-discovery._p2p._pubsub";
+const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
 
 export interface HeliaOptions {
   bootstrapPeers?: string[];
+  /** Optional blockstore (e.g. IDBBlockstore for
+   *  browser persistence). Defaults to in-memory.
+   *  Typed loosely to avoid interface-blockstore
+   *  version conflicts between helia and
+   *  blockstore-idb.
+   *  TODO(#20): revisit when helia and blockstore-idb
+   *  align on interface-blockstore version */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  blockstore?: any;
 }
 
-interface HeliaWithPubsub extends Helia<Libp2p<{
-  pubsub: PubSub;
-}>> {}
+type HeliaWithPubsub = Helia<
+  Libp2p<{
+    pubsub: PubSub;
+  }>
+>;
 
 let sharedHelia: HeliaWithPubsub | null = null;
 let refCount = 0;
 
 export async function acquireHelia(
-  options?: HeliaOptions
+  _options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
   if (sharedHelia) {
     refCount++;
@@ -82,32 +90,39 @@ export async function acquireHelia(
     // Block plain ws:// dials from HTTPS pages — browsers
     // reject mixed content and the failed attempts waste
     // connection slots and time.
-    ...(isSecureContext ? {
-      connectionGater: {
-        ...defaults.connectionGater,
-        denyDialMultiaddr: (ma: any) => {
-          const s = ma.toString();
-          if (s.includes("/ws/") || s.endsWith("/ws")) {
-            return !s.includes("/tls/");
-          }
-          return false;
-        },
-      },
-    } : {}),
+    ...(isSecureContext
+      ? {
+          connectionGater: {
+            ...defaults.connectionGater,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            denyDialMultiaddr: (ma: any) => {
+              const s = ma.toString();
+              if (s.includes("/ws/") || s.endsWith("/ws")) {
+                return !s.includes("/tls/");
+              }
+              return false;
+            },
+          },
+        }
+      : {}),
   };
 
   const BOOTSTRAP_TIMEOUT_MS = 30_000;
-  const helia = await Promise.race([
-    createHelia({ libp2p: libp2pOptions }),
+  const heliaOpts: Parameters<typeof createHelia>[0] = {
+    libp2p: libp2pOptions,
+  };
+  if (_options?.blockstore) {
+    heliaOpts.blockstore = _options.blockstore;
+  }
+  const helia = (await Promise.race([
+    createHelia(heliaOpts),
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(
-          new Error("Helia bootstrap timed out"),
-        ),
+        () => reject(new Error("Helia bootstrap timed out")),
         BOOTSTRAP_TIMEOUT_MS,
       ),
     ),
-  ]) as unknown as HeliaWithPubsub;
+  ])) as unknown as HeliaWithPubsub;
 
   sharedHelia = helia;
   refCount = 1;
@@ -138,6 +153,16 @@ export function getHelia(): Helia {
     throw new Error("No Helia instance exists");
   }
   return sharedHelia;
+}
+
+/**
+ * True when a shared Helia instance already exists.
+ * Callers should skip creating a new blockstore when
+ * this returns true — acquireHelia will ignore the
+ * blockstore option and just increment the ref count.
+ */
+export function isHeliaLive(): boolean {
+  return sharedHelia !== null;
 }
 
 /**

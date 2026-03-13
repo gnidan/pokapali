@@ -91,8 +91,8 @@ broadcasting. Used in @pokapali/core (browser) and
 @pokapali/node (relay). Relays use `floodPublish: false`
 with mesh routing (D=3, Dlo=2, Dhi=8) and peer tagging
 (tag value 200) for relay-to-relay delivery. Browsers
-keep `floodPublish: true` (2-4 relay peers, negligible
-bandwidth, D=2/Dlo=2/Dhi=4). `maxOutboundBufferSize`
+use `floodPublish: false` with mesh routing
+(D=3, Dlo=2, Dhi=6, Dout=1, Dscore=1). `maxOutboundBufferSize`
 set to 10MB (default Infinity caused OOM). IP colocation
 scoring disabled (`IPColocationFactorWeight: 0`) because
 browser peers connect via p2p-circuit through relay IPs,
@@ -124,17 +124,27 @@ DHT walkers. Configured with IPNS validator/selector.
 ## @ipshipyard/libp2p-auto-tls
 
 Automatic TLS certificate provisioning for relay WSS
-endpoints. On startup, the relay obtains a certificate
-from the libp2p certificate authority, enabling browsers
-on HTTPS pages to connect directly via secure WebSocket.
+endpoints and the HTTPS block endpoint. On startup, the
+relay obtains a wildcard certificate for
+`*.<base36-peerid>.libp2p.direct` from the libp2p
+certificate authority, enabling browsers on HTTPS pages
+to connect directly via secure WebSocket. The same
+certificate is reused by the HTTPS block endpoint server
+(port 4443) — accessed via the `certificate:provision`
+event or `autoTLS.certificate` property, providing
+zero-config TLS for block uploads and downloads.
 
 ## blockstore-fs
 
 Persistent file-based blockstore for relay/pinner. Stores
 snapshot blocks at `storagePath/blockstore/` so they
-survive restarts. Note: v3 `get()` returns an
-`AsyncGenerator`, not a `Uint8Array` — wrapped with a
-safe type-check adapter in relay code.
+survive restarts. Shared between the pinner (read/write)
+and the HTTP block endpoint (read for GET, write for
+POST) — blocks uploaded via HTTP POST are immediately
+available to the co-located pinner without any protocol
+changes. Note: v3 `get()` returns an `AsyncGenerator`,
+not a `Uint8Array` — wrapped with a safe type-check
+adapter in relay code.
 
 ## datastore-level
 
@@ -145,11 +155,32 @@ the libp2p peer store and DHT records across restarts.
 
 Zero-dependency structured logging package. Provides
 `createLogger(module)` factory with level filtering
-(`LOG_LEVEL` env var or `localStorage` key). Used by all
-other `@pokapali/*` packages. Placed as a separate leaf
-package (not in `@pokapali/core`) to avoid a dependency
-cycle — `@pokapali/sync` does not depend on core, but both
+(`POKAPALI_LOG_LEVEL` env var or `localStorage` key).
+Levels: `debug`, `info`, `warn`, `error`, `silent`.
+The `silent` level suppresses all output — used in the
+test runner (`POKAPALI_LOG_LEVEL=silent vitest run`)
+to eliminate log noise. Used by all other `@pokapali/*`
+packages. Placed as a separate leaf package (not in
+`@pokapali/core`) to avoid a dependency cycle —
+`@pokapali/sync` does not depend on core, but both
 need logging.
+
+## husky ^9.1.7
+
+Git hooks manager. Runs `lint-staged` as a pre-commit
+hook to enforce formatting and lint rules on staged
+files before they enter the repository. v9.x uses a
+simple `.husky/pre-commit` shell script (no JSON
+config). The `prepare` script in root `package.json`
+installs hooks on `npm install`.
+
+## lint-staged ^16.3.3
+
+Runs linters on git-staged files only. Configured in
+root `package.json`: prettier + eslint --fix on
+`*.{ts,tsx,js,jsx}`, prettier-only on
+`*.{json,md,yml,yaml,css}`. Keeps commits clean
+without requiring a full-repo lint pass.
 
 ## react / react-dom ^19.0.0
 

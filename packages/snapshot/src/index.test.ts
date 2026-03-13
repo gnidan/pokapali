@@ -2,7 +2,14 @@ import { describe, it, expect } from "vitest";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import * as dagCbor from "@ipld/dag-cbor";
-import { deriveDocKeys, ed25519KeyPairFromSeed } from "@pokapali/crypto";
+import {
+  deriveDocKeys,
+  ed25519KeyPairFromSeed,
+  generateIdentityKeypair,
+  encryptSubdoc,
+  signBytes,
+  verifySignature,
+} from "@pokapali/crypto";
 import {
   encodeSnapshot,
   decodeSnapshot,
@@ -250,6 +257,605 @@ describe("@pokapali/snapshot", () => {
       expect(node.prev).toBeDefined();
       expect(node.prev!.toString()).toBe(prevCid.toString());
     });
+  });
+
+  describe("publisher attribution", () => {
+    it("encodes snapshot with publisher fields", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+      const subdocs = {
+        doc: new Uint8Array([1, 2, 3]),
+      };
+
+      const encoded = await encodeSnapshot(
+        subdocs,
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+      const node = decodeSnapshot(encoded);
+
+      expect(node.publisher).toEqual(identity.publicKey);
+      expect(node.publisherSig).toBeInstanceOf(Uint8Array);
+      expect(node.publisherSig!.length).toBe(64);
+    });
+
+    it("validates publisher signature", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+
+      expect(await validateStructure(encoded)).toBe(true);
+    });
+
+    it("rejects tampered publisher sig", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+
+      const node = decodeSnapshot(encoded);
+      // Tamper with publisherSig
+      const tampered = new Uint8Array(node.publisherSig!);
+      tampered[0] ^= 0xff;
+      node.publisherSig = tampered;
+
+      // Re-encode with tampered publisherSig — doc sig
+      // won't match either
+      const reEncoded = dagCbor.encode(node);
+      expect(await validateStructure(reEncoded)).toBe(false);
+    });
+
+    it("works without publisher (backward compat)", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+
+      // No identity keypair passed
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+      );
+      const node = decodeSnapshot(encoded);
+
+      expect(node.publisher).toBeUndefined();
+      expect(node.publisherSig).toBeUndefined();
+      expect(await validateStructure(encoded)).toBe(true);
+    });
+
+    it(
+      "encodeSnapshot produces both publisher " + "fields or neither",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const identity = await generateIdentityKeypair();
+
+        // With identity → both defined
+        const withId = decodeSnapshot(
+          await encodeSnapshot(
+            { doc: new Uint8Array([1]) },
+            readKey,
+            null,
+            0,
+            1000,
+            signingKey,
+            identity,
+          ),
+        );
+        expect(withId.publisher).toBeDefined();
+        expect(withId.publisherSig).toBeDefined();
+
+        // Without identity → both undefined
+        const withoutId = decodeSnapshot(
+          await encodeSnapshot(
+            { doc: new Uint8Array([1]) },
+            readKey,
+            null,
+            0,
+            1000,
+            signingKey,
+          ),
+        );
+        expect(withoutId.publisher).toBeUndefined();
+        expect(withoutId.publisherSig).toBeUndefined();
+      },
+    );
+
+    it("doc signature covers publisher fields", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+
+      const encoded = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+        identity,
+      );
+      const node = decodeSnapshot(encoded);
+
+      // Strip publisher fields — doc sig should fail
+      const stripped = { ...node };
+      delete (stripped as Record<string, unknown>).publisher;
+      delete (stripped as Record<string, unknown>).publisherSig;
+      const { signature, ...payloadFields } = stripped;
+      const payloadBytes = dagCbor.encode(payloadFields);
+      const valid = await verifySignature(
+        node.publicKey,
+        node.signature,
+        payloadBytes,
+      );
+      expect(valid).toBe(false);
+    });
+
+    it("rejects publisher without publisherSig", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const identity = await generateIdentityKeypair();
+      const subdocs = {
+        doc: await encryptSubdoc(readKey, new Uint8Array([1])),
+      };
+
+      // Hand-craft a block with publisher but no
+      // publisherSig, then sign it with the doc key.
+      // This simulates an attacker claiming a publisher
+      // identity without proving it.
+      const payload = {
+        subdocs,
+        prev: null,
+        seq: 0,
+        ts: 1000,
+        publicKey: signingKey.publicKey,
+        publisher: identity.publicKey,
+      };
+      const payloadBytes = dagCbor.encode(payload);
+      const signature = await signBytes(signingKey, payloadBytes);
+      const block = dagCbor.encode({
+        ...payload,
+        signature,
+      });
+
+      expect(await validateStructure(block)).toBe(false);
+    });
+  });
+
+  describe("publisher edge cases", () => {
+    it("different publishers in same chain " + "both validate", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const id1 = await generateIdentityKeypair();
+      const id2 = await generateIdentityKeypair();
+
+      // Block 1: publisher id1
+      const block1 = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        1,
+        1000,
+        signingKey,
+        id1,
+      );
+      const hash1 = await sha256.digest(block1);
+      const cid1 = CID.createV1(0x71, hash1);
+
+      // Block 2: publisher id2, prev=cid1
+      const block2 = await encodeSnapshot(
+        { doc: new Uint8Array([2]) },
+        readKey,
+        cid1,
+        2,
+        2000,
+        signingKey,
+        id2,
+      );
+
+      const node1 = decodeSnapshot(block1);
+      const node2 = decodeSnapshot(block2);
+
+      // Both validate independently
+      expect(await validateStructure(block1)).toBe(true);
+      expect(await validateStructure(block2)).toBe(true);
+
+      // Different publisher keys
+      expect(node1.publisher).toEqual(id1.publicKey);
+      expect(node2.publisher).toEqual(id2.publicKey);
+      expect(node1.publisher).not.toEqual(node2.publisher);
+    });
+
+    it(
+      "publisher field present but " + "publisherSig missing fails validation",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const identity = await generateIdentityKeypair();
+
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          1,
+          1000,
+          signingKey,
+          identity,
+        );
+
+        const node = decodeSnapshot(encoded);
+        // Strip publisherSig but keep publisher
+        const malformed = { ...node };
+        delete (malformed as Record<string, unknown>).publisherSig;
+
+        // Re-encode — doc sig won't match since
+        // original was signed with publisherSig
+        // included in payload
+        const { signature, ...rest } = malformed;
+        const reEncoded = dagCbor.encode(malformed);
+        expect(await validateStructure(reEncoded)).toBe(false);
+      },
+    );
+
+    it(
+      "publisher sig from wrong identity " + "key fails validation",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const realId = await generateIdentityKeypair();
+        const wrongId = await generateIdentityKeypair();
+
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          1,
+          1000,
+          signingKey,
+          realId,
+        );
+
+        const node = decodeSnapshot(encoded);
+
+        // Replace publisher with wrongId's pubkey
+        // but keep realId's publisherSig
+        const tampered = { ...node };
+        tampered.publisher = wrongId.publicKey;
+
+        const reEncoded = dagCbor.encode(tampered);
+        expect(await validateStructure(reEncoded)).toBe(false);
+      },
+    );
+
+    it("walkChain preserves publisher " + "fields through chain", async () => {
+      const { readKey, signingKey } = await makeTestKeys();
+      const id = await generateIdentityKeypair();
+
+      const block1 = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        1,
+        1000,
+        signingKey,
+        id,
+      );
+      const hash1 = await sha256.digest(block1);
+      const cid1 = CID.createV1(0x71, hash1);
+
+      const block2 = await encodeSnapshot(
+        { doc: new Uint8Array([2]) },
+        readKey,
+        cid1,
+        2,
+        2000,
+        signingKey,
+        id,
+      );
+      const hash2 = await sha256.digest(block2);
+      const cid2 = CID.createV1(0x71, hash2);
+
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid1.toString(), block1);
+      blocks.set(cid2.toString(), block2);
+
+      const getter = async (cid: CID) => {
+        const b = blocks.get(cid.toString());
+        if (!b) throw new Error("not found");
+        return b;
+      };
+
+      const nodes: import("./index.js").SnapshotNode[] = [];
+      for await (const node of walkChain(cid2, getter)) {
+        nodes.push(node);
+      }
+
+      expect(nodes).toHaveLength(2);
+      // Both have publisher fields
+      expect(nodes[0].publisher).toEqual(id.publicKey);
+      expect(nodes[1].publisher).toEqual(id.publicKey);
+    });
+  });
+
+  describe("publisher security", () => {
+    it(
+      "field-stripping attack: removing both " +
+        "publisher fields invalidates doc sig",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const identity = await generateIdentityKeypair();
+
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          0,
+          1000,
+          signingKey,
+          identity,
+        );
+        expect(await validateStructure(encoded)).toBe(true);
+
+        // Strip both publisher fields, keep
+        // original doc signature
+        const node = decodeSnapshot(encoded);
+        const stripped = { ...node };
+        delete (stripped as Record<string, unknown>).publisher;
+        delete (stripped as Record<string, unknown>).publisherSig;
+
+        const reEncoded = dagCbor.encode(stripped);
+        // Doc sig was over payload WITH publisher
+        // fields — stripped payload won't match
+        expect(await validateStructure(reEncoded)).toBe(false);
+      },
+    );
+
+    it(
+      "valid doc sig with forged publisher " + "sig fails validation",
+      async () => {
+        const { signingKey } = await makeTestKeys();
+        const identity = await generateIdentityKeypair();
+
+        // Forged publisherSig (random bytes)
+        const forgedSig = new Uint8Array(64).fill(0xde);
+
+        const payload = {
+          subdocs: { doc: new Uint8Array([1]) },
+          prev: null,
+          seq: 0,
+          ts: 1000,
+          publicKey: signingKey.publicKey,
+          publisher: identity.publicKey,
+          publisherSig: forgedSig,
+        };
+
+        // Doc key signs the full payload (valid
+        // doc sig over forged publisher fields)
+        const payloadBytes = dagCbor.encode(payload);
+        const signature = await signBytes(signingKey, payloadBytes);
+
+        const block = dagCbor.encode({
+          ...payload,
+          signature,
+        });
+
+        // Doc sig valid, publisher sig forged
+        expect(await validateStructure(block)).toBe(false);
+      },
+    );
+
+    it(
+      "publisher sig replay: sig from " +
+        "(seq=1, ts=1000) rejected on " +
+        "(seq=2, ts=2000)",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const identity = await generateIdentityKeypair();
+
+        // Create valid snapshot A
+        const blockA = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          1,
+          1000,
+          signingKey,
+          identity,
+        );
+        expect(await validateStructure(blockA)).toBe(true);
+
+        const nodeA = decodeSnapshot(blockA);
+        const stolenPubSig = nodeA.publisherSig!;
+
+        // Hand-craft snapshot B with different
+        // seq/ts but stolen publisherSig
+        const payload = {
+          subdocs: { doc: new Uint8Array([99]) },
+          prev: null,
+          seq: 2,
+          ts: 2000,
+          publicKey: signingKey.publicKey,
+          publisher: identity.publicKey,
+          publisherSig: stolenPubSig,
+        };
+
+        // Valid doc sig over crafted payload
+        const payloadBytes = dagCbor.encode(payload);
+        const signature = await signBytes(signingKey, payloadBytes);
+
+        const block = dagCbor.encode({
+          ...payload,
+          signature,
+        });
+
+        // Publisher sig was for (seq=1, ts=1000),
+        // not (seq=2, ts=2000)
+        expect(await validateStructure(block)).toBe(false);
+      },
+    );
+  });
+
+  describe("encode→decode→verify round-trip", () => {
+    it(
+      "round-trip with identity key: both " +
+        "doc sig and publisher sig verify",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+        const identity = await generateIdentityKeypair();
+
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([1, 2, 3]) },
+          readKey,
+          null,
+          5,
+          9999,
+          signingKey,
+          identity,
+        );
+
+        const node = decodeSnapshot(encoded);
+
+        // Verify doc signature independently
+        const payload = {
+          subdocs: node.subdocs,
+          prev: node.prev,
+          seq: node.seq,
+          ts: node.ts,
+          publicKey: node.publicKey,
+          publisher: node.publisher,
+          publisherSig: node.publisherSig,
+        };
+        const payloadBytes = dagCbor.encode(payload);
+        expect(
+          await verifySignature(node.publicKey, node.signature, payloadBytes),
+        ).toBe(true);
+
+        // Verify publisher signature independently
+        const pubPayload = {
+          publicKey: node.publicKey,
+          seq: node.seq,
+          ts: node.ts,
+        };
+        const pubBytes = dagCbor.encode(pubPayload);
+        expect(
+          await verifySignature(node.publisher!, node.publisherSig!, pubBytes),
+        ).toBe(true);
+
+        // And validateStructure confirms both
+        expect(await validateStructure(encoded)).toBe(true);
+      },
+    );
+
+    it(
+      "round-trip without identity key: " +
+        "doc sig verifies, no publisher fields",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([4, 5, 6]) },
+          readKey,
+          null,
+          0,
+          1000,
+          signingKey,
+        );
+
+        const node = decodeSnapshot(encoded);
+        expect(node.publisher).toBeUndefined();
+        expect(node.publisherSig).toBeUndefined();
+
+        // Doc sig still valid
+        const payload = {
+          subdocs: node.subdocs,
+          prev: node.prev,
+          seq: node.seq,
+          ts: node.ts,
+          publicKey: node.publicKey,
+        };
+        const payloadBytes = dagCbor.encode(payload);
+        expect(
+          await verifySignature(node.publicKey, node.signature, payloadBytes),
+        ).toBe(true);
+
+        expect(await validateStructure(encoded)).toBe(true);
+      },
+    );
+  });
+
+  describe("DAG-CBOR determinism", () => {
+    it("same payload encoded twice produces " + "identical bytes", () => {
+      const payload = {
+        subdocs: {
+          doc: new Uint8Array([1, 2, 3]),
+        },
+        prev: null,
+        seq: 42,
+        ts: 123456,
+        publicKey: new Uint8Array(32).fill(0xaa),
+      };
+
+      const bytes1 = dagCbor.encode(payload);
+      const bytes2 = dagCbor.encode(payload);
+      expect(bytes1).toEqual(bytes2);
+    });
+
+    it(
+      "deterministic across encodeSnapshot " + "calls (same keys, same data)",
+      async () => {
+        const { readKey, signingKey } = await makeTestKeys();
+
+        // Note: encodeSnapshot uses encryption
+        // which has random IVs, so the encoded
+        // bytes will differ. But the signable
+        // payload structure is deterministic.
+        const encoded1 = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          0,
+          1000,
+          signingKey,
+        );
+        const encoded2 = await encodeSnapshot(
+          { doc: new Uint8Array([1]) },
+          readKey,
+          null,
+          0,
+          1000,
+          signingKey,
+        );
+
+        const node1 = decodeSnapshot(encoded1);
+        const node2 = decodeSnapshot(encoded2);
+
+        // Structural fields match
+        expect(node1.seq).toBe(node2.seq);
+        expect(node1.ts).toBe(node2.ts);
+        expect(node1.prev).toEqual(node2.prev);
+        expect(node1.publicKey).toEqual(node2.publicKey);
+
+        // Both validate independently
+        expect(await validateStructure(encoded1)).toBe(true);
+        expect(await validateStructure(encoded2)).toBe(true);
+      },
+    );
   });
 
   describe("FetchCoalescerState", () => {

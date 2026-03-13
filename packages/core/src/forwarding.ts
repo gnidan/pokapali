@@ -4,7 +4,6 @@ import {
   verifySignature,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
-import type { Ed25519KeyPair } from "@pokapali/crypto";
 
 export interface ForwardingRecord {
   oldIpnsName: string;
@@ -36,15 +35,11 @@ export async function createForwardingRecord(
   return { oldIpnsName, newIpnsName, newUrl, signature };
 }
 
-export function encodeForwardingRecord(
-  record: ForwardingRecord,
-): Uint8Array {
+export function encodeForwardingRecord(record: ForwardingRecord): Uint8Array {
   return dagCbor.encode(record);
 }
 
-export function decodeForwardingRecord(
-  bytes: Uint8Array,
-): ForwardingRecord {
+export function decodeForwardingRecord(bytes: Uint8Array): ForwardingRecord {
   return dagCbor.decode<ForwardingRecord>(bytes);
 }
 
@@ -60,11 +55,7 @@ export async function verifyForwardingRecord(
       newUrl: record.newUrl,
     };
     const payload = dagCbor.encode(signable);
-    return verifySignature(
-      keypair.publicKey,
-      record.signature,
-      payload,
-    );
+    return verifySignature(keypair.publicKey, record.signature, payload);
   } catch {
     return false;
   }
@@ -87,6 +78,7 @@ export function lookupForwardingRecord(
   return forwardingStore.get(ipnsName);
 }
 
-export function clearForwardingStore(): void {
+/** @internal Test-only reset. */
+export function _resetForwardingStore(): void {
   forwardingStore.clear();
 }

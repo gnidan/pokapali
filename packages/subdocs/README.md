@@ -19,8 +19,6 @@ edits.
   `encodeAll()`, `applySnapshot()`, `dirty`, `destroy()`
 - **`SNAPSHOT_ORIGIN`** — transaction origin marker for
   snapshot-applied updates
-- **`INDEXEDDB_ORIGIN`** — transaction origin marker for
-  IndexedDB-sourced updates
 
 ## Links
 

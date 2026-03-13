@@ -26,9 +26,11 @@ export interface HeliaNodeOptions {
   wsPort?: number;
 }
 
-export type HeliaNode = Helia<Libp2p<{
-  pubsub: PubSub;
-}>>;
+export type HeliaNode = Helia<
+  Libp2p<{
+    pubsub: PubSub;
+  }>
+>;
 
 export async function createHeliaNode(
   options?: HeliaNodeOptions,
@@ -42,7 +44,7 @@ export async function createHeliaNode(
   ];
 
   const defaults = libp2pDefaults();
-  const helia = await createHelia({
+  const helia = (await createHelia({
     libp2p: {
       ...defaults,
       addresses: {
@@ -76,32 +78,24 @@ export async function createHeliaNode(
           }),
         };
         // Remove browser-only services
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         delete (svc as any).relay;
         return svc;
       })(),
     },
-  }) as unknown as HeliaNode;
+  })) as unknown as HeliaNode;
 
-  log.info(
-    "started, peer ID:",
-    helia.libp2p.peerId.toString(),
-  );
+  log.info("started, peer ID:", helia.libp2p.peerId.toString());
 
   // Dial bootstrap/relay peers
   if (options?.bootstrapPeers?.length) {
-    const { multiaddr } = await import(
-      "@multiformats/multiaddr"
-    );
+    const { multiaddr } = await import("@multiformats/multiaddr");
     for (const addr of options.bootstrapPeers) {
       try {
         await helia.libp2p.dial(multiaddr(addr));
         log.info("dialed", addr.slice(-30));
       } catch (err) {
-        log.warn(
-          "failed to dial",
-          addr.slice(-30),
-          (err as Error).message,
-        );
+        log.warn("failed to dial", addr.slice(-30), (err as Error).message);
       }
     }
   }

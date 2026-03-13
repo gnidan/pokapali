@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createHelia, libp2pDefaults } from "helia";
@@ -18,6 +19,8 @@ import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { announceTopic } from "@pokapali/core/announce";
+import { createDelegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
+import { delegatedHTTPRoutingDefaults } from "@helia/routers";
 import { createLogger } from "@pokapali/log";
 
 // Even with client-mode DHT, peers accumulate via
@@ -25,32 +28,26 @@ import { createLogger } from "@pokapali/log";
 // manager doesn't reject browsers.
 const MAX_CONNECTIONS = 512;
 
-const DISCOVERY_TOPIC =
-  "pokapali._peer-discovery._p2p._pubsub";
+const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
 const SIGNALING_TOPIC = "/pokapali/signaling";
-export const NODE_CAPS_TOPIC =
-  "pokapali._node-caps._p2p._pubsub";
+export const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
 const RAW_CODEC = 0x55;
 const PROVIDE_INTERVAL_MS = 5 * 60_000;
 const LOG_INTERVAL_MS = 30_000;
 const CAPS_INTERVAL_MS = 30_000;
+const HEALTH_CHECK_MIN_MS = 60_000;
+const HEALTH_CHECK_MAX_MS = 90_000;
 
 const log = createLogger("relay");
 
-export async function appIdToCID(
-  appId: string,
-): Promise<CID> {
-  const bytes = new TextEncoder().encode(
-    "pokapali-relay:" + appId,
-  );
+export async function appIdToCID(appId: string): Promise<CID> {
+  const bytes = new TextEncoder().encode("pokapali-relay:" + appId);
   const hash = await sha256.digest(bytes);
   return CID.createV1(RAW_CODEC, hash);
 }
 
 async function networkCID(): Promise<CID> {
-  const bytes = new TextEncoder().encode(
-    "pokapali-network",
-  );
+  const bytes = new TextEncoder().encode("pokapali-network");
   const hash = await sha256.digest(bytes);
   return CID.createV1(RAW_CODEC, hash);
 }
@@ -58,9 +55,69 @@ async function networkCID(): Promise<CID> {
 const DEFAULT_WS_PORT = 4003;
 const KEY_FILENAME = "relay-key.bin";
 
-async function loadOrCreateKey(
-  storagePath: string,
-): Promise<PrivateKey> {
+/**
+ * Derive an HTTPS URL from a WSS multiaddr.
+ * e.g. /dns4/1-2-3-4.xxx.libp2p.direct/tcp/4003/tls/ws
+ * → https://1-2-3-4.xxx.libp2p.direct:4443
+ */
+export function deriveHttpUrl(
+  wssMultiaddr: string,
+  httpsPort: number,
+): string | undefined {
+  // Prefer /sni/<host>/ — autoTLS uses this format
+  // on ip4/ip6 addrs with the .libp2p.direct hostname.
+  const sni = wssMultiaddr.match(/\/sni\/([^/]+)\//);
+  if (sni) return `https://${sni[1]}:${httpsPort}`;
+  // Fallback: /dns4/<host>/tcp/... or /dns6/<host>/tcp/...
+  const dns = wssMultiaddr.match(/\/(dns[46])\/([^/]+)\/tcp/);
+  if (dns) return `https://${dns[2]}:${httpsPort}`;
+  return undefined;
+}
+
+/**
+ * Derive httpUrl from the TLS cert SAN and relay's
+ * public IP. Used when SNI multiaddr isn't registered
+ * yet at cert provision time.
+ *
+ * Cert SAN: *.k51qzi...libp2p.direct
+ * Public IP: 144.202.54.236 (from /ip4/ multiaddrs)
+ * Result: https://144-202-54-236.k51qzi...libp2p.direct:4443
+ */
+export function deriveHttpUrlFromCert(
+  certPem: string,
+  multiaddrs: string[],
+  httpsPort: number,
+): string | undefined {
+  // Extract wildcard domain from cert SAN.
+  // PEM is base64-encoded — decode to DER bytes
+  // where the domain appears as raw ASCII text.
+  let domain: string | undefined;
+  try {
+    const lines = certPem.split("\n").filter((l) => !l.startsWith("-----"));
+    const der = Buffer.from(lines.join(""), "base64");
+    const text = der.toString("latin1");
+    const m = text.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
+    if (m) domain = m[1];
+  } catch {
+    // Not a valid PEM — try raw match as fallback
+    const m = certPem.match(/\*\.([a-z0-9]+\.libp2p\.direct)/);
+    if (m) domain = m[1];
+  }
+  if (!domain) return undefined;
+
+  // Find our public IPv4 from non-circuit multiaddrs
+  const ipMatch = multiaddrs
+    .filter((a) => !a.includes("/p2p-circuit/"))
+    .map((a) => a.match(/^\/ip4\/((?:\d+\.){3}\d+)\//))
+    .find((m) => m && !m[1].startsWith("127."));
+  if (!ipMatch) return undefined;
+
+  const ip = ipMatch[1];
+  const dashed = ip.replace(/\./g, "-");
+  return `https://${dashed}.${domain}:${httpsPort}`;
+}
+
+async function loadOrCreateKey(storagePath: string): Promise<PrivateKey> {
   const keyPath = join(storagePath, KEY_FILENAME);
   try {
     const buf = await readFile(keyPath);
@@ -90,23 +147,17 @@ export interface NodeCapabilities {
   browserCount?: number;
   /** Public WSS addresses for direct dialing. */
   addrs?: string[];
+  /** HTTPS block endpoint URL. */
+  httpUrl?: string;
 }
 
-export function encodeNodeCaps(
-  caps: NodeCapabilities,
-): Uint8Array {
-  return new TextEncoder().encode(
-    JSON.stringify(caps),
-  );
+export function encodeNodeCaps(caps: NodeCapabilities): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(caps));
 }
 
-export function decodeNodeCaps(
-  data: Uint8Array,
-): NodeCapabilities | null {
+export function decodeNodeCaps(data: Uint8Array): NodeCapabilities | null {
   try {
-    const obj = JSON.parse(
-      new TextDecoder().decode(data),
-    );
+    const obj = JSON.parse(new TextDecoder().decode(data));
     if (
       (obj?.version !== 1 && obj?.version !== 2) ||
       typeof obj.peerId !== "string" ||
@@ -137,6 +188,10 @@ export interface RelayConfig {
   // If omitted, inferred: "pinner" if pinAppIds
   // is non-empty, otherwise empty.
   roles?: string[];
+  // Custom delegated routing endpoint URL. When set,
+  // overrides the default (delegated-ipfs.dev) for
+  // IPNS resolve/publish via HTTP.
+  delegatedRoutingUrl?: string;
 }
 
 export interface Relay {
@@ -144,74 +199,49 @@ export interface Relay {
   multiaddrs(): string[];
   peerId(): string;
   helia: Helia;
+  /** Set by bin/node.ts once the HTTPS block server
+   *  is listening. Included in caps advertisements. */
+  httpUrl: string | undefined;
 }
 
-export async function startRelay(
-  config: RelayConfig,
-): Promise<Relay> {
+export async function startRelay(config: RelayConfig): Promise<Relay> {
   const wsPort = config.wsPort ?? DEFAULT_WS_PORT;
-  const privateKey = await loadOrCreateKey(
-    config.storagePath,
-  );
-  const datastore = new LevelDatastore(
-    join(config.storagePath, "datastore"),
-  );
+  const privateKey = await loadOrCreateKey(config.storagePath);
+  const datastore = new LevelDatastore(join(config.storagePath, "datastore"));
   await datastore.open();
 
   const rawBlockstore = new FsBlockstore(
     join(config.storagePath, "blockstore"),
   );
   await rawBlockstore.open();
-  // blockstore-fs@3 get() returns AsyncGenerator,
-  // not Uint8Array. Wrap to match the interface
-  // Helia expects.
+  // blockstore-fs@3 get() returns AsyncGenerator
+  // <Uint8Array>, not Promise<Uint8Array>. Wrap to
+  // match the Blockstore interface Helia expects.
   const blockstore = {
     ...rawBlockstore,
     open: () => rawBlockstore.open(),
     close: () => rawBlockstore.close(),
-    put: (k: CID, v: Uint8Array) =>
-      rawBlockstore.put(k, v),
+    put: (k: CID, v: Uint8Array) => rawBlockstore.put(k, v),
     has: (k: CID) => rawBlockstore.has(k),
     delete: (k: CID) => rawBlockstore.delete(k),
     async get(key: CID): Promise<Uint8Array> {
-      const result = await rawBlockstore.get(key);
-      // FsBlockstore@3 may return AsyncGenerator
-      if (
-        result &&
-        typeof (result as any)[Symbol.asyncIterator]
-          === "function"
-      ) {
-        const chunks: Uint8Array[] = [];
-        for await (
-          const chunk of result as any
-        ) {
-          chunks.push(chunk);
-        }
-        const total = chunks.reduce(
-          (s, c) => s + c.length, 0,
-        );
-        const merged = new Uint8Array(total);
-        let offset = 0;
-        for (const c of chunks) {
-          merged.set(c, offset);
-          offset += c.length;
-        }
-        return merged;
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of rawBlockstore.get(key)) {
+        chunks.push(chunk);
       }
-      // If get() returned a plain Uint8Array
-      // (future version fix), use it directly.
-      if (result instanceof Uint8Array) {
-        return result;
+      if (chunks.length === 1) return chunks[0];
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
       }
-      throw new Error(
-        "unexpected blockstore.get return type",
-      );
+      return merged;
     },
   };
 
-  const { multiaddr } = await import(
-    "@multiformats/multiaddr"
-  );
+  const { multiaddr } = await import("@multiformats/multiaddr");
   const bootstrapAddrs = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
@@ -233,7 +263,7 @@ export async function startRelay(
   const knownRelayPeerIds = new Set<string>();
 
   const defaults = libp2pDefaults();
-  const helia = await createHelia({
+  const helia = (await createHelia({
     blockstore: blockstore as any,
     datastore: datastore as any,
     libp2p: {
@@ -272,13 +302,14 @@ export async function startRelay(
             floodPublish: false,
             allowPublishToZeroTopicPeers: true,
             // D=3 is achievable with 4 relays (3
-            // peers). Dlo=2 avoids constant GRAFT
-            // churn when some relays are temporarily
-            // disconnected. Scales naturally as more
-            // relays join — GossipSub adds up to Dhi
-            // mesh peers.
+            // peers). Dlo=3 maintains full mesh
+            // before triggering GRAFT, reducing
+            // isolation risk when a relay briefly
+            // drops. Scales naturally as more relays
+            // join — GossipSub adds up to Dhi mesh
+            // peers.
             D: 3,
-            Dlo: 2,
+            Dlo: 3,
             Dhi: 8,
             Dout: 1,
             Dscore: 1,
@@ -298,8 +329,7 @@ export async function startRelay(
             scoreParams: {
               IPColocationFactorWeight: 0,
               appSpecificScore: (peerId: string) =>
-                knownRelayPeerIds.has(peerId)
-                  ? 100 : 0,
+                knownRelayPeerIds.has(peerId) ? 100 : 0,
               appSpecificWeight: 1,
             },
           }),
@@ -311,10 +341,19 @@ export async function startRelay(
         // relay for the IPFS network, it floods us with
         // connections.
         delete (svc as any).relay;
+        // Override delegated routing URL if specified.
+        if (config.delegatedRoutingUrl) {
+          (svc as any).delegatedRouting = () =>
+            createDelegatedRoutingV1HttpApiClient(
+              config.delegatedRoutingUrl!,
+              delegatedHTTPRoutingDefaults(),
+            );
+          log.info("delegated routing:", config.delegatedRoutingUrl);
+        }
         return svc;
       })(),
     },
-  }) as Helia;
+  })) as Helia;
 
   log.info("started, peer ID:", helia.libp2p.peerId);
 
@@ -329,16 +368,10 @@ export async function startRelay(
   for (const addr of bootstrapAddrs) {
     try {
       await helia.libp2p.dial(multiaddr(addr));
-      log.info(
-        "  dialed",
-        addr.split("/p2p/")[1]?.slice(0, 12),
-      );
+      log.info("  dialed", addr.split("/p2p/")[1]?.slice(0, 12));
       break; // one is enough
     } catch {
-      log.warn(
-        "  failed to dial",
-        addr.split("/p2p/")[1]?.slice(0, 12),
-      );
+      log.warn("  failed to dial", addr.split("/p2p/")[1]?.slice(0, 12));
     }
   }
 
@@ -349,58 +382,49 @@ export async function startRelay(
   const CERT_WAIT_MS = 120_000;
   const CERT_GRACE_MS = 10_000;
   let certResolved = false;
-  let closeTimer: ReturnType<typeof setInterval> | null =
-    null;
-  const certObtained = await new Promise<boolean>(
-    (resolve) => {
-      const done = (v: boolean) => {
-        certResolved = true;
-        resolve(v);
+  let closeTimer: ReturnType<typeof setInterval> | null = null;
+  const certObtained = await new Promise<boolean>((resolve) => {
+    const done = (v: boolean) => {
+      certResolved = true;
+      resolve(v);
+    };
+    const timer = setTimeout(() => {
+      log.warn("autoTLS timeout, proceeding without WSS");
+      done(false);
+    }, CERT_WAIT_MS);
+
+    helia.libp2p.addEventListener(
+      "certificate:provision",
+      () => {
+        clearTimeout(timer);
+        log.info("certificate obtained!");
+        done(true);
+      },
+      { once: true },
+    );
+
+    // After grace period, if cert still hasn't
+    // arrived, start closing connections so the
+    // forge can dial back.
+    const graceTimer = setTimeout(() => {
+      if (certResolved) return;
+      const closeAll = async () => {
+        const conns = helia.libp2p.getConnections();
+        log.debug(`closing ${conns.length}`, `connections for cert`);
+        await Promise.allSettled(conns.map((c) => c.close()));
       };
-      const timer = setTimeout(() => {
-        log.warn("autoTLS timeout, proceeding without WSS");
-        done(false);
-      }, CERT_WAIT_MS);
+      log.debug("cert not yet obtained, closing conns");
+      closeAll();
+      closeTimer = setInterval(closeAll, 3_000);
+    }, CERT_GRACE_MS);
 
-      helia.libp2p.addEventListener(
-        "certificate:provision",
-        () => {
-          clearTimeout(timer);
-          log.info("certificate obtained!");
-          done(true);
-        },
-        { once: true },
-      );
-
-      // After grace period, if cert still hasn't
-      // arrived, start closing connections so the
-      // forge can dial back.
-      const graceTimer = setTimeout(() => {
-        if (certResolved) return;
-        const closeAll = async () => {
-          const conns =
-            helia.libp2p.getConnections();
-          log.debug(
-            `closing ${conns.length}`,
-            `connections for cert`,
-          );
-          await Promise.allSettled(
-            conns.map((c) => c.close()),
-          );
-        };
-        log.debug("cert not yet obtained, closing conns");
-        closeAll();
-        closeTimer = setInterval(closeAll, 3_000);
-      }, CERT_GRACE_MS);
-
-      // Clean up grace timer if cert arrives early
-      helia.libp2p.addEventListener(
-        "certificate:provision",
-        () => clearTimeout(graceTimer),
-        { once: true },
-      );
-    },
-  );
+    // Clean up grace timer if cert arrives early
+    helia.libp2p.addEventListener(
+      "certificate:provision",
+      () => clearTimeout(graceTimer),
+      { once: true },
+    );
+  });
 
   if (closeTimer) clearInterval(closeTimer);
 
@@ -420,15 +444,9 @@ export async function startRelay(
   for (const addr of bootstrapAddrs) {
     try {
       await helia.libp2p.dial(multiaddr(addr));
-      log.info(
-        "  dialed",
-        addr.split("/p2p/")[1]?.slice(0, 12),
-      );
+      log.info("  dialed", addr.split("/p2p/")[1]?.slice(0, 12));
     } catch {
-      log.warn(
-        "  failed to dial",
-        addr.split("/p2p/")[1]?.slice(0, 12),
-      );
+      log.warn("  failed to dial", addr.split("/p2p/")[1]?.slice(0, 12));
     }
   }
 
@@ -450,31 +468,33 @@ export async function startRelay(
 
   // Capability advertisement
   pubsub.subscribe(NODE_CAPS_TOPIC);
-  const roles = config.roles ?? (() => {
-    const inferred = ["relay"];
-    if ((config.pinAppIds ?? []).length > 0) {
-      inferred.push("pinner");
-    }
-    return inferred;
-  })();
+  const roles =
+    config.roles ??
+    (() => {
+      const inferred = ["relay"];
+      if ((config.pinAppIds ?? []).length > 0) {
+        inferred.push("pinner");
+      }
+      return inferred;
+    })();
   const selfPeerId = helia.libp2p.peerId.toString();
 
   // Track peer roles from incoming caps messages
   // so we can distinguish relays/pinners from
   // browsers when building the neighbor list.
-  const knownPeerRoles = new Map<
-    string, string[]
-  >();
-  pubsub.addEventListener(
-    "message",
-    (evt: any) => {
-      const { detail } = evt;
-      if (detail?.topic !== NODE_CAPS_TOPIC) return;
-      const caps = decodeNodeCaps(detail.data);
-      if (!caps || caps.peerId === selfPeerId) return;
-      knownPeerRoles.set(caps.peerId, caps.roles);
-    },
-  );
+  const knownPeerRoles = new Map<string, string[]>();
+  pubsub.addEventListener("message", (evt: any) => {
+    const { detail } = evt;
+    if (detail?.topic !== NODE_CAPS_TOPIC) return;
+    const caps = decodeNodeCaps(detail.data);
+    if (!caps || caps.peerId === selfPeerId) return;
+    knownPeerRoles.set(caps.peerId, caps.roles);
+  });
+
+  // Mutable — set by bin/node.ts once the HTTPS
+  // block server is listening. Referenced by
+  // publishCaps() for caps advertisements.
+  let httpUrl: string | undefined;
 
   function publishCaps() {
     // Build neighbor list from connected peers
@@ -482,9 +502,15 @@ export async function startRelay(
     const conns = helia.libp2p.getConnections();
     const connectedPids = new Set<string>();
     for (const conn of conns) {
-      connectedPids.add(
-        (conn as any).remotePeer.toString(),
-      );
+      connectedPids.add((conn as any).remotePeer.toString());
+    }
+
+    // Prune stale entries from knownPeerRoles —
+    // remove peers we're no longer connected to.
+    for (const pid of knownPeerRoles.keys()) {
+      if (!connectedPids.has(pid)) {
+        knownPeerRoles.delete(pid);
+      }
     }
 
     const neighbors: NodeNeighbor[] = [];
@@ -507,45 +533,33 @@ export async function startRelay(
     // that hear caps via GossipSub can dial us.
     const addrs = helia.libp2p
       .getMultiaddrs()
-      .filter((ma) =>
-        ma.toString().includes("/tls/"),
-      )
+      .filter((ma) => ma.toString().includes("/tls/"))
       .map((ma) => ma.toString());
 
     log.info(
-      `caps: ${neighbors.length} neighbors,`
-      + ` ${browserCount} browsers,`
-      + ` ${knownPeerRoles.size} known peers,`
-      + ` ${addrs.length} addrs`,
+      `caps: ${neighbors.length} neighbors,` +
+        ` ${browserCount} browsers,` +
+        ` ${knownPeerRoles.size} known peers,` +
+        ` ${addrs.length} addrs`,
     );
     const msg = encodeNodeCaps({
       version: 2,
       peerId: selfPeerId,
       roles,
-      neighbors: neighbors.length > 0
-        ? neighbors
-        : undefined,
+      neighbors: neighbors.length > 0 ? neighbors : undefined,
       browserCount,
-      addrs: addrs.length > 0
-        ? addrs
-        : undefined,
+      addrs: addrs.length > 0 ? addrs : undefined,
+      httpUrl,
     });
-    pubsub.publish(NODE_CAPS_TOPIC, msg)
-      .catch((err: unknown) => {
-        log.warn("caps publish failed:", err);
-      });
+    pubsub.publish(NODE_CAPS_TOPIC, msg).catch((err: unknown) => {
+      log.warn("caps publish failed:", err);
+    });
   }
 
   // Publish immediately + on interval
   publishCaps();
-  const capsInterval = setInterval(
-    publishCaps,
-    CAPS_INTERVAL_MS,
-  );
-  log.info(
-    "advertising capabilities:",
-    roles.join(", "),
-  );
+  const capsInterval = setInterval(publishCaps, CAPS_INTERVAL_MS);
+  log.info("advertising capabilities:", roles.join(", "));
 
   // Provide a single network-wide CID so browsers
   // can discover any relay regardless of app.
@@ -561,7 +575,7 @@ export async function startRelay(
   // and let normal GossipSub mesh formation (D=3)
   // naturally GRAFT connected relays.
   const RELAY_PEER_TAG = "pokapali-relay-peer";
-  const RELAY_PEER_TAG_VALUE = 200;
+  const RELAY_PEER_TAG_VALUE = 100;
 
   /**
    * Find other relays providing the network CID and
@@ -578,16 +592,11 @@ export async function startRelay(
     const selfId = helia.libp2p.peerId.toString();
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(
-        () => ctrl.abort(), 30_000,
-      );
+      const timer = setTimeout(() => ctrl.abort(), 30_000);
       let found = 0;
-      for await (
-        const provider
-        of helia.routing.findProviders(netCID, {
-          signal: ctrl.signal,
-        })
-      ) {
+      for await (const provider of helia.routing.findProviders(netCID, {
+        signal: ctrl.signal,
+      })) {
         found++;
         const pid = provider.id.toString();
         if (pid === selfId) continue;
@@ -596,44 +605,40 @@ export async function startRelay(
             await helia.libp2p.dial(ma, {
               signal: ctrl.signal,
             });
-            log.info(
-              "dialed relay provider:"
-              + ` ${ma.toString().slice(-20)}`,
-            );
+            log.info("dialed relay provider:" + ` ${ma.toString().slice(-20)}`);
             // Tag the peer so the connection manager
             // keeps it alive. GossipSub mesh formation
             // handles message routing from here.
-            helia.libp2p.peerStore.merge(
-              provider.id,
-              {
+            helia.libp2p.peerStore
+              .merge(provider.id, {
                 tags: {
                   [RELAY_PEER_TAG]: {
                     value: RELAY_PEER_TAG_VALUE,
                   },
                 },
-              },
-            ).catch(() => {});
+              })
+              .catch((err) => {
+                log.warn(
+                  "peerStore.merge failed for" + ` ...${pid.slice(-8)}:`,
+                  err,
+                );
+              });
             knownRelayPeerIds.add(pid);
-            log.info(
-              `tagged relay`
-              + ` ...${pid.slice(-8)}`,
+            log.info(`tagged relay` + ` ...${pid.slice(-8)}`);
+          } catch (err) {
+            log.debug(
+              "dial failed for provider" + ` ...${pid.slice(-8)}:`,
+              (err as Error).message,
             );
-          } catch {
-            // Dial failure is fine — peer may be
-            // unreachable or already connected.
           }
         }
       }
       clearTimeout(timer);
-      log.debug(
-        `findProviders found ${found} providers`,
-      );
+      log.debug(`findProviders found ${found} providers`);
     } catch (err) {
       const msg = (err as Error).message ?? "";
       if (!msg.includes("abort")) {
-        log.error(
-          `findProviders failed: ${msg}`,
-        );
+        log.error(`findProviders failed: ${msg}`);
       }
     }
   }
@@ -646,10 +651,7 @@ export async function startRelay(
 
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(
-        () => ctrl.abort(),
-        60_000,
-      );
+      const timer = setTimeout(() => ctrl.abort(), 60_000);
       await helia.routing.provide(netCID, {
         signal: ctrl.signal,
       });
@@ -660,9 +662,7 @@ export async function startRelay(
       if (msg.includes("abort")) {
         log.warn("provide TIMEOUT for network CID");
       } else {
-        log.error(
-          `provide FAIL for network CID: ${msg}`,
-        );
+        log.error(`provide FAIL for network CID: ${msg}`);
       }
     }
   }
@@ -678,19 +678,40 @@ export async function startRelay(
 
   // Re-provide after autoTLS certificate is obtained
   // so the DHT peer record includes WSS addresses.
-  helia.libp2p.addEventListener(
-    "certificate:provision",
-    () => {
-      log.info("certificate obtained, re-providing");
-      setTimeout(() => provideAll(), 15_000);
-    },
-  );
+  const onCertProvision = () => {
+    log.info("certificate obtained, re-providing");
+    setTimeout(() => provideAll(), 15_000);
+  };
+  helia.libp2p.addEventListener("certificate:provision", onCertProvision);
 
   // Periodic re-provide
-  const provideInterval = setInterval(
-    provideAll,
-    PROVIDE_INTERVAL_MS,
-  );
+  const provideInterval = setInterval(provideAll, PROVIDE_INTERVAL_MS);
+
+  // --- Relay-to-relay health check ---
+  //
+  // Periodically verify connectivity to known relay
+  // peers. Re-dial any that have silently dropped.
+  // Jittered interval (60-90s) prevents thundering
+  // herd across relays.
+  function scheduleHealthCheck() {
+    const jitter =
+      HEALTH_CHECK_MIN_MS +
+      Math.random() * (HEALTH_CHECK_MAX_MS - HEALTH_CHECK_MIN_MS);
+    return setTimeout(async () => {
+      const connectedPids = new Set(
+        helia.libp2p.getConnections().map((c: any) => c.remotePeer.toString()),
+      );
+      for (const pid of knownRelayPeerIds) {
+        if (connectedPids.has(pid)) continue;
+        const short = pid.slice(-8);
+        log.info(`health: relay ...${short} not connected,`, `re-dialing`);
+        findAndDialProviders().catch(() => {});
+        break; // one re-dial pass per check
+      }
+      healthTimer = scheduleHealthCheck();
+    }, jitter);
+  }
+  let healthTimer = scheduleHealthCheck();
 
   // Periodic status logging
   let lastAddrCount = 0;
@@ -700,18 +721,16 @@ export async function startRelay(
     const ma = helia.libp2p.getMultiaddrs();
     const gsTopics = pubsub.getTopics();
     const gsPeers = (pubsub as any).getPeers?.() ?? [];
-    const gsSubs = gsTopics.flatMap(
-      (t: string) => pubsub.getSubscribers(t)
+    const gsSubs = gsTopics.flatMap((t: string) =>
+      pubsub
+        .getSubscribers(t)
         .map((p: any) => `${t}:${p.toString().slice(-8)}`),
     );
-    // Check internal mesh state
-    const mesh = (pubsub as any).mesh as
-      Map<string, Set<string>> | undefined;
-    const meshInfo = mesh
-      ? [...mesh.entries()].map(
-          ([t, s]) => `${t}:${s.size}`,
-        )
-      : "no-mesh";
+    // Check mesh state via public getMeshPeers API
+    const meshInfo = gsTopics.map((t: string) => {
+      const mp = pubsub.getMeshPeers?.(t);
+      return mp ? `${t}:${mp.length}` : `${t}:?`;
+    });
     log.debug(
       `${conns.length} conns,`,
       `${peers.length} peers,`,
@@ -725,34 +744,33 @@ export async function startRelay(
     // are/aren't mesh candidates
     const gs = pubsub as any;
     const backoffMap = gs.backoff as
-      Map<string, Map<string, number>> | undefined;
-    const streamsOut = gs.streamsOutbound as
-      Map<string, any> | undefined;
+      | Map<string, Map<string, number>>
+      | undefined;
+    const streamsOut = gs.streamsOutbound as Map<string, any> | undefined;
     for (const topic of gsTopics) {
       const subs = pubsub.getSubscribers(topic);
       if (subs.length === 0) continue;
-      const topicMesh = mesh?.get(topic);
+      const topicMeshPeers = new Set(
+        (pubsub.getMeshPeers?.(topic) ?? []).map((p: any) => p.toString()),
+      );
       const topicBackoff = backoffMap?.get(topic);
       const details = subs.map((p: any) => {
         const id = p.toString();
         const short = id.slice(-8);
-        const inMesh = topicMesh?.has(id) ? "M" : "-";
-        const hasStream =
-          streamsOut?.has(id) ? "S" : "!S";
+        const inMesh = topicMeshPeers.has(id) ? "M" : "-";
+        const hasStream = streamsOut?.has(id) ? "S" : "!S";
         const score = gs.score?.score?.(id) ?? "?";
         const bo = topicBackoff?.has(id)
           ? `BO:${Math.round(
-              ((topicBackoff.get(id) ?? 0)
-                - Date.now()) / 1000,
+              ((topicBackoff.get(id) ?? 0) - Date.now()) / 1000,
             )}s`
           : "-";
-        return `${short}[${inMesh}${hasStream} `
-          + `sc:${typeof score === "number"
-            ? score.toFixed(1) : score} ${bo}]`;
+        return (
+          `${short}[${inMesh}${hasStream} ` +
+          `sc:${typeof score === "number" ? score.toFixed(1) : score} ${bo}]`
+        );
       });
-      const shortTopic = topic.length > 30
-        ? "..." + topic.slice(-25)
-        : topic;
+      const shortTopic = topic.length > 30 ? "..." + topic.slice(-25) : topic;
       log.debug(`  ${shortTopic}: ${details.join(" ")}`);
     }
 
@@ -767,18 +785,28 @@ export async function startRelay(
   return {
     helia,
 
+    get httpUrl() {
+      return httpUrl;
+    },
+    set httpUrl(url: string | undefined) {
+      httpUrl = url;
+    },
+
     async stop() {
+      clearTimeout(healthTimer);
       clearInterval(provideInterval);
       clearInterval(logInterval);
       clearInterval(capsInterval);
+      helia.libp2p.removeEventListener(
+        "certificate:provision",
+        onCertProvision,
+      );
       await helia.stop();
       log.info("stopped");
     },
 
     multiaddrs() {
-      return helia.libp2p
-        .getMultiaddrs()
-        .map((ma) => ma.toString());
+      return helia.libp2p.getMultiaddrs().map((ma) => ma.toString());
     },
 
     peerId() {

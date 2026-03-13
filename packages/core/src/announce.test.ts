@@ -11,42 +11,27 @@ import type { AnnouncePubSub } from "./announce.js";
 
 describe("announceTopic", () => {
   it("returns the expected topic format", () => {
-    expect(announceTopic("my-app")).toBe(
-      "/pokapali/app/my-app/announce",
-    );
+    expect(announceTopic("my-app")).toBe("/pokapali/app/my-app/announce");
   });
 
   it("handles empty appId", () => {
-    expect(announceTopic("")).toBe(
-      "/pokapali/app//announce",
-    );
+    expect(announceTopic("")).toBe("/pokapali/app//announce");
   });
 });
 
 describe("announceSnapshot", () => {
   it("publishes JSON on the correct topic", async () => {
-    const mockPublish = vi.fn().mockResolvedValue(
-      undefined,
-    );
+    const mockPublish = vi.fn().mockResolvedValue(undefined);
     const pubsub: AnnouncePubSub = {
       publish: mockPublish,
     };
 
-    await announceSnapshot(
-      pubsub,
-      "test-app",
-      "abc123",
-      "bafyexample",
-    );
+    await announceSnapshot(pubsub, "test-app", "abc123", "bafyexample");
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
     const [topic, data] = mockPublish.mock.calls[0];
-    expect(topic).toBe(
-      "/pokapali/app/test-app/announce",
-    );
-    const parsed = JSON.parse(
-      new TextDecoder().decode(data),
-    );
+    expect(topic).toBe("/pokapali/app/test-app/announce");
+    const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
       ipnsName: "abc123",
       cid: "bafyexample",
@@ -56,9 +41,7 @@ describe("announceSnapshot", () => {
 
 describe("announceAck", () => {
   it("publishes ack JSON on the correct topic", async () => {
-    const mockPublish = vi.fn().mockResolvedValue(
-      undefined,
-    );
+    const mockPublish = vi.fn().mockResolvedValue(undefined);
     const pubsub: AnnouncePubSub = {
       publish: mockPublish,
     };
@@ -73,12 +56,8 @@ describe("announceAck", () => {
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
     const [topic, data] = mockPublish.mock.calls[0];
-    expect(topic).toBe(
-      "/pokapali/app/test-app/announce",
-    );
-    const parsed = JSON.parse(
-      new TextDecoder().decode(data),
-    );
+    expect(topic).toBe("/pokapali/app/test-app/announce");
+    const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
       ipnsName: "abc123",
       cid: "bafyexample",
@@ -103,9 +82,7 @@ describe("parseAnnouncement", () => {
   });
 
   it("returns null for missing fields", () => {
-    const data = new TextEncoder().encode(
-      JSON.stringify({ ipnsName: "abc" }),
-    );
+    const data = new TextEncoder().encode(JSON.stringify({ ipnsName: "abc" }));
     expect(parseAnnouncement(data)).toBeNull();
   });
 
@@ -122,9 +99,7 @@ describe("parseAnnouncement", () => {
   });
 
   it("returns null for empty data", () => {
-    expect(
-      parseAnnouncement(new Uint8Array(0)),
-    ).toBeNull();
+    expect(parseAnnouncement(new Uint8Array(0))).toBeNull();
   });
 
   it("parses ack announcement", () => {
@@ -143,36 +118,69 @@ describe("parseAnnouncement", () => {
     });
     expect(result?.ack?.peerId).toBe("peer123");
   });
+
+  it("rejects messages exceeding MAX_MESSAGE_BYTES", () => {
+    // 2MB+ message should be rejected before parsing
+    const huge = new Uint8Array(2 * 1024 * 1024 + 1);
+    const json = JSON.stringify({
+      ipnsName: "abc",
+      cid: "bafyfoo",
+    });
+    const encoded = new TextEncoder().encode(json);
+    // Fill beginning with valid JSON, rest with padding
+    huge.set(encoded, 0);
+    expect(parseAnnouncement(huge)).toBeNull();
+  });
+
+  it("rejects announcements with oversized inline block", () => {
+    // Block field decodes to > 1MB
+    const bigBlock = new Uint8Array(1024 * 1024 + 1);
+    // base64 encode it
+    let binary = "";
+    for (let i = 0; i < bigBlock.length; i++) {
+      binary += String.fromCharCode(bigBlock[i]);
+    }
+    const b64 = btoa(binary);
+    const data = new TextEncoder().encode(
+      JSON.stringify({
+        ipnsName: "abc",
+        cid: "bafyfoo",
+        block: b64,
+      }),
+    );
+    const result = parseAnnouncement(data);
+    // Block stripped but announcement kept for CID
+    expect(result).not.toBeNull();
+    expect(result!.block).toBeUndefined();
+    expect(result!.cid).toBe("bafyfoo");
+  });
+});
+
+describe("parseGuaranteeResponse (size limits)", () => {
+  it("rejects oversized guarantee responses", () => {
+    const huge = new Uint8Array(2 * 1024 * 1024 + 1);
+    expect(parseGuaranteeResponse(huge)).toBeNull();
+  });
 });
 
 describe("publishGuaranteeQuery", () => {
-  it("publishes query on the announce topic",
-    async () => {
-      const mockPublish = vi.fn()
-        .mockResolvedValue(undefined);
-      const pubsub: AnnouncePubSub = {
-        publish: mockPublish,
-      };
+  it("publishes query on the announce topic", async () => {
+    const mockPublish = vi.fn().mockResolvedValue(undefined);
+    const pubsub: AnnouncePubSub = {
+      publish: mockPublish,
+    };
 
-      await publishGuaranteeQuery(
-        pubsub, "test-app", "abc123",
-      );
+    await publishGuaranteeQuery(pubsub, "test-app", "abc123");
 
-      expect(mockPublish).toHaveBeenCalledTimes(1);
-      const [topic, data] =
-        mockPublish.mock.calls[0];
-      expect(topic).toBe(
-        "/pokapali/app/test-app/announce",
-      );
-      const parsed = JSON.parse(
-        new TextDecoder().decode(data),
-      );
-      expect(parsed).toEqual({
-        type: "guarantee-query",
-        ipnsName: "abc123",
-      });
-    },
-  );
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    const [topic, data] = mockPublish.mock.calls[0];
+    expect(topic).toBe("/pokapali/app/test-app/announce");
+    const parsed = JSON.parse(new TextDecoder().decode(data));
+    expect(parsed).toEqual({
+      type: "guarantee-query",
+      ipnsName: "abc123",
+    });
+  });
 });
 
 describe("parseGuaranteeResponse", () => {
@@ -205,9 +213,7 @@ describe("parseGuaranteeResponse", () => {
         ipnsName: "abc",
       }),
     );
-    expect(
-      parseGuaranteeResponse(data),
-    ).toBeNull();
+    expect(parseGuaranteeResponse(data)).toBeNull();
   });
 
   it("returns null for missing fields", () => {
@@ -218,18 +224,12 @@ describe("parseGuaranteeResponse", () => {
         // missing peerId and cid
       }),
     );
-    expect(
-      parseGuaranteeResponse(data),
-    ).toBeNull();
+    expect(parseGuaranteeResponse(data)).toBeNull();
   });
 
   it("returns null for invalid JSON", () => {
-    const data = new TextEncoder().encode(
-      "not json",
-    );
-    expect(
-      parseGuaranteeResponse(data),
-    ).toBeNull();
+    const data = new TextEncoder().encode("not json");
+    expect(parseGuaranteeResponse(data)).toBeNull();
   });
 
   it("parses without optional fields", () => {

@@ -1,10 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
-import {
-  createSubdocManager,
-  SNAPSHOT_ORIGIN,
-  INDEXEDDB_ORIGIN,
-} from "./index.js";
+import { createSubdocManager } from "./index.js";
 
 describe("@pokapali/subdocs", () => {
   const ipns = "k51test123";
@@ -153,15 +149,22 @@ describe("@pokapali/subdocs", () => {
     mgr2.destroy();
   });
 
-  it("INDEXEDDB_ORIGIN updates do not set " + "isDirty", () => {
-    const mgr = createSubdocManager(ipns, namespaces);
+  it("skipOrigins suppresses dirty for custom origins", () => {
+    const providerInstance = { name: "mock-provider" };
+    const skip = new Set<object>([providerInstance]);
+    const mgr = createSubdocManager(ipns, namespaces, { skipOrigins: skip });
     const doc = mgr.subdoc("doc");
 
+    // Update with provider origin — not dirty
     doc.transact(() => {
-      doc.getMap("root").set("persisted", true);
-    }, INDEXEDDB_ORIGIN);
-
+      doc.getMap("root").set("from-idb", true);
+    }, providerInstance);
     expect(mgr.isDirty).toBe(false);
+
+    // Update with no origin — dirty
+    doc.getMap("root").set("user-edit", true);
+    expect(mgr.isDirty).toBe(true);
+
     mgr.destroy();
   });
 });

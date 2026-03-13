@@ -1,30 +1,26 @@
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
-import {
-  validateStructure,
-  decodeSnapshot,
-} from "@pokapali/snapshot";
+import { validateStructure, decodeSnapshot } from "@pokapali/snapshot";
 import { hexToBytes } from "@pokapali/crypto";
 import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";
+import { resolveIPNS } from "@pokapali/core/ipns-helpers";
 import {
   announceAck,
   announceSnapshot,
   announceTopic,
 } from "@pokapali/core/announce";
-import type {
-  AnnouncePubSub,
-  AnnouncementAck,
-} from "@pokapali/core/announce";
-import {
-  createRateLimiter,
-  DEFAULT_RATE_LIMITS,
-} from "./rate-limiter.js";
+import type { AnnouncePubSub, AnnouncementAck } from "@pokapali/core/announce";
+import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
-import type { HistoryTracker } from "./history.js";
-import { loadState, saveState } from "./state.js";
+import type { HistoryTracker, RetentionConfig } from "./history.js";
+import { createIpnsThrottle } from "./ipns-throttle.js";
+import { loadState } from "./state.js";
+import { createPinnerStore } from "./pinner-store.js";
+import type { PinnerStore } from "./pinner-store.js";
+import { readFile, writeFile, rename, access } from "node:fs/promises";
 import { createLogger } from "@pokapali/log";
 import type { Helia } from "helia";
 
@@ -32,22 +28,38 @@ const log = createLogger("pinner");
 
 const RESOLVE_INTERVAL_MS = 5 * 60_000;
 const REPUBLISH_INTERVAL_MS = 4 * 60 * 60_000;
-const REPUBLISH_PER_NAME_DELAY_MS = 5_000;
+const REPUBLISH_CONCURRENCY = 10;
 const REPUBLISH_TIMEOUT_MS = 15_000;
+// Skip republish if record is <20h old and CID
+// unchanged. 24h IPNS TTL minus 4h buffer.
+const REPUBLISH_STALE_MS = 20 * 60 * 60_000;
 const PERSIST_INTERVAL_MS = 60_000;
 const PERSIST_DEBOUNCE_MS = 5_000;
 
 // Two-phase guarantee model:
-// Phase 1: active re-announcing (7 days from last activity)
-const GUARANTEE_DURATION_MS = 7 * 24 * 60 * 60_000;
+// Phase 1: active re-announcing (load-sensitive, see
+//   guaranteeDuration() below)
 // Phase 2: block retention (14 days from last activity)
 const RETENTION_DURATION_MS = 14 * 24 * 60 * 60_000;
+
+// Version thinning sweep interval (6 hours)
+const THIN_SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
+
+const DEFAULT_RETENTION: RetentionConfig = {
+  fullResolutionMs: 7 * 24 * 60 * 60_000,
+  hourlyRetentionMs: 14 * 24 * 60 * 60_000,
+  dailyRetentionMs: 30 * 24 * 60 * 60_000,
+};
 
 // Continuous scheduling constants
 const BASE_INTERVAL_MS = 30_000;
 const HALF_LIFE_MS = 12 * 60 * 60_000;
 const MAX_INTERVAL_MS = 24 * 60 * 60_000;
 const SCHEDULE_TICK_MS = 5_000;
+
+// Stale name pruning: drop names with no GossipSub
+// activity AND no successful IPNS resolve for 3 days.
+const DEFAULT_STALE_RESOLVE_MS = 3 * 24 * 60 * 60_000;
 
 // Self-tuning capacity
 const INITIAL_PER_DOC_MS = 50;
@@ -68,6 +80,15 @@ export interface PinnerConfig {
   pubsub?: AnnouncePubSub;
   /** Stable peer ID for ack attribution. */
   peerId?: string;
+  /** Version retention tiers for thinning. */
+  retentionConfig?: RetentionConfig;
+  /** Max IPNS requests per second to delegated
+   * routing. Default: 10. */
+  ipnsRateLimit?: number;
+  /** Drop names with no GossipSub activity and no
+   * successful IPNS resolve after this many days.
+   * Default: 3. Set to 0 to disable. */
+  staleResolveDays?: number;
 }
 
 export interface PinnerMetrics {
@@ -80,6 +101,28 @@ export interface PinnerMetrics {
   lastReannounceMs: number;
   lastPersistMs: number;
   stateWriteCount: number;
+  ipnsThrottleAcquired: number;
+  ipnsThrottleRejected: number;
+  stalePruned: number;
+}
+
+export interface TipData {
+  ipnsName: string;
+  cid: string;
+  block: Uint8Array;
+  seq: number;
+  ts: number;
+  peerId: string;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
+
+export interface GuaranteeData {
+  ipnsName: string;
+  cid: string;
+  peerId: string;
+  guaranteeUntil: number;
+  retainUntil: number;
 }
 
 export interface Pinner {
@@ -87,10 +130,7 @@ export interface Pinner {
   stop(): Promise<void>;
   /** Await all pending background work. */
   flush(): Promise<void>;
-  ingest(
-    ipnsName: string,
-    block: Uint8Array,
-  ): Promise<boolean>;
+  ingest(ipnsName: string, block: Uint8Array): Promise<boolean>;
   onAnnouncement(
     ipnsName: string,
     cidStr: string,
@@ -98,30 +138,38 @@ export interface Pinner {
     blockData?: Uint8Array,
     fromPinner?: boolean,
   ): void;
-  onGuaranteeQuery(
-    ipnsName: string,
-    appId: string,
-  ): void;
+  onGuaranteeQuery(ipnsName: string, appId: string): void;
+  /** Get tip block + guarantee for HTTP endpoint. */
+  getTipData(ipnsName: string): Promise<TipData | null>;
+  /** Get guarantee status for HTTP endpoint. */
+  getGuarantee(ipnsName: string): GuaranteeData | null;
+  /** Record browser activity (HTTP access). */
+  recordActivity(ipnsName: string): void;
   metrics(): PinnerMetrics;
   history: HistoryTracker;
 }
 
-export async function createPinner(
-  config: PinnerConfig,
-): Promise<Pinner> {
+export async function createPinner(config: PinnerConfig): Promise<Pinner> {
+  const DEFAULT_IPNS_RATE_LIMIT = 10;
+  const ipnsThrottle = createIpnsThrottle(
+    config.ipnsRateLimit ?? DEFAULT_IPNS_RATE_LIMIT,
+  );
+
   const rateLimits: RateLimiterConfig = {
     maxSnapshotsPerHour:
-      config.rateLimits?.maxPerHour ??
-      DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
+      config.rateLimits?.maxPerHour ?? DEFAULT_RATE_LIMITS.maxSnapshotsPerHour,
     maxBlockSizeBytes:
-      config.rateLimits?.maxSizeBytes ??
-      DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
+      config.rateLimits?.maxSizeBytes ?? DEFAULT_RATE_LIMITS.maxBlockSizeBytes,
   };
   const rateLimiter = createRateLimiter(rateLimits);
   const history = createHistoryTracker();
-  const statePath =
-    config.storagePath + "/state.json";
+  const storePath = config.storagePath + "/pinner-state";
+  const statePath = config.storagePath + "/state.json";
+  const historyIndexPath = config.storagePath + "/history-index.json";
   const helia = config.helia;
+  const retention = config.retentionConfig ?? DEFAULT_RETENTION;
+  const store: PinnerStore = await createPinnerStore(storePath);
+  await store.open();
 
   // In-memory block store as fallback when no Helia
   const memBlocks = new Map<string, Uint8Array>();
@@ -138,11 +186,17 @@ export async function createPinner(
   // Not persisted — fresh guarantees after restart.
   const guaranteedUntil = new Map<string, number>();
   // Rate-limit guarantee query responses:
-  // max 1 response per ipnsName per 10s.
-  const lastQueryResponse = new Map<
-    string, number
-  >();
-  const QUERY_RESPONSE_COOLDOWN_MS = 10_000;
+  // max 1 response per ipnsName per 3s.
+  const lastQueryResponse = new Map<string, number>();
+  const QUERY_RESPONSE_COOLDOWN_MS = 3_000;
+  // Last successful IPNS resolve per name.
+  // Persisted in LevelDB for stale pruning.
+  const lastResolvedAt = new Map<string, number>();
+  // Stale resolve threshold (0 = disabled)
+  const staleResolveMs =
+    config.staleResolveDays === 0
+      ? 0
+      : (config.staleResolveDays ?? 3) * 24 * 60 * 60_000;
 
   // Self-tuning capacity measurement
   let perDocEma = INITIAL_PER_DOC_MS;
@@ -178,17 +232,12 @@ export async function createPinner(
         let smallest = i;
         const l = 2 * i + 1;
         const r = 2 * i + 2;
-        if (
-          l < heap.length
-          && heap[l].nextAt < heap[smallest].nextAt
-        ) smallest = l;
-        if (
-          r < heap.length
-          && heap[r].nextAt < heap[smallest].nextAt
-        ) smallest = r;
+        if (l < heap.length && heap[l].nextAt < heap[smallest].nextAt)
+          smallest = l;
+        if (r < heap.length && heap[r].nextAt < heap[smallest].nextAt)
+          smallest = r;
         if (smallest === i) break;
-        [heap[i], heap[smallest]] =
-          [heap[smallest], heap[i]];
+        [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
         i = smallest;
       }
     }
@@ -202,68 +251,84 @@ export async function createPinner(
   // Track which docs are in the heap to avoid dupes
   const inHeap = new Set<string>();
 
-  function scheduleDoc(
-    ipnsName: string,
-    nextAt: number,
-  ): void {
-    // Remove existing entry by marking stale
-    // (lazy deletion — checked on pop)
+  function scheduleDoc(ipnsName: string, nextAt: number): void {
+    // Lazy deletion — old entry stays in heap as
+    // stale until popped or compacted.
+    if (inHeap.has(ipnsName)) stalePushes++;
     heapPush({ ipnsName, nextAt });
     inHeap.add(ipnsName);
+  }
+
+  // Track stale pushes so we can compact when the
+  // heap grows too large relative to live entries.
+  let stalePushes = 0;
+  const COMPACT_THRESHOLD = 500;
+
+  function compactHeap(): void {
+    // Rebuild heap keeping only the latest entry
+    // per ipnsName that is still in knownNames.
+    const best = new Map<string, ScheduledDoc>();
+    for (const doc of heap) {
+      if (!knownNames.has(doc.ipnsName)) continue;
+      const existing = best.get(doc.ipnsName);
+      if (!existing || doc.nextAt < existing.nextAt) {
+        best.set(doc.ipnsName, doc);
+      }
+    }
+    heap.length = 0;
+    inHeap.clear();
+    for (const doc of best.values()) {
+      heapPush(doc);
+      inHeap.add(doc.ipnsName);
+    }
+    stalePushes = 0;
+    log.debug(`heap compacted: ${best.size} entries`);
   }
 
   // --- Continuous interval / capacity ---
 
   function loadFactor(): number {
     const capacity = maxActiveDocs();
-    const utilization = capacity > 0
-      ? scheduledDocCount / capacity
-      : 1;
+    const utilization = capacity > 0 ? scheduledDocCount / capacity : 1;
     if (utilization <= 0.5) return 1;
-    return 1 + 9 * Math.pow(
-      (utilization - 0.5) / 0.5,
-      2,
-    );
+    return 1 + 9 * Math.pow((utilization - 0.5) / 0.5, 2);
   }
 
-  function reannounceInterval(
-    ipnsName: string,
-    now: number,
-  ): number {
+  function reannounceInterval(ipnsName: string, now: number): number {
     const seen = lastSeenAt.get(ipnsName) ?? 0;
     const age = now - seen;
 
-    // Past guarantee window — don't re-announce
-    if (age >= GUARANTEE_DURATION_MS) {
+    // Past retention window — don't re-announce
+    if (age >= RETENTION_DURATION_MS) {
       return MAX_INTERVAL_MS;
     }
 
-    const recencyFactor = Math.pow(
-      2,
-      age / HALF_LIFE_MS,
-    );
-    const interval =
-      BASE_INTERVAL_MS * recencyFactor * loadFactor();
+    const recencyFactor = Math.pow(2, age / HALF_LIFE_MS);
+    const interval = BASE_INTERVAL_MS * recencyFactor * loadFactor();
     return Math.min(interval, MAX_INTERVAL_MS);
   }
 
   function maxActiveDocs(): number {
-    return Math.max(
-      1,
-      Math.floor(
-        (BASE_INTERVAL_MS * 0.8) / perDocEma,
-      ),
-    );
+    return Math.max(1, Math.floor((BASE_INTERVAL_MS * 0.8) / perDocEma));
   }
 
-  function issueGuarantee(
-    ipnsName: string,
-  ): { guaranteeUntil: number; retainUntil: number } {
-    const seen =
-      lastSeenAt.get(ipnsName) ?? Date.now();
-    const calculated = seen + GUARANTEE_DURATION_MS;
-    const existing =
-      guaranteedUntil.get(ipnsName) ?? 0;
+  const DAY = 24 * 60 * 60_000;
+
+  function guaranteeDuration(): number {
+    const util = scheduledDocCount / maxActiveDocs();
+    if (util <= 0.5) return 7 * DAY;
+    if (util <= 0.7) return 5 * DAY;
+    if (util <= 0.9) return 3 * DAY;
+    return 1 * DAY;
+  }
+
+  function issueGuarantee(ipnsName: string): {
+    guaranteeUntil: number;
+    retainUntil: number;
+  } {
+    const seen = lastSeenAt.get(ipnsName) ?? Date.now();
+    const calculated = seen + guaranteeDuration();
+    const existing = guaranteedUntil.get(ipnsName) ?? 0;
     // Monotonic: never shorten a promise
     const guarantee = Math.max(calculated, existing);
     guaranteedUntil.set(ipnsName, guarantee);
@@ -281,24 +346,14 @@ export async function createPinner(
     p.finally(() => pending.delete(p));
   }
   let stopped = false;
-  let resolveInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let republishInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let initialRepublishTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
-  let scheduleInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let persistInterval: ReturnType<
-    typeof setInterval
-  > | null = null;
-  let persistDebounceTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
+  const shutdownCtrl = new AbortController();
+  let resolveInterval: ReturnType<typeof setInterval> | null = null;
+  let republishInterval: ReturnType<typeof setInterval> | null = null;
+  let initialRepublishTimer: ReturnType<typeof setTimeout> | null = null;
+  let scheduleInterval: ReturnType<typeof setInterval> | null = null;
+  let persistInterval: ReturnType<typeof setInterval> | null = null;
+  let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let thinSweepInterval: ReturnType<typeof setInterval> | null = null;
   let dirty = false;
 
   // Counters for /metrics endpoint
@@ -308,10 +363,22 @@ export async function createPinner(
   let lastReannounceMs = 0;
   let lastPersistMs = 0;
   let stateWriteCount = 0;
+  let stalePruned = 0;
+
+  /** Write-through: persist a state mutation to
+   * LevelDB. Fire-and-forget safe for sync callers
+   * like onAnnouncement. */
+  function persistMutation(fn: () => Promise<void>): void {
+    track(
+      fn().catch((err) => {
+        log.warn("store write failed:", err);
+      }),
+    );
+  }
 
   function markDirty(): void {
     dirty = true;
-    // Debounce: persist within 5s of last change
+    // Debounce: persist history index within 5s
     if (persistDebounceTimer) {
       clearTimeout(persistDebounceTimer);
     }
@@ -319,17 +386,14 @@ export async function createPinner(
       persistDebounceTimer = null;
       if (dirty && !stopped) {
         dirty = false;
-        persistState().catch((err) => {
-          log.warn("debounced persist failed:", err);
+        persistHistoryIndex().catch((err) => {
+          log.warn("debounced history persist failed:", err);
         });
       }
     }, PERSIST_DEBOUNCE_MS);
   }
 
-  async function storeBlock(
-    cid: CID,
-    block: Uint8Array,
-  ): Promise<void> {
+  async function storeBlock(cid: CID, block: Uint8Array): Promise<void> {
     if (helia) {
       await helia.blockstore.put(cid, block);
     } else {
@@ -375,16 +439,16 @@ export async function createPinner(
         try {
           decodeSnapshot(block);
           log.warn(
-            `block decode OK but validate failed`
-            + ` ${ipnsName.slice(0, 12)}...`
-            + ` blockSize=${block.length}`,
+            `block decode OK but validate failed` +
+              ` ${ipnsName.slice(0, 12)}...` +
+              ` blockSize=${block.length}`,
           );
         } catch (decodeErr) {
           log.warn(
-            `block decode failed`
-            + ` ${ipnsName.slice(0, 12)}...`
-            + ` blockSize=${block.length}`
-            + ` err=${(decodeErr as Error).message}`,
+            `block decode failed` +
+              ` ${ipnsName.slice(0, 12)}...` +
+              ` blockSize=${block.length}` +
+              ` err=${(decodeErr as Error).message}`,
           );
         }
         return false;
@@ -393,19 +457,23 @@ export async function createPinner(
       const node = decodeSnapshot(block);
       knownNames.add(ipnsName);
       history.add(ipnsName, cid, node.ts);
+      persistMutation(async () => {
+        await store.addName(ipnsName);
+        await store.setTip(ipnsName, cid.toString());
+      });
       markDirty();
       log.debug(
-        `fetched block for`
-        + ` ${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...`,
+        `fetched block for` +
+          ` ${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...`,
       );
       return true;
     } catch (err) {
       const msg = (err as Error).message ?? "";
       log.error(
-        `fetch failed for`
-        + ` ${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...: ${msg}`,
+        `fetch failed for` +
+          ` ${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...: ${msg}`,
       );
       return false;
     }
@@ -414,33 +482,43 @@ export async function createPinner(
   /**
    * Resolve IPNS name and fetch the block. Used for
    * periodic re-resolution and startup recovery.
+   *
+   * Uses delegated HTTP routing first (fast), then
+   * falls back to DHT — same path browsers use.
    */
-  async function resolveAndFetch(
-    ipnsName: string,
-  ): Promise<boolean> {
+  async function resolveAndFetch(ipnsName: string): Promise<boolean> {
     if (!helia) return false;
 
     try {
-      const name = ipns(helia as any);
-      const keyBytes = hexToBytes(ipnsName);
-      const pubKey = publicKeyFromRaw(keyBytes);
+      // Best-effort throttle: skip if no token
+      // available. IPNS resolve is supplementary —
+      // GossipSub is the primary notification path.
+      if (!ipnsThrottle.tryAcquire()) {
+        log.debug(`resolve throttled:` + ` ${ipnsName.slice(0, 12)}...`);
+        return false;
+      }
 
-      const result = await name.resolve(pubKey, {
-        signal: AbortSignal.timeout(30_000),
-      });
-      const cid = result.cid;
+      const keyBytes = hexToBytes(ipnsName);
+      const cid = await resolveIPNS(helia, keyBytes);
+      if (!cid) {
+        log.error(`resolve returned null for` + ` ${ipnsName.slice(0, 12)}...`);
+        return false;
+      }
+
+      // Record successful resolve for stale pruning
+      const now = Date.now();
+      lastResolvedAt.set(ipnsName, now);
+      persistMutation(() => store.setLastResolved(ipnsName, now));
+
       log.debug(
-        `resolved ${ipnsName.slice(0, 12)}...`
-        + ` -> ${cid.toString().slice(0, 12)}...`,
+        `resolved ${ipnsName.slice(0, 12)}...` +
+          ` -> ${cid.toString().slice(0, 12)}...`,
       );
 
       return fetchByCid(ipnsName, cid.toString());
     } catch (err) {
       const msg = (err as Error).message ?? "";
-      log.error(
-        `resolve failed for`
-        + ` ${ipnsName.slice(0, 12)}...: ${msg}`,
-      );
+      log.error(`resolve failed for` + ` ${ipnsName.slice(0, 12)}...: ${msg}`);
       return false;
     }
   }
@@ -448,26 +526,18 @@ export async function createPinner(
   async function resolveAll(): Promise<void> {
     const now = Date.now();
     const names = [...knownNames].filter(
-      (n) =>
-        reannounceInterval(n, now) < MAX_INTERVAL_MS,
+      (n) => reannounceInterval(n, now) < MAX_INTERVAL_MS,
     );
     if (names.length === 0) return;
     log.debug(
-      `re-resolving ${names.length}/${knownNames.size}`
-      + ` scheduled names`,
+      `re-resolving ${names.length}/${knownNames.size}` + ` scheduled names`,
     );
     // Batch to avoid OOM from unbounded concurrency
     const BATCH_SIZE = 10;
-    for (
-      let i = 0;
-      i < names.length;
-      i += BATCH_SIZE
-    ) {
+    for (let i = 0; i < names.length; i += BATCH_SIZE) {
       if (stopped) break;
       const batch = names.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(
-        batch.map((n) => resolveAndFetch(n)),
-      );
+      await Promise.allSettled(batch.map((n) => resolveAndFetch(n)));
     }
   }
 
@@ -478,66 +548,168 @@ export async function createPinner(
    * republishRecord which goes through Helia's
    * composed routing (DHT on node side).
    */
+  // Track last successful republish time per name
+  const lastRepublished = new Map<string, number>();
+  // Track CID at last successful republish
+  const lastRepublishedCid = new Map<string, string>();
+
+  /**
+   * Republish a single IPNS record. Uses combined
+   * signal: per-call timeout + shutdown abort so the
+   * process doesn't hang on stop().
+   */
+  async function republishOne(ipnsName: string): Promise<"ok" | "fail"> {
+    if (!helia) return "fail";
+    try {
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(REPUBLISH_TIMEOUT_MS),
+        shutdownCtrl.signal,
+      ]);
+
+      // Throttle IPNS requests to avoid overwhelming
+      // delegated-ipfs.dev at scale.
+      await ipnsThrottle.acquire(signal);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const name = ipns(helia as any);
+      const keyBytes = hexToBytes(ipnsName);
+      const pubKey = publicKeyFromRaw(keyBytes);
+
+      const result = await name.resolve(pubKey, { signal });
+
+      await name.republishRecord(pubKey.toMultihash(), result.record, {
+        signal,
+      });
+
+      // Track successful republish
+      const now = Date.now();
+      lastRepublished.set(ipnsName, now);
+      const tip = history.getTip(ipnsName);
+      if (tip) lastRepublishedCid.set(ipnsName, tip);
+
+      log.debug(`republished IPNS for` + ` ${ipnsName.slice(0, 12)}...`);
+      return "ok";
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      log.error(
+        `IPNS republish failed for` +
+          ` ${ipnsName.slice(0, 12)}...:` +
+          ` ${msg}`,
+      );
+      return "fail";
+    }
+  }
+
+  /**
+   * Select names that need republishing this cycle.
+   * Skips names whose record is <20h old with
+   * unchanged CID (5x fewer DHT ops for stable docs).
+   */
+  function getRepublishCandidates(): string[] {
+    const now = Date.now();
+    const candidates: string[] = [];
+
+    for (const ipnsName of knownNames) {
+      const seen = lastSeenAt.get(ipnsName) ?? 0;
+      // Skip names past retention
+      if (seen + RETENTION_DURATION_MS <= now) continue;
+
+      const lastPub = lastRepublished.get(ipnsName) ?? 0;
+      const tip = history.getTip(ipnsName);
+      const lastPubCid = lastRepublishedCid.get(ipnsName);
+
+      // Always republish if CID changed
+      if (tip && tip !== lastPubCid) {
+        candidates.push(ipnsName);
+        continue;
+      }
+
+      // Republish if record is stale (>20h since
+      // last publish, approaching 24h TTL expiry)
+      if (now - lastPub > REPUBLISH_STALE_MS) {
+        candidates.push(ipnsName);
+        continue;
+      }
+
+      // Otherwise skip — record is fresh enough
+    }
+
+    return candidates;
+  }
+
   async function republishAllIPNS(): Promise<void> {
     if (!helia) return;
 
-    const name = ipns(helia as any);
-    const now = Date.now();
-    // Only republish docs still within retention
-    const names = [...knownNames].filter((n) => {
+    const candidates = getRepublishCandidates();
+    const retained = [...knownNames].filter((n) => {
       const seen = lastSeenAt.get(n) ?? 0;
-      return seen + RETENTION_DURATION_MS > now;
-    });
-    if (names.length === 0) return;
-    log.debug(
-      `republishing IPNS for`
-      + ` ${names.length}/${knownNames.size}`
-      + ` retained names`,
+      return seen + RETENTION_DURATION_MS > Date.now();
+    }).length;
+    const skip = retained - candidates.length;
+
+    if (candidates.length === 0) {
+      log.info(
+        `IPNS republish: 0 candidates` +
+          ` (${skip} skipped, ${retained} retained)`,
+      );
+      return;
+    }
+
+    const start = Date.now();
+    log.info(
+      `republishing IPNS for` +
+        ` ${candidates.length}/${retained}` +
+        ` retained names` +
+        ` (${skip} skipped,` +
+        ` concurrency=${REPUBLISH_CONCURRENCY})`,
     );
 
-    for (const ipnsName of names) {
-      if (stopped) break;
-      try {
-        const keyBytes = hexToBytes(ipnsName);
-        const pubKey = publicKeyFromRaw(keyBytes);
+    let idx = 0;
+    let ok = 0;
+    let fail = 0;
+    let abortCycle = false;
 
-        // Resolve to get the current record
-        const result = await name.resolve(pubKey, {
-          signal: AbortSignal.timeout(
-            REPUBLISH_TIMEOUT_MS,
-          ),
-        });
+    async function worker(): Promise<void> {
+      while (!stopped && !abortCycle) {
+        const i = idx++;
+        if (i >= candidates.length) return;
+        const result = await republishOne(candidates[i]);
+        if (result === "ok") ok++;
+        else fail++;
 
-        // Republish without private key
-        await name.republishRecord(
-          pubKey.toMultihash(),
-          result.record,
-          {
-            signal: AbortSignal.timeout(
-              REPUBLISH_TIMEOUT_MS,
-            ),
-          },
-        );
-        log.debug(
-          `republished IPNS for`
-            + ` ${ipnsName.slice(0, 12)}...`,
-        );
-      } catch (err) {
-        const msg = (err as Error).message ?? "";
-        log.error(
-          `IPNS republish failed for`
-            + ` ${ipnsName.slice(0, 12)}...:`
-            + ` ${msg}`,
-        );
-      }
-      // Spread out DHT work so it doesn't compete
-      // with relay coordination.
-      if (!stopped) {
-        await new Promise((r) =>
-          setTimeout(r, REPUBLISH_PER_NAME_DELAY_MS),
-        );
+        // Circuit breaker: abort if >50% failure
+        // rate after 20+ attempts
+        const total = ok + fail;
+        if (total >= 20 && fail / total > 0.5) {
+          log.warn(
+            `IPNS republish: >50% failure rate` +
+              ` (${fail}/${total}),` +
+              ` aborting cycle`,
+          );
+          abortCycle = true;
+          return;
+        }
       }
     }
+
+    const workers = Array.from(
+      {
+        length: Math.min(REPUBLISH_CONCURRENCY, candidates.length),
+      },
+      () => worker(),
+    );
+    await Promise.allSettled(workers);
+
+    const elapsed = Date.now() - start;
+    log.info(
+      `IPNS republish done:` +
+        ` ${ok} ok, ${fail} failed,` +
+        ` ${skip} skipped` +
+        ` in ${elapsed}ms` +
+        ` (${
+          candidates.length > 0 ? (elapsed / candidates.length).toFixed(0) : 0
+        }ms/name)`,
+    );
   }
 
   /**
@@ -546,8 +718,7 @@ export async function createPinner(
    * passed, re-announces them, and reschedules with
    * a new interval based on recency and load.
    */
-  async function processScheduleQueue():
-    Promise<void> {
+  async function processScheduleQueue(): Promise<void> {
     if (!helia || !config.pubsub) return;
     const start = Date.now();
     let count = 0;
@@ -577,13 +748,12 @@ export async function createPinner(
         // loop between pinners).
         // Embed ack with guarantee so browsers see
         // retention info on first message.
-        const ack: AnnouncementAck | undefined =
-          config.peerId
-            ? {
-                peerId: config.peerId,
-                ...issueGuarantee(ipnsName),
-              }
-            : undefined;
+        const ack: AnnouncementAck | undefined = config.peerId
+          ? {
+              peerId: config.peerId,
+              ...issueGuarantee(ipnsName),
+            }
+          : undefined;
         await announceSnapshot(
           config.pubsub,
           appId,
@@ -596,29 +766,19 @@ export async function createPinner(
         );
         count++;
         log.debug(
-          `re-announced`
-          + ` ${ipnsName.slice(0, 12)}...`
-          + ` cid=${cidStr.slice(0, 12)}...`,
+          `re-announced` +
+            ` ${ipnsName.slice(0, 12)}...` +
+            ` cid=${cidStr.slice(0, 12)}...`,
         );
       } catch (err) {
-        log.warn(
-          `re-announce failed`
-          + ` ${ipnsName.slice(0, 12)}...:`,
-          err,
-        );
+        log.warn(`re-announce failed` + ` ${ipnsName.slice(0, 12)}...:`, err);
       }
 
       // Reschedule with new interval
       const now = Date.now();
-      const interval = reannounceInterval(
-        ipnsName,
-        now,
-      );
+      const interval = reannounceInterval(ipnsName, now);
       if (interval < MAX_INTERVAL_MS) {
-        scheduleDoc(
-          ipnsName,
-          now + interval,
-        );
+        scheduleDoc(ipnsName, now + interval);
       } else {
         inHeap.delete(ipnsName);
       }
@@ -632,27 +792,33 @@ export async function createPinner(
 
       // Update capacity EMA
       const measured = elapsed / count;
-      perDocEma =
-        EMA_ALPHA * measured
-        + (1 - EMA_ALPHA) * perDocEma;
+      perDocEma = EMA_ALPHA * measured + (1 - EMA_ALPHA) * perDocEma;
 
       log.debug(
-        `reannounce: ${count} docs in ${elapsed}ms`
-        + ` (${measured.toFixed(1)}ms/doc,`
-        + ` capacity=${maxActiveDocs()},`
-        + ` scheduled=${inHeap.size})`,
+        `reannounce: ${count} docs in ${elapsed}ms` +
+          ` (${measured.toFixed(1)}ms/doc,` +
+          ` capacity=${maxActiveDocs()},` +
+          ` scheduled=${inHeap.size})`,
       );
+    }
+
+    // Compact heap when stale entries accumulate
+    if (stalePushes >= COMPACT_THRESHOLD) {
+      compactHeap();
     }
   }
 
   /**
    * Prune docs past retention (14 days of inactivity).
+   * Also prune stale names: no GossipSub activity AND
+   * no successful IPNS resolve for staleResolveMs.
    * Capacity backstop: if tracking > capacity * 10,
    * prune oldest by lastSeenAt even if < 14 days.
    */
   async function pruneIfNeeded(): Promise<void> {
     const now = Date.now();
     const toPrune: string[] = [];
+    let staleCount = 0;
 
     // Primary: time-based retention pruning
     for (const name of knownNames) {
@@ -662,12 +828,45 @@ export async function createPinner(
       }
     }
 
+    // Stale-resolve pruning: names within retention
+    // window but with no GossipSub activity AND no
+    // successful IPNS resolve for staleResolveMs.
+    //
+    // First-run grace: names that have NEVER been
+    // resolved (lastResolvedAt=0, new field) use a
+    // shorter 12h threshold. This handles the initial
+    // deploy where lastResolvedAt hasn't been
+    // populated yet but stale names have recent
+    // lastSeenAt from pre-fromPinner re-announces.
+    const NEVER_RESOLVED_GRACE_MS = 12 * 60 * 60_000;
+    if (staleResolveMs > 0) {
+      const pruneSet = new Set(toPrune);
+      for (const name of knownNames) {
+        if (pruneSet.has(name)) continue;
+        const seen = lastSeenAt.get(name) ?? 0;
+        const resolved = lastResolvedAt.get(name) ?? 0;
+        if (resolved === 0) {
+          // Never resolved — use shorter threshold
+          const seenStale = seen + NEVER_RESOLVED_GRACE_MS < now;
+          if (seenStale) {
+            toPrune.push(name);
+            staleCount++;
+          }
+        } else {
+          const seenStale = seen + staleResolveMs < now;
+          const resolveStale = resolved + staleResolveMs < now;
+          if (seenStale && resolveStale) {
+            toPrune.push(name);
+            staleCount++;
+          }
+        }
+      }
+    }
+
     // Capacity backstop: if still over limit after
     // time-based pruning, prune oldest
-    const remaining =
-      knownNames.size - toPrune.length;
-    const maxTracked =
-      maxActiveDocs() * PRUNE_HEADROOM;
+    const remaining = knownNames.size - toPrune.length;
+    const maxTracked = maxActiveDocs() * PRUNE_HEADROOM;
     if (remaining > maxTracked) {
       const pruneSet = new Set(toPrune);
       const sorted = [...knownNames]
@@ -677,24 +876,27 @@ export async function createPinner(
           seen: lastSeenAt.get(n) ?? 0,
         }))
         .sort((a, b) => a.seen - b.seen);
-      const extra = sorted.slice(
-        0,
-        remaining - maxTracked,
-      );
+      const extra = sorted.slice(0, remaining - maxTracked);
       for (const { name } of extra) {
         toPrune.push(name);
       }
     }
 
     for (const name of toPrune) {
-      // Delete block from blockstore
-      const tipCid = history.getTip(name);
-      if (tipCid && helia) {
-        try {
-          const cid = CID.parse(tipCid);
-          await helia.blockstore.delete(cid);
-        } catch {
-          // Block may already be gone
+      // Delete ALL blocks for this doc, not just tip
+      const entry = history.getEntry(name);
+      if (entry && helia) {
+        for (const snap of entry.snapshots) {
+          try {
+            const cid = CID.parse(snap.cid);
+            await helia.blockstore.delete(cid);
+          } catch {
+            // Block already missing — fine
+          }
+        }
+      } else if (entry) {
+        for (const snap of entry.snapshots) {
+          memBlocks.delete(snap.cid);
         }
       }
 
@@ -702,55 +904,115 @@ export async function createPinner(
       lastSeenAt.delete(name);
       lastAckedCid.delete(name);
       nameToAppId.delete(name);
+      lastResolvedAt.delete(name);
+      persistMutation(() => store.removeName(name));
       guaranteedUntil.delete(name);
       inHeap.delete(name);
     }
 
+    if (staleCount > 0) {
+      stalePruned += staleCount;
+    }
     if (toPrune.length > 0) {
       markDirty();
-      log.info(
-        `pruned ${toPrune.length} docs,`
-        + ` ${knownNames.size} remaining`,
-      );
+      const parts = [`pruned ${toPrune.length} docs`];
+      if (staleCount > 0) {
+        parts.push(`${staleCount} stale`);
+      }
+      parts.push(`${knownNames.size} remaining`);
+      log.info(parts.join(", "));
     }
   }
 
-  async function restoreState(): Promise<void> {
+  async function loadHistoryIndex(): Promise<boolean> {
+    try {
+      const raw = await readFile(historyIndexPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object") {
+        history.loadJSON(data);
+        log.info(
+          `loaded history index:` + ` ${history.allNames().length} names`,
+        );
+        return true;
+      }
+    } catch {
+      // No index file or corrupt — will backfill
+    }
+    return false;
+  }
+
+  async function saveHistoryIndex(): Promise<void> {
+    await writeFile(
+      historyIndexPath,
+      JSON.stringify(history.toJSON()),
+      "utf-8",
+    );
+  }
+
+  async function migrateFromStateJson(): Promise<boolean> {
+    try {
+      await access(statePath);
+    } catch {
+      return false; // No state.json — nothing to migrate
+    }
+
     const state = await loadState(statePath);
-    for (const n of state.knownNames) {
+    if (state.knownNames.length === 0) return false;
+
+    log.info(
+      `migrating ${state.knownNames.length} names` +
+        ` from state.json to LevelDB`,
+    );
+    await store.importState(state);
+
+    // Rename to .bak so we don't re-migrate
+    const bakPath = statePath + ".bak";
+    await rename(statePath, bakPath);
+    log.info(`state.json renamed to state.json.bak`);
+    return true;
+  }
+
+  async function restoreState(): Promise<void> {
+    // Check if LevelDB store has data
+    let names = await store.getNames();
+    if (names.size === 0) {
+      // Try migrating from state.json
+      await migrateFromStateJson();
+      names = await store.getNames();
+    }
+
+    for (const n of names) {
       knownNames.add(n);
     }
-    if (state.tips) {
-      for (const [name, cidStr] of
-        Object.entries(state.tips)
-      ) {
-        history.add(
-          name,
-          CID.parse(cidStr),
-          Date.now(),
-        );
-      }
+
+    // Try loading persisted history index first.
+    // If available, it has full chain history.
+    const hasIndex = await loadHistoryIndex();
+
+    const tips = await store.getTips();
+    const seenMap = await store.getLastSeenAll();
+    const appMap = await store.getAppIds();
+    const resMap = await store.getLastResolvedAll();
+
+    for (const [name, cidStr] of tips) {
+      const ts = seenMap.get(name) ?? 0;
+      history.add(name, CID.parse(cidStr), ts);
     }
-    if (state.nameToAppId) {
-      for (const [name, appId] of
-        Object.entries(state.nameToAppId)
-      ) {
-        nameToAppId.set(name, appId);
-      }
+    for (const [name, appId] of appMap) {
+      nameToAppId.set(name, appId);
     }
-    if (state.lastSeenAt) {
-      for (const [name, ts] of
-        Object.entries(state.lastSeenAt)
-      ) {
-        lastSeenAt.set(name, ts);
-      }
+    for (const [name, ts] of seenMap) {
+      lastSeenAt.set(name, ts);
     }
-    // Backfill lastSeenAt for names from old state
-    // files that don't have it — use 0 so they get
-    // pruned on next cycle.
+    for (const [name, ts] of resMap) {
+      lastResolvedAt.set(name, ts);
+    }
+    // Backfill lastSeenAt for names that don't have
+    // it — use 0 so they get pruned on next cycle.
     for (const name of knownNames) {
       if (!lastSeenAt.has(name)) {
         lastSeenAt.set(name, 0);
+        persistMutation(() => store.setLastSeen(name, 0));
       }
     }
     // Seed the schedule queue from restored state
@@ -763,21 +1025,153 @@ export async function createPinner(
     }
   }
 
-  async function persistState(): Promise<void> {
-    const start = Date.now();
-    const tips: Record<string, string> = {};
+  const BACKFILL_CONCURRENCY = 10;
+
+  /**
+   * Walk the snapshot chain from each tip CID to
+   * populate the history tracker with all blocks
+   * in the local blockstore. Runs as background
+   * task — does not block startup.
+   */
+  async function backfillHistory(): Promise<void> {
+    if (!helia) return;
+
+    // Collect names that need backfill: those where
+    // history only has 1 entry (the tip from state)
+    // and the tip block has a prev pointer.
+    const candidates: Array<{
+      name: string;
+      tipCid: string;
+    }> = [];
     for (const name of knownNames) {
+      const entries = history.getHistory(name);
       const tip = history.getTip(name);
-      if (tip) tips[name] = tip;
+      // Only backfill if we have exactly 1 entry
+      // (the tip). If index was loaded, names with
+      // full history will have >1 entries already.
+      if (tip && entries.length <= 1) {
+        candidates.push({ name, tipCid: tip });
+      }
     }
-    await saveState(statePath, {
-      knownNames: [...knownNames],
-      tips,
-      nameToAppId: Object.fromEntries(
-        nameToAppId,
-      ),
-      lastSeenAt: Object.fromEntries(lastSeenAt),
-    });
+
+    if (candidates.length === 0) return;
+    log.info(`backfill: walking chains for` + ` ${candidates.length} names`);
+
+    let walked = 0;
+    let blocksFound = 0;
+    let errors = 0;
+    let idx = 0;
+
+    async function worker(): Promise<void> {
+      while (true) {
+        const i = idx++;
+        if (i >= candidates.length) break;
+        const { name, tipCid } = candidates[i];
+        try {
+          const cid = CID.parse(tipCid);
+          // Read the tip block to find prev pointer
+          let current: CID | null = cid;
+          // Skip the tip itself (already in history)
+          const tipBlock = await helia!.blockstore.get(current);
+          const tipNode = decodeSnapshot(tipBlock);
+          current = tipNode.prev;
+
+          // Walk backwards through the chain
+          while (current !== null) {
+            if (stopped) return;
+            try {
+              const has = await helia!.blockstore.has(current);
+              if (!has) break; // block not in store
+              const block = await helia!.blockstore.get(current);
+              const node = decodeSnapshot(block);
+              history.add(name, current, node.ts);
+              blocksFound++;
+              current = node.prev;
+            } catch {
+              break; // corrupt or missing block
+            }
+          }
+          walked++;
+        } catch {
+          errors++;
+        }
+      }
+    }
+
+    const workers = Array.from({ length: BACKFILL_CONCURRENCY }, () =>
+      worker(),
+    );
+    await Promise.allSettled(workers);
+
+    log.info(
+      `backfill done: ${walked} chains,` +
+        ` ${blocksFound} blocks found,` +
+        ` ${errors} errors`,
+    );
+
+    // Persist updated history index
+    if (blocksFound > 0) {
+      try {
+        await saveHistoryIndex();
+        log.info("backfill: history index saved");
+      } catch (err) {
+        log.warn("backfill: index save failed:", (err as Error).message);
+      }
+    }
+  }
+
+  /**
+   * Thin version history for a single doc: keep tip,
+   * one-per-hour in hourly tier, one-per-day in daily
+   * tier, prune beyond daily retention. Deletes
+   * removed blocks from blockstore.
+   */
+  async function thinVersionHistory(ipnsName: string): Promise<number> {
+    const removed = history.thinSnapshots(ipnsName, retention);
+    if (removed.length === 0) return 0;
+
+    if (helia) {
+      for (const cid of removed) {
+        try {
+          await helia.blockstore.delete(cid);
+        } catch {
+          // Block already missing — fine
+        }
+      }
+    } else {
+      for (const cid of removed) {
+        memBlocks.delete(cid.toString());
+      }
+    }
+    markDirty();
+    return removed.length;
+  }
+
+  /**
+   * Sweep all known names, thinning version history.
+   * Runs periodically (every 6h).
+   */
+  async function thinSweep(): Promise<void> {
+    let totalRemoved = 0;
+    for (const name of knownNames) {
+      if (stopped) break;
+      totalRemoved += await thinVersionHistory(name);
+    }
+    if (totalRemoved > 0) {
+      log.info(
+        `thin sweep: removed ${totalRemoved} blocks` +
+          ` across ${knownNames.size} docs`,
+      );
+    }
+  }
+
+  async function persistHistoryIndex(): Promise<void> {
+    const start = Date.now();
+    try {
+      await saveHistoryIndex();
+    } catch (err) {
+      log.warn("history index save failed:", (err as Error).message);
+    }
     lastPersistMs = Date.now() - start;
     stateWriteCount++;
   }
@@ -786,6 +1180,7 @@ export async function createPinner(
     history,
 
     metrics(): PinnerMetrics {
+      const tm = ipnsThrottle.metrics();
       return {
         knownNames: knownNames.size,
         tipsTracked: history.allNames().length,
@@ -796,6 +1191,9 @@ export async function createPinner(
         lastReannounceMs,
         lastPersistMs,
         stateWriteCount,
+        ipnsThrottleAcquired: tm.acquired,
+        ipnsThrottleRejected: tm.rejected,
+        stalePruned,
       };
     },
 
@@ -804,25 +1202,30 @@ export async function createPinner(
     },
 
     async start(): Promise<void> {
-      await restoreState();
+      try {
+        await restoreState();
+      } catch (err) {
+        await store.close().catch(() => {});
+        throw err;
+      }
       await pruneIfNeeded();
+
+      // Backfill history index from blockstore
+      // chains. Fire and forget — doesn't block.
+      if (helia && knownNames.size > 0) {
+        track(backfillHistory());
+      }
 
       // Resolve all persisted names on startup
       if (helia && knownNames.size > 0) {
-        log.info(
-          `startup: resolving`
-          + ` ${knownNames.size} persisted names`,
-        );
+        log.info(`startup: resolving` + ` ${knownNames.size} persisted names`);
         // Fire and forget — don't block startup
         track(resolveAll());
       }
 
       // Periodic re-resolve
       if (helia) {
-        resolveInterval = setInterval(
-          resolveAll,
-          RESOLVE_INTERVAL_MS,
-        );
+        resolveInterval = setInterval(resolveAll, RESOLVE_INTERVAL_MS);
         // Periodic IPNS republish (keeps records
         // alive when writers are offline)
         republishInterval = setInterval(
@@ -835,27 +1238,32 @@ export async function createPinner(
         }, 5 * 60_000);
       }
 
-      // Periodic state persistence as safety net
+      // Periodic history index persistence
       persistInterval = setInterval(() => {
         if (dirty && !stopped) {
           dirty = false;
-          persistState().catch((err) => {
-            log.warn("periodic persist failed:", err);
+          persistHistoryIndex().catch((err) => {
+            log.warn("periodic history persist failed:", err);
           });
         }
       }, PERSIST_INTERVAL_MS);
 
+      // Periodic version thinning sweep
+      thinSweepInterval = setInterval(() => {
+        track(thinSweep());
+      }, THIN_SWEEP_INTERVAL_MS);
+
       // Schedule queue processor
       if (config.pubsub) {
-        scheduleInterval = setInterval(
-          () => { track(processScheduleQueue()); },
-          SCHEDULE_TICK_MS,
-        );
+        scheduleInterval = setInterval(() => {
+          track(processScheduleQueue());
+        }, SCHEDULE_TICK_MS);
       }
     },
 
     async stop(): Promise<void> {
       stopped = true;
+      shutdownCtrl.abort();
       if (resolveInterval) {
         clearInterval(resolveInterval);
       }
@@ -874,7 +1282,15 @@ export async function createPinner(
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
       }
-      await persistState();
+      if (thinSweepInterval) {
+        clearInterval(thinSweepInterval);
+      }
+      await persistHistoryIndex();
+      try {
+        await store.close();
+      } catch {
+        // Already closed (double-stop) — fine
+      }
     },
 
     onAnnouncement(
@@ -886,13 +1302,19 @@ export async function createPinner(
     ): void {
       knownNames.add(ipnsName);
       if (appId) nameToAppId.set(ipnsName, appId);
+      persistMutation(async () => {
+        await store.addName(ipnsName);
+        if (appId) await store.setAppId(ipnsName, appId);
+      });
 
       // Only refresh lastSeenAt for non-pinner
       // announcements (writer/reader activity).
       // Pinner re-announces are supply signals and
       // must NOT keep docs alive indefinitely.
       if (!fromPinner) {
-        lastSeenAt.set(ipnsName, Date.now());
+        const now = Date.now();
+        lastSeenAt.set(ipnsName, now);
+        persistMutation(() => store.setLastSeen(ipnsName, now));
         // Reset monotonic guarantee on new activity
         // so it recalculates from fresh lastSeenAt.
         guaranteedUntil.delete(ipnsName);
@@ -901,15 +1323,8 @@ export async function createPinner(
       // Dedup: if we already fetched+acked this CID,
       // just re-ack (cheap) so new browsers see it.
       if (lastAckedCid.get(ipnsName) === cidStr) {
-        log.debug(
-          `duplicate: ${cidStr.slice(0, 12)}...`
-          + ` re-acking`,
-        );
-        if (
-          appId &&
-          config.pubsub &&
-          config.peerId
-        ) {
+        log.debug(`duplicate: ${cidStr.slice(0, 12)}...` + ` re-acking`);
+        if (appId && config.pubsub && config.peerId) {
           const g = issueGuarantee(ipnsName);
           track(
             announceAck(
@@ -929,8 +1344,8 @@ export async function createPinner(
       }
 
       log.debug(
-        `announcement: name=${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...`,
+        `announcement: name=${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...`,
       );
       // New CID supersedes old guarantee
       guaranteedUntil.delete(ipnsName);
@@ -940,16 +1355,10 @@ export async function createPinner(
       // latest CID, IPNS may lag behind).
       if (helia) {
         track(
-          fetchByCid(ipnsName, cidStr, blockData).then(
-            async (ok) => {
-              if (
-                ok &&
-                appId &&
-                config.pubsub &&
-                config.peerId
-              ) {
-                const g =
-                  issueGuarantee(ipnsName);
+          fetchByCid(ipnsName, cidStr, blockData)
+            .then(async (ok) => {
+              if (ok && appId && config.pubsub && config.peerId) {
+                const g = issueGuarantee(ipnsName);
                 await announceAck(
                   config.pubsub,
                   appId,
@@ -959,56 +1368,51 @@ export async function createPinner(
                   g.guaranteeUntil,
                   g.retainUntil,
                 );
-                lastAckedCid.set(
-                  ipnsName, cidStr,
-                );
+                lastAckedCid.set(ipnsName, cidStr);
+                // Thin old versions after new ingest
+                await thinVersionHistory(ipnsName);
                 markDirty();
                 log.debug(
-                  `acked`
-                  + ` ${ipnsName.slice(0, 12)}...`
-                  + ` cid=${cidStr.slice(0, 12)}...`,
+                  `acked` +
+                    ` ${ipnsName.slice(0, 12)}...` +
+                    ` cid=${cidStr.slice(0, 12)}...`,
                 );
               } else {
                 log.debug(
-                  `ack skipped:`
-                  + ` ok=${ok}`
-                  + ` appId=${appId}`
-                  + ` pubsub=${!!config.pubsub}`
-                  + ` peerId=${!!config.peerId}`,
+                  `ack skipped:` +
+                    ` ok=${ok}` +
+                    ` appId=${appId}` +
+                    ` pubsub=${!!config.pubsub}` +
+                    ` peerId=${!!config.peerId}`,
                 );
               }
-            },
-          ).catch((err) => {
-            log.warn(
-              `ack failed:`
-              + ` ${ipnsName.slice(0, 12)}...`
-              + ` cid=${cidStr.slice(0, 12)}...:`,
-              err,
-            );
-          }),
+            })
+            .catch((err) => {
+              log.warn(
+                `ack failed:` +
+                  ` ${ipnsName.slice(0, 12)}...` +
+                  ` cid=${cidStr.slice(0, 12)}...:`,
+                err,
+              );
+            }),
         );
       }
 
       // Schedule for re-announce
       const now = Date.now();
-      const interval =
-        reannounceInterval(ipnsName, now);
+      const interval = reannounceInterval(ipnsName, now);
       if (interval < MAX_INTERVAL_MS) {
         scheduleDoc(ipnsName, now + interval);
       }
     },
 
-    onGuaranteeQuery(
-      ipnsName: string,
-      appId: string,
-    ): void {
+    onGuaranteeQuery(ipnsName: string, appId: string): void {
       if (!knownNames.has(ipnsName)) return;
       if (!config.pubsub || !config.peerId) return;
 
-      // Rate-limit: max 1 response per name per 10s
+      // Rate-limit: max 1 response per name per 3s
       const now = Date.now();
-      const last =
-        lastQueryResponse.get(ipnsName) ?? 0;
+      const last = lastQueryResponse.get(ipnsName) ?? 0;
       if (now - last < QUERY_RESPONSE_COOLDOWN_MS) {
         return;
       }
@@ -1026,36 +1430,99 @@ export async function createPinner(
         guaranteeUntil: g.guaranteeUntil,
         retainUntil: g.retainUntil,
       };
-      const data = new TextEncoder().encode(
-        JSON.stringify(response),
-      );
+      const data = new TextEncoder().encode(JSON.stringify(response));
       const topic = announceTopic(appId);
       track(
-        config.pubsub
-          .publish(topic, data)
-          .catch((err) => {
-            log.warn(
-              "guarantee response failed:",
-              err,
-            );
-          }),
+        config.pubsub.publish(topic, data).catch((err) => {
+          log.warn("guarantee response failed:", err);
+        }),
       );
       log.debug(
-        `guarantee response:`
-        + ` ${ipnsName.slice(0, 12)}...`
-        + ` cid=${cidStr.slice(0, 12)}...`,
+        `guarantee response:` +
+          ` ${ipnsName.slice(0, 12)}...` +
+          ` cid=${cidStr.slice(0, 12)}...`,
       );
+
+      // Bump re-announce priority: query is a demand
+      // signal. Late-arriving browsers will catch the
+      // next re-announce instead of waiting for decay.
+      // Uses lazy deletion — duplicate heap entries
+      // are harmless (stale ones skipped on pop).
+      scheduleDoc(ipnsName, now + BASE_INTERVAL_MS);
     },
 
-    async ingest(
-      ipnsName: string,
-      block: Uint8Array,
-    ): Promise<boolean> {
-      // Rate limit: block size
-      const check = rateLimiter.check(
+    async getTipData(ipnsName: string): Promise<TipData | null> {
+      if (!knownNames.has(ipnsName)) return null;
+      if (!config.peerId) return null;
+
+      const cidStr = history.getTip(ipnsName);
+      if (!cidStr) return null;
+
+      // Read block from blockstore
+      let block: Uint8Array;
+      try {
+        const cid = CID.parse(cidStr);
+        if (helia) {
+          const has = await helia.blockstore.has(cid);
+          if (!has) return null;
+          block = await helia.blockstore.get(cid);
+        } else {
+          const mem = memBlocks.get(cidStr);
+          if (!mem) return null;
+          block = mem;
+        }
+      } catch {
+        return null;
+      }
+
+      // Get seq/ts from history
+      const entry = history.getEntry(ipnsName);
+      const tip = entry?.tip;
+
+      const g = issueGuarantee(ipnsName);
+
+      return {
         ipnsName,
-        block.byteLength,
-      );
+        cid: cidStr,
+        block,
+        seq: entry ? entry.snapshots.length : 0,
+        ts: tip?.ts ?? 0,
+        peerId: config.peerId,
+        guaranteeUntil: g.guaranteeUntil,
+        retainUntil: g.retainUntil,
+      };
+    },
+
+    getGuarantee(ipnsName: string): GuaranteeData | null {
+      if (!knownNames.has(ipnsName)) return null;
+      if (!config.peerId) return null;
+
+      const cidStr = history.getTip(ipnsName);
+      if (!cidStr) return null;
+
+      const g = issueGuarantee(ipnsName);
+
+      return {
+        ipnsName,
+        cid: cidStr,
+        peerId: config.peerId,
+        guaranteeUntil: g.guaranteeUntil,
+        retainUntil: g.retainUntil,
+      };
+    },
+
+    recordActivity(ipnsName: string): void {
+      if (!knownNames.has(ipnsName)) return;
+      const now = Date.now();
+      lastSeenAt.set(ipnsName, now);
+      persistMutation(() => store.setLastSeen(ipnsName, now));
+      // Bump re-announce priority
+      scheduleDoc(ipnsName, now + BASE_INTERVAL_MS);
+    },
+
+    async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {
+      // Rate limit: block size
+      const check = rateLimiter.check(ipnsName, block.byteLength);
       if (!check.allowed) {
         rateLimitRejects++;
         return false;
@@ -1076,12 +1543,24 @@ export async function createPinner(
 
       // Store block
       await storeBlock(cid, block);
+      const now = Date.now();
       knownNames.add(ipnsName);
-      lastSeenAt.set(ipnsName, Date.now());
+      lastSeenAt.set(ipnsName, now);
       rateLimiter.record(ipnsName);
       history.add(ipnsName, cid, node.ts);
-      markDirty();
       snapshotsIngested++;
+
+      // Write-through to LevelDB immediately — HTTP
+      // ingest is rare and caller needs crash safety.
+      await store.addName(ipnsName);
+      await store.setTip(ipnsName, cid.toString());
+      await store.setLastSeen(ipnsName, now);
+
+      // Thin old versions after ingesting new one
+      await thinVersionHistory(ipnsName);
+
+      // Persist history index
+      await persistHistoryIndex();
 
       return true;
     },

@@ -12,10 +12,7 @@
  * @pokapali/sync but avoids requiring the full interface.
  */
 export interface AnnouncePubSub {
-  publish(
-    topic: string,
-    data: Uint8Array,
-  ): Promise<unknown>;
+  publish(topic: string, data: Uint8Array): Promise<unknown>;
 }
 
 export interface AnnouncementAck {
@@ -55,7 +52,7 @@ export function announceTopic(appId: string): string {
  * @param ipnsName hex-encoded IPNS public key
  * @param cid      CID string of the published snapshot
  */
-const MAX_INLINE_BLOCK_BYTES = 256 * 1024;
+export const MAX_INLINE_BLOCK_BYTES = 1024 * 1024;
 
 function uint8ToBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -92,9 +89,7 @@ export async function announceSnapshot(
   }
   if (fromPinner) msg.fromPinner = true;
   if (ack) msg.ack = ack;
-  const data = new TextEncoder().encode(
-    JSON.stringify(msg),
-  );
+  const data = new TextEncoder().encode(JSON.stringify(msg));
   await pubsub.publish(topic, data);
 }
 
@@ -125,30 +120,43 @@ export async function announceAck(
     cid,
     ack,
   };
-  const data = new TextEncoder().encode(
-    JSON.stringify(msg),
-  );
+  const data = new TextEncoder().encode(JSON.stringify(msg));
   await pubsub.publish(topic, data);
 }
+
+// Max inbound message size (2MB). A 1MB block becomes
+// ~1.33MB base64, plus JSON envelope. 2MB gives
+// headroom while rejecting obvious abuse.
+export const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
 
 /**
  * Parse a raw announcement message payload.
  *
  * @returns parsed Announcement or null if invalid
  */
-export function parseAnnouncement(
-  data: Uint8Array,
-): Announcement | null {
+export function parseAnnouncement(data: Uint8Array): Announcement | null {
   try {
+    if (data.length > MAX_MESSAGE_BYTES) return null;
+
     const text = new TextDecoder().decode(data);
     const obj = JSON.parse(text);
-    if (
-      typeof obj.ipnsName === "string" &&
-      typeof obj.cid === "string"
-    ) {
-      return obj as Announcement;
+    if (typeof obj.ipnsName !== "string" || typeof obj.cid !== "string") {
+      return null;
     }
-    return null;
+
+    // Validate inline block size after base64 decode.
+    // base64 output is ~4/3 of input, so check the
+    // encoded length as a fast approximation first.
+    if (typeof obj.block === "string") {
+      const approxBytes = (obj.block.length * 3) / 4;
+      if (approxBytes > MAX_INLINE_BLOCK_BYTES) {
+        // Strip oversized block — still return the
+        // announcement so the CID is tracked.
+        delete obj.block;
+      }
+    }
+
+    return obj as Announcement;
   } catch {
     return null;
   }
@@ -194,6 +202,8 @@ export function parseGuaranteeResponse(
   data: Uint8Array,
 ): GuaranteeResponse | null {
   try {
+    if (data.length > MAX_MESSAGE_BYTES) return null;
+
     const text = new TextDecoder().decode(data);
     const obj = JSON.parse(text);
     if (

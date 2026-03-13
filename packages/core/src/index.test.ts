@@ -1,17 +1,9 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
-import type { CapabilityKeys } from "@pokapali/capability";
 import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import {
-  clearForwardingStore,
+  _resetForwardingStore,
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
@@ -31,15 +23,14 @@ vi.mock("./helia.js", () => ({
   getHelia: vi.fn(() => ({
     blockstore: {
       put: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockRejectedValue(
-        new Error("Not found"),
-      ),
+      get: vi.fn().mockRejectedValue(new Error("Not found")),
     },
     libp2p: {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     },
   })),
+  isHeliaLive: vi.fn(() => false),
   _resetHeliaState: vi.fn(),
 }));
 
@@ -50,17 +41,11 @@ vi.mock("./ipns-helpers.js", () => ({
 }));
 
 vi.mock("./announce.js", () => ({
-  announceSnapshot: vi.fn().mockResolvedValue(
-    undefined,
-  ),
-  announceTopic: vi.fn().mockReturnValue(
-    "/pokapali/app/test/announce",
-  ),
+  announceSnapshot: vi.fn().mockResolvedValue(undefined),
+  announceTopic: vi.fn().mockReturnValue("/pokapali/app/test/announce"),
   parseAnnouncement: vi.fn().mockReturnValue(null),
-  parseGuaranteeResponse:
-    vi.fn().mockReturnValue(null),
-  publishGuaranteeQuery:
-    vi.fn().mockResolvedValue(undefined),
+  parseGuaranteeResponse: vi.fn().mockReturnValue(null),
+  publishGuaranteeQuery: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./peer-discovery.js", () => ({
@@ -73,8 +58,7 @@ vi.mock("./node-registry.js", () => ({
   acquireNodeRegistry: vi.fn(),
   getNodeRegistry: vi.fn(() => null),
   _resetNodeRegistry: vi.fn(),
-  NODE_CAPS_TOPIC:
-    "pokapali._node-caps._p2p._pubsub",
+  NODE_CAPS_TOPIC: "pokapali._node-caps._p2p._pubsub",
 }));
 
 vi.mock("@pokapali/sync", () => ({
@@ -96,6 +80,29 @@ vi.mock("@pokapali/sync", () => ({
   })),
 }));
 
+vi.mock("blockstore-idb", () => ({
+  IDBBlockstore: vi.fn(() => ({
+    open: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+vi.mock("./persistence.js", () => ({
+  createDocPersistence: vi.fn(() => ({
+    whenSynced: Promise.resolve(),
+    providers: new Set(),
+    destroy: vi.fn(),
+  })),
+}));
+
+vi.mock("./identity.js", () => ({
+  loadIdentity: vi.fn(async () => ({
+    publicKey: new Uint8Array(32),
+    privateKey: new Uint8Array(32),
+  })),
+  signParticipant: vi.fn(async () => "mocksig"),
+}));
+
 vi.mock("@pokapali/snapshot", async () => {
   const actual =
     await vi.importActual<typeof import("@pokapali/snapshot")>(
@@ -110,10 +117,11 @@ vi.mock("@pokapali/snapshot", async () => {
 import {
   pokapali,
   type Doc,
-  type DocStatus,
   type SaveState,
   type Diagnostics,
 } from "./index.js";
+import { acquireNodeRegistry, getNodeRegistry } from "./node-registry.js";
+import { publishGuaranteeQuery } from "./announce.js";
 
 const OPTS = {
   appId: "test-app",
@@ -124,7 +132,7 @@ const OPTS = {
 describe("@pokapali/core", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearForwardingStore();
+    _resetForwardingStore();
   });
 
   it("create() returns Doc", async () => {
@@ -170,7 +178,7 @@ describe("@pokapali/core", () => {
     const doc = await lib.create();
     expect(doc.capability.isAdmin).toBe(true);
     expect(doc.capability.canPushSnapshots).toBe(true);
-    expect(doc.capability.namespaces).toEqual(new Set(["content", "comments"]));
+    expect(doc.capability.channels).toEqual(new Set(["content", "comments"]));
     doc.destroy();
   });
 
@@ -204,7 +212,7 @@ describe("@pokapali/core", () => {
     const reader = await lib.open(readUrl);
     expect(reader.capability.isAdmin).toBe(false);
     expect(reader.capability.canPushSnapshots).toBe(false);
-    expect(reader.capability.namespaces.size).toBe(0);
+    expect(reader.capability.channels.size).toBe(0);
     expect(reader.urls.admin).toBeNull();
     expect(reader.urls.write).toBeNull();
     reader.destroy();
@@ -248,13 +256,13 @@ describe("@pokapali/core", () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     const url = await doc.invite({
-      namespaces: ["comments"],
+      channels: ["comments"],
     });
     expect(url).toContain("https://example.com/doc/");
 
     const parsed = await parseUrl(url);
     const cap = inferCapability(parsed.keys, OPTS.channels);
-    expect(cap.namespaces).toEqual(new Set(["comments"]));
+    expect(cap.channels).toEqual(new Set(["comments"]));
     expect(cap.canPushSnapshots).toBe(false);
     expect(cap.isAdmin).toBe(false);
     doc.destroy();
@@ -281,7 +289,7 @@ describe("@pokapali/core", () => {
 
     // With mock sync status "connected",
     // status should be "synced".
-    expect(doc.status).toBe("synced");
+    expect(doc.status.getSnapshot()).toBe("synced");
     doc.destroy();
   });
 
@@ -292,12 +300,12 @@ describe("@pokapali/core", () => {
     // After create(), _meta writes trigger dirty.
     // Push to clear.
     await doc.publish();
-    expect(doc.saveState).toBe("saved");
+    expect(doc.saveState.getSnapshot()).toBe("saved");
 
     // Edit a subdoc to trigger dirty
     const content = doc.channel("content");
     content.getMap("test").set("key", "value");
-    expect(doc.saveState).toBe("dirty");
+    expect(doc.saveState.getSnapshot()).toBe("dirty");
     doc.destroy();
   });
 
@@ -307,7 +315,7 @@ describe("@pokapali/core", () => {
 
     // Push snapshot to clear dirty state
     await doc.publish();
-    expect(doc.saveState).toBe("saved");
+    expect(doc.saveState.getSnapshot()).toBe("saved");
 
     const states: SaveState[] = [];
     doc.on("save", (s: SaveState) => {
@@ -348,9 +356,7 @@ describe("@pokapali/core", () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     doc.destroy();
-    expect(() => doc.channel("content")).toThrow(
-      /destroyed/,
-    );
+    expect(() => doc.channel("content")).toThrow(/destroyed/);
   });
 
   it("_meta populated on create", async () => {
@@ -411,6 +417,26 @@ describe("@pokapali/core", () => {
       expect(h[0].cid.toString()).not.toBe(h[1].cid.toString());
       doc.destroy();
     });
+
+    it("versionHistory falls back to local chain", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      await doc.publish();
+      const content = doc.channel("content");
+      content.getMap("test").set("k", "v");
+      await doc.publish();
+      content.getMap("test").set("k", "v2");
+      await doc.publish();
+
+      // No pinner URLs → falls back to local
+      const h = await doc.versionHistory();
+      expect(h).toHaveLength(3);
+      expect(h[0].seq).toBe(3);
+      expect(h[1].seq).toBe(2);
+      expect(h[2].seq).toBe(1);
+      doc.destroy();
+    });
   });
 
   describe("loadVersion()", () => {
@@ -439,7 +465,7 @@ describe("@pokapali/core", () => {
 
       const hash = await sha256.digest(new Uint8Array([1, 2, 3]));
       const fakeCid = CID.createV1(0x71, hash);
-      await expect(doc.loadVersion(fakeCid)).rejects.toThrow(/Unknown CID/);
+      await expect(doc.loadVersion(fakeCid)).rejects.toThrow(/not found/i);
       doc.destroy();
     });
   });
@@ -452,31 +478,20 @@ describe("@pokapali/core", () => {
       const content = doc.channel("content");
       content.getMap("data").set("hello", "world");
 
-      const { newDoc, forwardingRecord } =
-        await doc.rotate();
+      const { newDoc, forwardingRecord } = await doc.rotate();
 
-      expect(forwardingRecord).toBeInstanceOf(
-        Uint8Array,
-      );
+      expect(forwardingRecord).toBeInstanceOf(Uint8Array);
       expect(newDoc.capability.isAdmin).toBe(true);
 
       const newContent = newDoc.channel("content");
-      expect(
-        newContent.getMap("data").get("hello"),
-      ).toBe("world");
+      expect(newContent.getMap("data").get("hello")).toBe("world");
 
       // Old doc is destroyed
-      expect(() => doc.channel("content")).toThrow(
-        /destroyed/,
-      );
+      expect(() => doc.channel("content")).toThrow(/destroyed/);
 
       // New doc has different URLs
-      expect(newDoc.urls.admin).not.toBe(
-        doc.urls.admin,
-      );
-      expect(newDoc.urls.read).not.toBe(
-        doc.urls.read,
-      );
+      expect(newDoc.urls.admin).not.toBe(doc.urls.admin);
+      expect(newDoc.urls.read).not.toBe(doc.urls.read);
 
       newDoc.destroy();
     });
@@ -488,9 +503,7 @@ describe("@pokapali/core", () => {
       admin.destroy();
 
       const reader = await lib.open(readUrl);
-      await expect(reader.rotate()).rejects.toThrow(
-        /Only admins can rotate/,
-      );
+      await expect(reader.rotate()).rejects.toThrow(/Only admins can rotate/);
       reader.destroy();
     });
 
@@ -502,15 +515,10 @@ describe("@pokapali/core", () => {
       const adminUrl = doc.urls.admin!;
       const parsed = await parseUrl(adminUrl);
 
-      const { forwardingRecord } =
-        await doc.rotate();
+      const { forwardingRecord } = await doc.rotate();
 
-      const fwd =
-        decodeForwardingRecord(forwardingRecord);
-      const valid = await verifyForwardingRecord(
-        fwd,
-        parsed.keys.rotationKey!,
-      );
+      const fwd = decodeForwardingRecord(forwardingRecord);
+      const valid = await verifyForwardingRecord(fwd, parsed.keys.rotationKey!);
       expect(valid).toBe(true);
     });
   });
@@ -570,12 +578,176 @@ describe("@pokapali/core", () => {
       const followed = await lib.open(oldAdminUrl);
       // The followed doc has a different ipnsName
       // (it resolved to the new doc)
-      expect(followed.urls.read).not.toBe(
-        oldAdminUrl,
-      );
+      expect(followed.urls.read).not.toBe(oldAdminUrl);
 
       followed.destroy();
       newDoc.destroy();
+    });
+  });
+
+  describe("pinner discovery triggers guarantee query", () => {
+    it(
+      "fires queryGuarantees when new pinner" + " appears in node-registry",
+      async () => {
+        // Set up a mock registry that captures
+        // the on("change") callback so we can
+        // fire it manually.
+        let nodeChangeCb: (() => void) | null = null;
+        const mockNodes = new Map<
+          string,
+          {
+            peerId: string;
+            roles: string[];
+            lastSeenAt: number;
+            connected: boolean;
+            stale: boolean;
+            neighbors: { peerId: string; role?: string }[];
+            browserCount: number;
+            addrs: string[];
+            httpUrl: string | undefined;
+          }
+        >();
+        const mockRegistry = {
+          nodes: mockNodes,
+          on: vi.fn((_event: string, cb: () => void) => {
+            nodeChangeCb = cb;
+          }),
+          off: vi.fn(),
+          destroy: vi.fn(),
+        };
+
+        vi.mocked(acquireNodeRegistry).mockReturnValue(mockRegistry as any);
+        vi.mocked(getNodeRegistry).mockReturnValue(mockRegistry as any);
+
+        const lib = pokapali(OPTS);
+        const doc = await lib.create();
+
+        // nodeChangeHandler should have been
+        // registered
+        expect(nodeChangeCb).not.toBeNull();
+
+        // Clear any calls from setup
+        vi.mocked(publishGuaranteeQuery).mockClear();
+
+        // Simulate a pinner appearing in the
+        // registry
+        mockNodes.set("pinner-1", {
+          peerId: "pinner-1",
+          roles: ["pinner"],
+          lastSeenAt: Date.now(),
+          connected: true,
+          stale: false,
+          neighbors: [],
+          browserCount: 0,
+          addrs: [],
+          httpUrl: undefined,
+        });
+        nodeChangeCb!();
+
+        // publishGuaranteeQuery should fire
+        // (called by snapshotWatcher.queryGuarantees)
+        expect(publishGuaranteeQuery).toHaveBeenCalled();
+
+        // Firing again with same pinner should
+        // NOT re-query (already known)
+        vi.mocked(publishGuaranteeQuery).mockClear();
+        nodeChangeCb!();
+        expect(publishGuaranteeQuery).not.toHaveBeenCalled();
+
+        // New pinner should trigger again
+        mockNodes.set("pinner-2", {
+          peerId: "pinner-2",
+          roles: ["pinner"],
+          lastSeenAt: Date.now(),
+          connected: true,
+          stale: false,
+          neighbors: [],
+          browserCount: 0,
+          addrs: [],
+          httpUrl: undefined,
+        });
+        nodeChangeCb!();
+        expect(publishGuaranteeQuery).toHaveBeenCalled();
+
+        doc.destroy();
+
+        // Restore default mock behavior
+        vi.mocked(acquireNodeRegistry).mockReset();
+        vi.mocked(getNodeRegistry).mockReturnValue(null);
+      },
+    );
+  });
+
+  describe("authorize / deauthorize", () => {
+    it("authorize() throws for non-admin " + "(reader)", async () => {
+      const lib = pokapali(OPTS);
+      const admin = await lib.create();
+      const readUrl = admin.urls.read;
+      admin.destroy();
+
+      const reader = await lib.open(readUrl);
+      expect(() => reader.authorize("abc123")).toThrow(/requires admin/);
+      reader.destroy();
+    });
+
+    it("deauthorize() throws for non-admin " + "(reader)", async () => {
+      const lib = pokapali(OPTS);
+      const admin = await lib.create();
+      const readUrl = admin.urls.read;
+      admin.destroy();
+
+      const reader = await lib.open(readUrl);
+      expect(() => reader.deauthorize("abc123")).toThrow(/requires admin/);
+      reader.destroy();
+    });
+
+    it("admin can authorize and read " + "authorizedPublishers", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      expect(doc.authorizedPublishers.size).toBe(0);
+
+      doc.authorize("pub-a");
+      expect(doc.authorizedPublishers.has("pub-a")).toBe(true);
+      expect(doc.authorizedPublishers.size).toBe(1);
+
+      doc.authorize("pub-b");
+      expect(doc.authorizedPublishers.size).toBe(2);
+
+      doc.destroy();
+    });
+
+    it("admin can deauthorize a publisher", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      doc.authorize("pub-a");
+      doc.authorize("pub-b");
+      expect(doc.authorizedPublishers.size).toBe(2);
+
+      doc.deauthorize("pub-a");
+      expect(doc.authorizedPublishers.has("pub-a")).toBe(false);
+      expect(doc.authorizedPublishers.has("pub-b")).toBe(true);
+      expect(doc.authorizedPublishers.size).toBe(1);
+
+      doc.destroy();
+    });
+
+    it("authorizedPublishers returns " + "ReadonlySet snapshot", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      doc.authorize("pub-x");
+      const snap1 = doc.authorizedPublishers;
+      expect(snap1.has("pub-x")).toBe(true);
+
+      // Mutating the Y.Map updates the getter
+      doc.authorize("pub-y");
+      const snap2 = doc.authorizedPublishers;
+      expect(snap2.has("pub-y")).toBe(true);
+      expect(snap2.size).toBe(2);
+
+      doc.destroy();
     });
   });
 });

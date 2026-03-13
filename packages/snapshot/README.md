@@ -13,7 +13,7 @@ Ed25519 for structural validation by pinners.
 ## Key Exports
 
 - **`encodeSnapshot(plaintext, readKey, prev, seq, ts,
-  signingKey)`** — encrypts subdoc state and produces a
+signingKey)`** — encrypts subdoc state and produces a
   signed DAG-CBOR block
 - **`decodeSnapshot(bytes)`** — parses a block into a
   `SnapshotNode`

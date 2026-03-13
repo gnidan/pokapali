@@ -4,10 +4,19 @@ import { createLogger } from "@pokapali/log";
 
 const log = createLogger("node-registry");
 
-export const NODE_CAPS_TOPIC =
-  "pokapali._node-caps._p2p._pubsub";
-const STALE_MS = 90_000;
+export const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
+/** Node becomes stale (greyed out) after this long
+ *  without a caps broadcast. 5x the 30s caps interval
+ *  gives margin for dropped GossipSub messages. */
+const STALE_MS = 150_000;
+/** Hard-remove threshold — stale nodes linger in
+ *  the registry (visible but greyed) until this. */
+const REMOVE_MS = 300_000;
 const PRUNE_INTERVAL_MS = 30_000;
+/** Consecutive disconnected prune checks required
+ *  before flipping connected → false. Prevents
+ *  single-check flicker from transient hiccups. */
+const DISCONNECT_HYSTERESIS = 2;
 
 export interface Neighbor {
   peerId: string;
@@ -19,19 +28,36 @@ export interface KnownNode {
   roles: string[];
   lastSeenAt: number;
   connected: boolean;
+  /** True when no caps broadcast received within
+   *  STALE_MS but not yet hard-removed. Node remains
+   *  in registry so the graph can show it greyed. */
+  stale: boolean;
   neighbors: Neighbor[];
   browserCount: number | undefined;
   /** Public WSS addresses from caps broadcast. */
   addrs: string[];
+  /** HTTPS block endpoint URL (e.g.
+   *  https://host:4443) from caps v2. */
+  httpUrl: string | undefined;
+}
+
+export interface NodeRegistryEvents {
+  change: [];
 }
 
 export interface NodeRegistry {
   /** All known non-stale nodes. */
   readonly nodes: ReadonlyMap<string, KnownNode>;
   /** Register a callback for meaningful changes. */
-  onNodeChange(cb: () => void): void;
+  on<E extends keyof NodeRegistryEvents>(
+    event: E,
+    cb: (...args: NodeRegistryEvents[E]) => void,
+  ): void;
   /** Unregister a change callback. */
-  offNodeChange(cb: () => void): void;
+  off<E extends keyof NodeRegistryEvents>(
+    event: E,
+    cb: (...args: NodeRegistryEvents[E]) => void,
+  ): void;
   destroy(): void;
 }
 
@@ -42,24 +68,19 @@ interface NodeCapsMessage {
   neighbors?: Neighbor[];
   browserCount?: number;
   addrs?: string[];
+  httpUrl?: string;
 }
 
-function parseNeighbors(
-  arr: unknown,
-): Neighbor[] {
+function parseNeighbors(arr: unknown): Neighbor[] {
   if (!Array.isArray(arr)) return [];
   const result: Neighbor[] = [];
   for (const item of arr) {
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as any).peerId === "string"
-    ) {
-      const n: Neighbor = {
-        peerId: (item as any).peerId,
-      };
-      if (typeof (item as any).role === "string") {
-        n.role = (item as any).role;
+    if (typeof item !== "object" || item === null) continue;
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.peerId === "string") {
+      const n: Neighbor = { peerId: obj.peerId };
+      if (typeof obj.role === "string") {
+        n.role = obj.role;
       }
       result.push(n);
     }
@@ -67,13 +88,9 @@ function parseNeighbors(
   return result;
 }
 
-function parseCapsMessage(
-  data: Uint8Array,
-): NodeCapsMessage | null {
+function parseCapsMessage(data: Uint8Array): NodeCapsMessage | null {
   try {
-    const obj = JSON.parse(
-      new TextDecoder().decode(data),
-    );
+    const obj = JSON.parse(new TextDecoder().decode(data));
     if (
       (obj?.version !== 1 && obj?.version !== 2) ||
       typeof obj.peerId !== "string" ||
@@ -87,15 +104,15 @@ function parseCapsMessage(
       roles: obj.roles,
     };
     if (obj.version === 2) {
-      msg.neighbors =
-        parseNeighbors(obj.neighbors);
+      msg.neighbors = parseNeighbors(obj.neighbors);
       if (typeof obj.browserCount === "number") {
         msg.browserCount = obj.browserCount;
       }
       if (Array.isArray(obj.addrs)) {
-        msg.addrs = obj.addrs.filter(
-          (a: unknown) => typeof a === "string",
-        );
+        msg.addrs = obj.addrs.filter((a: unknown) => typeof a === "string");
+      }
+      if (typeof obj.httpUrl === "string") {
+        msg.httpUrl = obj.httpUrl;
       }
     }
     return msg;
@@ -104,10 +121,24 @@ function parseCapsMessage(
   }
 }
 
-function rolesEqual(
-  a: string[],
-  b: string[],
-): boolean {
+function rolesEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function neighborsEqual(a: Neighbor[], b: Neighbor[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].peerId !== b[i].peerId) return false;
+    if (a[i].role !== b[i].role) return false;
+  }
+  return true;
+}
+
+function addrsEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
@@ -120,6 +151,10 @@ export function createNodeRegistry(
   getHelia: () => Helia,
 ): NodeRegistry {
   const nodes = new Map<string, KnownNode>();
+  /** Consecutive prune checks where the peer was not
+   *  in the libp2p connection list. Reset to 0 on
+   *  each caps message or when connection is seen. */
+  const disconnectCounts = new Map<string, number>();
   const changeListeners = new Set<() => void>();
 
   function notifyChange() {
@@ -127,10 +162,7 @@ export function createNodeRegistry(
       try {
         cb();
       } catch (err) {
-        log.warn(
-          "change listener error:",
-          (err as Error)?.message ?? err,
-        );
+        log.warn("change listener error:", (err as Error)?.message ?? err);
       }
     }
   }
@@ -141,13 +173,10 @@ export function createNodeRegistry(
   function getConnectedPeerIds(): Set<string> {
     try {
       const helia = getHelia();
-      const conns =
-        (helia as any).libp2p.getConnections();
+      const conns = helia.libp2p.getConnections();
       const pids = new Set<string>();
       for (const conn of conns) {
-        pids.add(
-          (conn as any).remotePeer.toString(),
-        );
+        pids.add(conn.remotePeer.toString());
       }
       return pids;
     } catch {
@@ -162,20 +191,32 @@ export function createNodeRegistry(
     const caps = parseCapsMessage(detail.data);
     if (!caps) return;
 
-    const connected =
-      getConnectedPeerIds().has(caps.peerId);
+    const connected = getConnectedPeerIds().has(caps.peerId);
     const prev = nodes.get(caps.peerId);
-    const changed = !prev
-      || prev.connected !== connected
-      || !rolesEqual(prev.roles, caps.roles);
+    const newNeighbors = caps.neighbors ?? [];
+    const newAddrs = caps.addrs ?? [];
+    const changed =
+      !prev ||
+      prev.connected !== connected ||
+      prev.stale ||
+      !rolesEqual(prev.roles, caps.roles) ||
+      !neighborsEqual(prev.neighbors, newNeighbors) ||
+      prev.browserCount !== caps.browserCount ||
+      prev.httpUrl !== caps.httpUrl ||
+      !addrsEqual(prev.addrs, newAddrs);
+    // Fresh caps broadcast — reset hysteresis and
+    // clear stale flag.
+    disconnectCounts.delete(caps.peerId);
     nodes.set(caps.peerId, {
       peerId: caps.peerId,
       roles: caps.roles,
       lastSeenAt: Date.now(),
       connected,
+      stale: false,
       neighbors: caps.neighbors ?? [],
       browserCount: caps.browserCount,
       addrs: caps.addrs ?? [],
+      httpUrl: caps.httpUrl,
     });
     if (!prev) {
       log.info(
@@ -185,11 +226,7 @@ export function createNodeRegistry(
         connected ? "(connected)" : "(not connected)",
       );
     } else {
-      log.debug(
-        "node seen:",
-        caps.peerId.slice(-8),
-        caps.roles.join(","),
-      );
+      log.debug("node seen:", caps.peerId.slice(-8), caps.roles.join(","));
     }
     if (changed) {
       notifyChange();
@@ -204,16 +241,41 @@ export function createNodeRegistry(
     const connectedPids = getConnectedPeerIds();
     let changed = false;
     for (const [pid, node] of nodes) {
-      if (now - node.lastSeenAt > STALE_MS) {
+      const age = now - node.lastSeenAt;
+
+      // Hard-remove: no caps for REMOVE_MS
+      if (age > REMOVE_MS) {
         nodes.delete(pid);
-        log.debug(
-          "pruned stale node:", pid.slice(-8),
-        );
+        disconnectCounts.delete(pid);
+        log.debug("removed node:", pid.slice(-8));
         changed = true;
-      } else {
-        const wasConnected = node.connected;
-        node.connected = connectedPids.has(pid);
-        if (wasConnected !== node.connected) {
+        continue;
+      }
+
+      // Mark stale (greyed in graph, still visible)
+      if (age > STALE_MS && !node.stale) {
+        node.stale = true;
+        log.debug("stale node:", pid.slice(-8));
+        changed = true;
+      }
+
+      // Connected state with hysteresis
+      const isConnected = connectedPids.has(pid);
+      if (isConnected) {
+        // Connection confirmed — reset counter
+        disconnectCounts.delete(pid);
+        if (!node.connected) {
+          node.connected = true;
+          changed = true;
+        }
+      } else if (node.connected) {
+        // Not connected — increment counter,
+        // only flip after DISCONNECT_HYSTERESIS
+        // consecutive checks.
+        const count = (disconnectCounts.get(pid) ?? 0) + 1;
+        disconnectCounts.set(pid, count);
+        if (count >= DISCONNECT_HYSTERESIS) {
+          node.connected = false;
           changed = true;
         }
       }
@@ -226,21 +288,18 @@ export function createNodeRegistry(
       return nodes;
     },
 
-    onNodeChange(cb: () => void) {
+    on(_event: "change", cb: () => void) {
       changeListeners.add(cb);
     },
 
-    offNodeChange(cb: () => void) {
+    off(_event: "change", cb: () => void) {
       changeListeners.delete(cb);
     },
 
     destroy() {
       clearInterval(pruneTimer);
       changeListeners.clear();
-      pubsub.removeEventListener(
-        "message",
-        messageHandler,
-      );
+      pubsub.removeEventListener("message", messageHandler);
     },
   };
 }
@@ -254,16 +313,12 @@ export function acquireNodeRegistry(
   getHelia: () => Helia,
 ): NodeRegistry {
   if (!sharedRegistry) {
-    sharedRegistry = createNodeRegistry(
-      pubsub,
-      getHelia,
-    );
+    sharedRegistry = createNodeRegistry(pubsub, getHelia);
   }
   return sharedRegistry;
 }
 
-export function getNodeRegistry():
-  NodeRegistry | null {
+export function getNodeRegistry(): NodeRegistry | null {
   return sharedRegistry;
 }
 

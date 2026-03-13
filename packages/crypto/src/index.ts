@@ -6,7 +6,7 @@ export function generateAdminSecret(): string {
   return base64urlEncode(bytes);
 }
 
-function base64urlEncode(bytes: Uint8Array): string {
+export function base64urlEncode(bytes: Uint8Array): string {
   const binStr = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
   return btoa(binStr)
     .replace(/\+/g, "-")
@@ -18,14 +18,14 @@ export interface DocKeys {
   readKey: CryptoKey;
   ipnsKeyBytes: Uint8Array;
   rotationKey: Uint8Array;
-  namespaceKeys: Record<string, Uint8Array>;
+  channelKeys: Record<string, Uint8Array>;
   awarenessRoomPassword: string;
 }
 
 export async function deriveDocKeys(
   adminSecret: string,
   appId: string,
-  namespaces: string[],
+  channels: string[],
 ): Promise<DocKeys> {
   const raw = new TextEncoder().encode(adminSecret);
   const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, [
@@ -70,9 +70,9 @@ export async function deriveDocKeys(
   const awarenessRoomBytes = await deriveBits("awareness-room");
   const awarenessRoomPassword = bytesToHex(awarenessRoomBytes);
 
-  const namespaceKeys: Record<string, Uint8Array> = Object.fromEntries(
+  const channelKeys: Record<string, Uint8Array> = Object.fromEntries(
     await Promise.all(
-      namespaces.map(async (ns) => [ns, await deriveBits(`ns:${ns}`)]),
+      channels.map(async (ch) => [ch, await deriveBits(`ns:${ch}`)]),
     ),
   );
 
@@ -80,7 +80,7 @@ export async function deriveDocKeys(
     readKey,
     ipnsKeyBytes,
     rotationKey,
-    namespaceKeys,
+    channelKeys,
     awarenessRoomPassword,
   };
 }
@@ -156,6 +156,16 @@ export interface Ed25519KeyPair {
   privateKey: Uint8Array;
 }
 
+/**
+ * Generate a random Ed25519 identity keypair.
+ * Device-generated, not derived from a doc secret.
+ */
+export async function generateIdentityKeypair(): Promise<Ed25519KeyPair> {
+  const seed = new Uint8Array(32);
+  crypto.getRandomValues(seed);
+  return ed25519KeyPairFromSeed(seed);
+}
+
 export async function ed25519KeyPairFromSeed(
   seed: Uint8Array,
 ): Promise<Ed25519KeyPair> {
@@ -183,29 +193,20 @@ export async function verifySignature(
 }
 
 export function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(
-    bytes,
-    (b) => b.toString(16).padStart(2, "0"),
-  ).join("");
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function hexToBytes(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) {
-    throw new Error(
-      "hexToBytes: odd-length hex string",
-    );
+    throw new Error("hexToBytes: odd-length hex string");
   }
   if (!/^[0-9a-fA-F]*$/.test(hex)) {
-    throw new Error(
-      "hexToBytes: invalid hex characters",
-    );
+    throw new Error("hexToBytes: invalid hex characters");
   }
   const len = hex.length / 2;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
-    bytes[i] = parseInt(
-      hex.slice(i * 2, i * 2 + 2), 16,
-    );
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return bytes;
 }

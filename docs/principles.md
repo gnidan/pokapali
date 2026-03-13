@@ -1,7 +1,7 @@
 # Design Principles
 
 These are the architectural values behind Pokapali. They
-explain *why* things are built the way they are. Read this
+explain _why_ things are built the way they are. Read this
 before contributing code.
 
 ---
@@ -12,7 +12,7 @@ A Pokapali URL encodes everything needed to access a
 document: the document identity (IPNS name in the path)
 and the access level (key material in the fragment). Sharing
 a URL shares a capability. There are no accounts, no tokens,
-no sign-up flows. The URL *is* the credential.
+no sign-up flows. The URL _is_ the credential.
 
 The fragment is never sent to servers. Browsers strip it
 from HTTP requests by design, so capability material stays
@@ -50,6 +50,33 @@ mode." The encryption keys are derived from the URL
 fragment via HKDF, so possessing a URL is both necessary
 and sufficient to read the content.
 
+## State is derived, not mutated
+
+Document state is never modified in place. All state
+flows from an append-only log of typed **facts** (events
+that happened) through pure **reducers** (functions that
+compute the next state from the current state and a
+fact). A single **interpreter** dispatches side effects
+(network I/O, block fetching) and feeds results back as
+new facts.
+
+This means:
+
+- State at any point is reproducible from the fact log
+- Reducers are trivially testable (pure functions, no
+  I/O)
+- Side effects are isolated to one module
+  (`interpreter.ts`), injected via `EffectHandlers`
+- The system can be validated by running two
+  interpreters in parallel and comparing their output
+  (shadow mode, used during the migration)
+
+The fact-stream architecture replaced a previous design
+with 14+ mutable variables scattered across a watcher
+module, three separate notification mechanisms, and no
+clear state machine. The replacement has zero mutable
+state — additive facts, pure reducers, derived views.
+
 ## Local-first, network-enhanced
 
 Editing is local. Yjs CRDTs resolve conflicts
@@ -59,9 +86,9 @@ The network enhances the experience (real-time cursors,
 snapshot persistence) but is never required for the core
 function of editing.
 
-This shapes API design: `doc.subdoc("content")` returns a
+This shapes API design: `doc.channel("content")` returns a
 `Y.Doc` synchronously. The editor mounts immediately.
-Network state is observable (`status`, `fetchState`) but
+Network state is observable (`status`, `loadingState`) but
 never blocks the user.
 
 ## Writers sync in real-time, readers sync via snapshots
@@ -96,7 +123,7 @@ to IPNS and announce — the rest is the network's problem.
 ## Pinners are structurally zero-knowledge
 
 Pinners validate block structure (CBOR schema, Ed25519
-signature) but cannot verify *authorization* — they don't
+signature) but cannot verify _authorization_ — they don't
 know which keys are allowed to publish. Authorization
 requires decrypting `_meta` with `readKey`, which pinners
 don't have.
@@ -140,8 +167,8 @@ Pokapali enforces which namespace access key gates which
 subdocument. What lives in those subdocuments — rich text,
 plain text, JSON, drawings — is the application's business.
 
-Similarly, the library exposes `pushSnapshot()` and emits
-`snapshot-recommended`, but when to snapshot is application
+Similarly, the library exposes `publish()` and emits
+`publish-needed`, but when to snapshot is application
 policy. The built-in `createAutoSaver` is a convenience,
 not a requirement.
 
@@ -151,9 +178,9 @@ No relay, pinner, or peer address is hardcoded in library
 or infrastructure code. All relay discovery happens via DHT
 (`findProviders` on a network-wide CID), peer exchange
 (awareness-based relay sharing), or localStorage caching of
-previously discovered relays. Relay-to-relay peering uses
-dynamic `directPeers` populated from DHT discovery, not
-static configuration.
+previously discovered relays. Relay-to-relay peering uses peer tagging (value 200) with
+connections established via DHT discovery, not static
+configuration.
 
 The only hardcoded addresses are IPFS bootstrap nodes
 (Protocol Labs public infrastructure) — these are needed

@@ -29,7 +29,7 @@ async function makeFullKeys(): Promise<CapabilityKeys> {
     ipnsKeyBytes: doc.ipnsKeyBytes,
     rotationKey: doc.rotationKey,
     awarenessRoomPassword: doc.awarenessRoomPassword,
-    namespaceKeys: doc.namespaceKeys,
+    channelKeys: doc.channelKeys,
   };
 }
 
@@ -50,14 +50,14 @@ describe("encodeFragment / decodeFragment", () => {
     expect(decoded.awarenessRoomPassword).toBe(keys.awarenessRoomPassword);
     expect(
       arraysEqual(
-        decoded.namespaceKeys!["content"],
-        keys.namespaceKeys!["content"],
+        decoded.channelKeys!["content"],
+        keys.channelKeys!["content"],
       ),
     ).toBe(true);
     expect(
       arraysEqual(
-        decoded.namespaceKeys!["comments"],
-        keys.namespaceKeys!["comments"],
+        decoded.channelKeys!["comments"],
+        keys.channelKeys!["comments"],
       ),
     ).toBe(true);
   });
@@ -80,7 +80,7 @@ describe("encodeFragment / decodeFragment", () => {
     expect(decoded.awarenessRoomPassword).toBe(readOnly.awarenessRoomPassword);
     expect(decoded.ipnsKeyBytes).toBeUndefined();
     expect(decoded.rotationKey).toBeUndefined();
-    expect(decoded.namespaceKeys).toBeUndefined();
+    expect(decoded.channelKeys).toBeUndefined();
   });
 
   it("produces valid base64url", async () => {
@@ -175,7 +175,7 @@ describe("encodeFragment / decodeFragment", () => {
       readKey: full.readKey,
       ipnsKeyBytes: full.ipnsKeyBytes,
       awarenessRoomPassword: full.awarenessRoomPassword,
-      namespaceKeys: full.namespaceKeys,
+      channelKeys: full.channelKeys,
     };
     const fragment = await encodeFragment(writer);
     const decoded = await decodeFragment(fragment);
@@ -191,8 +191,8 @@ describe("encodeFragment / decodeFragment", () => {
     expect(decoded.awarenessRoomPassword).toBe(writer.awarenessRoomPassword);
     expect(
       arraysEqual(
-        decoded.namespaceKeys!["content"],
-        writer.namespaceKeys!["content"],
+        decoded.channelKeys!["content"],
+        writer.channelKeys!["content"],
       ),
     ).toBe(true);
   });
@@ -204,10 +204,10 @@ describe("inferCapability", () => {
     const cap = inferCapability(keys, ["content", "comments"]);
     expect(cap.isAdmin).toBe(true);
     expect(cap.canPushSnapshots).toBe(true);
-    expect(cap.namespaces).toEqual(new Set(["content", "comments"]));
+    expect(cap.channels).toEqual(new Set(["content", "comments"]));
   });
 
-  it("read-only keys = no namespaces", async () => {
+  it("read-only keys = no channels", async () => {
     const full = await makeFullKeys();
     const readOnly: CapabilityKeys = {
       readKey: full.readKey,
@@ -216,20 +216,20 @@ describe("inferCapability", () => {
     const cap = inferCapability(readOnly, ["content", "comments"]);
     expect(cap.isAdmin).toBe(false);
     expect(cap.canPushSnapshots).toBe(false);
-    expect(cap.namespaces.size).toBe(0);
+    expect(cap.channels.size).toBe(0);
   });
 
-  it("partial namespace keys", async () => {
+  it("partial channel keys", async () => {
     const full = await makeFullKeys();
     const partial: CapabilityKeys = {
       readKey: full.readKey,
       awarenessRoomPassword: full.awarenessRoomPassword,
-      namespaceKeys: {
-        comments: full.namespaceKeys!["comments"],
+      channelKeys: {
+        comments: full.channelKeys!["comments"],
       },
     };
     const cap = inferCapability(partial, ["content", "comments"]);
-    expect(cap.namespaces).toEqual(new Set(["comments"]));
+    expect(cap.channels).toEqual(new Set(["comments"]));
     expect(cap.canPushSnapshots).toBe(false);
   });
 
@@ -239,18 +239,18 @@ describe("inferCapability", () => {
       readKey: full.readKey,
       ipnsKeyBytes: full.ipnsKeyBytes,
       awarenessRoomPassword: full.awarenessRoomPassword,
-      namespaceKeys: full.namespaceKeys,
+      channelKeys: full.channelKeys,
     };
     const cap = inferCapability(writer, ["content", "comments"]);
     expect(cap.canPushSnapshots).toBe(true);
     expect(cap.isAdmin).toBe(false);
-    expect(cap.namespaces).toEqual(new Set(["content", "comments"]));
+    expect(cap.channels).toEqual(new Set(["content", "comments"]));
   });
 
-  it("ignores unknown namespaces", async () => {
+  it("ignores unknown channels", async () => {
     const full = await makeFullKeys();
     const cap = inferCapability(full, ["content"]);
-    expect(cap.namespaces).toEqual(new Set(["content"]));
+    expect(cap.channels).toEqual(new Set(["content"]));
   });
 });
 
@@ -293,22 +293,22 @@ describe("buildUrl / parseUrl", () => {
 });
 
 describe("narrowCapability", () => {
-  it("narrows to subset of namespaces", async () => {
+  it("narrows to subset of channels", async () => {
     const keys = await makeFullKeys();
     const narrowed = narrowCapability(keys, {
-      namespaces: ["comments"],
+      channels: ["comments"],
     });
     expect(narrowed.readKey).toBeDefined();
     expect(narrowed.awarenessRoomPassword).toBeDefined();
     expect(narrowed.ipnsKeyBytes).toBeUndefined();
     expect(narrowed.rotationKey).toBeUndefined();
-    expect(Object.keys(narrowed.namespaceKeys!)).toEqual(["comments"]);
+    expect(Object.keys(narrowed.channelKeys!)).toEqual(["comments"]);
   });
 
   it("includes ipnsKeyBytes when canPushSnapshots", async () => {
     const keys = await makeFullKeys();
     const narrowed = narrowCapability(keys, {
-      namespaces: ["content"],
+      channels: ["content"],
       canPushSnapshots: true,
     });
     expect(narrowed.ipnsKeyBytes).toBeDefined();
@@ -318,55 +318,55 @@ describe("narrowCapability", () => {
   it("never includes rotationKey", async () => {
     const keys = await makeFullKeys();
     const narrowed = narrowCapability(keys, {
-      namespaces: ["content", "comments"],
+      channels: ["content", "comments"],
       canPushSnapshots: true,
     });
     expect(narrowed.rotationKey).toBeUndefined();
   });
 
-  it("omits namespaceKeys if none granted", async () => {
+  it("omits channelKeys if none granted", async () => {
     const keys = await makeFullKeys();
     const narrowed = narrowCapability(keys, {});
-    expect(narrowed.namespaceKeys).toBeUndefined();
+    expect(narrowed.channelKeys).toBeUndefined();
     expect(narrowed.readKey).toBeDefined();
   });
 
-  it("ignores namespaces not in source", async () => {
+  it("ignores channels not in source", async () => {
     const keys = await makeFullKeys();
     const narrowed = narrowCapability(keys, {
-      namespaces: ["nonexistent"],
+      channels: ["nonexistent"],
     });
-    expect(narrowed.namespaceKeys).toBeUndefined();
+    expect(narrowed.channelKeys).toBeUndefined();
   });
 
-  it("narrows writer to namespace subset", async () => {
+  it("narrows writer to channel subset", async () => {
     const full = await makeFullKeys();
     const writer: CapabilityKeys = {
       readKey: full.readKey,
       ipnsKeyBytes: full.ipnsKeyBytes,
       awarenessRoomPassword: full.awarenessRoomPassword,
-      namespaceKeys: full.namespaceKeys,
+      channelKeys: full.channelKeys,
     };
     const narrowed = narrowCapability(writer, {
-      namespaces: ["comments"],
+      channels: ["comments"],
     });
     expect(narrowed.readKey).toBeDefined();
     expect(narrowed.awarenessRoomPassword).toBeDefined();
     expect(narrowed.ipnsKeyBytes).toBeUndefined();
     expect(narrowed.rotationKey).toBeUndefined();
-    expect(Object.keys(narrowed.namespaceKeys!)).toEqual(["comments"]);
+    expect(Object.keys(narrowed.channelKeys!)).toEqual(["comments"]);
   });
 
   it("full narrow round-trip encode/decode", async () => {
     const keys = await makeFullKeys();
     const narrowed = narrowCapability(keys, {
-      namespaces: ["comments"],
+      channels: ["comments"],
       canPushSnapshots: true,
     });
     const fragment = await encodeFragment(narrowed);
     const decoded = await decodeFragment(fragment);
     const cap = inferCapability(decoded, ["content", "comments"]);
-    expect(cap.namespaces).toEqual(new Set(["comments"]));
+    expect(cap.channels).toEqual(new Set(["comments"]));
     expect(cap.canPushSnapshots).toBe(true);
     expect(cap.isAdmin).toBe(false);
   });
