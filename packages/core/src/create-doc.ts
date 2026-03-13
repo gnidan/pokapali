@@ -1186,6 +1186,10 @@ export function createDoc(params: DocParams): Doc {
     // --- HTTP tip fetch (fastest path) ---
     // Fire in parallel with IPNS — whichever
     // resolves first pushes cid-discovered.
+    // This is purely additive: IPNS drives loading
+    // state (ipns-resolve-started/completed), so
+    // HTTP failure never blocks the loading
+    // lifecycle.
     if (params.performInitialResolve) {
       (async () => {
         try {
@@ -1193,19 +1197,32 @@ export function createDoc(params: DocParams): Doc {
           if (urls.length === 0) return;
           const tip = await fetchTipFromPinners(urls, ipnsName, signal);
           if (signal.aborted || !tip) return;
-          // Cache block immediately
           resolver.put(tip.cid, tip.block);
+          const now = Date.now();
           fq.push({
             type: "cid-discovered",
-            ts: Date.now(),
+            ts: now,
             cid: tip.cid,
             source: "http-tip",
             block: tip.block,
             seq: tip.seq,
             snapshotTs: tip.ts,
           });
+          if (
+            tip.guaranteeUntil !== undefined ||
+            tip.retainUntil !== undefined
+          ) {
+            fq.push({
+              type: "guarantee-received",
+              ts: now,
+              peerId: tip.peerId,
+              cid: tip.cid,
+              guaranteeUntil: tip.guaranteeUntil ?? 0,
+              retainUntil: tip.retainUntil ?? 0,
+            });
+          }
         } catch (err) {
-          log.debug("HTTP tip fetch failed:", (err as Error)?.message ?? err);
+          log.warn("HTTP tip fetch failed:", (err as Error)?.message ?? err);
         }
       })();
     }
