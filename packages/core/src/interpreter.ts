@@ -230,14 +230,6 @@ export async function runInterpreter(
     if (signal.aborted) break;
 
     // --- Fetch newly-unknown CIDs ---
-    // Compute max seq once for cache tip check.
-    let maxSeq = -1;
-    for (const e of next.chain.entries.values()) {
-      if (e.seq !== undefined && e.seq > maxSeq) {
-        maxSeq = e.seq;
-      }
-    }
-
     for (const entry of next.chain.entries.values()) {
       if (entry.blockStatus !== "unknown") continue;
       const key = entry.cid.toString();
@@ -253,7 +245,7 @@ export async function runInterpreter(
         const isNewestCached =
           entry.discoveredVia.has("cache") &&
           entry.seq !== undefined &&
-          entry.seq === maxSeq;
+          entry.seq === next.chain.maxSeq;
         if (!isNewestCached) continue;
       }
 
