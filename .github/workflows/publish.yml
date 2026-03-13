@@ -15,7 +15,7 @@ on:
         type: string
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ inputs.package || github.ref }}
   cancel-in-progress: false
 
 jobs:
