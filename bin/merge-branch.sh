@@ -7,13 +7,13 @@ set -euo pipefail
 #   bin/merge-branch.sh <branch>
 #
 # Steps:
-#   1. Finds the branch's worktree (or checks it out)
-#   2. Runs bin/verify-branch.sh in that directory
-#   3. Merges the branch to main
+#   1. Merges main into the branch (in its worktree
+#      or via checkout) so it has latest tools + code
+#   2. Runs bin/verify-branch.sh on the merged state
+#   3. If clean, merges the branch to main
 #
-# Works with worktree-based workflows: if the branch
-# is checked out in a worktree, verification runs
-# there without needing to check it out again.
+# This verifies the actual post-merge state, catching
+# integration issues and merge conflicts early.
 #
 # Aborts if verification fails or merge conflicts.
 
@@ -25,7 +25,6 @@ if [ -z "$BRANCH" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VERIFY="$SCRIPT_DIR/verify-branch.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -69,28 +68,63 @@ find_worktree() {
   return 1
 }
 
-echo "=== Verifying branch '$BRANCH' ==="
+# Merge main into the branch and verify, either in
+# its worktree or via temporary checkout.
+verify_in_worktree() {
+  local dir="$1"
+  echo "  (worktree: $dir)"
 
-WORKTREE_DIR=""
-if WORKTREE_DIR=$(find_worktree "$BRANCH"); then
-  echo "  (running in worktree: $WORKTREE_DIR)"
-  if ! (cd "$WORKTREE_DIR" && "$VERIFY")
-  then
+  echo ""
+  echo "=== Merging main into '$BRANCH' ==="
+  if ! (cd "$dir" && git merge main); then
+    echo ""
+    echo "Merge main into '$BRANCH' FAILED."
+    echo "Resolve conflicts in $dir, then retry."
+    exit 1
+  fi
+
+  echo ""
+  echo "=== Verifying branch '$BRANCH' ==="
+  if ! (cd "$dir" && bin/verify-branch.sh); then
     echo ""
     echo "Verification FAILED. Not merging."
     exit 1
   fi
-else
-  # Branch not in a worktree — check it out temporarily
+}
+
+verify_via_checkout() {
   echo "  (no worktree found, checking out)"
   git checkout "$BRANCH"
-  if ! "$VERIFY"; then
+
+  echo ""
+  echo "=== Merging main into '$BRANCH' ==="
+  if ! git merge main; then
+    echo ""
+    echo "Merge main into '$BRANCH' FAILED."
+    echo "Resolve conflicts, then retry."
+    git checkout main
+    exit 1
+  fi
+
+  echo ""
+  echo "=== Verifying branch '$BRANCH' ==="
+  if ! bin/verify-branch.sh; then
     echo ""
     echo "Verification FAILED. Not merging."
     git checkout main
     exit 1
   fi
+
   git checkout main
+}
+
+echo "=== Preparing branch '$BRANCH' ==="
+
+WORKTREE_DIR=""
+if WORKTREE_DIR=$(find_worktree "$BRANCH"); then
+  verify_in_worktree "$WORKTREE_DIR"
+else
+  verify_via_checkout
 fi
 
 echo ""
