@@ -2,7 +2,7 @@ name: Publish
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["@pokapali/*"]
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -16,6 +16,19 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Parse tag
+        id: tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Tag format: @pokapali/<name>@<version>
+          PKG="${TAG%@[0-9]*}"
+          VERSION="${TAG##*@}"
+          DIR="${PKG#@pokapali/}"
+          echo "package=$PKG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "Publishing $PKG@$VERSION from packages/$DIR"
 
       - uses: actions/setup-node@v4
         with:
@@ -31,7 +44,15 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Verify version
+        run: |
+          ACTUAL=$(node -p "require('./packages/${{ steps.tag.outputs.dir }}/package.json').version")
+          if [ "$ACTUAL" != "${{ steps.tag.outputs.version }}" ]; then
+            echo "Version mismatch: package.json=$ACTUAL tag=${{ steps.tag.outputs.version }}"
+            exit 1
+          fi
+
       - name: Publish
-        run: npm publish --workspaces --access public
+        run: npm publish -w packages/${{ steps.tag.outputs.dir }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

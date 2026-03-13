@@ -18,6 +18,9 @@
 // --all bumps every publishable package to the same version
 // (useful for initial release).
 //
+// Creates per-package git tags (e.g. @pokapali/core@0.1.0)
+// that trigger the publish workflow.
+//
 // Rule: version bumps must be single commits on main.
 
 import { readFileSync, writeFileSync, readdirSync } from "fs";
@@ -89,9 +92,7 @@ for (const dir of dirs) {
 
 // --- build dependency graph ---
 
-// Forward deps: package name → Set of @pokapali/* dep names
 const deps = new Map();
-// Reverse deps: package name → Set of dependents
 const reverseDeps = new Map();
 
 for (const [name] of packages) {
@@ -241,7 +242,7 @@ if (consumersUpdated > 0) {
   console.log(`Updated ${consumersUpdated} private consumer(s)`);
 }
 
-// --- sync lockfile and commit ---
+// --- sync lockfile, commit, and tag ---
 
 console.log("\nRunning npm install to sync lockfile...");
 execSync("npm install --ignore-scripts", {
@@ -254,10 +255,18 @@ run(
   "git add packages/*/package.json apps/*/package.json" + " package-lock.json",
 );
 
-// Build commit message from bumped package dirs
 const bumped = [...toBump].map((name) => packages.get(name).dir).join(", ");
 
 run(`git commit -m "chore: bump ${bumped} to ${version}"`);
 
-console.log("\nDone. Review with: git log -1 --stat");
-console.log("Push with: git push origin main");
+// Create per-package tags for publish workflow
+const tags = [...toBump].map((name) => `${name}@${version}`);
+for (const tag of tags) {
+  run(`git tag "${tag}"`);
+  console.log(`  tagged ${tag}`);
+}
+
+console.log(`\nDone. Review with: git log -1 --stat`);
+console.log(
+  `Push with: git push origin main ${tags.map((t) => `"${t}"`).join(" ")}`,
+);
