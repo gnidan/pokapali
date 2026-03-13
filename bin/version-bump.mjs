@@ -200,6 +200,64 @@ console.log(
   `\nBumped ${toBump.size} package(s) to ${version}`
 );
 
+// --- update dep references in private consumers ---
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function writeJson(path, obj) {
+  writeFileSync(path, JSON.stringify(obj, null, 2) + "\n");
+}
+
+const consumerDirs = [
+  ...readdirSync(packagesDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => join(packagesDir, d.name)),
+  ...(() => {
+    const appsDir = join(rootDir, "apps");
+    try {
+      return readdirSync(appsDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => join(appsDir, d.name));
+    } catch {
+      return [];
+    }
+  })(),
+];
+
+let consumersUpdated = 0;
+for (const dir of consumerDirs) {
+  const pkgPath = join(dir, "package.json");
+  let pkg;
+  try {
+    pkg = readJson(pkgPath);
+  } catch {
+    continue;
+  }
+  if (!pkg.private) continue;
+  let changed = false;
+  for (const depName of Object.keys(
+    pkg.dependencies || {}
+  )) {
+    if (toBump.has(depName)) {
+      pkg.dependencies[depName] = version;
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeJson(pkgPath, pkg);
+    consumersUpdated++;
+    console.log(`  updated deps in ${pkg.name}`);
+  }
+}
+
+if (consumersUpdated > 0) {
+  console.log(
+    `Updated ${consumersUpdated} private consumer(s)`
+  );
+}
+
 // --- sync lockfile and commit ---
 
 console.log("\nRunning npm install to sync lockfile...");
@@ -209,7 +267,10 @@ execSync("npm install --ignore-scripts", {
 });
 
 console.log("Creating commit...");
-run("git add packages/*/package.json package-lock.json");
+run(
+  "git add packages/*/package.json apps/*/package.json"
+  + " package-lock.json"
+);
 
 // Build commit message from bumped package dirs
 const bumped = [...toBump]
