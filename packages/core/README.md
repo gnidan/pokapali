@@ -1,70 +1,191 @@
 # @pokapali/core
 
+The main integration package for pokapali — a
+serverless, encrypted, peer-to-peer collaborative
+document sync library. This is the only package most
+apps need to import.
+
+## Install
+
 ```sh
 npm install @pokapali/core
 ```
 
-Main integration layer for Pokapali. Provides the
-`pokapali` factory for creating and opening collaborative
-documents, managing WebRTC sync, pushing and receiving
-IPFS snapshots, and generating capability URLs. This is
-the only package most apps need to import.
+**TypeScript note:** If your project targets ES2022,
+add `"skipLibCheck": true` to your `tsconfig.json`.
+A transitive dependency (`it-queue` via libp2p) uses
+`PromiseWithResolvers` which requires ES2024+ lib
+typings. This does not affect runtime behavior.
 
-## Key Exports
+## Quick Start
 
-- **`pokapali(config)`** — factory that returns a
-  `PokapaliApp` with `create()` and `open()` methods
-  for document lifecycle
-- **`Doc`** — document handle with channel access,
-  awareness, capability info, publish, status, and
-  `ready()` (resolves after initial IPNS resolve and
-  first snapshot application for readers)
-- **`PokapaliConfig`** — configuration: `appId`,
-  `channels`, `origin` URL, optional `primaryChannel`,
-  `rtc`, `signalingUrls`, `bootstrapPeers`
-- **`DocStatus`** — `"connecting"` | `"synced"` |
-  `"receiving"` | `"offline"` (connectivity only)
-- **`SaveState`** — `"saved"` | `"dirty"` | `"saving"` |
-  `"unpublished"` (persistence, via `doc.saveState`)
-- **`LoadingState`** — `"idle"` | `"resolving"` |
-  `"fetching"` | `"retrying"` | `"failed"` (snapshot
-  fetch progress)
-- **`TopologyGraph`** — `topologyGraph()` return type
-  with nodes and edges for network visualization
-- **`createAutoSaver(doc)`** — debounced auto-publish
-  utility (publish-needed, beforeunload, visibilitychange)
+```typescript
+import { pokapali } from "@pokapali/core";
 
-## Internal Modules
+// 1. Initialize once per app
+const app = pokapali({
+  appId: "my-app",
+  channels: ["content"],
+  origin: "https://my-app.com",
+});
 
-- `snapshot-lifecycle` — chain state, push, applyRemote,
-  history, loadVersion
-- `fetch-block` — block fetch with exponential backoff
-  retry and abort timeout
-- `relay-sharing` — awareness-based relay address exchange
-- `topology-sharing` — awareness-based relay topology
-  sharing with knownNodes caps rebroadcast (5s debounce)
-- `peer-discovery` — relay DHT discovery with disconnect
-  reconnection and exponential backoff
-- `relay-cache` — localStorage relay cache with migration,
-  TTL filtering, and upsert/remove helpers (extracted from
-  peer-discovery for independent testability)
-- `node-registry` — per-Helia singleton tracking known
-  nodes via capability broadcasts (v1/v2), DHT discovery,
-  and ack data; exposes `NodeInfo[]` for diagnostics with
-  neighbors and browserCount from v2 caps
-- `ipns-helpers` — IPNS publish queue (delegated HTTP)
-  and resolve (delegated-first, DHT fallback)
-- `announce` — GossipSub snapshot announcement, ack, and
-  guarantee query/response protocol
-- `helia` — shared Helia singleton with ref counting and
-  30-second bootstrap timeout
-- `forwarding` — document rotation forwarding records
-- `auto-save` — `createAutoSaver()` debounced auto-push
-  utility (publish-needed, beforeunload, visibilitychange)
-- `url-utils` — `isDocUrl()`, `bestUrl`, `role` helpers
+// 2. Create a new document
+const doc = await app.create();
+console.log("Admin URL:", doc.urls.admin);
+console.log("Write URL:", doc.urls.write);
+console.log("Read URL:", doc.urls.read);
+
+// 3. Access a channel as a Y.Doc
+const ydoc = doc.channel("content");
+const text = ydoc.getText("body");
+text.insert(0, "Hello from pokapali!");
+
+// 4. Subscribe to reactive state
+doc.status.subscribe(() => {
+  console.log("Status:", doc.status.getSnapshot());
+});
+doc.saveState.subscribe(() => {
+  console.log("Save:", doc.saveState.getSnapshot());
+});
+
+// 5. Publish a snapshot
+await doc.publish();
+
+// 6. Generate a write invite URL
+const writeUrl = await doc.invite({
+  channels: ["content"],
+  canPushSnapshots: true,
+});
+
+// 7. Open an existing document
+const doc2 = await app.open(writeUrl);
+await doc2.ready();
+console.log(doc2.channel("content").getText("body").toString());
+
+// 8. Clean up
+doc.destroy();
+doc2.destroy();
+```
+
+See
+[examples/getting-started/](../../examples/getting-started/)
+for runnable create and open scripts.
+
+## API
+
+### Factory
+
+- **`pokapali(config)`** — returns a `PokapaliApp`
+  with `create()` and `open(url)` methods
+
+### PokapaliConfig
+
+```typescript
+{
+  appId: string;       // scopes key derivation +
+                       // relay discovery
+  channels: string[];  // named Yjs subdocuments
+  origin: string;      // base URL for capability links
+  primaryChannel?: string;  // defaults to channels[0]
+  rtc?: object;        // WebRTC peer options
+}
+```
+
+### Doc
+
+| Property / Method | Description                               |
+| ----------------- | ----------------------------------------- |
+| `channel(name)`   | Y.Doc for the named channel               |
+| `publish()`       | Push snapshot to IPFS                     |
+| `ready()`         | Resolves when content is available        |
+| `invite(grant)`   | Generate a narrowed capability URL        |
+| `destroy()`       | Clean up all connections                  |
+| `urls`            | `{ admin, write, read, best }`            |
+| `capability`      | `{ channels, canPushSnapshots, isAdmin }` |
+| `provider`        | y-webrtc provider (for cursor awareness)  |
+
+### Reactive Feeds
+
+Feeds are `{ getSnapshot(), subscribe() }` —
+compatible with React's `useSyncExternalStore`.
+
+| Feed            | Type                  | Description          |
+| --------------- | --------------------- | -------------------- |
+| `doc.status`    | `DocStatus`           | Connectivity state   |
+| `doc.saveState` | `SaveState`           | Persistence state    |
+| `doc.tip`       | `VersionInfo \| null` | Latest snapshot info |
+| `doc.loading`   | `LoadingState`        | Fetch progress       |
+| `doc.versions`  | `VersionHistory`      | Version list         |
+
+### Events
+
+```typescript
+doc.on("snapshot", (e: SnapshotEvent) => { ... });
+doc.on("publish-needed", () => { ... });
+```
+
+## Editor Integration
+
+Works with any Yjs-aware editor:
+
+```typescript
+import { Editor } from "@tiptap/core";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+
+const editor = new Editor({
+  extensions: [
+    Collaboration.configure({
+      document: doc.channel("content"),
+    }),
+    CollaborationCursor.configure({
+      provider: doc.provider,
+    }),
+  ],
+});
+```
+
+## Related Packages
+
+| Package                                | Purpose                    |
+| -------------------------------------- | -------------------------- |
+| [@pokapali/comments](../comments/)     | Anchored threaded comments |
+| [@pokapali/test-utils](../test-utils/) | In-memory test transport   |
+| [@pokapali/node](../node/)             | Relay + pinner server      |
+| [@pokapali/log](../log/)               | Structured logging         |
+
+## Internals
+
+<details>
+<summary>Internal modules (for contributors)</summary>
+
+These are implementation details, not public API.
+Do not import from sub-entry points (`/announce`,
+`/block-upload`, `/snapshot-codec`, `/ipns-helpers`)
+unless you are building server infrastructure.
+
+| Module                | Purpose                 |
+| --------------------- | ----------------------- |
+| `facts.ts`            | Fact union, state types |
+| `reducers.ts`         | Pure state reducers     |
+| `sources.ts`          | Async streams, Feed     |
+| `interpreter.ts`      | Effect dispatcher       |
+| `create-doc.ts`       | Doc wiring              |
+| `snapshot-codec.ts`   | Snapshot encode/decode  |
+| `block-resolver.ts`   | Block resolution        |
+| `fetch-block.ts`      | Block fetch + retry     |
+| `fetch-tip.ts`        | HTTP tip fetch          |
+| `announce.ts`         | GossipSub protocol      |
+| `node-registry.ts`    | Peer tracking           |
+| `peer-discovery.ts`   | Relay DHT discovery     |
+| `helia.ts`            | Shared IPFS node        |
+| `auto-save.ts`        | Debounced auto-publish  |
+| `topology-sharing.ts` | Network topology        |
+
+</details>
 
 ## Links
 
-- [Root README](../../README.md)
-- [Getting Started](../../docs/guide.md)
+- [Getting Started Guide](../../docs/guide.md)
 - [Architecture](../../docs/architecture.md)
+- [Examples](../../examples/getting-started/)
