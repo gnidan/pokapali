@@ -429,6 +429,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         )}
         <button
           className="toggle-share"
+          data-testid="share-toggle"
           onClick={() => setShowShare((s) => !s)}
           aria-expanded={showShare}
           aria-label={showShare ? "Hide share panel" : "Open share panel"}

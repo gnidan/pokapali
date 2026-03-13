@@ -39,7 +39,7 @@ These APIs work but may change shape:
 - `LoadingState`, `VersionHistory`,
   `VersionHistoryEntry`, `VersionEntryStatus`
 - `GossipActivity`, `ParticipantInfo`,
-  `ClientIdentityInfo`
+  `ClientIdentityInfo`, `doc.clientIdMapping`
 - `fetchVersionHistory()`, `VersionEntry`,
   `VersionTier`
 - `createAutoSaver()`, `AutoSaveOptions`

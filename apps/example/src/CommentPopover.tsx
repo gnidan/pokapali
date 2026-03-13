@@ -120,6 +120,7 @@ export function CommentPopover({ onComment }: CommentPopoverProps) {
     <div
       ref={popoverRef}
       className="comment-popover"
+      data-testid="comment-popover"
       style={{
         position: "fixed",
         top: position.top,
@@ -128,6 +129,7 @@ export function CommentPopover({ onComment }: CommentPopoverProps) {
     >
       <button
         className="comment-popover-btn"
+        data-testid="add-comment-btn"
         title="Add comment"
         onClick={onComment}
       >

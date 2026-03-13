@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/core",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.3",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -47,22 +47,26 @@
     "@ipld/dag-cbor": "^9.2.0",
     "@libp2p/crypto": "^5.0.0",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
-    "@pokapali/capability": "0.1.0-alpha.1",
-    "@pokapali/crypto": "0.1.0-alpha.1",
-    "@pokapali/log": "0.1.0-alpha.1",
-    "@pokapali/snapshot": "0.1.0-alpha.1",
-    "@pokapali/subdocs": "0.1.0-alpha.1",
-    "@pokapali/sync": "0.1.0-alpha.1",
+    "@pokapali/capability": "0.1.0-alpha.3",
+    "@pokapali/crypto": "0.1.0-alpha.3",
+    "@pokapali/log": "0.1.0-alpha.3",
+    "@pokapali/snapshot": "0.1.0-alpha.3",
+    "@pokapali/subdocs": "0.1.0-alpha.3",
+    "@pokapali/sync": "0.1.0-alpha.3",
     "helia": "^5.1.0",
     "multiformats": "^13.3.0",
     "blockstore-idb": "3.0.1",
-    "y-indexeddb": "^9.0.12",
+    "y-indexeddb": "^9.0.12"
+  },
+  "peerDependencies": {
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.0"
   },
   "devDependencies": {
     "fast-check": "^4.6.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.0"
   }
 }

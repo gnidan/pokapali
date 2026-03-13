@@ -524,7 +524,11 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
           `${info.ipfsPeers} network peers`
         }
       >
-        <span className="cs-section" title="Users on this document">
+        <span
+          className="cs-section"
+          title="Users on this document"
+          data-testid="cs-users-count"
+        >
           <span className="cs-value">{info.editors}</span>
           <span className="cs-label">
             {info.editors === 1 ? "user" : "users"}
@@ -536,6 +540,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
         <span
           className="cs-section"
           title={`${connectedNodes}/` + `${info.nodes.length} nodes`}
+          data-testid="cs-node-status"
         >
           <Dot state={nodeHealth(connectedNodes)} />
           <span className="cs-label">Pokapali nodes</span>
@@ -548,6 +553,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
           title={
             `${info.ipfsPeers} libp2p, ` + `${info.gossipsub.meshPeers} mesh`
           }
+          data-testid="cs-network-status"
         >
           <Dot
             state={networkHealth(info.ipfsPeers, info.gossipsub.meshPeers)}

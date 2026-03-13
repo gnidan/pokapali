@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/subdocs",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.3",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -25,11 +25,12 @@
     "test": "vitest run"
   },
   "license": "MIT",
-  "dependencies": {
+  "peerDependencies": {
     "yjs": "^13.6.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "yjs": "^13.6.0"
   }
 }
