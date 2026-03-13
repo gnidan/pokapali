@@ -62,7 +62,8 @@ fi
 # 3. Commit verification
 ACTUAL=$(ssh -o ConnectTimeout=15 \
   "$USER@$HOST" \
-  "cd $REPO_PATH && git rev-parse HEAD")
+  "cd $REPO_PATH && git rev-parse HEAD" \
+  | tr -d '[:space:]')
 
 if [ "$ACTUAL" != "$COMMIT" ]; then
   echo "[$HOST] FAIL: expected commit ${COMMIT:0:7}," \
