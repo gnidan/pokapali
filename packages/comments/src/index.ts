@@ -91,7 +91,8 @@ export interface CommentsOptions {
    * Pass contentDoc.getXmlFragment("default") for
    * Tiptap/ProseMirror.
    */
-  contentType?: Y.AbstractType<unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contentType?: Y.AbstractType<any>;
 }
 
 // ── Factory ───────────────────────────────────────
