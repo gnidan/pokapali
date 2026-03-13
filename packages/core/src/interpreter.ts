@@ -77,6 +77,7 @@ export interface EffectHandlers {
 const AUTO_FETCH_SOURCES: ReadonlySet<CidSource> = new Set([
   "gossipsub",
   "ipns",
+  "http-tip",
   "reannounce",
   "chain-walk",
 ]);
