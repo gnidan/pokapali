@@ -11,6 +11,11 @@ persistent snapshots so you can focus on your app.
 npm install @pokapali/core
 ```
 
+> **TypeScript note:** if your `tsconfig.json` targets
+> ES2022 or earlier, add `"skipLibCheck": true` to
+> `compilerOptions`. A transitive dependency uses
+> ES2024 types that would otherwise cause build errors.
+
 ### 1. Create a PokapaliApp instance
 
 ```ts
