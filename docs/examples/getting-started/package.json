@@ -1,0 +1,13 @@
+{
+  "name": "getting-started",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pokapali/core": "^0.1.0-alpha.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

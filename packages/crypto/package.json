@@ -1,11 +1,27 @@
 {
   "name": "@pokapali/crypto",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "!dist/src/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc --build",
+    "prepublishOnly": "npm run build",
     "test": "vitest run"
   },
   "license": "MIT",

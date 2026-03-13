@@ -10,6 +10,7 @@ interface Position {
 }
 
 const OFFSET = 6;
+const BTN_SIZE = 32;
 
 function getSelectionPosition(): Position | null {
   const sel = window.getSelection();
@@ -17,8 +18,26 @@ function getSelectionPosition(): Position | null {
     return null;
   }
 
+  // Only show for selections inside the editor
+  const anchor = sel.anchorNode;
+  if (!anchor) return null;
+  const el = anchor instanceof Element ? anchor : anchor.parentElement;
+  if (!el?.closest(".ProseMirror")) return null;
+
   const range = sel.getRangeAt(0);
-  const rect = range.getBoundingClientRect();
+
+  // Use a collapsed range at the selection end
+  // so multi-line selections position near the
+  // cursor, not at the full bounding rect corner.
+  const endRange = document.createRange();
+  endRange.setStart(range.endContainer, range.endOffset);
+  endRange.collapse(true);
+  const endRect = endRange.getBoundingClientRect();
+
+  // Fall back to the full range rect if the
+  // collapsed end has no dimensions (edge case).
+  const rect = endRect.height > 0 ? endRect : range.getBoundingClientRect();
+
   if (rect.width === 0 && rect.height === 0) {
     return null;
   }
@@ -26,19 +45,23 @@ function getSelectionPosition(): Position | null {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  // Default: bottom-right of selection rect
+  // Default: just below and right of selection end
   let top = rect.bottom + OFFSET;
   let left = rect.right + OFFSET;
 
   // Flip vertically if near bottom
-  if (top + 40 > vh) {
-    top = rect.top - 32 - OFFSET;
+  if (top + BTN_SIZE > vh) {
+    top = rect.top - BTN_SIZE - OFFSET;
   }
 
   // Flip horizontally if near right edge
-  if (left + 40 > vw) {
-    left = rect.left - 32 - OFFSET;
+  if (left + BTN_SIZE > vw) {
+    left = rect.left - BTN_SIZE - OFFSET;
   }
+
+  // Clamp to viewport
+  top = Math.max(4, Math.min(top, vh - BTN_SIZE - 4));
+  left = Math.max(4, Math.min(left, vw - BTN_SIZE - 4));
 
   return { top, left };
 }
@@ -97,8 +120,6 @@ export function CommentPopover({ onComment }: CommentPopoverProps) {
     <div
       ref={popoverRef}
       className="comment-popover"
-      role="tooltip"
-      aria-label="Add comment"
       style={{
         position: "fixed",
         top: position.top,

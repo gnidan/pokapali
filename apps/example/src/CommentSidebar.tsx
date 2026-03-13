@@ -340,6 +340,7 @@ export function CommentSidebar({
             <CommentInput
               placeholder="Comment on selection…"
               onSubmit={onAddComment}
+              autoFocus
             />
           </div>
         )}
