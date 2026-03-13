@@ -304,6 +304,136 @@ describe("createTestNetwork", () => {
     });
   });
 
+  describe("latency simulation", () => {
+    it("updates are delayed when latency " + "is configured", async () => {
+      const net = createTestNetwork({
+        channels: ["content"],
+        latency: { ms: 50 },
+      });
+      const alice = net.peer("alice");
+      const bob = net.peer("bob");
+
+      alice.channel("content").getMap("d").set("key", "value");
+
+      // Not yet delivered
+      expect(bob.channel("content").getMap("d").get("key")).toBeUndefined();
+      expect(net.isConverged()).toBe(false);
+
+      // Wait for delivery
+      await net.settle();
+      expect(bob.channel("content").getMap("d").get("key")).toBe("value");
+      expect(net.isConverged()).toBe(true);
+
+      net.destroy();
+    });
+
+    it("no latency option keeps sync behavior", () => {
+      const net = createTestNetwork({
+        channels: ["content"],
+      });
+      const alice = net.peer("alice");
+      const bob = net.peer("bob");
+
+      alice.channel("content").getMap("d").set("key", "value");
+
+      // Immediate — no settle() needed
+      expect(bob.channel("content").getMap("d").get("key")).toBe("value");
+
+      net.destroy();
+    });
+
+    it("settle resolves immediately when " + "no pending updates", async () => {
+      const net = createTestNetwork({
+        channels: ["content"],
+        latency: { ms: 10 },
+      });
+      net.peer("alice");
+
+      await net.settle();
+      // Should not hang
+
+      net.destroy();
+    });
+
+    it("concurrent edits from both peers " + "merge after settle", async () => {
+      const net = createTestNetwork({
+        channels: ["content"],
+        latency: { ms: 20 },
+      });
+      const alice = net.peer("alice");
+      const bob = net.peer("bob");
+
+      net.disconnect("alice", "bob");
+
+      alice.channel("content").getMap("d").set("a", 1);
+      bob.channel("content").getMap("d").set("b", 2);
+
+      net.reconnect("alice", "bob");
+      await net.settle();
+
+      expect(alice.channel("content").getMap("d").get("b")).toBe(2);
+      expect(bob.channel("content").getMap("d").get("a")).toBe(1);
+
+      net.destroy();
+    });
+
+    it("jitter varies delivery times", async () => {
+      const net = createTestNetwork({
+        channels: ["content"],
+        latency: { ms: 10, jitter: 5 },
+      });
+      const alice = net.peer("alice");
+      const bob = net.peer("bob");
+
+      alice.channel("content").getMap("d").set("key", "value");
+
+      // Eventually arrives
+      await net.settle();
+      expect(bob.channel("content").getMap("d").get("key")).toBe("value");
+
+      net.destroy();
+    });
+
+    it("destroy cancels pending deliveries", async () => {
+      const net = createTestNetwork({
+        channels: ["content"],
+        latency: { ms: 1000 },
+      });
+      const alice = net.peer("alice");
+      net.peer("bob");
+
+      alice.channel("content").getMap("d").set("key", "value");
+
+      // Destroy while update is in flight
+      net.destroy();
+
+      // settle on destroyed network resolves
+      // immediately (no pending work)
+      await net.settle();
+    });
+
+    it(
+      "late peer gets existing state " + "immediately even with latency",
+      async () => {
+        const net = createTestNetwork({
+          channels: ["content"],
+          latency: { ms: 50 },
+        });
+        const alice = net.peer("alice");
+        alice.channel("content").getMap("d").set("early", true);
+
+        await net.settle();
+
+        // New peer joins — initial sync is
+        // immediate (not delayed)
+        const bob = net.peer("bob");
+        expect(bob.channel("content").getMap("d").get("early")).toBe(true);
+
+        net.destroy();
+      },
+    );
+  });
+
   describe("errors", () => {
     it("throws on unknown channel", () => {
       const net = createTestNetwork({
