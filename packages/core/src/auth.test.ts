@@ -847,3 +847,140 @@ describe("interpreter publisher authorization", () => {
     await done.catch(() => {});
   });
 });
+
+// ── interpreter http-tip integration ────────────
+
+describe("interpreter http-tip source", () => {
+  it("http-tip cid-discovered triggers " + "auto-fetch and apply", async () => {
+    const cid = await makeCid("http-tip-block");
+    const block = new Uint8Array([7, 8, 9]);
+
+    const init = initialDocState({
+      ipnsName: "http-tip-test",
+      role: "reader",
+      channels: ["content"],
+      appId: "http-tip",
+    });
+
+    const ac = new AbortController();
+    const input = createAsyncQueue<Fact>(ac.signal);
+    const feedback = createAsyncQueue<Fact>(ac.signal);
+
+    const applyMock = vi.fn().mockResolvedValue({ seq: 1 });
+
+    const effects = mockEffects({
+      fetchBlock: vi.fn().mockResolvedValue(block),
+      applySnapshot: applyMock,
+      getBlock: vi.fn().mockReturnValue(block),
+      decodeBlock: vi.fn().mockReturnValue({
+        seq: 1,
+      }),
+      isPublisherAuthorized: vi.fn().mockReturnValue(true),
+    });
+
+    const stateStream = scan(merge(input, feedback), reduce, init);
+
+    async function* capture(
+      stream: AsyncIterable<{
+        prev: DocState;
+        next: DocState;
+        fact: Fact;
+      }>,
+    ) {
+      yield* stream;
+    }
+
+    const done = runInterpreter(
+      capture(stateStream),
+      effects,
+      feedback,
+      ac.signal,
+    );
+
+    // Discover CID via http-tip source
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid,
+      source: "http-tip",
+      block,
+      seq: 1,
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // http-tip should trigger apply
+    expect(applyMock).toHaveBeenCalledWith(cid, block);
+
+    ac.abort();
+    await done.catch(() => {});
+  });
+
+  it("http-tip with inline block skips " + "fetchBlock", async () => {
+    const cid = await makeCid("inline-http");
+    const block = new Uint8Array([10, 11, 12]);
+
+    const init = initialDocState({
+      ipnsName: "inline-test",
+      role: "reader",
+      channels: ["content"],
+      appId: "inline",
+    });
+
+    const ac = new AbortController();
+    const input = createAsyncQueue<Fact>(ac.signal);
+    const feedback = createAsyncQueue<Fact>(ac.signal);
+
+    const fetchMock = vi.fn().mockResolvedValue(null);
+    const applyMock = vi.fn().mockResolvedValue({ seq: 1 });
+
+    const effects = mockEffects({
+      fetchBlock: fetchMock,
+      applySnapshot: applyMock,
+      getBlock: vi.fn().mockReturnValue(block),
+      decodeBlock: vi.fn().mockReturnValue({
+        seq: 1,
+      }),
+      isPublisherAuthorized: vi.fn().mockReturnValue(true),
+    });
+
+    const stateStream = scan(merge(input, feedback), reduce, init);
+
+    async function* capture(
+      stream: AsyncIterable<{
+        prev: DocState;
+        next: DocState;
+        fact: Fact;
+      }>,
+    ) {
+      yield* stream;
+    }
+
+    const done = runInterpreter(
+      capture(stateStream),
+      effects,
+      feedback,
+      ac.signal,
+    );
+
+    // http-tip with inline block
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid,
+      source: "http-tip",
+      block,
+      seq: 1,
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Block was inline → should NOT call fetchBlock
+    expect(fetchMock).not.toHaveBeenCalled();
+    // But should still apply
+    expect(applyMock).toHaveBeenCalledWith(cid, block);
+
+    ac.abort();
+    await done.catch(() => {});
+  });
+});
