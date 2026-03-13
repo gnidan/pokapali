@@ -5,6 +5,10 @@
  * Fastest-path discovery: hits known pinner HTTP
  * URLs to get the current tip CID + inline block.
  * Falls back gracefully — never throws.
+ *
+ * The /tip response includes peerId, so callers
+ * can construct guarantee-received facts when
+ * guaranteeUntil/retainUntil are present.
  */
 
 import { CID } from "multiformats/cid";
@@ -20,6 +24,7 @@ export interface TipResult {
   block: Uint8Array;
   seq: number;
   ts: number;
+  peerId: string;
   guaranteeUntil?: number;
   retainUntil?: number;
 }
@@ -43,14 +48,18 @@ export async function fetchTipFromPinners(
         signal: signal ?? AbortSignal.timeout(HTTP_TIMEOUT_MS),
       });
       if (!resp.ok) {
-        log.debug("pinner tip", resp.status, "from", baseUrl);
+        log.warn("pinner tip", resp.status, "from", baseUrl);
         continue;
       }
 
       const data = await resp.json();
 
-      if (typeof data?.cid !== "string" || typeof data?.block !== "string") {
-        log.debug("pinner tip: unexpected format from", baseUrl);
+      if (
+        typeof data?.cid !== "string" ||
+        typeof data?.block !== "string" ||
+        typeof data?.peerId !== "string"
+      ) {
+        log.warn("pinner tip: unexpected format from", baseUrl);
         continue;
       }
 
@@ -58,13 +67,13 @@ export async function fetchTipFromPinners(
       try {
         cid = CID.parse(data.cid);
       } catch {
-        log.debug("pinner tip: unparseable CID from", baseUrl);
+        log.warn("pinner tip: unparseable CID from", baseUrl);
         continue;
       }
 
       const block = base64ToUint8(data.block);
       if (block.length === 0) {
-        log.debug("pinner tip: empty block from", baseUrl);
+        log.warn("pinner tip: empty block from", baseUrl);
         continue;
       }
 
@@ -73,6 +82,7 @@ export async function fetchTipFromPinners(
         block,
         seq: typeof data.seq === "number" ? data.seq : 0,
         ts: typeof data.ts === "number" ? data.ts : Date.now(),
+        peerId: data.peerId,
       };
 
       if (typeof data.guaranteeUntil === "number") {
@@ -90,7 +100,7 @@ export async function fetchTipFromPinners(
       );
       return result;
     } catch (err) {
-      log.debug("pinner tip failed:", (err as Error)?.message ?? err);
+      log.warn("pinner tip failed:", (err as Error)?.message ?? err);
     }
   }
 

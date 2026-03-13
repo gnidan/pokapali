@@ -53,6 +53,12 @@ export interface VersionHistoryData {
   versionTexts: Map<number, string>;
   deltas: Map<number, number>;
   visibleVersions: VersionEntry[];
+  /**
+   * True when the list fetch returned empty but the
+   * doc has content (tipCid), so more versions may
+   * still arrive from IDB or the network.
+   */
+  settling: boolean;
 }
 
 /**
@@ -184,7 +190,10 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
             return next;
           });
         } catch {
-          loadedSeqsRef.current.add(entry.seq);
+          // Don't mark as loaded — allows retry on
+          // next render cycle. Transient errors (slow
+          // IPNS, network) should not permanently
+          // prevent diff data from loading.
         }
       }
     })();
@@ -236,11 +245,18 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     });
   }, [versions, deltas, tipCidStr]);
 
+  // Still settling: list fetched OK with zero results
+  // but the doc has a tip CID (content exists), so IDB
+  // or network may still deliver version history.
+  const settling =
+    listState.status === "idle" && versions.length === 0 && doc.tipCid != null;
+
   return {
     versions,
     listState,
     versionTexts,
     deltas,
     visibleVersions,
+    settling,
   };
 }

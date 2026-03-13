@@ -880,6 +880,17 @@ body {
   text-decoration: line-through;
 }
 
+.vh-item.retrying {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.vh-retry-info {
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-style: italic;
+}
+
 .vh-item-seq {
   font-family: monospace;
   font-size: 0.75rem;
@@ -1361,6 +1372,81 @@ body {
   opacity: 0.7;
 }
 
+/* Block requests dropdown */
+
+.cs-sync-summary {
+  position: relative;
+  cursor: default;
+}
+
+.cs-sync-summary.cs-has-dropdown {
+  cursor: pointer;
+}
+
+.cs-block-dropdown {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  padding: 0.35rem 0;
+  z-index: 20;
+  font-size: 0.7rem;
+  color: #334155;
+}
+
+.cs-sync-summary:hover .cs-block-dropdown,
+.cs-sync-summary:focus-within .cs-block-dropdown {
+  display: block;
+}
+
+.cs-block-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  white-space: nowrap;
+}
+
+.cs-block-row:not(:last-child) {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.cs-block-walking {
+  color: #2563eb;
+  font-style: italic;
+}
+
+.cs-block-failed {
+  color: #ef4444;
+}
+
+.cs-block-cid {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.65rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.cs-block-seq {
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.cs-block-status {
+  margin-left: auto;
+  font-weight: 500;
+}
+
 /* Expanded diagnostics panel */
 
 .cs-detail {
@@ -1785,4 +1871,352 @@ body {
     width: 100%;
     border-radius: 0;
   }
+}
+
+/* ── Comment anchor highlighting ──────────────── */
+
+.comment-anchor {
+  background: rgba(255, 213, 79, 0.25);
+  border-bottom: 2px solid rgba(255, 213, 79, 0.6);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.comment-anchor:hover {
+  background: rgba(255, 213, 79, 0.4);
+}
+
+.comment-anchor.active {
+  background: rgba(255, 213, 79, 0.5);
+  border-bottom-color: #f59e0b;
+}
+
+/* ── Comment popover ─────────────────────────── */
+
+.comment-popover {
+  z-index: 20;
+  pointer-events: auto;
+  animation: popover-fade-in 0.1s ease-out;
+}
+
+@keyframes popover-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.comment-popover-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+
+.comment-popover-btn:hover {
+  background: #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.pending-anchor {
+  background: rgba(96, 165, 250, 0.25);
+  border-bottom: 2px solid rgba(96, 165, 250, 0.6);
+}
+
+/* ── Comment sidebar ──────────────────────────── */
+
+.cs-sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 340px;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  font-size: 0.8rem;
+}
+
+.cs-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.cs-sidebar-header h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cs-sidebar-close {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #64748b;
+  padding: 0 0.3rem;
+}
+
+.cs-sidebar-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+/* ── Comment input ────────────────────────────── */
+
+.cs-new-comment {
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.cs-selection-hint {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-style: italic;
+  text-align: center;
+  padding: 0.6rem 0;
+  margin-bottom: 0.4rem;
+}
+
+.cs-comment-input textarea {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.cs-comment-input textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.cs-comment-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+/* ── Buttons ──────────────────────────────────── */
+
+.cs-btn {
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0.25rem 0.5rem;
+  font-family: inherit;
+}
+
+.cs-btn-submit {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.cs-btn-submit:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cs-btn-cancel {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.cs-btn-sm {
+  background: none;
+  color: #64748b;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.68rem;
+}
+
+.cs-btn-sm:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.cs-btn-danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* ── Comment thread ───────────────────────────── */
+
+.cs-thread {
+  margin-bottom: 0.5rem;
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cs-thread-resolved {
+  opacity: 0.6;
+}
+
+.cs-comment {
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.cs-comment:hover {
+  background: #f8fafc;
+}
+
+.cs-comment.cs-selected {
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+}
+
+.cs-comment.cs-resolved {
+  opacity: 0.7;
+}
+
+.cs-comment.cs-orphaned {
+  border-left: 3px dashed #94a3b8;
+}
+
+.cs-reply {
+  padding-left: 1.2rem;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.76rem;
+}
+
+.cs-reply-input-wrap {
+  padding: 0.4rem 0.6rem 0.4rem 1.2rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.cs-comment-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+}
+
+.cs-author {
+  font-weight: 600;
+  font-size: 0.72rem;
+  font-family: "SF Mono", "Fira Code", monospace;
+  color: #334155;
+}
+
+.cs-author.cs-unverified {
+  color: #94a3b8;
+}
+
+.cs-unverified-badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  text-align: center;
+  line-height: 12px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.cs-timestamp {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  margin-left: auto;
+}
+
+.cs-comment-body {
+  color: #334155;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cs-orphan-note {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  font-style: italic;
+  margin-top: 0.2rem;
+}
+
+.cs-comment-actions {
+  display: flex;
+  gap: 0.2rem;
+  margin-top: 0.3rem;
+}
+
+/* ── Resolved toggle ──────────────────────────── */
+
+.cs-resolved-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid #f1f5f9;
+  padding: 0.4rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  cursor: pointer;
+  text-align: center;
+}
+
+.cs-resolved-toggle:hover {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.cs-empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 1.5rem 0;
+  font-size: 0.78rem;
+}
+
+/* ── Comments button badge ────────────────────── */
+
+.toggle-comments {
+  position: relative;
+}
+
+.comment-count-badge {
+  display: inline-block;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  border-radius: 8px;
+  text-align: center;
+  padding: 0 4px;
+  margin-left: 4px;
+  vertical-align: middle;
 }

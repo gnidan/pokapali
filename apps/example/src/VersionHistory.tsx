@@ -9,7 +9,20 @@ type LoadState =
   | { status: "idle" }
   | { status: "loading"; seq: number }
   | { status: "loaded"; seq: number; ydoc: YDoc }
-  | { status: "error"; seq: number; message: string };
+  | {
+      status: "error";
+      seq: number;
+      message: string;
+      /** True when the error is a "not found" that
+       *  could resolve on retry. */
+      retryable: boolean;
+      /** Current retry attempt (0 = first try). */
+      attempt: number;
+    };
+
+/** Backoff schedule in ms: 1s, 3s, 10s. */
+const RETRY_DELAYS = [1_000, 3_000, 10_000];
+const MAX_RETRIES = RETRY_DELAYS.length;
 
 // ── Helpers ──────────────────────────────────────
 
@@ -38,6 +51,10 @@ function relativeExpiry(expiresAt: number | null | undefined): string | null {
   return days === 1 ? "~1 day left" : `~${days} days left`;
 }
 
+function isTransientError(msg: string): boolean {
+  return /not found|unknown cid/i.test(msg);
+}
+
 // ── Version list item ────────────────────────────
 
 function VersionListItem({
@@ -45,6 +62,7 @@ function VersionListItem({
   selected,
   current,
   unavailable,
+  retrying,
   delta,
   onSelect,
 }: {
@@ -52,6 +70,7 @@ function VersionListItem({
   selected: boolean;
   current: boolean;
   unavailable: boolean;
+  retrying: boolean;
   delta: number | undefined;
   onSelect: () => void;
 }) {
@@ -60,7 +79,8 @@ function VersionListItem({
       className={
         "vh-item" +
         (selected ? " selected" : "") +
-        (unavailable ? " unavailable" : "")
+        (unavailable ? " unavailable" : "") +
+        (retrying ? " retrying" : "")
       }
       onClick={unavailable ? undefined : onSelect}
       disabled={unavailable}
@@ -68,9 +88,11 @@ function VersionListItem({
       title={
         unavailable
           ? "Version unavailable"
-          : current
-            ? "Current version"
-            : `Version ${entry.seq}`
+          : retrying
+            ? "Retrying…"
+            : current
+              ? "Current version"
+              : `Version ${entry.seq}`
       }
     >
       <span className="vh-item-seq">
@@ -130,28 +152,33 @@ export function VersionHistory({
   /** Called when the user deselects (closes preview). */
   onClosePreview: () => void;
 }) {
-  const { versions, listState, deltas, visibleVersions } = history;
+  const { versions, listState, deltas, visibleVersions, settling } = history;
 
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
   const [unavailable, setUnavailable] = useState<Set<number>>(new Set());
+  const [retrying, setRetrying] = useState<Set<number>>(new Set());
   const cancelRef = useRef(false);
   // Monotonic counter — only the latest request
   // should call onPreview.
   const requestRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     cancelRef.current = false;
     return () => {
       cancelRef.current = true;
+      if (retryTimerRef.current != null) {
+        clearTimeout(retryTimerRef.current);
+      }
     };
   }, []);
 
   const tipCidStr = doc.tipCid?.toString() ?? null;
 
-  // Load a specific version, then signal parent.
+  // Load a specific version with retry support.
   const selectVersion = useCallback(
-    (entry: VersionEntry) => {
+    (entry: VersionEntry, attempt = 0) => {
       const requestId = ++requestRef.current;
       setSelectedSeq(entry.seq);
       setLoadState({
@@ -165,17 +192,24 @@ export function VersionHistory({
         .then(
           (channels) => {
             if (cancelRef.current) return;
-            // Stale — user clicked a different
-            // version while this was loading.
             if (requestRef.current !== requestId) {
               return;
             }
+            // Clear any retrying state for this seq
+            setRetrying((prev) => {
+              if (!prev.has(entry.seq)) return prev;
+              const next = new Set(prev);
+              next.delete(entry.seq);
+              return next;
+            });
             const ydoc = channels["content"] ?? Object.values(channels)[0];
             if (!ydoc) {
               setLoadState({
                 status: "error",
                 seq: entry.seq,
                 message: "No content in this version",
+                retryable: false,
+                attempt,
               });
               return;
             }
@@ -192,18 +226,53 @@ export function VersionHistory({
               return;
             }
             const msg = err instanceof Error ? err.message : String(err);
-            if (/not found|unknown cid/i.test(msg)) {
-              setUnavailable((prev) => {
+            const transient = isTransientError(msg);
+            const canRetry = transient && attempt < MAX_RETRIES;
+
+            if (canRetry) {
+              // Schedule automatic retry with backoff
+              setRetrying((prev) => {
                 const next = new Set(prev);
                 next.add(entry.seq);
                 return next;
               });
+              setLoadState({
+                status: "error",
+                seq: entry.seq,
+                message: msg,
+                retryable: true,
+                attempt,
+              });
+              retryTimerRef.current = setTimeout(() => {
+                if (cancelRef.current) return;
+                if (requestRef.current !== requestId) {
+                  return;
+                }
+                selectVersion(entry, attempt + 1);
+              }, RETRY_DELAYS[attempt]);
+            } else {
+              // Exhausted retries or non-transient error
+              if (transient) {
+                setUnavailable((prev) => {
+                  const next = new Set(prev);
+                  next.add(entry.seq);
+                  return next;
+                });
+              }
+              setRetrying((prev) => {
+                if (!prev.has(entry.seq)) return prev;
+                const next = new Set(prev);
+                next.delete(entry.seq);
+                return next;
+              });
+              setLoadState({
+                status: "error",
+                seq: entry.seq,
+                message: msg,
+                retryable: false,
+                attempt,
+              });
             }
-            setLoadState({
-              status: "error",
-              seq: entry.seq,
-              message: msg,
-            });
           },
         );
     },
@@ -231,7 +300,7 @@ export function VersionHistory({
 
       <div className="vh-body">
         <div className="vh-list-section">
-          {listState.status === "loading" && (
+          {(listState.status === "loading" || settling) && (
             <Spinner label="Loading history…" />
           )}
 
@@ -239,9 +308,11 @@ export function VersionHistory({
             <div className="vh-error">{listState.message}</div>
           )}
 
-          {listState.status === "idle" && versions.length === 0 && (
-            <div className="vh-empty">No versions published yet.</div>
-          )}
+          {listState.status === "idle" &&
+            !settling &&
+            versions.length === 0 && (
+              <div className="vh-empty">No versions published yet.</div>
+            )}
 
           {listState.status === "idle" && visibleVersions.length > 0 && (
             <div className="vh-list" role="listbox">
@@ -254,6 +325,7 @@ export function VersionHistory({
                     tipCidStr != null && entry.cid.toString() === tipCidStr
                   }
                   unavailable={unavailable.has(entry.seq)}
+                  retrying={retrying.has(entry.seq)}
                   delta={deltas.get(entry.seq)}
                   onSelect={() => {
                     if (selectedSeq === entry.seq) {
@@ -274,7 +346,8 @@ export function VersionHistory({
           {unavailableCount > 0 && (
             <div className="vh-unavailable-note">
               {unavailableCount}{" "}
-              {unavailableCount === 1 ? "version" : "versions"} not available
+              {unavailableCount === 1 ? "version" : "versions"} unavailable
+              (retries exhausted)
             </div>
           )}
 
@@ -291,9 +364,18 @@ export function VersionHistory({
           )}
           {loadState.status === "error" && (
             <div className="vh-error">
-              {/not found|unknown cid/i.test(loadState.message)
-                ? "Version unavailable"
-                : loadState.message}
+              {loadState.retryable ? (
+                <>
+                  Resolving version…{" "}
+                  <span className="vh-retry-info">
+                    (retry {loadState.attempt + 1}/{MAX_RETRIES})
+                  </span>
+                </>
+              ) : isTransientError(loadState.message) ? (
+                "Version unavailable"
+              ) : (
+                loadState.message
+              )}
             </div>
           )}
         </div>

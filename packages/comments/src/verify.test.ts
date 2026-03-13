@@ -1,118 +1,100 @@
-/**
- * Tests for author verification in @pokapali/comments.
- *
- * STATUS: stubs only — fill in assertions when:
- * 1. Core's auth Phase 1 (clientID→pubkey mapping)
- *    merges to main
- * 2. Comments package implementation lands
- *
- * Author verification flow:
- * - Session opens → core registers
- *   { [clientID]: { pubkey, sig } } in _meta
- * - sig = sign(pubkey + ":" + docId, identityKey)
- * - Comment's Y.Map item tagged with creator's
- *   clientID (Yjs internal)
- * - Verification: look up item.id.client in
- *   mapping, verify sig, confirm matches author field
- * - One signature per session covers all operations
- */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
+import { verifyAuthor } from "./verify.js";
+import type { ClientIdMapping } from "./verify.js";
 
-// ── Helpers ─────────────────────────────────────────
-
-const AUTHOR_A = "aa".repeat(16);
-const AUTHOR_B = "bb".repeat(16);
-const AUTHOR_C = "cc".repeat(16);
-
-/**
- * Create a mock clientID→pubkey mapping.
- * In production this comes from _meta subdoc.
- */
-function createMockMapping(
-  entries: Array<{
-    clientId: number;
-    pubkey: string;
-    sig: string;
-    valid: boolean;
-  }>,
-) {
-  // Will be replaced with real Feed<Map<...>> from
-  // core's clientIdMapping once auth Phase 1 lands.
-  const map = new Map<number, { pubkey: string; sig: string }>();
-  for (const e of entries) {
-    map.set(e.clientId, {
-      pubkey: e.pubkey,
-      sig: e.sig,
-    });
-  }
-  return map;
+function makeDoc(clientID: number): Y.Doc {
+  const doc = new Y.Doc();
+  doc.clientID = clientID;
+  return doc;
 }
 
-// ── Author verification ────────────────────────────
+function makeEntry(doc: Y.Doc, key: string): Y.Map<unknown> {
+  const root = doc.getMap("comments") as Y.Map<Y.Map<unknown>>;
+  const entry = new Y.Map<unknown>();
+  root.set(key, entry);
+  return root.get(key) as Y.Map<unknown>;
+}
 
-describe("author verification", () => {
-  it("valid mapping + matching author → " + "authorVerified: true", () => {
-    // const mapping = createMockMapping([
-    //   { clientId: 1, pubkey: AUTHOR_A,
-    //     sig: "valid-sig", valid: true },
-    // ]);
-    // const c = comments<{}>(..., {
-    //   author: AUTHOR_A,
-    //   clientIdMapping: mapping,
-    // });
-    // c.add({ content: "Hello", data: {} });
-    // const comment = c.feed.getSnapshot()[0];
-    // expect(comment.authorVerified).toBe(true);
-    expect(true).toBe(true); // stub
+/** Helper to build a mapping with verified entries. */
+function mapping(...entries: [number, string][]): ClientIdMapping {
+  return new Map(
+    entries.map(([id, pubkey]) => [id, { pubkey, verified: true }]),
+  );
+}
+
+describe("verifyAuthor", () => {
+  it("returns true when mapping matches", () => {
+    const doc = makeDoc(42);
+    const entry = makeEntry(doc, "c1");
+
+    expect(
+      verifyAuthor(entry, "alice-pubkey", mapping([42, "alice-pubkey"])),
+    ).toBe(true);
   });
 
-  it(
-    "valid mapping but author field " + "doesn't match → authorVerified: false",
-    () => {
-      // Mapping says clientId 1 → AUTHOR_A
-      // But comment's author field is AUTHOR_B
-      // (shouldn't happen in honest use, but
-      // verifier should catch it)
-      expect(true).toBe(true); // stub
-    },
-  );
+  it("returns false when pubkey mismatches", () => {
+    const doc = makeDoc(42);
+    const entry = makeEntry(doc, "c1");
 
-  it("missing mapping for clientID → " + "authorVerified: false", () => {
-    // Comment created by clientId 99 but
-    // no mapping exists for clientId 99
-    // → authorVerified: false
-    expect(true).toBe(true); // stub
+    expect(
+      verifyAuthor(entry, "bob-pubkey", mapping([42, "alice-pubkey"])),
+    ).toBe(false);
   });
 
-  it("invalid signature in mapping → " + "authorVerified: false", () => {
-    // Mapping has entry for clientId but sig
-    // doesn't verify → authorVerified: false
-    expect(true).toBe(true); // stub
+  it("returns false when clientID unmapped", () => {
+    const doc = makeDoc(42);
+    const entry = makeEntry(doc, "c1");
+
+    expect(verifyAuthor(entry, "alice-pubkey", mapping())).toBe(false);
   });
 
-  it(
-    "late registration: mapping arrives " +
-      "after comment → feed updates " +
-      "authorVerified",
-    () => {
-      // 1. Comment added (no mapping yet)
-      //    → authorVerified: false
-      // 2. Mapping arrives via _meta sync
-      //    → feed re-emits with authorVerified: true
-      expect(true).toBe(true); // stub
-    },
-  );
+  it("returns false for empty mapping", () => {
+    const doc = makeDoc(99);
+    const entry = makeEntry(doc, "c1");
 
-  it(
-    "multiple clients, each with own " +
-      "mapping → each verified " +
-      "independently",
-    () => {
-      // Client A (clientId 1) → AUTHOR_A: verified
-      // Client B (clientId 2) → AUTHOR_B: verified
-      // Client C (clientId 3) → no mapping: unverified
-      expect(true).toBe(true); // stub
-    },
-  );
+    expect(verifyAuthor(entry, "anyone", mapping())).toBe(false);
+  });
+
+  it("returns false when sig not verified", () => {
+    const doc = makeDoc(42);
+    const entry = makeEntry(doc, "c1");
+
+    const unverified: ClientIdMapping = new Map([
+      [42, { pubkey: "alice", verified: false }],
+    ]);
+
+    expect(verifyAuthor(entry, "alice", unverified)).toBe(false);
+  });
+
+  it("verifies across synced docs", () => {
+    const doc1 = makeDoc(10);
+    const doc2 = makeDoc(20);
+
+    // Alice writes on doc1.
+    const root1 = doc1.getMap("comments") as Y.Map<Y.Map<unknown>>;
+    root1.set("alice-comment", new Y.Map<unknown>());
+
+    // Sync doc1 → doc2.
+    Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+
+    // Bob writes on doc2.
+    const root2 = doc2.getMap("comments") as Y.Map<Y.Map<unknown>>;
+    root2.set("bob-comment", new Y.Map<unknown>());
+
+    // Sync doc2 → doc1.
+    Y.applyUpdate(doc1, Y.encodeStateAsUpdate(doc2));
+
+    const m = mapping([10, "alice"], [20, "bob"]);
+
+    // Alice's comment — clientID 10.
+    const aliceEntry = root2.get("alice-comment")!;
+    expect(verifyAuthor(aliceEntry, "alice", m)).toBe(true);
+    expect(verifyAuthor(aliceEntry, "bob", m)).toBe(false);
+
+    // Bob's comment — clientID 20.
+    const bobEntry = root2.get("bob-comment")!;
+    expect(verifyAuthor(bobEntry, "bob", m)).toBe(true);
+    expect(verifyAuthor(bobEntry, "alice", m)).toBe(false);
+  });
 });

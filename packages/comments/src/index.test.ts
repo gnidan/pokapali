@@ -1,284 +1,544 @@
-/**
- * Tests for @pokapali/comments edge cases, threading
- * rules, and feed reactivity.
- *
- * STATUS: stubs only — fill in assertions when the
- * comments package merges into this branch.
- *
- * Integrations shipped 40 tests covering basic CRUD,
- * threading, and anchoring. These stubs focus on edge
- * cases and integration scenarios they may not have
- * covered.
- *
- * Architect decisions on open questions:
- * - add() with non-existent parentId → THROWS
- * - delete() on non-existent ID → NO-OP
- * - reply to a reply → THROWS (one-level only)
- */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
-
-// ── Test data type ──────────────────────────────────
+import { comments } from "./index.js";
+import type { ClientIdMapping } from "./index.js";
+import { createFeed } from "./feed.js";
+import type { WritableFeed } from "./feed.js";
 
 interface TestData {
-  status: "open" | "resolved" | "wontfix";
+  status: "open" | "resolved";
   resolvedBy: string | null;
 }
 
-const OPEN: TestData = {
+const DEFAULT_DATA: TestData = {
   status: "open",
   resolvedBy: null,
 };
 
-// ── Helpers ─────────────────────────────────────────
-
-/**
- * Create a pair of Y.Docs simulating a comments
- * channel and a content channel.
- */
-function createDocs() {
+function setup(clientID?: number) {
   const commentsDoc = new Y.Doc();
   const contentDoc = new Y.Doc();
+  if (clientID !== undefined) {
+    commentsDoc.clientID = clientID;
+  }
+  // Seed content so anchors can resolve.
+  contentDoc.getText("default").insert(0, "hello world");
 
-  // Content doc uses Y.Text for anchoring
-  contentDoc.getText("default");
-
-  return { commentsDoc, contentDoc };
-}
-
-/**
- * Insert text into the content doc's Y.Text.
- */
-function insertContent(contentDoc: Y.Doc, text: string): Y.Text {
-  const yText = contentDoc.getText("default");
-  yText.insert(0, text);
-  return yText;
-}
-
-/**
- * Create two synced Y.Doc pairs (simulates two
- * concurrent clients).
- */
-function createSyncedPair() {
-  const { commentsDoc: doc1Comments, contentDoc: doc1Content } = createDocs();
-  const { commentsDoc: doc2Comments, contentDoc: doc2Content } = createDocs();
-
-  // Sync content docs
-  Y.applyUpdate(doc2Content, Y.encodeStateAsUpdate(doc1Content));
-
+  const mappingFeed = createFeed<ClientIdMapping>(new Map());
+  const c = comments<TestData>(commentsDoc, contentDoc, {
+    author: "alice-pubkey",
+    clientIdMapping: mappingFeed,
+  });
   return {
-    client1: {
-      commentsDoc: doc1Comments,
-      contentDoc: doc1Content,
-    },
-    client2: {
-      commentsDoc: doc2Comments,
-      contentDoc: doc2Content,
-    },
-    sync() {
-      // Sync both channels both directions
-      Y.applyUpdate(doc2Comments, Y.encodeStateAsUpdate(doc1Comments));
-      Y.applyUpdate(doc1Comments, Y.encodeStateAsUpdate(doc2Comments));
-      Y.applyUpdate(doc2Content, Y.encodeStateAsUpdate(doc1Content));
-      Y.applyUpdate(doc1Content, Y.encodeStateAsUpdate(doc2Content));
-    },
+    c,
+    commentsDoc,
+    contentDoc,
+    mappingFeed,
   };
 }
 
-const AUTHOR_A = "aa".repeat(16); // 32-char hex pubkey
-const AUTHOR_B = "bb".repeat(16);
+describe("comments()", () => {
+  describe("add + feed round-trip", () => {
+    it("adds a comment and projects it", () => {
+      const { c } = setup();
+      const id = c.add({
+        content: "Fix this typo.",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
 
-// ── Threading enforcement ───────────────────────────
-
-describe("@pokapali/comments edge cases", () => {
-  describe("threading enforcement", () => {
-    it("reply to non-existent parentId " + "throws", () => {
-      // const { commentsDoc, contentDoc } = createDocs();
-      // const c = comments<TestData>(...);
-      // expect(() => c.add({
-      //   content: "Orphan",
-      //   parentId: "does-not-exist",
-      //   data: OPEN,
-      // })).toThrow();
-      expect(true).toBe(true); // stub
+      const list = c.feed.getSnapshot();
+      expect(list).toHaveLength(1);
+      expect(list[0].id).toBe(id);
+      expect(list[0].content).toBe("Fix this typo.");
+      expect(list[0].author).toBe("alice-pubkey");
+      expect(list[0].data.status).toBe("open");
+      expect(list[0].anchor).not.toBeNull();
+      expect(list[0].anchor!.status).toBe("resolved");
+      expect(list[0].parentId).toBeNull();
+      expect(list[0].children).toHaveLength(0);
+      c.destroy();
     });
 
-    it("reply to a reply throws " + "(one-level only)", () => {
-      // const parentId = c.add({
-      //   content: "Top", data: OPEN,
-      // });
-      // const replyId = c.add({
-      //   content: "Reply", parentId, data: OPEN,
-      // });
-      // expect(() => c.add({
-      //   content: "Nested",
-      //   parentId: replyId,
-      //   data: OPEN,
-      // })).toThrow();
-      expect(true).toBe(true); // stub
-    });
-
-    it("delete parent → replies become " + "orphaned in feed", () => {
-      // const parentId = c.add({
-      //   content: "Q", data: OPEN,
-      // });
-      // c.add({
-      //   content: "Reply", parentId, data: OPEN,
-      // });
-      // c.delete(parentId);
-      // // Verify replies are either promoted to
-      // // top-level or removed from feed
-      expect(true).toBe(true); // stub
-    });
-
-    it("multiple replies ordered by ts", () => {
-      // const parentId = c.add({
-      //   content: "Q", data: OPEN,
-      // });
-      // c.add({
-      //   content: "R1", parentId, data: OPEN,
-      // });
-      // c.add({
-      //   content: "R2", parentId, data: OPEN,
-      // });
-      // const children = list[0].children;
-      // expect(children[0].ts)
-      //   .toBeLessThanOrEqual(children[1].ts);
-      expect(true).toBe(true); // stub
+    it("assigns unique IDs", () => {
+      const { c } = setup();
+      const id1 = c.add({
+        content: "first",
+        data: DEFAULT_DATA,
+      });
+      const id2 = c.add({
+        content: "second",
+        data: DEFAULT_DATA,
+      });
+      expect(id1).not.toBe(id2);
+      c.destroy();
     });
   });
 
-  // ── Delete semantics ──────────────────────────────
+  describe("threading", () => {
+    it("nests reply under parent", () => {
+      const { c } = setup();
+      const parentId = c.add({
+        content: "Main comment",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
+      c.add({
+        content: "Reply",
+        parentId,
+        data: DEFAULT_DATA,
+      });
 
-  describe("delete semantics", () => {
-    it("delete non-existent ID is a " + "no-op", () => {
-      // const { commentsDoc, contentDoc } = createDocs();
-      // const c = comments<TestData>(...);
-      // c.add({ content: "A", data: OPEN });
-      // // Should not throw
-      // c.delete("nonexistent-id");
-      // expect(c.feed.getSnapshot()).toHaveLength(1);
-      expect(true).toBe(true); // stub
+      const list = c.feed.getSnapshot();
+      expect(list).toHaveLength(1);
+      expect(list[0].children).toHaveLength(1);
+      expect(list[0].children[0].content).toBe("Reply");
+      expect(list[0].children[0].parentId).toBe(parentId);
+      expect(list[0].children[0].anchor).toBeNull();
+      c.destroy();
     });
 
-    it("delete already-deleted ID is " + "also a no-op", () => {
-      // const id = c.add({
-      //   content: "Del", data: OPEN,
-      // });
-      // c.delete(id);
-      // c.delete(id); // second delete
-      // expect(c.feed.getSnapshot()).toHaveLength(0);
-      expect(true).toBe(true); // stub
+    it("throws on non-existent parentId", () => {
+      const { c } = setup();
+      expect(() =>
+        c.add({
+          content: "orphan reply",
+          parentId: "nonexistent",
+          data: DEFAULT_DATA,
+        }),
+      ).toThrow(/not found/);
+      c.destroy();
+    });
+
+    it("throws on reply to a reply", () => {
+      const { c } = setup();
+      const parentId = c.add({
+        content: "parent",
+        anchor: c.createAnchor(0, 3),
+        data: DEFAULT_DATA,
+      });
+      const replyId = c.add({
+        content: "reply",
+        parentId,
+        data: DEFAULT_DATA,
+      });
+      expect(() =>
+        c.add({
+          content: "nested reply",
+          parentId: replyId,
+          data: DEFAULT_DATA,
+        }),
+      ).toThrow(/one-level/);
+      c.destroy();
+    });
+
+    it("throws when reply has an anchor", () => {
+      const { c } = setup();
+      const parentId = c.add({
+        content: "parent",
+        anchor: c.createAnchor(0, 3),
+        data: DEFAULT_DATA,
+      });
+      expect(() =>
+        c.add({
+          content: "reply with anchor",
+          parentId,
+          anchor: c.createAnchor(3, 5),
+          data: DEFAULT_DATA,
+        }),
+      ).toThrow(/inherit parent anchor/);
+      c.destroy();
+    });
+
+    it("sorts children by timestamp", () => {
+      const { c } = setup();
+      const parentId = c.add({
+        content: "parent",
+        data: DEFAULT_DATA,
+      });
+      c.add({
+        content: "reply-1",
+        parentId,
+        data: DEFAULT_DATA,
+      });
+      c.add({
+        content: "reply-2",
+        parentId,
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      const kids = list[0].children;
+      expect(kids).toHaveLength(2);
+      expect(kids[0].ts).toBeLessThanOrEqual(kids[1].ts);
+      c.destroy();
     });
   });
 
-  // ── Feed reactivity edge cases ────────────────────
+  describe("update", () => {
+    it("updates app-defined data", () => {
+      const { c } = setup();
+      const id = c.add({
+        content: "comment",
+        data: DEFAULT_DATA,
+      });
 
-  describe("feed reactivity edge cases", () => {
-    it("feed snapshot compatible with " + "useSyncExternalStore", () => {
-      // const snap1 = c.feed.getSnapshot();
-      // // No mutations → same reference
-      // const snap2 = c.feed.getSnapshot();
-      // expect(snap1).toBe(snap2);
-      // c.add({ content: "X", data: OPEN });
-      // const snap3 = c.feed.getSnapshot();
-      // expect(snap3).not.toBe(snap1);
-      expect(true).toBe(true); // stub
+      c.update(id, {
+        data: {
+          status: "resolved",
+          resolvedBy: "bob",
+        },
+      });
+
+      const list = c.feed.getSnapshot();
+      expect(list[0].data.status).toBe("resolved");
+      expect(list[0].data.resolvedBy).toBe("bob");
+      c.destroy();
     });
 
-    it(
-      "feed updates when anchor resolution " + "changes (content modified)",
-      () => {
-        // Create comment anchored to text, then
-        // delete the anchored text. Feed should
-        // re-emit with anchor.status === "orphaned".
-        expect(true).toBe(true); // stub
-      },
-    );
+    it("partial update preserves other fields", () => {
+      const { c } = setup();
+      const id = c.add({
+        content: "comment",
+        data: DEFAULT_DATA,
+      });
 
-    it(
-      "feed re-emits when clientIdMapping " + "updates (late registration)",
-      () => {
-        // Comment initially authorVerified: false
-        // Mapping arrives → feed re-emits with
-        // authorVerified: true
-        expect(true).toBe(true); // stub
-      },
-    );
-  });
+      c.update(id, {
+        data: { status: "resolved" },
+      });
 
-  // ── Concurrent operations ─────────────────────────
-
-  describe("concurrent operations", () => {
-    it("concurrent adds from two clients " + "merge correctly", () => {
-      // const { client1, client2, sync } =
-      //   createSyncedPair();
-      // // Client 1 and 2 add comments independently
-      // // Sync → both see both comments
-      expect(true).toBe(true); // stub
+      const list = c.feed.getSnapshot();
+      expect(list[0].data.status).toBe("resolved");
+      expect(list[0].data.resolvedBy).toBeNull();
+      c.destroy();
     });
 
-    it("concurrent delete + update on " + "same comment", () => {
-      // Client 1 deletes comment, client 2 updates
-      // it concurrently. After sync, delete wins
-      // (Y.Map entry removed).
-      expect(true).toBe(true); // stub
-    });
-
-    it("concurrent replies to same parent " + "from two clients", () => {
-      // Both clients reply to same parent.
-      // After sync, parent.children contains
-      // both replies.
-      expect(true).toBe(true); // stub
+    it("throws on non-existent ID", () => {
+      const { c } = setup();
+      expect(() =>
+        c.update("bad-id", {
+          data: { status: "resolved" },
+        }),
+      ).toThrow(/not found/);
+      c.destroy();
     });
   });
 
-  // ── Misc edge cases ───────────────────────────────
+  describe("delete", () => {
+    it("removes comment from feed", () => {
+      const { c } = setup();
+      const id = c.add({
+        content: "to delete",
+        data: DEFAULT_DATA,
+      });
+      expect(c.feed.getSnapshot()).toHaveLength(1);
 
-  describe("misc edge cases", () => {
-    it("empty content string accepted", () => {
-      // const id = c.add({
-      //   content: "", data: OPEN,
-      // });
-      // expect(list[0].content).toBe("");
-      expect(true).toBe(true); // stub
+      c.delete(id);
+      expect(c.feed.getSnapshot()).toHaveLength(0);
+      c.destroy();
     });
 
-    it("update with partial data merges " + "into existing", () => {
-      // const id = c.add({
-      //   content: "X",
-      //   data: { status: "open", resolvedBy: null },
-      // });
-      // c.update(id, {
-      //   data: { status: "resolved" },
-      // });
-      // // resolvedBy should still be null
-      // expect(list[0].data.resolvedBy).toBeNull();
-      // expect(list[0].data.status).toBe("resolved");
-      expect(true).toBe(true); // stub
+    it("no-op on non-existent ID", () => {
+      const { c } = setup();
+      expect(() => c.delete("nonexistent")).not.toThrow();
+      c.destroy();
     });
 
-    it("destroy() cleans up observers — " + "no further feed emissions", () => {
-      // const subscriber = vi.fn();
-      // c.feed.subscribe(subscriber);
-      // c.destroy();
-      // subscriber.mockClear();
-      // // Mutate Y.Map directly after destroy
-      // commentsDoc.getMap("comments")
-      //   .set("rogue", new Y.Map());
-      // expect(subscriber).not.toHaveBeenCalled();
-      expect(true).toBe(true); // stub
+    it("orphans children when parent deleted", () => {
+      const { c } = setup();
+      const parentId = c.add({
+        content: "parent",
+        data: DEFAULT_DATA,
+      });
+      c.add({
+        content: "reply",
+        parentId,
+        data: DEFAULT_DATA,
+      });
+
+      c.delete(parentId);
+
+      const list = c.feed.getSnapshot();
+      expect(list).toHaveLength(0);
+      c.destroy();
+    });
+  });
+
+  describe("reactivity", () => {
+    it("feed notifies on add", () => {
+      const { c } = setup();
+      const cb = vi.fn();
+      c.feed.subscribe(cb);
+
+      c.add({
+        content: "new",
+        data: DEFAULT_DATA,
+      });
+      expect(cb).toHaveBeenCalled();
+      c.destroy();
     });
 
-    it("comment ts reflects creation " + "time, not update time", () => {
-      // const id = c.add({
-      //   content: "X", data: OPEN,
-      // });
-      // const ts1 = c.feed.getSnapshot()[0].ts;
-      // c.update(id, { data: { status: "resolved" } });
-      // const ts2 = c.feed.getSnapshot()[0].ts;
-      // expect(ts2).toBe(ts1);
-      expect(true).toBe(true); // stub
+    it("feed notifies on delete", () => {
+      const { c } = setup();
+      const id = c.add({
+        content: "will delete",
+        data: DEFAULT_DATA,
+      });
+      const cb = vi.fn();
+      c.feed.subscribe(cb);
+
+      c.delete(id);
+      expect(cb).toHaveBeenCalled();
+      c.destroy();
+    });
+
+    it("feed notifies on content change", () => {
+      const { c, contentDoc } = setup();
+      c.add({
+        content: "anchored",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
+      const cb = vi.fn();
+      c.feed.subscribe(cb);
+
+      contentDoc.getText("default").insert(0, "prefix ");
+
+      expect(cb).toHaveBeenCalled();
+      c.destroy();
+    });
+
+    it("feed notifies on mapping change", () => {
+      const { c, mappingFeed } = setup(42);
+
+      c.add({
+        content: "test",
+        data: DEFAULT_DATA,
+      });
+
+      // Initially unverified.
+      expect(c.feed.getSnapshot()[0].authorVerified).toBe(false);
+
+      const cb = vi.fn();
+      c.feed.subscribe(cb);
+
+      // Update mapping — should trigger rebuild.
+      mappingFeed._update(
+        new Map([[42, { pubkey: "alice-pubkey", verified: true }]]),
+      );
+
+      expect(cb).toHaveBeenCalled();
+      expect(c.feed.getSnapshot()[0].authorVerified).toBe(true);
+      c.destroy();
+    });
+
+    it("unsubscribe stops notifications", () => {
+      const { c } = setup();
+      const cb = vi.fn();
+      const unsub = c.feed.subscribe(cb);
+      unsub();
+
+      c.add({
+        content: "after unsub",
+        data: DEFAULT_DATA,
+      });
+
+      expect(cb).not.toHaveBeenCalled();
+      c.destroy();
+    });
+  });
+
+  describe("anchors", () => {
+    it("resolves anchor positions", () => {
+      const { c } = setup();
+      c.add({
+        content: "about hello",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      const anchor = list[0].anchor!;
+      expect(anchor.status).toBe("resolved");
+      if (anchor.status === "resolved") {
+        expect(anchor.start).toBe(0);
+        expect(anchor.end).toBe(5);
+      }
+      c.destroy();
+    });
+
+    it("null anchor for no-anchor comment", () => {
+      const { c } = setup();
+      c.add({
+        content: "no anchor",
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      expect(list[0].anchor).toBeNull();
+      c.destroy();
+    });
+
+    it("anchor tracks position shifts", () => {
+      const { c, contentDoc } = setup();
+      c.add({
+        content: "about world",
+        anchor: c.createAnchor(6, 11),
+        data: DEFAULT_DATA,
+      });
+
+      contentDoc.getText("default").insert(0, "hey ");
+
+      const list = c.feed.getSnapshot();
+      const anchor = list[0].anchor!;
+      expect(anchor.status).toBe("resolved");
+      if (anchor.status === "resolved") {
+        expect(anchor.start).toBe(10);
+        expect(anchor.end).toBe(15);
+      }
+      c.destroy();
+    });
+  });
+
+  describe("author", () => {
+    it("throws adding without author", () => {
+      const commentsDoc = new Y.Doc();
+      const contentDoc = new Y.Doc();
+      const c = comments<TestData>(commentsDoc, contentDoc, {
+        author: null,
+        clientIdMapping: createFeed(new Map()),
+      });
+
+      expect(() =>
+        c.add({
+          content: "no author",
+          data: DEFAULT_DATA,
+        }),
+      ).toThrow(/no author/);
+      c.destroy();
+    });
+
+    it("authorVerified true with mapping", () => {
+      const { c, mappingFeed } = setup(42);
+      mappingFeed._update(
+        new Map([[42, { pubkey: "alice-pubkey", verified: true }]]),
+      );
+
+      c.add({
+        content: "verified",
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      expect(list[0].authorVerified).toBe(true);
+      c.destroy();
+    });
+
+    it("authorVerified false without mapping", () => {
+      const { c } = setup();
+      c.add({
+        content: "unverified",
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      expect(list[0].authorVerified).toBe(false);
+      c.destroy();
+    });
+
+    it("authorVerified false when unverified", () => {
+      const { c, mappingFeed } = setup(42);
+      mappingFeed._update(
+        new Map([
+          [
+            42,
+            {
+              pubkey: "alice-pubkey",
+              verified: false,
+            },
+          ],
+        ]),
+      );
+
+      c.add({
+        content: "unverified sig",
+        data: DEFAULT_DATA,
+      });
+
+      const list = c.feed.getSnapshot();
+      expect(list[0].authorVerified).toBe(false);
+      c.destroy();
+    });
+  });
+
+  describe("destroy", () => {
+    it("throws on add after destroy", () => {
+      const { c } = setup();
+      c.destroy();
+
+      expect(() =>
+        c.add({
+          content: "after destroy",
+          data: DEFAULT_DATA,
+        }),
+      ).toThrow(/destroyed/);
+    });
+
+    it("throws on createAnchor after destroy", () => {
+      const { c } = setup();
+      c.destroy();
+      expect(() => c.createAnchor(0, 5)).toThrow(/destroyed/);
+    });
+
+    it("double destroy is safe", () => {
+      const { c } = setup();
+      c.destroy();
+      expect(() => c.destroy()).not.toThrow();
+    });
+
+    it("stops observing after destroy", () => {
+      const { c, commentsDoc } = setup();
+      c.destroy();
+
+      const cb = vi.fn();
+      c.feed.subscribe(cb);
+
+      const map = commentsDoc.getMap("comments") as Y.Map<Y.Map<unknown>>;
+      map.set("manual", new Y.Map<unknown>());
+
+      expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("CRDT sync", () => {
+    it("syncs comments across two docs", () => {
+      const doc1 = new Y.Doc();
+      const doc2 = new Y.Doc();
+      const contentDoc = new Y.Doc();
+      contentDoc.getText("default").insert(0, "shared text");
+
+      const c1 = comments<TestData>(doc1, contentDoc, {
+        author: "alice",
+        clientIdMapping: createFeed(new Map()),
+      });
+      const c2 = comments<TestData>(doc2, contentDoc, {
+        author: "bob",
+        clientIdMapping: createFeed(new Map()),
+      });
+
+      c1.add({
+        content: "alice's comment",
+        data: DEFAULT_DATA,
+      });
+
+      Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+
+      const list2 = c2.feed.getSnapshot();
+      expect(list2).toHaveLength(1);
+      expect(list2[0].content).toBe("alice's comment");
+
+      c1.destroy();
+      c2.destroy();
     });
   });
 });
