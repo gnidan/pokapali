@@ -26,7 +26,7 @@ import { execSync } from "child_process";
 
 const rootDir = join(
   import.meta.dirname ?? new URL(".", import.meta.url).pathname,
-  ".."
+  "..",
 );
 const packagesDir = join(rootDir, "packages");
 
@@ -39,8 +39,7 @@ function run(cmd) {
 const branch = run("git rev-parse --abbrev-ref HEAD");
 if (branch !== "main") {
   console.error(
-    `Error: version bumps must be on main`
-    + ` (current: ${branch})`
+    `Error: version bumps must be on main` + ` (current: ${branch})`,
   );
   process.exit(1);
 }
@@ -132,8 +131,8 @@ const args = process.argv.slice(2);
 
 if (args.length !== 2) {
   console.error(
-    "Usage: bin/version-bump.mjs <package> <version>\n"
-    + "       bin/version-bump.mjs --all <version>"
+    "Usage: bin/version-bump.mjs <package> <version>\n" +
+      "       bin/version-bump.mjs --all <version>",
   );
   process.exit(1);
 }
@@ -142,9 +141,7 @@ const [target, version] = args;
 
 // Basic semver sanity check
 if (!/^\d+\.\d+\.\d+/.test(version)) {
-  console.error(
-    `Error: "${version}" doesn't look like a version`
-  );
+  console.error(`Error: "${version}" doesn't look like a version`);
   process.exit(1);
 }
 
@@ -162,16 +159,10 @@ if (target === "--all") {
   }
   if (!packages.has(resolved)) {
     console.error(`Error: unknown package "${resolved}"`);
-    console.error(
-      "Available:",
-      [...packages.keys()].join(", ")
-    );
+    console.error("Available:", [...packages.keys()].join(", "));
     process.exit(1);
   }
-  toBump = new Set([
-    resolved,
-    ...transitiveDependents(resolved),
-  ]);
+  toBump = new Set([resolved, ...transitiveDependents(resolved)]);
 }
 
 // --- apply version bumps ---
@@ -182,9 +173,7 @@ for (const name of toBump) {
   pkg.version = version;
 
   // Update internal dependency versions
-  for (const depName of Object.keys(
-    pkg.dependencies || {}
-  )) {
+  for (const depName of Object.keys(pkg.dependencies || {})) {
     if (packages.has(depName) && toBump.has(depName)) {
       pkg.dependencies[depName] = version;
     }
@@ -196,9 +185,7 @@ for (const name of toBump) {
   }
 }
 
-console.log(
-  `\nBumped ${toBump.size} package(s) to ${version}`
-);
+console.log(`\nBumped ${toBump.size} package(s) to ${version}`);
 
 // --- update dep references in private consumers ---
 
@@ -237,9 +224,7 @@ for (const dir of consumerDirs) {
   }
   if (!pkg.private) continue;
   let changed = false;
-  for (const depName of Object.keys(
-    pkg.dependencies || {}
-  )) {
+  for (const depName of Object.keys(pkg.dependencies || {})) {
     if (toBump.has(depName)) {
       pkg.dependencies[depName] = version;
       changed = true;
@@ -253,9 +238,7 @@ for (const dir of consumerDirs) {
 }
 
 if (consumersUpdated > 0) {
-  console.log(
-    `Updated ${consumersUpdated} private consumer(s)`
-  );
+  console.log(`Updated ${consumersUpdated} private consumer(s)`);
 }
 
 // --- sync lockfile and commit ---
@@ -268,18 +251,13 @@ execSync("npm install --ignore-scripts", {
 
 console.log("Creating commit...");
 run(
-  "git add packages/*/package.json apps/*/package.json"
-  + " package-lock.json"
+  "git add packages/*/package.json apps/*/package.json" + " package-lock.json",
 );
 
 // Build commit message from bumped package dirs
-const bumped = [...toBump]
-  .map((name) => packages.get(name).dir)
-  .join(", ");
+const bumped = [...toBump].map((name) => packages.get(name).dir).join(", ");
 
-run(
-  `git commit -m "chore: bump ${bumped} to ${version}"`
-);
+run(`git commit -m "chore: bump ${bumped} to ${version}"`);
 
 console.log("\nDone. Review with: git log -1 --stat");
 console.log("Push with: git push origin main");

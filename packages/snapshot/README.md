@@ -1,7 +1,8 @@
 # @pokapali/snapshot
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/snapshot
+```
 
 Snapshot encoding, decoding, verification, and chain
 walking for Pokapali's IPFS persistence layer. Each
@@ -32,4 +33,4 @@ convenience.
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Snapshot Chain](../../docs/architecture.md)
+- [Architecture — Snapshot Chain](../../docs/internals/architecture.md)

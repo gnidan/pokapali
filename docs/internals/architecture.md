@@ -25,7 +25,7 @@ via GossipSub-announced and IPNS-polled snapshot updates.
 | Signaling & discovery | [architecture/signaling.md](architecture/signaling.md)               |
 
 See also: [principles.md](principles.md),
-[deps.md](deps.md), [guide.md](guide.md).
+[deps.md](deps.md), [guide.md](../guide.md).
 
 ---
 

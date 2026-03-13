@@ -7,8 +7,6 @@
  * Usage: npx tsx open.ts <url>
  */
 
-// Replace "file:../../packages/core" with
-// "@pokapali/core" after npm publish.
 import { pokapali } from "@pokapali/core";
 
 const url = process.argv[2];

@@ -1,7 +1,8 @@
 # @pokapali/log
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/log
+```
 
 Zero-dependency structured logging for Pokapali. Provides
 a `createLogger(module)` factory that produces a `Logger`

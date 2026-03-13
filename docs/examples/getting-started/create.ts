@@ -8,8 +8,6 @@
  * Usage: npx tsx create.ts
  */
 
-// Replace "file:../../packages/core" with
-// "@pokapali/core" after npm publish.
 import { pokapali } from "@pokapali/core";
 
 // 1. Initialize the pokapali app.

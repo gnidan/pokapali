@@ -7,7 +7,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettier,
   {
-    ignores: ["**/dist/", "**/node_modules/"],
+    ignores: ["**/dist/", "**/node_modules/", ".worktrees/"],
   },
   {
     rules: {
@@ -21,6 +21,16 @@ export default tseslint.config(
     files: ["**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
+  {
+    files: ["bin/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        URL: "readonly",
+      },
     },
   },
 );

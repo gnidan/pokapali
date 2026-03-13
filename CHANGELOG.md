@@ -27,7 +27,7 @@ The format is based on
 - `docs/api-stability.md` export classification
   (stable / experimental / internal)
 - GitHub Actions publish workflow — tag-triggered npm publish
-  (v* tags)
+  (v\* tags)
 - `bin/version-bump.mjs` — per-package version bumps with
   transitive dependency cascade
 - Package READMEs for @pokapali/comments and @pokapali/test-utils
@@ -39,7 +39,7 @@ The format is based on
 ### Changed
 
 - npm publish: all 10 packages published as
-  @pokapali/* 0.1.0-alpha.0
+  @pokapali/\* 0.1.0-alpha.0
 - Comment creation flow redesigned: select text -> click popover
   -> type in sidebar
 - Docs reorganized: consumer-facing docs at `docs/` top level,
