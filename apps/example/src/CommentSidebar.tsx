@@ -284,7 +284,7 @@ function CommentThread({
 export function CommentSidebar({
   comments,
   myPubkey,
-  hasSelection,
+  hasPendingAnchor,
   onAddComment,
   onAddReply,
   onResolve,
@@ -296,8 +296,8 @@ export function CommentSidebar({
 }: {
   comments: Comment<CommentData>[];
   myPubkey: string | null;
-  /** True if editor has a text selection. */
-  hasSelection: boolean;
+  /** True if a pending anchor is captured. */
+  hasPendingAnchor: boolean;
   onAddComment: (content: string) => void;
   onAddReply: (parentId: string, content: string) => void;
   onResolve: (id: string) => void;
@@ -335,7 +335,7 @@ export function CommentSidebar({
       </div>
 
       <div className="cs-sidebar-body">
-        {hasSelection && myPubkey && (
+        {hasPendingAnchor && myPubkey && (
           <div className="cs-new-comment">
             <CommentInput
               placeholder="Comment on selection…"
@@ -344,8 +344,10 @@ export function CommentSidebar({
           </div>
         )}
 
-        {!hasSelection && myPubkey && (
-          <div className="cs-selection-hint">Select text to add a comment</div>
+        {!hasPendingAnchor && myPubkey && (
+          <div className="cs-selection-hint">
+            Select text and click 💬 to add a comment
+          </div>
         )}
 
         {openComments.length === 0 && resolvedComments.length === 0 && (

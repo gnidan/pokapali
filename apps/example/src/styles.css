@@ -1891,6 +1891,52 @@ body {
   border-bottom-color: #f59e0b;
 }
 
+/* ── Comment popover ─────────────────────────── */
+
+.comment-popover {
+  z-index: 20;
+  pointer-events: auto;
+  animation: popover-fade-in 0.1s ease-out;
+}
+
+@keyframes popover-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.comment-popover-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+
+.comment-popover-btn:hover {
+  background: #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.pending-anchor {
+  background: rgba(96, 165, 250, 0.25);
+  border-bottom: 2px solid rgba(96, 165, 250, 0.6);
+}
+
 /* ── Comment sidebar ──────────────────────────── */
 
 .cs-sidebar {
