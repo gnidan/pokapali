@@ -41,7 +41,8 @@ export function anchorFromRelativePositions(
  * RelativePositions, use anchorFromRelativePositions().
  */
 export function createAnchor(
-  contentType: Y.AbstractType<unknown>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contentType: Y.AbstractType<any>,
   startIdx: number,
   endIdx: number,
 ): Anchor {
@@ -60,13 +61,14 @@ export function createAnchor(
  */
 export function resolveAnchor(
   contentDoc: Y.Doc,
-  contentType: Y.AbstractType<unknown>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contentType: Y.AbstractType<any>,
   startBytes: Uint8Array,
   endBytes: Uint8Array,
 ): ResolvedAnchor {
   // If the content type has no content, content
   // hasn't loaded yet.
-  if (contentType.length === 0) {
+  if (contentType._length === 0) {
     return { status: "pending" };
   }
 
