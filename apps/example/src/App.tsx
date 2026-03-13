@@ -21,14 +21,19 @@ function getApp() {
   if (import.meta.hot?.data.app) {
     return import.meta.hot.data.app as ReturnType<typeof pokapali>;
   }
-  const noCache =
-    new URLSearchParams(window.location.search).get("noCache") === "1";
+  const params = new URLSearchParams(window.location.search);
+  const noCache = params.get("noCache") === "1";
+  const peersParam = params.get("bootstrapPeers");
+  const bootstrapPeers = peersParam
+    ? peersParam.split(",").filter(Boolean)
+    : undefined;
   const instance = pokapali({
     appId: "pokapali-example",
     channels: ["content", "comments"],
     origin:
       window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
     persistence: !noCache,
+    ...(bootstrapPeers ? { bootstrapPeers } : {}),
   });
   if (import.meta.hot) {
     import.meta.hot.data.app = instance;

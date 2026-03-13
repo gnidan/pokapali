@@ -23,10 +23,12 @@ function CopyRow({
   label,
   description,
   value,
+  testId,
 }: {
   label: string;
   description: string;
   value: string;
+  testId?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -69,7 +71,7 @@ function CopyRow({
           }}
           onBlur={() => setFocused(false)}
         />
-        <button className="copy-btn" onClick={copy}>
+        <button className="copy-btn" onClick={copy} data-testid={testId}>
           {copied ? "Copied!" : "Copy link"}
         </button>
         <button
@@ -96,6 +98,7 @@ export const SharePanel = forwardRef<HTMLDivElement, { doc: Doc }>(
         tabIndex={-1}
         role="region"
         aria-label="Share panel"
+        data-testid="share-panel"
       >
         <h2>Share this document</h2>
         {doc.urls.admin && (
@@ -105,6 +108,7 @@ export const SharePanel = forwardRef<HTMLDivElement, { doc: Doc }>(
               "Full control \u2014 can edit, publish," + " and manage access"
             }
             value={doc.urls.admin}
+            testId="copy-admin"
           />
         )}
         {doc.urls.write && (
@@ -112,12 +116,14 @@ export const SharePanel = forwardRef<HTMLDivElement, { doc: Doc }>(
             label="Write"
             description={"Can edit the document and publish" + " snapshots"}
             value={doc.urls.write}
+            testId="copy-write"
           />
         )}
         <CopyRow
           label="Read"
           description="View only — cannot make changes"
           value={doc.urls.read}
+          testId="copy-read"
         />
       </div>
     );
