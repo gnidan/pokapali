@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   generateAdminSecret,
+  generateIdentityKeypair,
   deriveDocKeys,
   deriveMetaRoomPassword,
   encryptSubdoc,
@@ -200,6 +201,30 @@ describe("Ed25519", () => {
     const tampered = new TextEncoder().encode("tampered");
     const valid = await verifySignature(kp.publicKey, sig, tampered);
     expect(valid).toBe(false);
+  });
+});
+
+describe("generateIdentityKeypair", () => {
+  it("returns a valid Ed25519 keypair", async () => {
+    const kp = await generateIdentityKeypair();
+    expect(kp.publicKey).toBeInstanceOf(Uint8Array);
+    expect(kp.privateKey).toBeInstanceOf(Uint8Array);
+    expect(kp.publicKey.length).toBe(32);
+    expect(kp.privateKey.length).toBe(32);
+  });
+
+  it("produces different keypairs each call", async () => {
+    const a = await generateIdentityKeypair();
+    const b = await generateIdentityKeypair();
+    expect(arraysEqual(a.publicKey, b.publicKey)).toBe(false);
+  });
+
+  it("keypair can sign and verify", async () => {
+    const kp = await generateIdentityKeypair();
+    const data = new TextEncoder().encode("identity test");
+    const sig = await signBytes(kp, data);
+    const valid = await verifySignature(kp.publicKey, sig, data);
+    expect(valid).toBe(true);
   });
 });
 

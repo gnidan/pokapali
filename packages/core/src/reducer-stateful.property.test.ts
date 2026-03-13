@@ -611,9 +611,13 @@ describe("stateful reducer properties", () => {
           expect(state.saveState).toBe("saving");
         }
         // If isDirty and not saving,
-        // saveState must be "dirty"
+        // saveState must be "dirty" or "save-error"
         if (state.content.isDirty && !state.content.isSaving) {
-          expect(state.saveState).toBe("dirty");
+          if (state.content.lastSaveError) {
+            expect(state.saveState).toBe("save-error");
+          } else {
+            expect(state.saveState).toBe("dirty");
+          }
         }
       }),
       { numRuns: NUM_RUNS },
@@ -629,10 +633,11 @@ describe("stateful reducer properties", () => {
         }
 
         const g = state.connectivity.gossip;
-        // If receiving, lastMessageAt must be
-        // non-zero (a gossip-message was seen)
+        // If receiving, lastMessageAt must have been
+        // set (a gossip-message was seen). ts=0 is
+        // valid in tests, so check defined, not > 0.
         if (g.activity === "receiving") {
-          expect(g.lastMessageAt).toBeGreaterThan(0);
+          expect(g.lastMessageAt).toBeGreaterThanOrEqual(0);
         }
         // subscribed flag must be true if
         // activity is "subscribed"

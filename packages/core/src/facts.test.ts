@@ -12,7 +12,10 @@ import { sha256 } from "multiformats/hashes/sha2";
 import {
   initialDocState,
   versionHistory,
+  deriveVersionHistory,
   bestGuarantee,
+  isGuaranteeActive,
+  CLOCK_SKEW_TOLERANCE_MS,
   INITIAL_CHAIN,
   INITIAL_CONNECTIVITY,
   INITIAL_CONTENT,
@@ -263,5 +266,234 @@ describe("bestGuarantee", () => {
       guaranteeUntil: 0,
       retainUntil: 0,
     });
+  });
+});
+
+describe("CLOCK_SKEW_TOLERANCE_MS", () => {
+  it("is 5 minutes", () => {
+    expect(CLOCK_SKEW_TOLERANCE_MS).toBe(5 * 60 * 1000);
+  });
+});
+
+describe("isGuaranteeActive", () => {
+  it("returns true when guarantee is in the future", () => {
+    const now = Date.now();
+    expect(isGuaranteeActive(now + 60_000, now)).toBe(true);
+  });
+
+  it("returns false when guarantee expired", () => {
+    const now = Date.now();
+    expect(isGuaranteeActive(now - 600_000, now)).toBe(false);
+  });
+
+  it("returns true within tolerance window", () => {
+    const now = Date.now();
+    // Expired 3 min ago — within 5 min tolerance
+    expect(isGuaranteeActive(now - 3 * 60_000, now)).toBe(true);
+  });
+
+  it("returns false beyond tolerance window", () => {
+    const now = Date.now();
+    // Expired 6 min ago — beyond 5 min tolerance
+    expect(isGuaranteeActive(now - 6 * 60_000, now)).toBe(false);
+  });
+
+  it("returns false for zero timestamp", () => {
+    expect(isGuaranteeActive(0, Date.now())).toBe(false);
+  });
+
+  it("uses Date.now() when now not provided", () => {
+    // Far future — should be active
+    expect(isGuaranteeActive(Date.now() + 3_600_000)).toBe(true);
+  });
+});
+
+describe("deriveVersionHistory", () => {
+  it("returns empty for null chain", () => {
+    const h = deriveVersionHistory(null);
+    expect(h.entries).toEqual([]);
+    expect(h.walking).toBe(false);
+  });
+
+  it("returns empty for initial chain", () => {
+    const h = deriveVersionHistory(INITIAL_CHAIN);
+    expect(h.entries).toEqual([]);
+    expect(h.walking).toBe(false);
+  });
+
+  it("includes entries with seq, sorted desc", async () => {
+    const cidA = await fakeCid(30);
+    const cidB = await fakeCid(31);
+    const chain: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [
+          cidA.toString(),
+          fakeEntry(cidA, {
+            seq: 1,
+            ts: 100,
+            blockStatus: "applied",
+          }),
+        ],
+        [
+          cidB.toString(),
+          fakeEntry(cidB, {
+            seq: 3,
+            ts: 300,
+            blockStatus: "fetched",
+          }),
+        ],
+      ]),
+    };
+    const h = deriveVersionHistory(chain);
+    expect(h.entries).toHaveLength(2);
+    expect(h.entries[0].seq).toBe(3);
+    expect(h.entries[0].status).toBe("available");
+    expect(h.entries[1].seq).toBe(1);
+    expect(h.entries[1].status).toBe("available");
+    expect(h.walking).toBe(false);
+  });
+
+  it("maps blockStatus to status correctly", async () => {
+    const cidA = await fakeCid(40);
+    const cidB = await fakeCid(41);
+    const cidC = await fakeCid(42);
+    const chain: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [
+          cidA.toString(),
+          fakeEntry(cidA, {
+            seq: 3,
+            blockStatus: "fetched",
+          }),
+        ],
+        [
+          cidB.toString(),
+          fakeEntry(cidB, {
+            seq: 2,
+            blockStatus: "unknown",
+          }),
+        ],
+        [
+          cidC.toString(),
+          fakeEntry(cidC, {
+            seq: 1,
+            blockStatus: "failed",
+          }),
+        ],
+      ]),
+    };
+    const h = deriveVersionHistory(chain);
+    expect(h.entries[0].status).toBe("available");
+    expect(h.entries[1].status).toBe("loading");
+    expect(h.entries[2].status).toBe("failed");
+  });
+
+  it("sets walking=true when unknown entries", async () => {
+    const cid = await fakeCid(50);
+    const chain: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [
+          cid.toString(),
+          fakeEntry(cid, {
+            seq: 1,
+            blockStatus: "unknown",
+          }),
+        ],
+      ]),
+    };
+    const h = deriveVersionHistory(chain);
+    expect(h.walking).toBe(true);
+  });
+
+  it("sets walking=true when fetching entries", async () => {
+    const cid = await fakeCid(51);
+    const chain: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [
+          cid.toString(),
+          fakeEntry(cid, {
+            seq: 1,
+            blockStatus: "fetching",
+          }),
+        ],
+      ]),
+    };
+    const h = deriveVersionHistory(chain);
+    expect(h.walking).toBe(true);
+  });
+
+  it("merges interpreter + local chain", async () => {
+    const cidA = await fakeCid(60);
+    const cidB = await fakeCid(61);
+    const interpreter: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [
+          cidA.toString(),
+          fakeEntry(cidA, {
+            seq: 1,
+            ts: 100,
+            blockStatus: "applied",
+          }),
+        ],
+      ]),
+    };
+    const local: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [cidA.toString(), fakeEntry(cidA, { seq: 1, ts: 100 })],
+        [
+          cidB.toString(),
+          fakeEntry(cidB, {
+            seq: 2,
+            ts: 200,
+            blockStatus: "fetched",
+          }),
+        ],
+      ]),
+    };
+    const h = deriveVersionHistory(interpreter, local);
+    expect(h.entries).toHaveLength(2);
+    // cidB only in local chain
+    expect(h.entries[0].seq).toBe(2);
+    // cidA from interpreter (authoritative)
+    expect(h.entries[1].seq).toBe(1);
+    expect(h.entries[1].status).toBe("available");
+  });
+
+  it("interpreter chain takes precedence", async () => {
+    const cid = await fakeCid(70);
+    const interpreter: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [
+          cid.toString(),
+          fakeEntry(cid, {
+            seq: 1,
+            blockStatus: "applied",
+          }),
+        ],
+      ]),
+    };
+    const local: ChainState = {
+      ...INITIAL_CHAIN,
+      entries: new Map([
+        [
+          cid.toString(),
+          fakeEntry(cid, {
+            seq: 1,
+            blockStatus: "fetched",
+          }),
+        ],
+      ]),
+    };
+    const h = deriveVersionHistory(interpreter, local);
+    expect(h.entries).toHaveLength(1);
+    // Should use interpreter status, not local
+    expect(h.entries[0].status).toBe("available");
   });
 });

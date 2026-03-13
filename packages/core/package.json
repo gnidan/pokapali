@@ -24,9 +24,9 @@
       "types": "./dist/src/block-upload.d.ts",
       "default": "./dist/src/block-upload.js"
     },
-    "./snapshot-lifecycle": {
-      "types": "./dist/src/snapshot-lifecycle.d.ts",
-      "default": "./dist/src/snapshot-lifecycle.js"
+    "./snapshot-codec": {
+      "types": "./dist/src/snapshot-codec.d.ts",
+      "default": "./dist/src/snapshot-codec.js"
     },
     "./ipns-helpers": {
       "types": "./dist/src/ipns-helpers.d.ts",

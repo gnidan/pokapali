@@ -15,6 +15,10 @@ export interface SnapshotNode {
   ts: number;
   publicKey: Uint8Array;
   signature: Uint8Array;
+  /** Publisher's Ed25519 identity public key. */
+  publisher?: Uint8Array;
+  /** Publisher signs (publicKey, seq, ts). */
+  publisherSig?: Uint8Array;
 }
 
 // The payload that gets signed (everything
@@ -25,6 +29,15 @@ interface SignablePayload {
   seq: number;
   ts: number;
   publicKey: Uint8Array;
+  publisher?: Uint8Array;
+  publisherSig?: Uint8Array;
+}
+
+// What the publisher's identity key signs.
+interface PublisherSignablePayload {
+  publicKey: Uint8Array;
+  seq: number;
+  ts: number;
 }
 
 export async function encodeSnapshot(
@@ -34,6 +47,7 @@ export async function encodeSnapshot(
   seq: number,
   ts: number,
   signingKey: Ed25519KeyPair,
+  identityKey?: Ed25519KeyPair,
 ): Promise<Uint8Array> {
   // Encrypt each subdoc payload
   const subdocs: Record<string, Uint8Array> = {};
@@ -49,6 +63,20 @@ export async function encodeSnapshot(
     publicKey: signingKey.publicKey,
   };
 
+  // Publisher signs (publicKey, seq, ts) first
+  if (identityKey) {
+    const pubPayload: PublisherSignablePayload = {
+      publicKey: signingKey.publicKey,
+      seq,
+      ts,
+    };
+    const pubBytes = dagCbor.encode(pubPayload);
+    payload.publisher = identityKey.publicKey;
+    payload.publisherSig = await signBytes(identityKey, pubBytes);
+  }
+
+  // Doc key signs the full payload (including
+  // publisher/publisherSig if present)
   const payloadBytes = dagCbor.encode(payload);
   const signature = await signBytes(signingKey, payloadBytes);
 
@@ -84,9 +112,43 @@ export async function validateStructure(block: Uint8Array): Promise<boolean> {
       ts: node.ts,
       publicKey: node.publicKey,
     };
+
+    // Include publisher fields in doc-sig payload
+    // if present
+    if (node.publisher) {
+      // publisher without publisherSig is invalid —
+      // reject unproven publisher claims
+      if (!node.publisherSig) return false;
+      payload.publisher = node.publisher;
+      payload.publisherSig = node.publisherSig;
+    }
+
     const payloadBytes = dagCbor.encode(payload);
 
-    return verifySignature(node.publicKey, node.signature, payloadBytes);
+    const docSigValid = await verifySignature(
+      node.publicKey,
+      node.signature,
+      payloadBytes,
+    );
+    if (!docSigValid) return false;
+
+    // Verify publisher signature if present
+    if (node.publisher && node.publisherSig) {
+      const pubPayload: PublisherSignablePayload = {
+        publicKey: node.publicKey,
+        seq: node.seq,
+        ts: node.ts,
+      };
+      const pubBytes = dagCbor.encode(pubPayload);
+      const pubSigValid = await verifySignature(
+        node.publisher,
+        node.publisherSig,
+        pubBytes,
+      );
+      if (!pubSigValid) return false;
+    }
+
+    return true;
   } catch {
     return false;
   }

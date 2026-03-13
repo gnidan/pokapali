@@ -171,16 +171,31 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
         blockStatus: "fetched" as const,
         prev: fact.prev,
         seq: e.seq ?? fact.seq,
+        ts: e.ts ?? fact.snapshotTs,
       }),
     );
-    // Chain walk: discover prev CID
+    // Chain walk: discover prev CID.
+    // Infer seq from parent: if parent has seq=N,
+    // prev must be seq=N-1 (sequential, single-
+    // writer, linear chain). This makes chain-walk
+    // entries immediately visible in versionHistory()
+    // instead of waiting for their block to be
+    // fetched and decoded.
     if (fact.prev) {
       const prevKey = fact.prev.toString();
       if (!next.entries.has(prevKey)) {
+        const parentSeq = resolvedSeq;
+        const inferredSeq = parentSeq != null ? parentSeq - 1 : undefined;
+        const walkMaxSeq =
+          inferredSeq != null
+            ? Math.max(next.maxSeq, inferredSeq)
+            : next.maxSeq;
         next = {
           ...next,
+          maxSeq: walkMaxSeq,
           entries: mapSet(next.entries, prevKey, {
             cid: fact.prev,
+            seq: inferredSeq,
             discoveredVia: new Set<CidSource>(["chain-walk"]),
             blockStatus: "unknown",
             fetchAttempt: 0,
@@ -194,12 +209,14 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
   }
 
   if (fact.type === "block-fetch-failed") {
-    return updateEntry(state, fact.cid, (e) => ({
-      ...e,
-      blockStatus: "failed",
-      fetchAttempt: fact.attempt,
-      lastError: fact.error,
-    }));
+    return withNewestFetched(
+      updateEntry(state, fact.cid, (e) => ({
+        ...e,
+        blockStatus: "failed",
+        fetchAttempt: fact.attempt,
+        lastError: fact.error,
+      })),
+    );
   }
 
   if (fact.type === "tip-advanced") {
@@ -340,6 +357,7 @@ export function reduceContent(state: ContentState, fact: Fact): ContentState {
       ...state,
       clockSum: fact.clockSum,
       isDirty: true,
+      lastSaveError: null,
     };
   }
 
@@ -353,11 +371,16 @@ export function reduceContent(state: ContentState, fact: Fact): ContentState {
       isSaving: false,
       isDirty: false,
       ipnsSeq: fact.seq,
+      lastSaveError: null,
     };
   }
 
   if (fact.type === "publish-failed") {
-    return { ...state, isSaving: false };
+    return {
+      ...state,
+      isSaving: false,
+      lastSaveError: fact.error,
+    };
   }
 
   return state;
@@ -469,6 +492,7 @@ export function deriveSaveState(
   chain: ChainState,
 ): SaveState {
   if (content.isSaving) return "saving";
+  if (content.lastSaveError) return "save-error";
   if (content.isDirty) return "dirty";
   if (chain.tip) return "saved";
   return "unpublished";

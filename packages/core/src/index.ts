@@ -395,13 +395,20 @@ export type {
   SnapshotEvent,
   VersionInfo,
   ParticipantInfo,
+  ClientIdentityInfo,
 } from "./create-doc.js";
 
 export type { Feed } from "./sources.js";
 
 export type { RotateResult } from "./doc-rotate.js";
 
-export type { GossipActivity, LoadingState } from "./facts.js";
+export type {
+  GossipActivity,
+  LoadingState,
+  VersionHistory,
+  VersionHistoryEntry,
+  VersionEntryStatus,
+} from "./facts.js";
 
 export { fetchVersionHistory } from "./fetch-version-history.js";
 export type { VersionEntry, VersionTier } from "./fetch-version-history.js";

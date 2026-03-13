@@ -3,9 +3,16 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+import * as Y from "yjs";
 import type { Doc as YDoc } from "yjs";
 import type { Doc, VersionEntry } from "@pokapali/core";
 import { createAutoSaver, docIdFromUrl } from "@pokapali/core";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — y-prosemirror has no type declarations
+import {
+  absolutePositionToRelativePosition,
+  ySyncPluginKey,
+} from "y-prosemirror";
 import { StatusIndicator } from "./StatusIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
 import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
@@ -13,6 +20,19 @@ import { SharePanel } from "./SharePanel";
 import { VersionHistory } from "./VersionHistory";
 import { VersionPreviewOverlay } from "./VersionPreviewOverlay";
 import { useVersionHistory } from "./useVersionHistory";
+import { CommentSidebar } from "./CommentSidebar";
+import { CommentPopover } from "./CommentPopover";
+import { useComments } from "./useComments";
+import type { Anchor } from "./pendingAnchorHighlight";
+import {
+  PendingAnchorHighlight,
+  setPendingAnchorDecoration,
+  clearPendingAnchorDecoration,
+} from "./pendingAnchorHighlight";
+import {
+  CommentHighlight,
+  rebuildCommentDecorations,
+} from "./commentHighlight";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -32,6 +52,11 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
   const [showShare, setShowShare] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
+    null,
+  );
+  const [pendingAnchor, setPendingAnchor] = useState<Anchor | null>(null);
   const [previewVersion, setPreviewVersion] = useState<{
     entry: VersionEntry;
     ydoc: YDoc;
@@ -58,6 +83,16 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   // Preload version history on doc open so the
   // drawer opens instantly when the user clicks History.
   const versionHistory = useVersionHistory(doc);
+
+  const {
+    comments: commentList,
+    addComment,
+    addReply,
+    resolveComment,
+    reopenComment,
+    deleteComment,
+    commentsDoc,
+  } = useComments(doc);
 
   const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
@@ -148,11 +183,46 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
               },
               render: renderCursor,
             }),
+            CommentHighlight.configure({
+              commentsDoc: commentsDoc ?? null,
+              contentDoc,
+              activeCommentId: selectedCommentId,
+            }),
+            PendingAnchorHighlight,
           ]
         : [StarterKit.configure({ history: false })],
     },
-    [doc, shouldMount],
+    [doc, shouldMount, commentsDoc],
   );
+
+  const handlePopoverComment = useCallback(() => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+
+    const syncState = ySyncPluginKey.getState(editor.state);
+    if (!syncState?.mapping) return;
+
+    const { type, mapping } = syncState;
+    const startRel = absolutePositionToRelativePosition(from, type, mapping);
+    const endRel = absolutePositionToRelativePosition(to, type, mapping);
+    if (!startRel || !endRel) return;
+
+    const anchor: Anchor = {
+      start: Y.encodeRelativePosition(startRel),
+      end: Y.encodeRelativePosition(endRel),
+    };
+
+    setPendingAnchor(anchor);
+    setPendingAnchorDecoration(editor.view, anchor);
+    setShowComments(true);
+  }, [editor]);
+
+  // Rebuild comment decorations when comments change
+  useEffect(() => {
+    if (!editor?.view) return;
+    rebuildCommentDecorations(editor.view);
+  }, [editor, commentList]);
 
   useEffect(() => {
     const displayName = user.name || "Anonymous";
@@ -233,6 +303,25 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const closePreview = useCallback(() => {
     setPreviewVersion(null);
   }, []);
+
+  const handleAddComment = useCallback(
+    (content: string) => {
+      if (!pendingAnchor) return;
+      addComment(content, pendingAnchor);
+      setPendingAnchor(null);
+      if (editor?.view) {
+        clearPendingAnchorDecoration(editor.view);
+      }
+    },
+    [editor, addComment, pendingAnchor],
+  );
+
+  const handleAddReply = useCallback(
+    (parentId: string, content: string) => {
+      addReply(parentId, content);
+    },
+    [addReply],
+  );
 
   useEffect(() => {
     if (showShare && sharePanelRef.current) {
@@ -356,6 +445,17 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         >
           {showHistory ? "Hide history" : "History"}
         </button>
+        <button
+          className="toggle-comments"
+          onClick={() => setShowComments((s) => !s)}
+          aria-expanded={showComments}
+          aria-label={showComments ? "Hide comments" : "Open comments"}
+        >
+          {showComments ? "Hide comments" : "Comments"}
+          {commentList.length > 0 && (
+            <span className="comment-count-badge">{commentList.length}</span>
+          )}
+        </button>
       </div>
 
       {showShare && <SharePanel ref={sharePanelRef} doc={doc} />}
@@ -379,6 +479,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
           )}
         </div>
 
+        {!isReadOnly && !pendingAnchor && (
+          <CommentPopover onComment={handlePopoverComment} />
+        )}
+
         {previewVersion && (
           <VersionPreviewOverlay
             doc={doc}
@@ -396,6 +500,22 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             onClose={() => setShowHistory(false)}
             onPreview={handleVersionPreview}
             onClosePreview={closePreview}
+          />
+        )}
+
+        {showComments && (
+          <CommentSidebar
+            comments={commentList}
+            myPubkey={doc.identityPubkey}
+            hasPendingAnchor={pendingAnchor != null}
+            onAddComment={handleAddComment}
+            onAddReply={handleAddReply}
+            onResolve={resolveComment}
+            onReopen={reopenComment}
+            onDelete={deleteComment}
+            onClose={() => setShowComments(false)}
+            selectedId={selectedCommentId}
+            onSelect={setSelectedCommentId}
           />
         )}
       </div>

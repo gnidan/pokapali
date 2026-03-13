@@ -156,6 +156,16 @@ export interface Ed25519KeyPair {
   privateKey: Uint8Array;
 }
 
+/**
+ * Generate a random Ed25519 identity keypair.
+ * Device-generated, not derived from a doc secret.
+ */
+export async function generateIdentityKeypair(): Promise<Ed25519KeyPair> {
+  const seed = new Uint8Array(32);
+  crypto.getRandomValues(seed);
+  return ed25519KeyPairFromSeed(seed);
+}
+
 export async function ed25519KeyPairFromSeed(
   seed: Uint8Array,
 ): Promise<Ed25519KeyPair> {

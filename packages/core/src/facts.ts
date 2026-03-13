@@ -17,9 +17,11 @@ import type { KnownNode } from "./node-registry.js";
 export type CidSource =
   | "gossipsub"
   | "ipns"
+  | "http-tip"
   | "reannounce"
   | "chain-walk"
-  | "pinner-index";
+  | "pinner-index"
+  | "cache";
 
 export type Fact =
   // --- Chain discovery ---
@@ -40,6 +42,7 @@ export type Fact =
       block: Uint8Array;
       prev?: CID;
       seq?: number;
+      snapshotTs?: number;
     }
   | {
       type: "block-fetch-failed";
@@ -152,7 +155,12 @@ export type Fact =
 
 export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
 
-export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
+export type SaveState =
+  | "saved"
+  | "unpublished"
+  | "saving"
+  | "dirty"
+  | "save-error";
 
 export type DocRole = "admin" | "writer" | "reader";
 
@@ -250,6 +258,9 @@ export interface ContentState {
   isDirty: boolean;
   isSaving: boolean;
   ipnsSeq: number | null;
+  /** Error message from the last failed publish,
+   *  or null if the last publish succeeded. */
+  lastSaveError: string | null;
 }
 
 export interface AnnounceState {
@@ -286,6 +297,7 @@ export const INITIAL_CONTENT: ContentState = {
   isDirty: false,
   isSaving: false,
   ipnsSeq: null,
+  lastSaveError: null,
 };
 
 /** Shared empty set — avoids repeat allocations. */
@@ -351,6 +363,84 @@ export function versionHistory(chain: ChainState): VersionSummary[] {
     }));
 }
 
+// ------------------------------------------------
+// Reactive version history (Feed-oriented)
+// ------------------------------------------------
+
+export type VersionEntryStatus = "available" | "loading" | "failed";
+
+export interface VersionHistoryEntry {
+  cid: CID;
+  seq: number;
+  ts: number;
+  status: VersionEntryStatus;
+}
+
+export interface VersionHistory {
+  /** Known versions, sorted by seq desc.
+   *  Includes loading/failed entries. */
+  readonly entries: ReadonlyArray<VersionHistoryEntry>;
+  /** True while chain-walk is in progress
+   *  (entries with unknown/fetching blocks). */
+  readonly walking: boolean;
+}
+
+function entryStatus(bs: ChainEntry["blockStatus"]): VersionEntryStatus {
+  if (bs === "fetched" || bs === "applied") {
+    return "available";
+  }
+  if (bs === "failed") return "failed";
+  return "loading";
+}
+
+/** Derive a reactive VersionHistory from one or two
+ *  chain states (interpreter + optional localChain).
+ */
+export function deriveVersionHistory(
+  chain: ChainState | null,
+  localChain?: ChainState | null,
+): VersionHistory {
+  const seen = new Map<string, VersionHistoryEntry>();
+  let walking = false;
+
+  // Interpreter chain — authoritative.
+  if (chain) {
+    for (const e of chain.entries.values()) {
+      if (e.seq == null) continue;
+      const s = entryStatus(e.blockStatus);
+      if (s === "loading") walking = true;
+      seen.set(e.cid.toString(), {
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts ?? 0,
+        status: s,
+      });
+    }
+  }
+
+  // Local chain — fills in recent publishes the
+  // interpreter hasn't processed yet.
+  if (localChain) {
+    for (const e of localChain.entries.values()) {
+      if (e.seq == null) continue;
+      const key = e.cid.toString();
+      if (seen.has(key)) continue;
+      const s = entryStatus(e.blockStatus);
+      if (s === "loading") walking = true;
+      seen.set(key, {
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts ?? 0,
+        status: s,
+      });
+    }
+  }
+
+  const entries = [...seen.values()].sort((a, b) => b.seq - a.seq);
+
+  return { entries, walking };
+}
+
 export interface BestGuarantee {
   guaranteeUntil: number;
   retainUntil: number;
@@ -366,4 +456,25 @@ export function bestGuarantee(chain: ChainState): BestGuarantee {
     }
   }
   return { guaranteeUntil: g, retainUntil: r };
+}
+
+/** Tolerance for clock skew between peers (5 min). */
+export const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * Check whether a guarantee timestamp is still active,
+ * accounting for clock skew between peers.
+ *
+ * A pinner whose clock is ahead will issue guarantees
+ * that appear to expire early from the browser's
+ * perspective. The tolerance window prevents false
+ * "expired" status from minor clock drift.
+ */
+export function isGuaranteeActive(
+  guaranteeUntil: number,
+  now?: number,
+): boolean {
+  if (guaranteeUntil === 0) return false;
+  const t = now ?? Date.now();
+  return guaranteeUntil + CLOCK_SKEW_TOLERANCE_MS > t;
 }

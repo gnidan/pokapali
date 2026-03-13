@@ -18,6 +18,9 @@ import type {
   GossipActivity,
 } from "./facts.js";
 import type { AsyncQueue } from "./sources.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("interpreter");
 
 // ------------------------------------------------
 // EffectHandlers — injected dependency
@@ -29,10 +32,11 @@ export interface EffectHandlers {
   applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }>;
   getBlock(cid: CID): Uint8Array | null;
 
-  // Decode snapshot metadata (prev, seq, publisher)
+  // Decode snapshot metadata (prev, seq, ts, publisher)
   decodeBlock(block: Uint8Array): {
     prev?: CID;
     seq?: number;
+    snapshotTs?: number;
     /** Hex-encoded publisher identity pubkey,
      *  if present and signature valid. */
     publisher?: string;
@@ -73,7 +77,9 @@ export interface EffectHandlers {
 const AUTO_FETCH_SOURCES: ReadonlySet<CidSource> = new Set([
   "gossipsub",
   "ipns",
+  "http-tip",
   "reannounce",
+  "chain-walk",
 ]);
 
 export function shouldAutoFetch(entry: ChainEntry): boolean {
@@ -111,6 +117,7 @@ function dispatchFetch(
           block,
           prev: decoded.prev,
           seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
         });
       } else {
         feedback.push({
@@ -231,10 +238,61 @@ export async function runInterpreter(
       // Only fetch if entry just became unknown
       // (new discovery or retry reset)
       if (prevEntry?.blockStatus === "unknown") continue;
-      // Only auto-fetch tip-candidate sources
-      if (!shouldAutoFetch(entry)) continue;
+      // Only auto-fetch tip-candidate sources.
+      // Exception: cache-sourced entries that are
+      // the newest seq get fetched so the editor
+      // has its block on reload.
+      if (!shouldAutoFetch(entry)) {
+        const isNewestCached =
+          entry.discoveredVia.has("cache") &&
+          entry.seq !== undefined &&
+          entry.seq === next.chain.maxSeq;
+        if (!isNewestCached) continue;
+      }
+
+      // Fast path: if the block is already cached
+      // locally (e.g. from a prior publish or
+      // loadVersion), skip the async fetch and emit
+      // block-fetched immediately. This collapses
+      // chain walks to microtask speed for cached
+      // blocks, preventing UI flicker.
+      const cached = effects.getBlock(entry.cid);
+      if (cached) {
+        const decoded = effects.decodeBlock(cached);
+        feedback.push({
+          type: "block-fetched",
+          ts: Date.now(),
+          cid: entry.cid,
+          block: cached,
+          prev: decoded.prev,
+          seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
+        });
+        continue;
+      }
 
       dispatchFetch(entry.cid, entry, effects, feedback);
+    }
+
+    // --- Decode inline blocks for chain discovery ---
+    // When cid-discovered arrives with an inline
+    // block, the reducer marks it "fetched" but
+    // doesn't extract prev/ts. Emit a synthetic
+    // block-fetched so the reducer discovers the
+    // chain-walk prev link.
+    if (fact.type === "cid-discovered" && fact.block) {
+      const decoded = effects.decodeBlock(fact.block);
+      if (decoded.prev || decoded.snapshotTs) {
+        feedback.push({
+          type: "block-fetched",
+          ts: Date.now(),
+          cid: fact.cid,
+          block: fact.block,
+          prev: decoded.prev,
+          seq: decoded.seq,
+          snapshotTs: decoded.snapshotTs,
+        });
+      }
     }
 
     // --- Apply newest fetched CID as tip ---
@@ -278,6 +336,11 @@ export async function runInterpreter(
           cid: fact.cid,
           seq: fact.seq,
         });
+      } else {
+        log.warn(
+          "announce skipped: block not cached",
+          fact.cid.toString().slice(0, 16) + "...",
+        );
       }
     }
 
@@ -294,6 +357,11 @@ export async function runInterpreter(
           cid,
           seq: entry?.seq ?? 0,
         });
+      } else {
+        log.warn(
+          "reannounce skipped: block not cached",
+          cid.toString().slice(0, 16) + "...",
+        );
       }
     }
 
@@ -304,6 +372,11 @@ export async function runInterpreter(
       if (block) {
         const entry = next.chain.entries.get(cid.toString());
         effects.announce(cid, block, entry?.seq ?? 0);
+      } else {
+        log.warn(
+          "relay-connect announce skipped:" + " block not cached",
+          cid.toString().slice(0, 16) + "...",
+        );
       }
     }
 

@@ -6,7 +6,7 @@ import type {
   CapabilityKeys,
 } from "@pokapali/capability";
 import { narrowCapability, buildUrl } from "@pokapali/capability";
-import { hexToBytes, bytesToHex } from "@pokapali/crypto";
+import { hexToBytes, bytesToHex, verifySignature } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
@@ -31,10 +31,13 @@ import {
   MAX_INLINE_BLOCK_BYTES,
 } from "./announce.js";
 import { uploadBlock } from "./block-upload.js";
-import { fetchBlock as fetchBlockFromNetwork } from "./fetch-block.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { DocPersistence } from "./persistence.js";
-import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
+import { createBlockResolver } from "./block-resolver.js";
+import { createSnapshotCodec } from "./snapshot-codec.js";
+import { readVersionCache, writeVersionCache } from "./version-cache.js";
+import type { CachedVersionEntry } from "./version-cache.js";
+import { fetchTipFromPinners } from "./fetch-tip.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -57,17 +60,24 @@ import {
   createFeed,
 } from "./sources.js";
 import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
-import { reduce } from "./reducers.js";
-import { initialDocState, bestGuarantee, EMPTY_SET } from "./facts.js";
+import { reduce, reduceChain } from "./reducers.js";
+import {
+  initialDocState,
+  bestGuarantee,
+  deriveVersionHistory,
+  EMPTY_SET,
+} from "./facts.js";
 import type {
   Fact,
   DocState,
+  ChainState,
   DocStatus,
   SaveState,
   DocRole,
   SyncStatus,
   LoadingState,
   GossipActivity,
+  VersionHistory,
 } from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
@@ -118,6 +128,10 @@ export interface Doc {
   readonly status: Feed<DocStatus>;
   /** Reactive save-state feed (useSyncExternalStore). */
   readonly saveState: Feed<SaveState>;
+  /** Error message from the last failed save,
+   *  or null. Cleared on next edit or successful
+   *  save. Present when saveState is "save-error". */
+  readonly lastSaveError: string | null;
   /** Peer IDs of relays discovered for this app. */
   readonly relays: ReadonlySet<string>;
   /** Sum of all Y.Doc state vector clocks. */
@@ -145,6 +159,9 @@ export interface Doc {
   readonly tip: Feed<VersionInfo | null>;
   /** Reactive loading feed (useSyncExternalStore). */
   readonly loading: Feed<LoadingState>;
+  /** Reactive version history feed. Updates as
+   *  chain walks discover and fetch entries. */
+  readonly versions: Feed<VersionHistory>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -173,6 +190,8 @@ export interface Doc {
    *  peer-reported relays (awareness), and
    *  relay-to-relay edges (node-registry). */
   topologyGraph(): TopologyGraph;
+  /** @deprecated Use `doc.versions` Feed or
+   *  `versionHistory()` instead. */
   history(): Promise<
     Array<{
       cid: CID;
@@ -199,12 +218,20 @@ export interface Doc {
   readonly authorizedPublishers: ReadonlySet<string>;
   /** Participants currently visible via awareness. */
   readonly participants: ReadonlyMap<number, ParticipantInfo>;
+  /** Persistent clientID→pubkey mapping from _meta.
+   *  Updates reactively as peers register. Used by
+   *  comments attribution and edit blame. */
+  readonly clientIdMapping: Feed<ReadonlyMap<number, ClientIdentityInfo>>;
   destroy(): void;
 }
 
 export interface ParticipantInfo {
   pubkey: string;
   displayName?: string;
+}
+
+export interface ClientIdentityInfo {
+  pubkey: string;
   verified: boolean;
 }
 
@@ -257,8 +284,13 @@ function computeStatus(
   return "offline";
 }
 
-function computeSaveState(isDirty: boolean, isSaving: boolean): SaveState {
+function computeSaveState(
+  isDirty: boolean,
+  isSaving: boolean,
+  lastSaveError?: string | null,
+): SaveState {
   if (isSaving) return "saving";
+  if (lastSaveError) return "save-error";
   if (isDirty) return "dirty";
   return "saved";
 }
@@ -386,9 +418,12 @@ export function createDoc(params: DocParams): Doc {
     return urls;
   }
 
-  const snapshotLC = createSnapshotLifecycle({
+  const resolver = createBlockResolver({
     getHelia: () => getHelia(),
     httpUrls: getHttpUrls,
+  });
+  const snapshotLC = createSnapshotCodec({
+    resolver,
   });
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
@@ -402,6 +437,7 @@ export function createDoc(params: DocParams): Doc {
   // --- Status tracking (fallback for no-interpreter) --
   let gossipActivity: GossipActivity = "inactive";
   let isSaving = false;
+  let lastSaveError: string | null = null;
 
   let lastStatus = computeStatus(
     syncManager.status,
@@ -424,7 +460,11 @@ export function createDoc(params: DocParams): Doc {
   }
 
   function checkSaveState() {
-    const next = computeSaveState(subdocManager.isDirty, isSaving);
+    const next = computeSaveState(
+      subdocManager.isDirty,
+      isSaving,
+      lastSaveError,
+    );
     if (next !== lastSaveState) {
       lastSaveState = next;
       saveStateFeed._update(next);
@@ -447,6 +487,13 @@ export function createDoc(params: DocParams): Doc {
   // --- Interpreter state ---
   let interpreterState: DocState | null = null;
   let factQueue: AsyncQueue<Fact> | null = null;
+
+  // Local chain state maintained synchronously by
+  // publish(). Lets history() return immediately
+  // without waiting for the async interpreter
+  // pipeline.
+  let localChain: ChainState | null = null;
+
   let interpreterAc: AbortController | null = null;
   let lastLocalPublishCid: string | null = null;
   let lastEmittedAcks = new Set<string>();
@@ -476,6 +523,125 @@ export function createDoc(params: DocParams): Doc {
     (a, b) => !loadingStateChanged(a, b),
   );
 
+  const EMPTY_VERSION_HISTORY: VersionHistory = {
+    entries: [],
+    walking: false,
+  };
+  const versionsFeed: WritableFeed<VersionHistory> = createFeed<VersionHistory>(
+    EMPTY_VERSION_HISTORY,
+  );
+
+  // --- Client identity mapping feed ---
+  // Observes _meta "clientIdentities" Y.Map and
+  // projects into a reactive Feed with async sig
+  // verification.
+  type IdentityMap = ReadonlyMap<number, ClientIdentityInfo>;
+  const EMPTY_IDENTITY_MAP: IdentityMap = new Map();
+  const clientIdMappingFeed: WritableFeed<IdentityMap> =
+    createFeed<IdentityMap>(EMPTY_IDENTITY_MAP);
+
+  // Cache verified results to avoid re-verifying
+  // on every Y.Map change.
+  const verifiedCache = new Map<string, boolean | null>();
+
+  function rebuildClientIdMapping(): void {
+    const identities = subdocManager.metaDoc.getMap("clientIdentities");
+    const result = new Map<number, ClientIdentityInfo>();
+    let pendingVerifications = 0;
+
+    for (const [key, value] of identities.entries()) {
+      const clientId = Number(key);
+      if (Number.isNaN(clientId)) continue;
+      const entry = value as {
+        pubkey?: string;
+        sig?: string;
+      };
+      if (!entry?.pubkey || !entry?.sig) continue;
+
+      const cached = verifiedCache.get(key);
+      if (cached !== undefined && cached !== null) {
+        result.set(clientId, {
+          pubkey: entry.pubkey,
+          verified: cached,
+        });
+      } else {
+        // Optimistic: show as unverified until
+        // async verification completes.
+        result.set(clientId, {
+          pubkey: entry.pubkey,
+          verified: false,
+        });
+        if (cached === undefined) {
+          // null = in-flight
+          verifiedCache.set(key, null);
+          pendingVerifications++;
+          const payload = new TextEncoder().encode(
+            entry.pubkey + ":" + ipnsName,
+          );
+          verifySignature(
+            hexToBytes(entry.pubkey),
+            hexToBytes(entry.sig),
+            payload,
+          )
+            .then((ok) => {
+              verifiedCache.set(key, ok);
+              rebuildClientIdMapping();
+            })
+            .catch(() => {
+              verifiedCache.set(key, false);
+              rebuildClientIdMapping();
+            });
+        }
+      }
+    }
+
+    clientIdMappingFeed._update(result);
+  }
+
+  // Observe _meta clientIdentities for changes.
+  const identitiesMap = subdocManager.metaDoc.getMap("clientIdentities");
+  identitiesMap.observe(rebuildClientIdMapping);
+  // Initial projection (may already have entries
+  // from IDB-persisted _meta).
+  rebuildClientIdMapping();
+
+  let versionCacheTimer: ReturnType<typeof setTimeout> | null = null;
+  const VERSION_CACHE_DEBOUNCE_MS = 500;
+
+  function flushVersionCache(): void {
+    if (versionCacheTimer) {
+      clearTimeout(versionCacheTimer);
+      versionCacheTimer = null;
+    }
+    const { entries } = versionsFeed.getSnapshot();
+    if (entries.length === 0) return;
+    const cached: CachedVersionEntry[] = entries.map((e) => ({
+      cid: e.cid.toString(),
+      seq: e.seq,
+      ts: e.ts,
+    }));
+    writeVersionCache(ipnsName, cached).catch((err) => {
+      log.debug("version cache flush failed:", err);
+    });
+  }
+
+  function scheduleVersionCacheWrite(): void {
+    if (versionCacheTimer) {
+      clearTimeout(versionCacheTimer);
+    }
+    versionCacheTimer = setTimeout(
+      flushVersionCache,
+      VERSION_CACHE_DEBOUNCE_MS,
+    );
+  }
+
+  function updateVersionsFeed(): void {
+    versionsFeed._update(
+      deriveVersionHistory(interpreterState?.chain ?? null, localChain),
+    );
+    scheduleVersionCacheWrite();
+  }
+
   // --- Event bridges ---
   // Status and saveState are always computed
   // locally (synchronous). The interpreter also
@@ -483,6 +649,9 @@ export function createDoc(params: DocParams): Doc {
   // is authoritative for getters and events.
 
   subdocManager.on("dirty", () => {
+    // Clear save error on new edits — user is back
+    // to "dirty" state, previous error is stale.
+    lastSaveError = null;
     checkSaveState();
     emit("publish-needed");
     awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
@@ -616,6 +785,16 @@ export function createDoc(params: DocParams): Doc {
           sig,
         };
         awarenessRoom.awareness.setLocalStateField("participant", participant);
+
+        // Persist clientID→pubkey in _meta so the
+        // mapping survives across snapshots. Used by
+        // comments attribution and edit blame (#73).
+        const clientId = awarenessRoom.awareness.clientID;
+        const identities = subdocManager.metaDoc.getMap("clientIdentities");
+        identities.set(String(clientId), {
+          pubkey: bytesToHex(kp.publicKey),
+          sig,
+        });
       })
       .catch((err) => {
         log.warn(
@@ -656,6 +835,32 @@ export function createDoc(params: DocParams): Doc {
     });
     interpreterState = init;
 
+    const fq = factQueue;
+
+    // --- Hydrate version index from IDB cache ---
+    readVersionCache(ipnsName)
+      .then((cached) => {
+        if (!cached || destroyed) return;
+        for (const e of cached.entries) {
+          try {
+            fq.push({
+              type: "cid-discovered",
+              ts: e.ts,
+              cid: CID.parse(e.cid),
+              source: "cache",
+              seq: e.seq,
+              snapshotTs: e.ts,
+            });
+          } catch {
+            // skip unparseable CIDs
+          }
+        }
+        log.debug("hydrated " + cached.entries.length + " cached versions");
+      })
+      .catch((err) => {
+        log.debug("version cache hydration failed:", err);
+      });
+
     // --- GossipSub subscription + fact bridge ---
     const topic = announceTopic(appId);
     pubsub.subscribe(topic);
@@ -663,8 +868,6 @@ export function createDoc(params: DocParams): Doc {
       type: "gossip-subscribed",
       ts: Date.now(),
     });
-
-    const fq = factQueue;
     const gossipHandler = (evt: CustomEvent) => {
       const { detail } = evt;
       if (detail?.topic !== topic) return;
@@ -696,48 +899,16 @@ export function createDoc(params: DocParams): Doc {
       const ann = parseAnnouncement(detail.data);
       if (!ann || ann.ipnsName !== ipnsName) return;
 
-      // Ack handling
-      if (ann.ack) {
-        try {
-          fq.push({
-            type: "ack-received",
-            ts: Date.now(),
-            cid: CID.parse(ann.cid),
-            peerId: ann.ack.peerId,
-          });
-        } catch {
-          // CID parse failure — skip
-        }
-        if (
-          ann.ack.guaranteeUntil !== undefined ||
-          ann.ack.retainUntil !== undefined
-        ) {
-          try {
-            fq.push({
-              type: "guarantee-received",
-              ts: Date.now(),
-              peerId: ann.ack.peerId,
-              cid: CID.parse(ann.cid),
-              guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
-              retainUntil: ann.ack.retainUntil ?? 0,
-            });
-          } catch {
-            // CID parse failure — skip
-          }
-        }
-      }
-
-      // CID discovery from announcement
+      // CID discovery FIRST — the chain entry must
+      // exist before ack/guarantee facts reference it.
+      let cid: CID | undefined;
       try {
-        const cid = CID.parse(ann.cid);
+        cid = CID.parse(ann.cid);
         let block: Uint8Array | undefined;
         if (ann.block) {
           try {
             block = base64ToUint8(ann.block);
-            // Store inline block for getBlock()
-            snapshotLC.putBlock(ann.cid, block);
-            const helia = getHelia();
-            Promise.resolve(helia.blockstore.put(cid, block)).catch(() => {});
+            resolver.put(cid, block);
           } catch {
             // decode failure — skip inline block
           }
@@ -752,6 +923,30 @@ export function createDoc(params: DocParams): Doc {
         });
       } catch {
         // CID parse failure — skip
+      }
+
+      // Ack/guarantee facts AFTER discovery so the
+      // reducer's updateEntry finds the chain entry.
+      if (ann.ack && cid) {
+        fq.push({
+          type: "ack-received",
+          ts: Date.now(),
+          cid,
+          peerId: ann.ack.peerId,
+        });
+        if (
+          ann.ack.guaranteeUntil !== undefined ||
+          ann.ack.retainUntil !== undefined
+        ) {
+          fq.push({
+            type: "guarantee-received",
+            ts: Date.now(),
+            peerId: ann.ack.peerId,
+            cid,
+            guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
+            retainUntil: ann.ack.retainUntil ?? 0,
+          });
+        }
       }
     };
 
@@ -823,6 +1018,13 @@ export function createDoc(params: DocParams): Doc {
             markReady();
           }
         }
+
+        // Version history feed — update when chain
+        // changes (structural sharing: cheap check)
+        if (item.next.chain !== item.prev.chain) {
+          updateVersionsFeed();
+        }
+
         yield item;
       }
     }
@@ -830,28 +1032,15 @@ export function createDoc(params: DocParams): Doc {
     // --- Effect handlers ---
     const effects: EffectHandlers = {
       fetchBlock: async (cid) => {
-        try {
-          const helia = getHelia();
-          const block = await fetchBlockFromNetwork(helia, cid, {
-            httpUrls: getHttpUrls(),
-          });
-          snapshotLC.putBlock(cid.toString(), block);
-          return block;
-        } catch {
-          return null;
-        }
+        return resolver.get(cid);
       },
 
       getBlock: (cid) => {
-        return snapshotLC.getBlock(cid.toString()) ?? null;
+        return resolver.getCached(cid);
       },
 
       applySnapshot: async (cid, block) => {
-        // Put block in helia blockstore so
-        // applyRemote finds it immediately.
-        const helia = getHelia();
-        await Promise.resolve(helia.blockstore.put(cid, block));
-        snapshotLC.putBlock(cid.toString(), block);
+        resolver.put(cid, block);
 
         const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) =>
           subdocManager.applySnapshot(plaintext),
@@ -878,6 +1067,7 @@ export function createDoc(params: DocParams): Doc {
           return {
             prev: node.prev ?? undefined,
             seq: node.seq,
+            snapshotTs: node.ts,
             publisher,
           };
         } catch {
@@ -992,6 +1182,50 @@ export function createDoc(params: DocParams): Doc {
         }
       },
     );
+
+    // --- HTTP tip fetch (fastest path) ---
+    // Fire in parallel with IPNS — whichever
+    // resolves first pushes cid-discovered.
+    // This is purely additive: IPNS drives loading
+    // state (ipns-resolve-started/completed), so
+    // HTTP failure never blocks the loading
+    // lifecycle.
+    if (params.performInitialResolve) {
+      (async () => {
+        try {
+          const urls = getHttpUrls();
+          if (urls.length === 0) return;
+          const tip = await fetchTipFromPinners(urls, ipnsName, signal);
+          if (signal.aborted || !tip) return;
+          resolver.put(tip.cid, tip.block);
+          const now = Date.now();
+          fq.push({
+            type: "cid-discovered",
+            ts: now,
+            cid: tip.cid,
+            source: "http-tip",
+            block: tip.block,
+            seq: tip.seq,
+            snapshotTs: tip.ts,
+          });
+          if (
+            tip.guaranteeUntil !== undefined ||
+            tip.retainUntil !== undefined
+          ) {
+            fq.push({
+              type: "guarantee-received",
+              ts: now,
+              peerId: tip.peerId,
+              cid: tip.cid,
+              guaranteeUntil: tip.guaranteeUntil ?? 0,
+              retainUntil: tip.retainUntil ?? 0,
+            });
+          }
+        } catch (err) {
+          log.warn("HTTP tip fetch failed:", (err as Error)?.message ?? err);
+        }
+      })();
+    }
 
     // --- IPNS initial resolve ---
     if (params.performInitialResolve) {
@@ -1110,6 +1344,8 @@ export function createDoc(params: DocParams): Doc {
 
   function teardown() {
     destroyed = true;
+    // Flush version cache before cleanup
+    flushVersionCache();
     // Interpreter cleanup
     interpreterAc?.abort();
     if (initialQueryTimer) {
@@ -1122,6 +1358,7 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch();
       stopIPNSWatch = null;
     }
+    identitiesMap.unobserve(rebuildClientIdMapping);
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
@@ -1218,6 +1455,10 @@ export function createDoc(params: DocParams): Doc {
       return params.roomDiscovery?.relayPeerIds ?? new Set();
     },
 
+    get lastSaveError(): string | null {
+      return lastSaveError;
+    },
+
     get clockSum(): number {
       return computeClockSum();
     },
@@ -1269,6 +1510,8 @@ export function createDoc(params: DocParams): Doc {
 
     tip: tipFeed as Feed<VersionInfo | null>,
     loading: loadingFeed as Feed<LoadingState>,
+    versions: versionsFeed as Feed<VersionHistory>,
+    clientIdMapping: clientIdMappingFeed as Feed<IdentityMap>,
 
     ready(): Promise<void> {
       return readyPromise;
@@ -1300,18 +1543,19 @@ export function createDoc(params: DocParams): Doc {
         );
       } catch (err) {
         isSaving = false;
+        lastSaveError = err instanceof Error ? err.message : String(err);
         checkSaveState();
         factQueue?.push({
           type: "publish-failed",
           ts: Date.now(),
-          error: err instanceof Error ? err.message : String(err),
+          error: lastSaveError,
         });
         throw err;
       }
       const { cid, block } = pushResult;
 
-      // Store block for getBlock() and chain
-      snapshotLC.putBlock(cid.toString(), block);
+      // Store block via resolver (memory + IDB)
+      resolver.put(cid, block);
 
       // Suppress the interpreter's
       // emitSnapshotApplied for this CID since
@@ -1319,30 +1563,72 @@ export function createDoc(params: DocParams): Doc {
       lastLocalPublishCid = cid.toString();
 
       isSaving = false;
+      lastSaveError = null;
       checkSaveState();
 
-      // Push chain entry + tip + success facts
+      // Build the facts that describe this publish.
+      const now = Date.now();
+      const cidDiscovered: Fact = {
+        type: "cid-discovered",
+        ts: now,
+        cid,
+        source: "gossipsub",
+        block,
+        seq: pushResult.seq,
+        snapshotTs: now,
+      };
+      const blockFetched: Fact = {
+        type: "block-fetched",
+        ts: now,
+        cid,
+        block,
+        prev: pushResult.prev ?? undefined,
+        seq: pushResult.seq,
+        snapshotTs: now,
+      };
+      const tipAdvanced: Fact = {
+        type: "tip-advanced",
+        ts: now,
+        cid,
+        seq: pushResult.seq,
+      };
+      const publishSucceeded: Fact = {
+        type: "publish-succeeded",
+        ts: now,
+        cid,
+        seq: pushResult.seq,
+      };
+
+      // Synchronously advance localChain so
+      // history() works without waiting for the
+      // async interpreter pipeline.
+      const base =
+        localChain ??
+        interpreterState?.chain ??
+        initialDocState({
+          ipnsName,
+          role: this.role,
+          channels,
+          appId: params.appId,
+        }).chain;
+      localChain = [
+        cidDiscovered,
+        blockFetched,
+        tipAdvanced,
+        publishSucceeded,
+      ].reduce(reduceChain, base);
+
+      // Update versions feed synchronously so
+      // subscribers see the new version immediately.
+      updateVersionsFeed();
+
+      // Push to interpreter for side effects
+      // (announce, acks, gossip, etc.)
       if (factQueue) {
-        factQueue.push({
-          type: "cid-discovered",
-          ts: Date.now(),
-          cid,
-          source: "gossipsub",
-          block,
-          seq: pushResult.seq,
-        });
-        factQueue.push({
-          type: "tip-advanced",
-          ts: Date.now(),
-          cid,
-          seq: pushResult.seq,
-        });
-        factQueue.push({
-          type: "publish-succeeded",
-          ts: Date.now(),
-          cid,
-          seq: pushResult.seq,
-        });
+        factQueue.push(cidDiscovered);
+        factQueue.push(blockFetched);
+        factQueue.push(tipAdvanced);
+        factQueue.push(publishSucceeded);
       }
 
       emit("snapshot", {
@@ -1352,18 +1638,14 @@ export function createDoc(params: DocParams): Doc {
         isLocal: true,
       } satisfies SnapshotEvent);
 
-      // Persist to Helia + publish IPNS.
-      // Fire-and-forget: don't block the UI on
-      // slow DHT operations.
-      // Announce is handled by the interpreter
-      // via the publish-succeeded fact.
+      // Publish IPNS — fire-and-forget. Block is
+      // already persisted via resolver.put() above.
+      // Announce is handled by the interpreter via
+      // the publish-succeeded fact.
       const cidShort = cid.toString().slice(0, 16);
       log.info("publish: cid=" + cidShort + "... clockSum=" + clockSum);
       (async () => {
         const helia = getHelia();
-        log.debug("blockstore.put...", cidShort + "...");
-        await Promise.resolve(helia.blockstore.put(cid, block));
-        log.debug("blockstore.put done," + " publishing IPNS...");
         await publishIPNS(helia, keys.ipnsKeyBytes!, cid, clockSum);
         log.debug("IPNS published");
       })().catch((err: unknown) => {
@@ -1435,16 +1717,51 @@ export function createDoc(params: DocParams): Doc {
       return buildTopologyGraph(this.diagnostics(), awarenessRoom.awareness);
     },
 
+    /** @deprecated Use `doc.versions` Feed or
+     *  `versionHistory()` instead. */
     async history() {
       assertNotDestroyed();
-      return snapshotLC.history();
+      const { entries } = versionsFeed.getSnapshot();
+      return entries.map((e) => ({
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts,
+      }));
     },
 
     async versionHistory(): Promise<VersionEntry[]> {
       assertNotDestroyed();
-      return fetchVersionHistory(getHttpUrls(), ipnsName, () =>
-        snapshotLC.history(),
+      const chainFallback = async () => {
+        const { entries } = versionsFeed.getSnapshot();
+        return entries.map((e) => ({
+          cid: e.cid,
+          seq: e.seq,
+          ts: e.ts,
+        }));
+      };
+      const entries = await fetchVersionHistory(
+        getHttpUrls(),
+        ipnsName,
+        chainFallback,
       );
+      // Integrate pinner-discovered CIDs into
+      // chain state so future calls use state.
+      if (factQueue) {
+        for (const e of entries) {
+          const key = e.cid.toString();
+          if (!interpreterState?.chain.entries.has(key)) {
+            factQueue.push({
+              type: "cid-discovered",
+              ts: Date.now(),
+              cid: e.cid,
+              source: "pinner-index",
+              seq: e.seq,
+              snapshotTs: e.ts,
+            });
+          }
+        }
+      }
+      return entries;
     },
 
     async loadVersion(cid: CID) {
@@ -1452,7 +1769,24 @@ export function createDoc(params: DocParams): Doc {
       if (!readKey) {
         throw new Error("No readKey available");
       }
-      return snapshotLC.loadVersion(cid, readKey);
+      const result = await snapshotLC.loadVersion(cid, readKey);
+      // Integrate fetched block into chain state
+      // so the reducer knows about it.
+      if (factQueue) {
+        const key = cid.toString();
+        const entry = interpreterState?.chain.entries.get(key);
+        if (!entry || entry.blockStatus === "unknown") {
+          const block = resolver.getCached(cid);
+          factQueue.push({
+            type: "cid-discovered",
+            ts: Date.now(),
+            cid,
+            source: "chain-walk",
+            block: block ?? undefined,
+          });
+        }
+      }
+      return result;
     },
 
     get identityPubkey(): string | null {
@@ -1496,14 +1830,6 @@ export function createDoc(params: DocParams): Doc {
         result.set(clientId, {
           pubkey: p.pubkey,
           displayName: p.displayName,
-          // Signature verification is deferred to
-          // consumers who need it — awareness is
-          // unsigned transport, so we mark verified
-          // based on structural presence only.
-          // Full verification requires async
-          // ed25519 verify which doesn't fit the
-          // synchronous getter pattern.
-          verified: true,
         });
       }
       return result;
