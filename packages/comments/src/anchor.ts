@@ -21,6 +21,21 @@ export type ResolvedAnchor =
   | { status: "orphaned" }
   | { status: "pending" };
 
+/**
+ * Build an Anchor from pre-existing RelativePositions.
+ * Use this when the caller already has positions (e.g.,
+ * from y-prosemirror's absolutePositionToRelativePosition).
+ */
+export function anchorFromRelativePositions(
+  start: Y.RelativePosition,
+  end: Y.RelativePosition,
+): Anchor {
+  return {
+    start: Y.encodeRelativePosition(start),
+    end: Y.encodeRelativePosition(end),
+  };
+}
+
 /** Get the default content type from a content doc. */
 export function getContentType(contentDoc: Y.Doc): Y.Text {
   return contentDoc.getText("default");
@@ -28,7 +43,9 @@ export function getContentType(contentDoc: Y.Doc): Y.Text {
 
 /**
  * Create an anchor from raw Yjs indices on the
- * content doc's Text("default").
+ * content doc's Text("default"). For editor
+ * integrations that already have RelativePositions,
+ * use anchorFromRelativePositions() instead.
  */
 export function createAnchor(
   contentDoc: Y.Doc,
@@ -36,13 +53,10 @@ export function createAnchor(
   endIdx: number,
 ): Anchor {
   const contentType = getContentType(contentDoc);
-  const start = Y.encodeRelativePosition(
+  return anchorFromRelativePositions(
     Y.createRelativePositionFromTypeIndex(contentType, startIdx),
-  );
-  const end = Y.encodeRelativePosition(
     Y.createRelativePositionFromTypeIndex(contentType, endIdx),
   );
-  return { start, end };
 }
 
 /**
