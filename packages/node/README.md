@@ -1,7 +1,8 @@
 # @pokapali/node
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/node
+```
 
 Node.js server components for Pokapali: a generic relay
 for GossipSub mesh connectivity, a zero-knowledge pinner
