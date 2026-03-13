@@ -60,14 +60,20 @@ if [ "$HEALTHY" != "true" ]; then
 fi
 
 # 3. Commit verification
-ACTUAL=$(ssh -o ConnectTimeout=15 \
+RAW_ACTUAL=$(ssh -o ConnectTimeout=15 \
   "$USER@$HOST" \
   "cd $REPO_PATH && git rev-parse HEAD" \
-  | tr -d '[:space:]')
+  2>/dev/null)
+ACTUAL=$(echo "$RAW_ACTUAL" | tr -cd '[:xdigit:]')
+EXPECTED=$(echo "$COMMIT" | tr -cd '[:xdigit:]')
 
-if [ "$ACTUAL" != "$COMMIT" ]; then
-  echo "[$HOST] FAIL: expected commit ${COMMIT:0:7}," \
+if [ "$ACTUAL" != "$EXPECTED" ]; then
+  echo "[$HOST] FAIL: expected commit ${EXPECTED:0:7}," \
     "got ${ACTUAL:0:7}"
+  echo "[$HOST] DEBUG expected hex:" \
+    "$(echo -n "$COMMIT" | xxd -p)"
+  echo "[$HOST] DEBUG actual hex:" \
+    "$(echo -n "$RAW_ACTUAL" | xxd -p)"
   exit 1
 fi
 
