@@ -82,6 +82,7 @@ function VersionListItem({
         (unavailable ? " unavailable" : "") +
         (retrying ? " retrying" : "")
       }
+      data-testid="vh-entry"
       onClick={unavailable ? undefined : onSelect}
       disabled={unavailable}
       aria-current={selected ? "true" : undefined}

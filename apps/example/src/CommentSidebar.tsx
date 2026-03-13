@@ -69,6 +69,7 @@ function CommentInput({
     <div className="cs-comment-input">
       <textarea
         ref={ref}
+        data-testid="comment-input"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -84,6 +85,7 @@ function CommentInput({
         )}
         <button
           className="cs-btn cs-btn-submit"
+          data-testid="comment-submit"
           onClick={handleSubmit}
           disabled={!text.trim()}
         >
@@ -130,6 +132,7 @@ function CommentItem({
         (isResolved ? " cs-resolved" : "") +
         (hasOrphanedAnchor ? " cs-orphaned" : "")
       }
+      data-testid="comment-item"
       onClick={() => onSelect(comment.id)}
     >
       <div className="cs-comment-header">
@@ -161,6 +164,7 @@ function CommentItem({
         {!isReply && !isResolved && (
           <button
             className="cs-btn cs-btn-sm"
+            data-testid="reply-btn"
             onClick={(e) => {
               e.stopPropagation();
               onReply(comment.id);
@@ -172,6 +176,7 @@ function CommentItem({
         {!isReply && !isResolved && (
           <button
             className="cs-btn cs-btn-sm"
+            data-testid="resolve-btn"
             onClick={(e) => {
               e.stopPropagation();
               onResolve(comment.id);
@@ -322,7 +327,12 @@ export function CommentSidebar({
   );
 
   return (
-    <div className="cs-sidebar" role="complementary" aria-label="Comments">
+    <div
+      className="cs-sidebar"
+      role="complementary"
+      aria-label="Comments"
+      data-testid="comment-sidebar"
+    >
       <div className="cs-sidebar-header">
         <h3>Comments</h3>
         <button

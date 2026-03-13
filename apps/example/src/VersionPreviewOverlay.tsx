@@ -376,6 +376,7 @@ export function VersionPreviewOverlay({
         {canRestore && (
           <button
             className="vpo-restore"
+            data-testid="vh-restore"
             onClick={() => setConfirmEntry(entry)}
             disabled={restoring}
           >
