@@ -3,7 +3,7 @@ import { request } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { Server } from "node:http";
 import type { Server as HttpsServer } from "node:https";
-import { startHttpServer, startBlockServer } from "./http.js";
+import { startHttpServer, startBlockServer, readBody } from "./http.js";
 import type { HttpConfig, HttpsConfig } from "./http.js";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -945,5 +945,289 @@ describe("startBlockServer", () => {
     expect(body.retentionPolicy).toBeUndefined();
     expect(body.versions[0].tier).toBeUndefined();
     expect(body.versions[0].expiresAt).toBeUndefined();
+  });
+
+  // --- GET /tip/:ipnsName tests ---
+
+  describe("GET /tip/:ipnsName", () => {
+    const tipBlock = new Uint8Array([1, 2, 3, 4]);
+    const now = Date.now();
+
+    function mockTipData() {
+      return {
+        ipnsName: "aa".repeat(32),
+        cid: "bafy-test-cid",
+        block: tipBlock,
+        seq: 5,
+        ts: now,
+        peerId: "12D3KooWTestPeer",
+        guaranteeUntil: now + 7 * 86400000,
+        retainUntil: now + 14 * 86400000,
+      };
+    }
+
+    it("returns tip data with block as base64", async () => {
+      const tip = mockTipData();
+      startBlock({
+        getTipData: async () => tip,
+      });
+      const name = "aa".repeat(32);
+      const res = await fetchHttps(port, "GET", `/tip/${name}`);
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body.toString());
+      expect(body.ipnsName).toBe(name);
+      expect(body.cid).toBe("bafy-test-cid");
+      expect(body.seq).toBe(5);
+      expect(body.ts).toBe(now);
+      expect(body.peerId).toBe("12D3KooWTestPeer");
+      expect(body.guaranteeUntil).toBeTypeOf("number");
+      expect(body.retainUntil).toBeTypeOf("number");
+      // Block should be base64-encoded
+      const decoded = Buffer.from(body.block, "base64");
+      expect([...decoded]).toEqual([1, 2, 3, 4]);
+    });
+
+    it("returns no-cache header", async () => {
+      startBlock({
+        getTipData: async () => mockTipData(),
+      });
+      const name = "aa".repeat(32);
+      const res = await fetchHttps(port, "GET", `/tip/${name}`);
+      expect(res.headers["cache-control"]).toBe("no-cache");
+    });
+
+    it("returns 404 for unknown name", async () => {
+      startBlock({
+        getTipData: async () => null,
+      });
+      const name = "bb".repeat(32);
+      const res = await fetchHttps(port, "GET", `/tip/${name}`);
+      expect(res.status).toBe(404);
+      const body = JSON.parse(res.body.toString());
+      expect(body.error).toBe("not found");
+    });
+
+    it("returns 404 when no getTipData configured", async () => {
+      startBlock(); // no getTipData
+      const name = "cc".repeat(32);
+      const res = await fetchHttps(port, "GET", `/tip/${name}`);
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects non-hex ipnsName", async () => {
+      startBlock({
+        getTipData: async () => mockTipData(),
+      });
+      const res = await fetchHttps(port, "GET", "/tip/not-hex-name!");
+      expect(res.status).toBe(404);
+    });
+
+    it("rate limits requests", async () => {
+      startBlock({
+        rateLimitRpm: 2,
+        getTipData: async () => mockTipData(),
+      });
+      const name = "dd".repeat(32);
+      const path = `/tip/${name}`;
+
+      await fetchHttps(port, "GET", path);
+      await fetchHttps(port, "GET", path);
+      const res = await fetchHttps(port, "GET", path);
+      expect(res.status).toBe(429);
+    });
+
+    it("calls recordActivity on success", async () => {
+      let recorded: string | null = null;
+      startBlock({
+        getTipData: async () => mockTipData(),
+        recordActivity: (name) => {
+          recorded = name;
+        },
+      });
+      const name = "aa".repeat(32);
+      await fetchHttps(port, "GET", `/tip/${name}`);
+      expect(recorded).toBe(name);
+    });
+
+    it("includes CORS headers", async () => {
+      startBlock({
+        getTipData: async () => mockTipData(),
+      });
+      const name = "aa".repeat(32);
+      const res = await fetchHttps(port, "GET", `/tip/${name}`);
+      expect(res.headers["access-control-allow-origin"]).toBe("*");
+    });
+  });
+
+  // --- GET /guarantee/:ipnsName tests ---
+
+  describe("GET /guarantee/:ipnsName", () => {
+    const now = Date.now();
+
+    function mockGuarantee() {
+      return {
+        ipnsName: "aa".repeat(32),
+        cid: "bafy-test-cid",
+        peerId: "12D3KooWTestPeer",
+        guaranteeUntil: now + 7 * 86400000,
+        retainUntil: now + 14 * 86400000,
+      };
+    }
+
+    it("returns guarantee data", async () => {
+      const g = mockGuarantee();
+      startBlock({
+        getGuarantee: () => g,
+      });
+      const name = "aa".repeat(32);
+      const res = await fetchHttps(port, "GET", `/guarantee/${name}`);
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body.toString());
+      expect(body.ipnsName).toBe(name);
+      expect(body.cid).toBe("bafy-test-cid");
+      expect(body.peerId).toBe("12D3KooWTestPeer");
+      expect(body.guaranteeUntil).toBeTypeOf("number");
+      expect(body.retainUntil).toBeTypeOf("number");
+    });
+
+    it("returns no-cache header", async () => {
+      startBlock({
+        getGuarantee: () => mockGuarantee(),
+      });
+      const name = "aa".repeat(32);
+      const res = await fetchHttps(port, "GET", `/guarantee/${name}`);
+      expect(res.headers["cache-control"]).toBe("no-cache");
+    });
+
+    it("returns 404 for unknown name", async () => {
+      startBlock({
+        getGuarantee: () => null,
+      });
+      const name = "bb".repeat(32);
+      const res = await fetchHttps(port, "GET", `/guarantee/${name}`);
+      expect(res.status).toBe(404);
+      const body = JSON.parse(res.body.toString());
+      expect(body.error).toBe("not found");
+    });
+
+    it("returns 404 when no getGuarantee configured", async () => {
+      startBlock(); // no getGuarantee
+      const name = "cc".repeat(32);
+      const res = await fetchHttps(port, "GET", `/guarantee/${name}`);
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects non-hex ipnsName", async () => {
+      startBlock({
+        getGuarantee: () => mockGuarantee(),
+      });
+      const res = await fetchHttps(port, "GET", "/guarantee/not-hex!");
+      expect(res.status).toBe(404);
+    });
+
+    it("rate limits requests", async () => {
+      startBlock({
+        rateLimitRpm: 2,
+        getGuarantee: () => mockGuarantee(),
+      });
+      const name = "dd".repeat(32);
+      const path = `/guarantee/${name}`;
+
+      await fetchHttps(port, "GET", path);
+      await fetchHttps(port, "GET", path);
+      const res = await fetchHttps(port, "GET", path);
+      expect(res.status).toBe(429);
+    });
+
+    it("calls recordActivity on success", async () => {
+      let recorded: string | null = null;
+      startBlock({
+        getGuarantee: () => mockGuarantee(),
+        recordActivity: (name) => {
+          recorded = name;
+        },
+      });
+      const name = "aa".repeat(32);
+      await fetchHttps(port, "GET", `/guarantee/${name}`);
+      expect(recorded).toBe(name);
+    });
+
+    it("includes CORS headers", async () => {
+      startBlock({
+        getGuarantee: () => mockGuarantee(),
+      });
+      const name = "aa".repeat(32);
+      const res = await fetchHttps(port, "GET", `/guarantee/${name}`);
+      expect(res.headers["access-control-allow-origin"]).toBe("*");
+    });
+  });
+});
+
+// --- readBody unit tests ---
+
+describe("readBody", () => {
+  function createMockStream(
+    chunks: Buffer[],
+    delayMs?: number,
+  ): AsyncIterable<Buffer> & { destroy(): void } {
+    let destroyed = false;
+    return {
+      destroy() {
+        destroyed = true;
+      },
+      async *[Symbol.asyncIterator]() {
+        for (const chunk of chunks) {
+          if (destroyed) {
+            throw new Error("stream destroyed");
+          }
+          if (delayMs) {
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+          if (destroyed) {
+            throw new Error("stream destroyed");
+          }
+          yield chunk;
+        }
+      },
+    };
+  }
+
+  it("reads complete body", async () => {
+    const stream = createMockStream([
+      Buffer.from("hello"),
+      Buffer.from(" world"),
+    ]);
+    const result = await readBody(stream);
+    expect("ok" in result).toBe(true);
+    if ("ok" in result) {
+      expect(Buffer.from(result.body).toString()).toBe("hello world");
+    }
+  });
+
+  it("returns empty error for empty body", async () => {
+    const stream = createMockStream([]);
+    const result = await readBody(stream);
+    expect(result).toEqual({ error: "empty" });
+  });
+
+  it("returns too_large for oversized body", async () => {
+    const big = Buffer.alloc(7_000_000);
+    const stream = createMockStream([big]);
+    const result = await readBody(stream);
+    expect(result).toEqual({ error: "too_large" });
+  });
+
+  it("returns timeout for slow stream", async () => {
+    // Each chunk takes 50ms, timeout is 30ms
+    const stream = createMockStream([Buffer.from("a"), Buffer.from("b")], 50);
+    const result = await readBody(stream, 30);
+    expect(result).toEqual({ error: "timeout" });
+  });
+
+  it("succeeds when fast enough", async () => {
+    // Each chunk takes 10ms, timeout is 200ms
+    const stream = createMockStream([Buffer.from("a"), Buffer.from("b")], 10);
+    const result = await readBody(stream, 200);
+    expect("ok" in result).toBe(true);
   });
 });

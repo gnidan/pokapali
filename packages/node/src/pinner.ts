@@ -106,6 +106,25 @@ export interface PinnerMetrics {
   stalePruned: number;
 }
 
+export interface TipData {
+  ipnsName: string;
+  cid: string;
+  block: Uint8Array;
+  seq: number;
+  ts: number;
+  peerId: string;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
+
+export interface GuaranteeData {
+  ipnsName: string;
+  cid: string;
+  peerId: string;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
+
 export interface Pinner {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -120,6 +139,12 @@ export interface Pinner {
     fromPinner?: boolean,
   ): void;
   onGuaranteeQuery(ipnsName: string, appId: string): void;
+  /** Get tip block + guarantee for HTTP endpoint. */
+  getTipData(ipnsName: string): Promise<TipData | null>;
+  /** Get guarantee status for HTTP endpoint. */
+  getGuarantee(ipnsName: string): GuaranteeData | null;
+  /** Record browser activity (HTTP access). */
+  recordActivity(ipnsName: string): void;
   metrics(): PinnerMetrics;
   history: HistoryTracker;
 }
@@ -1385,7 +1410,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       if (!knownNames.has(ipnsName)) return;
       if (!config.pubsub || !config.peerId) return;
 
-      // Rate-limit: max 1 response per name per 10s
+      // Rate-limit: max 1 response per name per 3s
       const now = Date.now();
       const last = lastQueryResponse.get(ipnsName) ?? 0;
       if (now - last < QUERY_RESPONSE_COOLDOWN_MS) {
@@ -1423,6 +1448,75 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       // next re-announce instead of waiting for decay.
       // Uses lazy deletion — duplicate heap entries
       // are harmless (stale ones skipped on pop).
+      scheduleDoc(ipnsName, now + BASE_INTERVAL_MS);
+    },
+
+    async getTipData(ipnsName: string): Promise<TipData | null> {
+      if (!knownNames.has(ipnsName)) return null;
+      if (!config.peerId) return null;
+
+      const cidStr = history.getTip(ipnsName);
+      if (!cidStr) return null;
+
+      // Read block from blockstore
+      let block: Uint8Array;
+      try {
+        const cid = CID.parse(cidStr);
+        if (helia) {
+          const has = await helia.blockstore.has(cid);
+          if (!has) return null;
+          block = await helia.blockstore.get(cid);
+        } else {
+          const mem = memBlocks.get(cidStr);
+          if (!mem) return null;
+          block = mem;
+        }
+      } catch {
+        return null;
+      }
+
+      // Get seq/ts from history
+      const entry = history.getEntry(ipnsName);
+      const tip = entry?.tip;
+
+      const g = issueGuarantee(ipnsName);
+
+      return {
+        ipnsName,
+        cid: cidStr,
+        block,
+        seq: entry ? entry.snapshots.length : 0,
+        ts: tip?.ts ?? 0,
+        peerId: config.peerId,
+        guaranteeUntil: g.guaranteeUntil,
+        retainUntil: g.retainUntil,
+      };
+    },
+
+    getGuarantee(ipnsName: string): GuaranteeData | null {
+      if (!knownNames.has(ipnsName)) return null;
+      if (!config.peerId) return null;
+
+      const cidStr = history.getTip(ipnsName);
+      if (!cidStr) return null;
+
+      const g = issueGuarantee(ipnsName);
+
+      return {
+        ipnsName,
+        cid: cidStr,
+        peerId: config.peerId,
+        guaranteeUntil: g.guaranteeUntil,
+        retainUntil: g.retainUntil,
+      };
+    },
+
+    recordActivity(ipnsName: string): void {
+      if (!knownNames.has(ipnsName)) return;
+      const now = Date.now();
+      lastSeenAt.set(ipnsName, now);
+      persistMutation(() => store.setLastSeen(ipnsName, now));
+      // Bump re-announce priority
       scheduleDoc(ipnsName, now + BASE_INTERVAL_MS);
     },
 
