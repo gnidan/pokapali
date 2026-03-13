@@ -880,6 +880,17 @@ body {
   text-decoration: line-through;
 }
 
+.vh-item.retrying {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.vh-retry-info {
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-style: italic;
+}
+
 .vh-item-seq {
   font-family: monospace;
   font-size: 0.75rem;
