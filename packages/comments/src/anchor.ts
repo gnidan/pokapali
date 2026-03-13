@@ -1,11 +1,10 @@
 /**
  * Anchor model using Y.RelativePosition.
- * Editor-agnostic — works with raw Yjs type indices.
+ * Editor-agnostic — works with any Yjs shared type.
  *
- * Default content type is Y.Text("default") for
- * character-level anchoring. Tiptap/ProseMirror apps
- * should use the adapter package for XmlFragment
- * position conversion.
+ * Default content type is Y.Text("default"). Pass
+ * contentType in CommentsOptions to use XmlFragment
+ * or any other AbstractType.
  */
 
 import * as Y from "yjs";
@@ -36,23 +35,16 @@ export function anchorFromRelativePositions(
   };
 }
 
-/** Get the default content type from a content doc. */
-export function getContentType(contentDoc: Y.Doc): Y.Text {
-  return contentDoc.getText("default");
-}
-
 /**
- * Create an anchor from raw Yjs indices on the
- * content doc's Text("default"). For editor
- * integrations that already have RelativePositions,
- * use anchorFromRelativePositions() instead.
+ * Create an anchor from raw Yjs type indices. For
+ * editor integrations that already have
+ * RelativePositions, use anchorFromRelativePositions().
  */
 export function createAnchor(
-  contentDoc: Y.Doc,
+  contentType: Y.AbstractType<unknown>,
   startIdx: number,
   endIdx: number,
 ): Anchor {
-  const contentType = getContentType(contentDoc);
   return anchorFromRelativePositions(
     Y.createRelativePositionFromTypeIndex(contentType, startIdx),
     Y.createRelativePositionFromTypeIndex(contentType, endIdx),
@@ -64,15 +56,14 @@ export function createAnchor(
  * content doc state. Returns three-state result:
  * - resolved: both positions map to valid indices
  * - orphaned: anchored text was deleted
- * - pending: content not loaded yet (empty doc)
+ * - pending: content not loaded yet (empty type)
  */
 export function resolveAnchor(
   contentDoc: Y.Doc,
+  contentType: Y.AbstractType<unknown>,
   startBytes: Uint8Array,
   endBytes: Uint8Array,
 ): ResolvedAnchor {
-  const contentType = getContentType(contentDoc);
-
   // If the content type has no content, content
   // hasn't loaded yet.
   if (contentType.length === 0) {
