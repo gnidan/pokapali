@@ -1,28 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
-vi.mock("./fetch-block.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./fetch-block.js")>();
-  return {
-    ...actual,
-    fetchBlock: vi.fn(),
-  };
-});
-
-import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
-import { fetchBlock } from "./fetch-block.js";
+import { createSnapshotCodec } from "./snapshot-codec.js";
+import type { BlockResolver } from "./block-resolver.js";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { encodeSnapshot as realEncodeSnapshot } from "@pokapali/snapshot";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
 
-describe("createSnapshotLifecycle", () => {
-  const mockHelia = {
-    blockstore: {
-      put: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockRejectedValue(new Error("Not found")),
-    },
+function createMockResolver(blocks?: Map<string, Uint8Array>): BlockResolver {
+  const cache = blocks ?? new Map<string, Uint8Array>();
+  return {
+    get: vi.fn(async (cid: CID) => {
+      return cache.get(cid.toString()) ?? null;
+    }),
+    getCached: vi.fn((cid: CID) => {
+      return cache.get(cid.toString()) ?? null;
+    }),
+    put: vi.fn((cid: CID, block: Uint8Array) => {
+      cache.set(cid.toString(), block);
+    }),
   };
+}
 
+describe("createSnapshotCodec", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -34,10 +33,9 @@ describe("createSnapshotLifecycle", () => {
       ["encrypt", "decrypt"],
     );
     const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+    const resolver = createMockResolver();
 
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
+    const lc = createSnapshotCodec({ resolver });
 
     const plaintext = {
       content: new Uint8Array([1]),
@@ -45,6 +43,7 @@ describe("createSnapshotLifecycle", () => {
     const result1 = await lc.push(plaintext, readKey, signingKey, 10);
     expect(result1.seq).toBe(1);
     expect(result1.prev).toBeNull();
+    expect(resolver.put).toHaveBeenCalled();
 
     const result2 = await lc.push(plaintext, readKey, signingKey, 20);
     expect(result2.seq).toBe(2);
@@ -57,16 +56,11 @@ describe("createSnapshotLifecycle", () => {
       true,
       ["encrypt", "decrypt"],
     );
+    const remoteSigningKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
 
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
-
-    // Simulate a remote snapshot at seq=5
     const plaintext = {
       content: new Uint8Array([1]),
     };
-    const remoteSigningKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
     const block = await realEncodeSnapshot(
       plaintext,
       readKey,
@@ -75,11 +69,15 @@ describe("createSnapshotLifecycle", () => {
       Date.now(),
       remoteSigningKey,
     );
-
     const hash = await sha256.digest(block);
     const cid = CID.createV1(0x71, hash);
 
-    vi.mocked(fetchBlock).mockResolvedValue(block);
+    // Pre-populate the resolver with the block
+    const blocks = new Map<string, Uint8Array>();
+    blocks.set(cid.toString(), block);
+    const resolver = createMockResolver(blocks);
+
+    const lc = createSnapshotCodec({ resolver });
 
     const applied: Record<string, Uint8Array>[] = [];
     const result = await lc.applyRemote(cid, readKey, (snap) => {
@@ -97,10 +95,9 @@ describe("createSnapshotLifecycle", () => {
       ["encrypt", "decrypt"],
     );
     const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
+    const resolver = createMockResolver();
 
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
+    const lc = createSnapshotCodec({ resolver });
 
     const plaintext = {
       content: new Uint8Array([1]),
@@ -112,7 +109,7 @@ describe("createSnapshotLifecycle", () => {
     expect(result).toBe(false);
   });
 
-  it("passes httpUrls to fetchBlock" + " during applyRemote", async () => {
+  it("applyRemote uses resolver.get() for blocks", async () => {
     const readKey = await crypto.subtle.generateKey(
       { name: "AES-GCM", length: 256 },
       true,
@@ -120,13 +117,6 @@ describe("createSnapshotLifecycle", () => {
     );
     const signingKey = await ed25519KeyPairFromSeed(new Uint8Array(32));
 
-    const urls = ["https://relay1.example.com", "https://relay2.example.com"];
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-      httpUrls: () => urls,
-    });
-
-    // Create a valid snapshot to apply
     const plaintext = {
       content: new Uint8Array([42]),
     };
@@ -141,12 +131,14 @@ describe("createSnapshotLifecycle", () => {
     const hash = await sha256.digest(block);
     const cid = CID.createV1(0x71, hash);
 
-    vi.mocked(fetchBlock).mockResolvedValue(block);
+    const blocks = new Map<string, Uint8Array>();
+    blocks.set(cid.toString(), block);
+    const resolver = createMockResolver(blocks);
+
+    const lc = createSnapshotCodec({ resolver });
 
     await lc.applyRemote(cid, readKey, () => {});
 
-    expect(fetchBlock).toHaveBeenCalledWith(expect.anything(), cid, {
-      httpUrls: urls,
-    });
+    expect(resolver.get).toHaveBeenCalledWith(cid);
   });
 });

@@ -12,17 +12,8 @@
  * blocks fetchable, some 404.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
-vi.mock("./fetch-block.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./fetch-block.js")>();
-  return {
-    ...actual,
-    fetchBlock: vi.fn(),
-  };
-});
-
-import { createSnapshotLifecycle } from "./snapshot-lifecycle.js";
-import { fetchBlock } from "./fetch-block.js";
+import { createSnapshotCodec } from "./snapshot-codec.js";
+import type { BlockResolver } from "./block-resolver.js";
 import * as Y from "yjs";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -53,23 +44,30 @@ async function blockToCid(block: Uint8Array): Promise<CID> {
   return CID.createV1(DAG_CBOR_CODE, hash);
 }
 
-describe("snapshot event payload (Item 3)", () => {
-  const mockHelia = {
-    blockstore: {
-      put: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockRejectedValue(new Error("Not found")),
-    },
+function createMockResolver(blocks?: Map<string, Uint8Array>): BlockResolver {
+  const cache = blocks ?? new Map<string, Uint8Array>();
+  return {
+    get: vi.fn(async (cid: CID) => {
+      return cache.get(cid.toString()) ?? null;
+    }),
+    getCached: vi.fn((cid: CID) => {
+      return cache.get(cid.toString()) ?? null;
+    }),
+    put: vi.fn((cid: CID, block: Uint8Array) => {
+      cache.set(cid.toString(), block);
+    }),
   };
+}
 
+describe("snapshot event payload (Item 3)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("push result includes cid, seq, and ts", async () => {
     const { readKey, signingKey } = await makeKeys();
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
+    const resolver = createMockResolver();
+    const lc = createSnapshotCodec({ resolver });
 
     const result = await lc.push(
       { content: new Uint8Array([1]) },
@@ -87,9 +85,6 @@ describe("snapshot event payload (Item 3)", () => {
 
   it("applyRemote provides cid and seq" + " information", async () => {
     const { readKey, signingKey } = await makeKeys();
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
 
     const block = await encodeSnapshot(
       { content: new Uint8Array([1]) },
@@ -100,7 +95,11 @@ describe("snapshot event payload (Item 3)", () => {
       signingKey,
     );
     const cid = await blockToCid(block);
-    vi.mocked(fetchBlock).mockResolvedValue(block);
+
+    const blocks = new Map<string, Uint8Array>();
+    blocks.set(cid.toString(), block);
+    const resolver = createMockResolver(blocks);
+    const lc = createSnapshotCodec({ resolver });
 
     const applied: Record<string, Uint8Array>[] = [];
     const result = await lc.applyRemote(cid, readKey, (snap) =>
@@ -108,11 +107,9 @@ describe("snapshot event payload (Item 3)", () => {
     );
 
     expect(result).toBe(true);
-    // After applyRemote, the lifecycle should
-    // track the CID — verify via getBlock
-    const stored = lc.getBlock(cid.toString());
-    expect(stored).toBeDefined();
-    expect(stored!.length).toBeGreaterThan(0);
+    // After applyRemote, the block should be in
+    // the resolver cache
+    expect(resolver.put).toHaveBeenCalledWith(cid, block);
   });
 });
 
@@ -121,13 +118,6 @@ describe("snapshot event payload (Item 3)", () => {
 // canonical history derivation now.
 
 describe("partial history / gap handling (Item 5)", () => {
-  const mockHelia = {
-    blockstore: {
-      put: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockRejectedValue(new Error("Not found")),
-    },
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -135,24 +125,16 @@ describe("partial history / gap handling (Item 5)", () => {
   it("loadVersion throws cleanly for" + " missing block", async () => {
     const { readKey, signingKey } = await makeKeys();
 
-    // fetchBlock rejects — block not available
-    // anywhere
-    vi.mocked(fetchBlock).mockRejectedValue(new Error("Not found"));
-
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
+    // Resolver returns null for unknown CIDs
+    const resolver = createMockResolver();
+    const lc = createSnapshotCodec({
+      resolver,
     });
 
     // Push one version so we have a valid CID
-    const result = await lc.push(
-      { content: new Uint8Array([1]) },
-      readKey,
-      signingKey,
-      10,
-    );
+    await lc.push({ content: new Uint8Array([1]) }, readKey, signingKey, 10);
 
-    // Create a CID that doesn't exist in local
-    // blocks or blockstore
+    // Create a CID that doesn't exist in resolver
     const fakeCid = CID.createV1(
       DAG_CBOR_CODE,
       await sha256.digest(new TextEncoder().encode("missing")),
@@ -165,8 +147,9 @@ describe("partial history / gap handling (Item 5)", () => {
 
   it("loadVersion succeeds for locally" + " stored block", async () => {
     const { readKey, signingKey } = await makeKeys();
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
+    const resolver = createMockResolver();
+    const lc = createSnapshotCodec({
+      resolver,
     });
 
     const result = await lc.push(
@@ -176,7 +159,7 @@ describe("partial history / gap handling (Item 5)", () => {
       10,
     );
 
-    // loadVersion should find it in local blocks
+    // loadVersion should find it via resolver
     const docs = await lc.loadVersion(result.cid, readKey);
     expect(docs).toHaveProperty("content");
     expect(docs.content).toBeDefined();
@@ -185,9 +168,8 @@ describe("partial history / gap handling (Item 5)", () => {
 
   it("push builds a chain of versions", async () => {
     const { readKey, signingKey } = await makeKeys();
-    const lc = createSnapshotLifecycle({
-      getHelia: () => mockHelia as any,
-    });
+    const resolver = createMockResolver();
+    const lc = createSnapshotCodec({ resolver });
 
     // Push 5 versions
     const results = [];
@@ -210,7 +192,7 @@ describe("partial history / gap handling (Item 5)", () => {
   });
 
   it(
-    "loadVersion falls back to fetchBlock" + " for non-local blocks",
+    "loadVersion falls back to resolver.get()" + " for non-local blocks",
     async () => {
       const { readKey, signingKey } = await makeKeys();
 
@@ -225,17 +207,17 @@ describe("partial history / gap handling (Item 5)", () => {
       );
       const cid = await blockToCid(block);
 
-      // fetchBlock returns the block (simulates
-      // blockstore retry or HTTP fallback)
-      vi.mocked(fetchBlock).mockResolvedValue(block);
-
-      const lc = createSnapshotLifecycle({
-        getHelia: () => mockHelia as any,
+      // Pre-populate resolver with the block
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const resolver = createMockResolver(blocks);
+      const lc = createSnapshotCodec({
+        resolver,
       });
 
       const docs = await lc.loadVersion(cid, readKey);
       expect(docs).toHaveProperty("content");
-      expect(fetchBlock).toHaveBeenCalled();
+      expect(resolver.get).toHaveBeenCalled();
     },
   );
 
@@ -243,8 +225,9 @@ describe("partial history / gap handling (Item 5)", () => {
     "loadVersion does not cascade failures" + " to other operations",
     async () => {
       const { readKey, signingKey } = await makeKeys();
-      const lc = createSnapshotLifecycle({
-        getHelia: () => mockHelia as any,
+      const resolver = createMockResolver();
+      const lc = createSnapshotCodec({
+        resolver,
       });
 
       // Push a valid version
