@@ -33,4 +33,4 @@ convenience.
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Snapshot Chain](../../docs/architecture.md)
+- [Architecture — Snapshot Chain](../../docs/internals/architecture.md)

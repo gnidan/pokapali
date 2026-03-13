@@ -24,4 +24,4 @@ edits.
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Namespace Enforcement](../../docs/architecture.md)
+- [Architecture — Namespace Enforcement](../../docs/internals/architecture.md)
