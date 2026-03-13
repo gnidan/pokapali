@@ -71,13 +71,7 @@ export function createSnapshotCodec(
       const prevForThis = prev;
       const seqForThis = seq;
 
-      // identityKey is forwarded for publisher
-      // attribution once snapshot package supports it
-      // (protocol branch). The cast handles the
-      // transition period before merge.
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-      const encode = encodeSnapshot as Function;
-      const block = (await encode(
+      const block = await encodeSnapshot(
         plaintext,
         readKey,
         prevForThis,
@@ -85,7 +79,7 @@ export function createSnapshotCodec(
         Date.now(),
         signingKey,
         identityKey,
-      )) as Uint8Array;
+      );
       const hash = await sha256.digest(block);
       const cid = CIDClass.createV1(DAG_CBOR_CODE, hash);
 
