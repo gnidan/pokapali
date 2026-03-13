@@ -6,7 +6,7 @@ import type {
   CapabilityKeys,
 } from "@pokapali/capability";
 import { narrowCapability, buildUrl } from "@pokapali/capability";
-import { hexToBytes, bytesToHex } from "@pokapali/crypto";
+import { hexToBytes, bytesToHex, verifySignature } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
@@ -37,6 +37,7 @@ import { createBlockResolver } from "./block-resolver.js";
 import { createSnapshotCodec } from "./snapshot-codec.js";
 import { readVersionCache, writeVersionCache } from "./version-cache.js";
 import type { CachedVersionEntry } from "./version-cache.js";
+import { fetchTipFromPinners } from "./fetch-tip.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -127,6 +128,10 @@ export interface Doc {
   readonly status: Feed<DocStatus>;
   /** Reactive save-state feed (useSyncExternalStore). */
   readonly saveState: Feed<SaveState>;
+  /** Error message from the last failed save,
+   *  or null. Cleared on next edit or successful
+   *  save. Present when saveState is "save-error". */
+  readonly lastSaveError: string | null;
   /** Peer IDs of relays discovered for this app. */
   readonly relays: ReadonlySet<string>;
   /** Sum of all Y.Doc state vector clocks. */
@@ -213,12 +218,21 @@ export interface Doc {
   readonly authorizedPublishers: ReadonlySet<string>;
   /** Participants currently visible via awareness. */
   readonly participants: ReadonlyMap<number, ParticipantInfo>;
+  /** Persistent clientID→pubkey mapping from _meta.
+   *  Updates reactively as peers register. Used by
+   *  comments attribution and edit blame. */
+  readonly clientIdMapping: Feed<ReadonlyMap<number, ClientIdentityInfo>>;
   destroy(): void;
 }
 
 export interface ParticipantInfo {
   pubkey: string;
   displayName?: string;
+}
+
+export interface ClientIdentityInfo {
+  pubkey: string;
+  verified: boolean;
 }
 
 export interface DocParams {
@@ -270,8 +284,13 @@ function computeStatus(
   return "offline";
 }
 
-function computeSaveState(isDirty: boolean, isSaving: boolean): SaveState {
+function computeSaveState(
+  isDirty: boolean,
+  isSaving: boolean,
+  lastSaveError?: string | null,
+): SaveState {
   if (isSaving) return "saving";
+  if (lastSaveError) return "save-error";
   if (isDirty) return "dirty";
   return "saved";
 }
@@ -418,6 +437,7 @@ export function createDoc(params: DocParams): Doc {
   // --- Status tracking (fallback for no-interpreter) --
   let gossipActivity: GossipActivity = "inactive";
   let isSaving = false;
+  let lastSaveError: string | null = null;
 
   let lastStatus = computeStatus(
     syncManager.status,
@@ -440,7 +460,11 @@ export function createDoc(params: DocParams): Doc {
   }
 
   function checkSaveState() {
-    const next = computeSaveState(subdocManager.isDirty, isSaving);
+    const next = computeSaveState(
+      subdocManager.isDirty,
+      isSaving,
+      lastSaveError,
+    );
     if (next !== lastSaveState) {
       lastSaveState = next;
       saveStateFeed._update(next);
@@ -507,6 +531,80 @@ export function createDoc(params: DocParams): Doc {
     EMPTY_VERSION_HISTORY,
   );
 
+  // --- Client identity mapping feed ---
+  // Observes _meta "clientIdentities" Y.Map and
+  // projects into a reactive Feed with async sig
+  // verification.
+  type IdentityMap = ReadonlyMap<number, ClientIdentityInfo>;
+  const EMPTY_IDENTITY_MAP: IdentityMap = new Map();
+  const clientIdMappingFeed: WritableFeed<IdentityMap> =
+    createFeed<IdentityMap>(EMPTY_IDENTITY_MAP);
+
+  // Cache verified results to avoid re-verifying
+  // on every Y.Map change.
+  const verifiedCache = new Map<string, boolean | null>();
+
+  function rebuildClientIdMapping(): void {
+    const identities = subdocManager.metaDoc.getMap("clientIdentities");
+    const result = new Map<number, ClientIdentityInfo>();
+    let pendingVerifications = 0;
+
+    for (const [key, value] of identities.entries()) {
+      const clientId = Number(key);
+      if (Number.isNaN(clientId)) continue;
+      const entry = value as {
+        pubkey?: string;
+        sig?: string;
+      };
+      if (!entry?.pubkey || !entry?.sig) continue;
+
+      const cached = verifiedCache.get(key);
+      if (cached !== undefined && cached !== null) {
+        result.set(clientId, {
+          pubkey: entry.pubkey,
+          verified: cached,
+        });
+      } else {
+        // Optimistic: show as unverified until
+        // async verification completes.
+        result.set(clientId, {
+          pubkey: entry.pubkey,
+          verified: false,
+        });
+        if (cached === undefined) {
+          // null = in-flight
+          verifiedCache.set(key, null);
+          pendingVerifications++;
+          const payload = new TextEncoder().encode(
+            entry.pubkey + ":" + ipnsName,
+          );
+          verifySignature(
+            hexToBytes(entry.pubkey),
+            hexToBytes(entry.sig),
+            payload,
+          )
+            .then((ok) => {
+              verifiedCache.set(key, ok);
+              rebuildClientIdMapping();
+            })
+            .catch(() => {
+              verifiedCache.set(key, false);
+              rebuildClientIdMapping();
+            });
+        }
+      }
+    }
+
+    clientIdMappingFeed._update(result);
+  }
+
+  // Observe _meta clientIdentities for changes.
+  const identitiesMap = subdocManager.metaDoc.getMap("clientIdentities");
+  identitiesMap.observe(rebuildClientIdMapping);
+  // Initial projection (may already have entries
+  // from IDB-persisted _meta).
+  rebuildClientIdMapping();
+
   let versionCacheTimer: ReturnType<typeof setTimeout> | null = null;
   const VERSION_CACHE_DEBOUNCE_MS = 500;
 
@@ -551,6 +649,9 @@ export function createDoc(params: DocParams): Doc {
   // is authoritative for getters and events.
 
   subdocManager.on("dirty", () => {
+    // Clear save error on new edits — user is back
+    // to "dirty" state, previous error is stale.
+    lastSaveError = null;
     checkSaveState();
     emit("publish-needed");
     awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
@@ -684,6 +785,16 @@ export function createDoc(params: DocParams): Doc {
           sig,
         };
         awarenessRoom.awareness.setLocalStateField("participant", participant);
+
+        // Persist clientID→pubkey in _meta so the
+        // mapping survives across snapshots. Used by
+        // comments attribution and edit blame (#73).
+        const clientId = awarenessRoom.awareness.clientID;
+        const identities = subdocManager.metaDoc.getMap("clientIdentities");
+        identities.set(String(clientId), {
+          pubkey: bytesToHex(kp.publicKey),
+          sig,
+        });
       })
       .catch((err) => {
         log.warn(
@@ -1072,6 +1183,33 @@ export function createDoc(params: DocParams): Doc {
       },
     );
 
+    // --- HTTP tip fetch (fastest path) ---
+    // Fire in parallel with IPNS — whichever
+    // resolves first pushes cid-discovered.
+    if (params.performInitialResolve) {
+      (async () => {
+        try {
+          const urls = getHttpUrls();
+          if (urls.length === 0) return;
+          const tip = await fetchTipFromPinners(urls, ipnsName, signal);
+          if (signal.aborted || !tip) return;
+          // Cache block immediately
+          resolver.put(tip.cid, tip.block);
+          fq.push({
+            type: "cid-discovered",
+            ts: Date.now(),
+            cid: tip.cid,
+            source: "http-tip",
+            block: tip.block,
+            seq: tip.seq,
+            snapshotTs: tip.ts,
+          });
+        } catch (err) {
+          log.debug("HTTP tip fetch failed:", (err as Error)?.message ?? err);
+        }
+      })();
+    }
+
     // --- IPNS initial resolve ---
     if (params.performInitialResolve) {
       fq.push({
@@ -1203,6 +1341,7 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch();
       stopIPNSWatch = null;
     }
+    identitiesMap.unobserve(rebuildClientIdMapping);
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
@@ -1299,6 +1438,10 @@ export function createDoc(params: DocParams): Doc {
       return params.roomDiscovery?.relayPeerIds ?? new Set();
     },
 
+    get lastSaveError(): string | null {
+      return lastSaveError;
+    },
+
     get clockSum(): number {
       return computeClockSum();
     },
@@ -1351,6 +1494,7 @@ export function createDoc(params: DocParams): Doc {
     tip: tipFeed as Feed<VersionInfo | null>,
     loading: loadingFeed as Feed<LoadingState>,
     versions: versionsFeed as Feed<VersionHistory>,
+    clientIdMapping: clientIdMappingFeed as Feed<IdentityMap>,
 
     ready(): Promise<void> {
       return readyPromise;
@@ -1382,11 +1526,12 @@ export function createDoc(params: DocParams): Doc {
         );
       } catch (err) {
         isSaving = false;
+        lastSaveError = err instanceof Error ? err.message : String(err);
         checkSaveState();
         factQueue?.push({
           type: "publish-failed",
           ts: Date.now(),
-          error: err instanceof Error ? err.message : String(err),
+          error: lastSaveError,
         });
         throw err;
       }
@@ -1401,6 +1546,7 @@ export function createDoc(params: DocParams): Doc {
       lastLocalPublishCid = cid.toString();
 
       isSaving = false;
+      lastSaveError = null;
       checkSaveState();
 
       // Build the facts that describe this publish.
