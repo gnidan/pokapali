@@ -11,7 +11,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import * as Y from "yjs";
-import type { Editor } from "@tiptap/core";
 import type { Doc } from "@pokapali/core";
 import {
   comments,
@@ -19,50 +18,12 @@ import {
   type Comment,
   type Anchor,
 } from "@pokapali/comments";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — y-prosemirror has no type declarations
-import {
-  absolutePositionToRelativePosition,
-  ySyncPluginKey,
-} from "y-prosemirror";
 import { useFeed } from "./useFeed";
 
 // ── App-defined comment data ─────────────────────
 
 export interface CommentData {
   status: "open" | "resolved";
-}
-
-// ── Anchor creation adapter ──────────────────────
-
-/**
- * Create an Anchor from ProseMirror selection
- * positions. Uses y-prosemirror to map PM positions
- * to Y.RelativePositions on the XmlFragment.
- *
- * The resulting Anchor bytes reference XmlFragment
- * items, NOT Y.Text — the comments package stores
- * them as-is but can't resolve them (see
- * commentHighlight.ts for resolution).
- */
-export function createAnchorFromSelection(
-  editor: Editor,
-  from: number,
-  to: number,
-): Anchor | null {
-  const syncState = ySyncPluginKey.getState(editor.state);
-  if (!syncState) return null;
-
-  const { type, mapping } = syncState;
-  const startRelPos = absolutePositionToRelativePosition(from, type, mapping);
-  const endRelPos = absolutePositionToRelativePosition(to, type, mapping);
-
-  if (!startRelPos || !endRelPos) return null;
-
-  return {
-    start: Y.encodeRelativePosition(startRelPos),
-    end: Y.encodeRelativePosition(endRelPos),
-  };
 }
 
 function tryChannel(doc: Doc, name: string): Y.Doc | null {

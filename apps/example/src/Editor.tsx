@@ -3,9 +3,16 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+import * as Y from "yjs";
 import type { Doc as YDoc } from "yjs";
 import type { Doc, VersionEntry } from "@pokapali/core";
 import { createAutoSaver, docIdFromUrl } from "@pokapali/core";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — y-prosemirror has no type declarations
+import {
+  absolutePositionToRelativePosition,
+  ySyncPluginKey,
+} from "y-prosemirror";
 import { StatusIndicator } from "./StatusIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
 import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
@@ -14,7 +21,14 @@ import { VersionHistory } from "./VersionHistory";
 import { VersionPreviewOverlay } from "./VersionPreviewOverlay";
 import { useVersionHistory } from "./useVersionHistory";
 import { CommentSidebar } from "./CommentSidebar";
-import { useComments, createAnchorFromSelection } from "./useComments";
+import { CommentPopover } from "./CommentPopover";
+import { useComments } from "./useComments";
+import type { Anchor } from "./pendingAnchorHighlight";
+import {
+  PendingAnchorHighlight,
+  setPendingAnchorDecoration,
+  clearPendingAnchorDecoration,
+} from "./pendingAnchorHighlight";
 import {
   CommentHighlight,
   rebuildCommentDecorations,
@@ -42,11 +56,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
     null,
   );
-  const [hasSelection, setHasSelection] = useState(false);
-  const selectionRef = useRef<{ from: number; to: number }>({
-    from: 0,
-    to: 0,
-  });
+  const [pendingAnchor, setPendingAnchor] = useState<Anchor | null>(null);
   const [previewVersion, setPreviewVersion] = useState<{
     entry: VersionEntry;
     ydoc: YDoc;
@@ -178,26 +188,34 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
               contentDoc,
               activeCommentId: selectedCommentId,
             }),
+            PendingAnchorHighlight,
           ]
         : [StarterKit.configure({ history: false })],
     },
     [doc, shouldMount, commentsDoc],
   );
 
-  // Track editor selection for "Comment on selection"
-  useEffect(() => {
+  const handlePopoverComment = useCallback(() => {
     if (!editor) return;
-    const update = () => {
-      const { from, to } = editor.state.selection;
-      if (from !== to) {
-        selectionRef.current = { from, to };
-      }
-      setHasSelection(from !== to);
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+
+    const syncState = ySyncPluginKey.getState(editor.state);
+    if (!syncState) return;
+
+    const { type, mapping } = syncState;
+    const startRel = absolutePositionToRelativePosition(from, type, mapping);
+    const endRel = absolutePositionToRelativePosition(to, type, mapping);
+    if (!startRel || !endRel) return;
+
+    const anchor: Anchor = {
+      start: Y.encodeRelativePosition(startRel),
+      end: Y.encodeRelativePosition(endRel),
     };
-    editor.on("selectionUpdate", update);
-    return () => {
-      editor.off("selectionUpdate", update);
-    };
+
+    setPendingAnchor(anchor);
+    setPendingAnchorDecoration(editor.view, anchor);
+    setShowComments(true);
   }, [editor]);
 
   // Rebuild comment decorations when comments change
@@ -288,17 +306,14 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
   const handleAddComment = useCallback(
     (content: string) => {
-      if (!editor) return;
-      // Use stored selection — the live selection is
-      // lost when the user clicks into the comment
-      // textarea.
-      const { from, to } = selectionRef.current;
-      if (from === to) return;
-      const anchor = createAnchorFromSelection(editor, from, to);
-      if (!anchor) return;
-      addComment(content, anchor);
+      if (!pendingAnchor) return;
+      addComment(content, pendingAnchor);
+      setPendingAnchor(null);
+      if (editor?.view) {
+        clearPendingAnchorDecoration(editor.view);
+      }
     },
-    [editor, addComment],
+    [editor, addComment, pendingAnchor],
   );
 
   const handleAddReply = useCallback(
@@ -464,6 +479,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
           )}
         </div>
 
+        {!isReadOnly && !pendingAnchor && (
+          <CommentPopover onComment={handlePopoverComment} />
+        )}
+
         {previewVersion && (
           <VersionPreviewOverlay
             doc={doc}
@@ -488,7 +507,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
           <CommentSidebar
             comments={commentList}
             myPubkey={doc.identityPubkey}
-            hasSelection={hasSelection}
+            hasPendingAnchor={pendingAnchor != null}
             onAddComment={handleAddComment}
             onAddReply={handleAddReply}
             onResolve={resolveComment}
