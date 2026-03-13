@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.1] — 2026-03-13
+
 ### Added
 
 - `exports` field in all package.json files for proper ESM
