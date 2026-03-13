@@ -4,6 +4,12 @@
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
   "license": "MIT",
   "bin": {
     "pokapali": "dist/bin/node.js"
