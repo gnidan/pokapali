@@ -9,6 +9,8 @@ import {
 
 export { createGossipSubSignaling } from "./gossipsub-signaling.js";
 export type { PubSubLike } from "./gossipsub-signaling.js";
+export type { Awareness } from "y-protocols/awareness";
+export type { SubdocManager } from "@pokapali/subdocs";
 
 export interface SyncManager {
   readonly status: SyncStatus;
