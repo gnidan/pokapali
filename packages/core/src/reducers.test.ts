@@ -28,7 +28,13 @@ import {
   INITIAL_CONTENT,
   INITIAL_GOSSIP,
 } from "./facts.js";
-import type { Fact, ChainState, DocState, AnnounceState } from "./facts.js";
+import type {
+  Fact,
+  ChainState,
+  ContentState,
+  DocState,
+  AnnounceState,
+} from "./facts.js";
 
 async function fakeCid(n: number): Promise<CID> {
   const hash = await sha256.digest(new Uint8Array([n]));

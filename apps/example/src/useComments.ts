@@ -6,10 +6,10 @@
  * anchors on XmlFragment (Tiptap) but passes them
  * through the comments package which stores them
  * as raw Uint8Array. Anchor resolution is handled
- * separately by useResolvedAnchors.
+ * separately by commentHighlight.ts.
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as Y from "yjs";
 import type { Editor } from "@tiptap/core";
 import type { Doc } from "@pokapali/core";
@@ -18,8 +18,6 @@ import {
   type Comments,
   type Comment,
   type Anchor,
-  type ClientIdMapping,
-  type Feed,
 } from "@pokapali/comments";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
@@ -35,59 +33,6 @@ export interface CommentData {
   status: "open" | "resolved";
 }
 
-// ── ClientIdMapping bridge ───────────────────────
-
-/**
- * Temporary bridge: wraps doc.participants (a plain
- * ReadonlyMap) into a Feed<ClientIdMapping>.
- *
- * Since doc.participants is awareness-based and not
- * a Feed, we poll on awareness changes. Replace with
- * doc.clientIdMapping once core exposes it.
- */
-function createClientIdBridge(doc: Doc): {
-  feed: Feed<ClientIdMapping>;
-  destroy: () => void;
-} {
-  let snapshot: ClientIdMapping = new Map();
-  const subscribers = new Set<() => void>();
-
-  function rebuild() {
-    const next = new Map<number, { pubkey: string; verified: boolean }>();
-    for (const [clientId, info] of doc.participants) {
-      next.set(clientId, {
-        pubkey: info.pubkey,
-        // Participants from awareness are considered
-        // verified (core filters invalid sigs).
-        verified: true,
-      });
-    }
-    snapshot = next;
-    for (const cb of subscribers) cb();
-  }
-
-  rebuild();
-
-  const onAwareness = () => rebuild();
-  doc.awareness.on("change", onAwareness);
-
-  return {
-    feed: {
-      getSnapshot() {
-        return snapshot;
-      },
-      subscribe(cb: () => void) {
-        subscribers.add(cb);
-        return () => subscribers.delete(cb);
-      },
-    },
-    destroy() {
-      doc.awareness.off("change", onAwareness);
-      subscribers.clear();
-    },
-  };
-}
-
 // ── Anchor creation adapter ──────────────────────
 
 /**
@@ -98,7 +43,7 @@ function createClientIdBridge(doc: Doc): {
  * The resulting Anchor bytes reference XmlFragment
  * items, NOT Y.Text — the comments package stores
  * them as-is but can't resolve them (see
- * useResolvedAnchors for resolution).
+ * commentHighlight.ts for resolution).
  */
 export function createAnchorFromSelection(
   editor: Editor,
@@ -123,31 +68,26 @@ export function createAnchorFromSelection(
 // ── Main hook ────────────────────────────────────
 
 export function useComments(doc: Doc) {
-  const [instance, setInstance] = useState<{
-    c: Comments<CommentData>;
-    bridge: { destroy: () => void };
-  } | null>(null);
+  const [instance, setInstance] = useState<Comments<CommentData> | null>(null);
 
   useEffect(() => {
     const commentsDoc = doc.channel("comments");
     const contentDoc = doc.channel("content");
-    const bridge = createClientIdBridge(doc);
 
     const c = comments<CommentData>(commentsDoc, contentDoc, {
       author: doc.identityPubkey,
-      clientIdMapping: bridge.feed,
+      clientIdMapping: doc.clientIdMapping,
     });
 
-    setInstance({ c, bridge });
+    setInstance(c);
 
     return () => {
       c.destroy();
-      bridge.destroy();
     };
   }, [doc]);
 
   const commentList = useFeed(
-    instance?.c.feed ?? {
+    instance?.feed ?? {
       getSnapshot: () => [] as Comment<CommentData>[],
       subscribe: () => () => {},
     },
@@ -156,7 +96,7 @@ export function useComments(doc: Doc) {
   const addComment = useCallback(
     (content: string, anchor?: Anchor): string | null => {
       if (!instance) return null;
-      return instance.c.add({
+      return instance.add({
         content,
         anchor,
         data: { status: "open" },
@@ -168,7 +108,7 @@ export function useComments(doc: Doc) {
   const addReply = useCallback(
     (parentId: string, content: string): string | null => {
       if (!instance) return null;
-      return instance.c.add({
+      return instance.add({
         content,
         parentId,
         data: { status: "open" },
@@ -179,7 +119,7 @@ export function useComments(doc: Doc) {
 
   const resolveComment = useCallback(
     (id: string) => {
-      instance?.c.update(id, {
+      instance?.update(id, {
         data: { status: "resolved" },
       });
     },
@@ -188,7 +128,7 @@ export function useComments(doc: Doc) {
 
   const reopenComment = useCallback(
     (id: string) => {
-      instance?.c.update(id, {
+      instance?.update(id, {
         data: { status: "open" },
       });
     },
@@ -197,7 +137,7 @@ export function useComments(doc: Doc) {
 
   const deleteComment = useCallback(
     (id: string) => {
-      instance?.c.delete(id);
+      instance?.delete(id);
     },
     [instance],
   );
