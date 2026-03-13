@@ -104,3 +104,63 @@ test.describe("smoke tests", () => {
     await expect(page2.locator(".back-arrow")).toBeVisible();
   });
 });
+
+test.describe("edge cases", () => {
+  test("open document by direct URL navigation", async ({ page }) => {
+    // Create a doc to get a valid URL
+    await page.goto("/");
+    await page
+      .getByRole("button", {
+        name: "Create new document",
+      })
+      .click();
+    await expect(page.locator(".tiptap")).toBeVisible({ timeout: 15_000 });
+    const docUrl = page.url();
+
+    // Navigate directly to the doc URL
+    // (simulates bookmarked / shared link)
+    await page.goto(docUrl);
+    await expect(page.locator(".tiptap")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".back-arrow")).toBeVisible();
+  });
+
+  test("version history panel opens", async ({ page }) => {
+    await page.goto("/");
+    await page
+      .getByRole("button", {
+        name: "Create new document",
+      })
+      .click();
+    await expect(page.locator(".tiptap")).toBeVisible({ timeout: 15_000 });
+
+    // Open version history drawer
+    await page.locator(".toggle-history").click();
+    await expect(page.locator(".vh-drawer")).toBeVisible();
+
+    // New doc has no versions yet
+    await expect(page.locator(".vh-empty")).toContainText(
+      "No versions published yet",
+    );
+  });
+
+  test("save status shows unpublished for new doc", async ({ page }) => {
+    await page.goto("/");
+    await page
+      .getByRole("button", {
+        name: "Create new document",
+      })
+      .click();
+    await expect(page.locator(".tiptap")).toBeVisible({ timeout: 15_000 });
+
+    // New doc starts as unpublished
+    const saveEl = page.locator(".save-state");
+    await expect(saveEl).toBeVisible();
+    await expect(saveEl).toContainText(/Publish/);
+
+    // Type text — should transition to dirty
+    const editor = page.locator(".tiptap");
+    await editor.click();
+    await page.keyboard.type("Some content");
+    await expect(saveEl).toContainText("Publish changes", { timeout: 5_000 });
+  });
+});
