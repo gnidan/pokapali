@@ -40,13 +40,14 @@ jobs:
           chmod 600 ~/.ssh/deploy-key
           echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
             > ~/.ssh/known_hosts
-          cat >> ~/.ssh/config <<'SSHEOF'
-          Host *
-            IdentityFile ~/.ssh/deploy-key
-            StrictHostKeyChecking accept-new
-            ConnectTimeout 15
-          SSHEOF
-          sed -i 's/^          //' ~/.ssh/config
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          cat ~/.ssh/config
 
       - name: Resolve target commit
         id: target
