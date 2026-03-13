@@ -87,9 +87,16 @@ export function useComments(doc: Doc) {
       // existed — comments are unavailable.
       return;
     }
-    const contentDoc = doc.channel("content");
+    // Pass a dummy Y.Doc as contentDoc to avoid a Yjs
+    // type conflict: @pokapali/comments calls
+    // getText("default") but Tiptap already registered
+    // getXmlFragment("default") on the real content doc.
+    // Anchor resolution is handled by commentHighlight.ts
+    // via y-prosemirror, so the package's Text-based
+    // resolution (which returns "pending") is unused.
+    const contentStub = new Y.Doc();
 
-    const c = comments<CommentData>(commentsDoc, contentDoc, {
+    const c = comments<CommentData>(commentsDoc, contentStub, {
       author: doc.identityPubkey,
       clientIdMapping: doc.clientIdMapping,
     });
@@ -98,6 +105,7 @@ export function useComments(doc: Doc) {
 
     return () => {
       c.destroy();
+      contentStub.destroy();
     };
   }, [doc]);
 
