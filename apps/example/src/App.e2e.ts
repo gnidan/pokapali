@@ -135,6 +135,168 @@ test.describe("smoke tests", () => {
   });
 });
 
+test.describe("publish / save flow", () => {
+  test("new doc shows Publish now button", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create new document" }).click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    const save = page.locator(".save-state");
+    await expect(save).toBeVisible();
+    await expect(save).toContainText("Publish now");
+    // It's a button when publishable.
+    await expect(save).toHaveClass(/save-action/);
+  });
+
+  test("typing transitions state to dirty", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create new document" }).click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    const save = page.locator(".save-state");
+    await expect(save).toContainText("Publish now");
+
+    await page.locator(".tiptap").click();
+    await page.keyboard.type("Hello");
+
+    await expect(save).toContainText("Publish changes", {
+      timeout: 5_000,
+    });
+    await expect(save).toHaveClass(/dirty/);
+  });
+
+  test("clicking publish triggers save progression", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create new document" }).click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    // Type to get into dirty state.
+    await page.locator(".tiptap").click();
+    await page.keyboard.type("Content to publish");
+
+    const save = page.locator(".save-state");
+    await expect(save).toContainText("Publish changes", {
+      timeout: 5_000,
+    });
+
+    // Click publish — should transition through saving.
+    await save.click();
+
+    // Accept any post-click state: "Saving...",
+    // "Published", or "Save failed" (no pinners in
+    // test env). The key assertion is that click
+    // triggers a state change from "Publish changes".
+    await expect(save).not.toContainText("Publish changes", {
+      timeout: 5_000,
+    });
+  });
+});
+
+test.describe("connection status", () => {
+  test("users count is visible", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create new document" }).click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    const users = page.locator("[data-testid='cs-users-count']");
+    await expect(users).toBeVisible();
+    // Single user editing alone.
+    await expect(users).toContainText("1");
+  });
+
+  test("node and network status dots display", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create new document" }).click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    await expect(page.locator("[data-testid='cs-node-status']")).toBeVisible();
+    await expect(
+      page.locator("[data-testid='cs-network-status']"),
+    ).toBeVisible();
+  });
+
+  test("no connected pinners warning in isolated env", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create new document" }).click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    // In test environment with no relays/pinners,
+    // either "No connected pinners" or
+    // "Checking for pinners" should appear.
+    const status = page.locator(".connection-status");
+    await expect(status).toBeVisible();
+
+    // Wait for the node capability check to settle.
+    const noPinner = page.locator(".cs-no-pinner");
+    const checking = page.locator(".cs-checking-pinners");
+
+    // One of these should be visible within a
+    // reasonable time — no pinners in test env.
+    await expect(noPinner.or(checking)).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+});
+
+test.describe("error states", () => {
+  test("invalid URL shows error on landing", async ({ page }) => {
+    await page.goto("/");
+
+    const input = page.getByLabel("Document capability URL");
+    await input.fill("not-a-valid-url");
+    await page.locator(".open-form button").click();
+
+    // Error should appear.
+    const error = page.locator(".landing-error");
+    await expect(error).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("malformed hash in URL shows error", async ({ page }) => {
+    // Navigate directly to a URL with garbage hash.
+    await page.goto("/#/doc/ZZZZ_invalid_capability");
+
+    // App should show error or remain on landing.
+    // The auto-open logic will try app.open() which
+    // will fail on the malformed capability.
+    const error = page.locator(".landing-error");
+    const landing = page.locator(".landing");
+
+    // Either an error appears or we stay on landing.
+    await expect(error.or(landing)).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+  });
+
+  test("back arrow navigates to landing", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create new document" }).click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    // Click back arrow.
+    await page.locator(".back-arrow").click();
+
+    // Should return to landing.
+    await expect(page.locator(".landing")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Create new document" }),
+    ).toBeVisible();
+  });
+});
+
 test.describe("edge cases", () => {
   test("open document by direct URL navigation", async ({ page }) => {
     await page.goto("/");
