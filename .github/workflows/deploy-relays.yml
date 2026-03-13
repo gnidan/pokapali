@@ -49,6 +49,20 @@ jobs:
           chmod 600 ~/.ssh/config
           cat ~/.ssh/config
 
+      - name: Verify SSH connectivity
+        run: |
+          echo "Key fingerprint:"
+          ssh-keygen -lf ~/.ssh/deploy-key || true
+          echo ""
+          echo "Testing SSH to first node..."
+          FIRST_HOST=$(jq -r \
+            '.batches[0].nodes[0].host' \
+            deploy/nodes.json)
+          FIRST_USER=$(jq -r \
+            '.defaults.user' deploy/nodes.json)
+          ssh -vvv "$FIRST_USER@$FIRST_HOST" \
+            "echo ok" 2>&1 | tail -40 || true
+
       - name: Resolve target commit
         id: target
         run: |
