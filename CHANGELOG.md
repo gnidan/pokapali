@@ -7,6 +7,33 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] — 2026-03-13
+
+### Fixed
+
+- Helia singleton race conditions: concurrent
+  `acquireHelia()` no longer creates duplicate instances,
+  `releaseHelia()` during bootstrap no longer leaks
+  (#106, #107)
+- `snapshot-codec` unsafe `as any` cast replaced with
+  proper typing (#108)
+- `publish/**` tag convention for GHA publish workflow —
+  `@` in tag names broke GitHub Actions triggers (#100)
+- Publish workflow concurrency group now per-package,
+  preventing parallel publish cancellation
+
+### Added
+
+- `Awareness` and `SubdocManager` re-exported from
+  @pokapali/sync for advanced consumers (#109)
+- `prepublishOnly` build step in @pokapali/comments and
+  @pokapali/test-utils (#110)
+- `doc.clientIdMapping` documented in api-stability.md
+  and guide.md (#103)
+- `workflow_dispatch` manual trigger for publish workflow
+- 67 audit issues filed (#102-#168): 9 P1, 44 P2,
+  14 P3 across 7 categories
+
 ## [0.1.0-alpha.2] — 2026-03-13
 
 ### Added
