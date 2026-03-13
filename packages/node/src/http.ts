@@ -18,6 +18,51 @@ const log = createLogger("http");
 // to account for encoding overhead.
 const MAX_BODY_BYTES = 6_000_000;
 
+// Request body read timeout (Slowloris protection).
+// Aborts connections that trickle data too slowly.
+const BODY_READ_TIMEOUT_MS = 30_000;
+
+type ReadBodyResult =
+  | { ok: true; body: Uint8Array }
+  | { error: "too_large" | "timeout" | "empty" };
+
+/** @internal Exported for testing. */
+export async function readBody(
+  req: AsyncIterable<Buffer> & { destroy(): void },
+  timeoutMs: number = BODY_READ_TIMEOUT_MS,
+): Promise<ReadBodyResult> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let timedOut = false;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    req.destroy();
+  }, timeoutMs);
+
+  try {
+    for await (const chunk of req) {
+      const buf = chunk as Buffer;
+      size += buf.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        return { error: "too_large" };
+      }
+      chunks.push(buf);
+    }
+  } catch {
+    // Stream destroyed — timeout or client abort
+    if (timedOut) return { error: "timeout" };
+    return { error: "timeout" };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const body = new Uint8Array(Buffer.concat(chunks));
+  if (body.length === 0) return { error: "empty" };
+  return { ok: true, body };
+}
+
 export interface HttpConfig {
   port: number;
   relay: Relay | null;
@@ -260,39 +305,39 @@ export function startHttpServer(config: HttpConfig): Server {
       const ingestMatch = url.pathname.match(/^\/ingest\/([a-zA-Z0-9._-]+)$/);
       if (req.method === "POST" && ingestMatch) {
         const ipnsName = ingestMatch[1];
-        const chunks: Buffer[] = [];
-        let size = 0;
-        let aborted = false;
-        for await (const chunk of req) {
-          const buf = chunk as Buffer;
-          size += buf.length;
-          if (size > MAX_BODY_BYTES) {
-            aborted = true;
-            req.destroy();
-            break;
+        const result = await readBody(req);
+        if (!("ok" in result)) {
+          if (result.error === "too_large") {
+            res.writeHead(413, {
+              "content-type": "application/json",
+            });
+            res.end(
+              JSON.stringify({
+                error: "body too large",
+              }),
+            );
+          } else if (result.error === "timeout") {
+            res.writeHead(408, {
+              "content-type": "application/json",
+            });
+            res.end(
+              JSON.stringify({
+                error: "request timeout",
+              }),
+            );
+          } else {
+            res.writeHead(400, {
+              "content-type": "application/json",
+            });
+            res.end(
+              JSON.stringify({
+                error: "empty body",
+              }),
+            );
           }
-          chunks.push(buf);
-        }
-        if (aborted) {
-          res.writeHead(413, {
-            "content-type": "application/json",
-          });
-          res.end(
-            JSON.stringify({
-              error: "body too large",
-            }),
-          );
           return;
         }
-        const body = new Uint8Array(Buffer.concat(chunks));
-
-        if (body.length === 0) {
-          res.writeHead(400, {
-            "content-type": "application/json",
-          });
-          res.end(JSON.stringify({ error: "empty body" }));
-          return;
-        }
+        const body = result.body;
 
         const accepted = await pinner.ingest(ipnsName, body);
         if (accepted) {
@@ -332,6 +377,25 @@ export interface RetentionPolicy {
   dailyRetentionMs: number;
 }
 
+export interface TipResponse {
+  ipnsName: string;
+  cid: string;
+  block: Uint8Array;
+  seq: number;
+  ts: number;
+  peerId: string;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
+
+export interface GuaranteeResponse {
+  ipnsName: string;
+  cid: string;
+  peerId: string;
+  guaranteeUntil: number;
+  retainUntil: number;
+}
+
 export interface HttpsConfig {
   port: number;
   key: string;
@@ -348,6 +412,12 @@ export interface HttpsConfig {
   getHistory?: (ipnsName: string) => Promise<{ cid: string; ts: number }[]>;
   /** Retention policy for tier classification. */
   retentionPolicy?: RetentionPolicy;
+  /** Tip data lookup for GET /tip/:ipnsName. */
+  getTipData?: (ipnsName: string) => Promise<TipResponse | null>;
+  /** Guarantee lookup for GET /guarantee/:ipnsName. */
+  getGuarantee?: (ipnsName: string) => GuaranteeResponse | null;
+  /** Record browser activity on HTTP access. */
+  recordActivity?: (ipnsName: string) => void;
 }
 
 function classifyTier(
@@ -438,6 +508,116 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
           "access-control-max-age": "86400",
         });
         res.end();
+        return;
+      }
+
+      // GET /tip/:ipnsName
+      const tipMatch = url.pathname.match(/^\/tip\/([a-fA-F0-9]{64})$/);
+      if (req.method === "GET" && tipMatch && config.getTipData) {
+        const ipnsName = tipMatch[1];
+        const ip = getClientIp(req, config.trustProxy);
+        if (!limiter.check(ip)) {
+          res.writeHead(429, {
+            "content-type": "application/json",
+            "retry-after": "60",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "too many requests",
+            }),
+          );
+          return;
+        }
+        limiter.record(ip);
+
+        try {
+          const tip = await config.getTipData(ipnsName);
+          if (!tip) {
+            res.writeHead(404, {
+              "content-type": "application/json",
+              ...cors,
+            });
+            res.end(JSON.stringify({ error: "not found" }));
+            return;
+          }
+
+          // Record activity as demand signal
+          config.recordActivity?.(ipnsName);
+
+          // Encode block as base64 for JSON transport
+          const blockB64 = Buffer.from(tip.block).toString("base64");
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "cache-control": "no-cache",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              ipnsName: tip.ipnsName,
+              cid: tip.cid,
+              block: blockB64,
+              seq: tip.seq,
+              ts: tip.ts,
+              peerId: tip.peerId,
+              guaranteeUntil: tip.guaranteeUntil,
+              retainUntil: tip.retainUntil,
+            }),
+          );
+        } catch (err) {
+          log.warn("tip error:", (err as Error).message);
+          res.writeHead(500, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "internal error",
+            }),
+          );
+        }
+        return;
+      }
+
+      // GET /guarantee/:ipnsName
+      const guarMatch = url.pathname.match(/^\/guarantee\/([a-fA-F0-9]{64})$/);
+      if (req.method === "GET" && guarMatch && config.getGuarantee) {
+        const ipnsName = guarMatch[1];
+        const ip = getClientIp(req, config.trustProxy);
+        if (!limiter.check(ip)) {
+          res.writeHead(429, {
+            "content-type": "application/json",
+            "retry-after": "60",
+            ...cors,
+          });
+          res.end(
+            JSON.stringify({
+              error: "too many requests",
+            }),
+          );
+          return;
+        }
+        limiter.record(ip);
+
+        const data = config.getGuarantee(ipnsName);
+        if (!data) {
+          res.writeHead(404, {
+            "content-type": "application/json",
+            ...cors,
+          });
+          res.end(JSON.stringify({ error: "not found" }));
+          return;
+        }
+
+        // Record activity as demand signal
+        config.recordActivity?.(ipnsName);
+
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "cache-control": "no-cache",
+          ...cors,
+        });
+        res.end(JSON.stringify(data));
         return;
       }
 
@@ -557,40 +737,42 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
 
       // --- POST /block/:cid ---
       if (req.method === "POST") {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        let aborted = false;
-        for await (const chunk of req) {
-          const buf = chunk as Buffer;
-          size += buf.length;
-          if (size > MAX_BODY_BYTES) {
-            aborted = true;
-            req.destroy();
-            break;
+        const result = await readBody(req);
+        if (!("ok" in result)) {
+          if (result.error === "too_large") {
+            res.writeHead(413, {
+              "content-type": "application/json",
+              ...cors,
+            });
+            res.end(
+              JSON.stringify({
+                error: "body too large",
+              }),
+            );
+          } else if (result.error === "timeout") {
+            res.writeHead(408, {
+              "content-type": "application/json",
+              ...cors,
+            });
+            res.end(
+              JSON.stringify({
+                error: "request timeout",
+              }),
+            );
+          } else {
+            res.writeHead(400, {
+              "content-type": "application/json",
+              ...cors,
+            });
+            res.end(
+              JSON.stringify({
+                error: "empty body",
+              }),
+            );
           }
-          chunks.push(buf);
-        }
-        if (aborted) {
-          res.writeHead(413, {
-            "content-type": "application/json",
-            ...cors,
-          });
-          res.end(
-            JSON.stringify({
-              error: "body too large",
-            }),
-          );
           return;
         }
-        const body = new Uint8Array(Buffer.concat(chunks));
-        if (body.length === 0) {
-          res.writeHead(400, {
-            "content-type": "application/json",
-            ...cors,
-          });
-          res.end(JSON.stringify({ error: "empty body" }));
-          return;
-        }
+        const body = result.body;
 
         // Verify CID matches body content
         try {
