@@ -55,6 +55,7 @@ export function createSnapshotCodec(
   let seq = 1;
   let prev: CID | null = null;
   let lastIpnsSeq: number | null = null;
+  const MAX_DECODED_CACHE = 10;
   const decodedVersions = new Map<string, Record<string, Y.Doc>>();
   let lastAppliedCid: string | null = null;
   const resolver = options.resolver;
@@ -155,6 +156,12 @@ export function createSnapshotCodec(
         const doc = new Y.Doc();
         Y.applyUpdate(doc, bytes);
         result[ns] = doc;
+      }
+      if (decodedVersions.size >= MAX_DECODED_CACHE) {
+        // Evict oldest entry (first key in Map
+        // insertion order).
+        const oldest = decodedVersions.keys().next();
+        if (!oldest.done) decodedVersions.delete(oldest.value);
       }
       decodedVersions.set(cidStr, result);
       return result;
