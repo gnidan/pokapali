@@ -611,9 +611,13 @@ describe("stateful reducer properties", () => {
           expect(state.saveState).toBe("saving");
         }
         // If isDirty and not saving,
-        // saveState must be "dirty"
+        // saveState must be "dirty" or "save-error"
         if (state.content.isDirty && !state.content.isSaving) {
-          expect(state.saveState).toBe("dirty");
+          if (state.content.lastSaveError) {
+            expect(state.saveState).toBe("save-error");
+          } else {
+            expect(state.saveState).toBe("dirty");
+          }
         }
       }),
       { numRuns: NUM_RUNS },
