@@ -208,6 +208,61 @@ describe("isPublisherAuthorized logic", () => {
     map.set("real-pub", true);
     expect(isAuthorized(map, "")).toBe(false);
   });
+
+  it(
+    "self-deauthorization: admin removes " +
+      "own pubkey → no longer authorized",
+    () => {
+      const doc = new Y.Doc();
+      const map = doc.getMap<true>("authorizedPublishers");
+
+      // Admin authorizes self
+      map.set("admin-pub", true);
+      expect(isAuthorized(map, "admin-pub")).toBe(true);
+
+      // Admin removes self
+      map.delete("admin-pub");
+      // Now permissionless (map empty)
+      expect(isAuthorized(map, "admin-pub")).toBe(true);
+      expect(isAuthorized(map, "stranger")).toBe(true);
+    },
+  );
+
+  it(
+    "self-deauthorization with other " +
+      "publishers: admin removed but " +
+      "others remain",
+    () => {
+      const doc = new Y.Doc();
+      const map = doc.getMap<true>("authorizedPublishers");
+
+      map.set("admin-pub", true);
+      map.set("other-pub", true);
+      expect(isAuthorized(map, "admin-pub")).toBe(true);
+
+      // Admin removes only self
+      map.delete("admin-pub");
+      // Auth still enabled (other-pub remains)
+      expect(isAuthorized(map, "admin-pub")).toBe(false);
+      expect(isAuthorized(map, "other-pub")).toBe(true);
+    },
+  );
+
+  it("self-deauthorization then re-auth " + "restores access", () => {
+    const doc = new Y.Doc();
+    const map = doc.getMap<true>("authorizedPublishers");
+
+    map.set("admin-pub", true);
+    map.set("other-pub", true);
+
+    // Remove self
+    map.delete("admin-pub");
+    expect(isAuthorized(map, "admin-pub")).toBe(false);
+
+    // Re-authorize self
+    map.set("admin-pub", true);
+    expect(isAuthorized(map, "admin-pub")).toBe(true);
+  });
 });
 
 // ── interpreter authorization test ──────────────
