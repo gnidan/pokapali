@@ -33,6 +33,12 @@
       "default": "./dist/src/ipns-helpers.js"
     }
   },
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "!dist/src/**/*.test.*"
+  ],
   "scripts": {
     "build": "tsc --build",
     "prepublishOnly": "npm run build",
