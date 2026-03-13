@@ -54,14 +54,12 @@ while IFS=' ' read -r NAME HOST; do
   # Read defaults
   USER=$(jq -r '.defaults.user' "$CONFIG")
 
-  # Check if key already installed
+  # Check if key already installed by comment
   # -n prevents SSH from consuming the while loop's stdin
-  INSTALLED=$(ssh -n -o ConnectTimeout=15 \
+  if ssh -n -o ConnectTimeout=15 \
     "$USER@$HOST" \
-    "grep -cF '${PUB_KEY}' ~/.ssh/authorized_keys" \
-    2>/dev/null || echo "0")
-
-  if [ "$INSTALLED" != "0" ]; then
+    "grep -qF github-actions-deploy ~/.ssh/authorized_keys" \
+    2>/dev/null; then
     echo "already installed"
   else
     echo "$PUB_KEY" | ssh -o ConnectTimeout=15 \
