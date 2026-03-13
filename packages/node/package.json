@@ -10,6 +10,13 @@
       "default": "./dist/src/index.js"
     }
   },
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "dist/bin/**/*.js",
+    "!dist/src/**/*.test.*"
+  ],
   "license": "MIT",
   "bin": {
     "pokapali": "dist/bin/node.js"
