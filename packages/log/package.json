@@ -4,9 +4,16 @@
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "scripts": {
     "build": "tsc --build",
+    "prepublishOnly": "npm run build",
     "test": "vitest run"
   },
   "devDependencies": {
