@@ -22,7 +22,7 @@ const log = createLogger("node");
 const VALID_LOG_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
 function printHelp(): void {
-  console.log(`\
+  log.info(`\
 Usage: pokapali-node [options]
 
 Options:
@@ -104,13 +104,13 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg === "--port" && argv[i + 1]) {
       port = parseInt(argv[++i], 10);
       if (Number.isNaN(port)) {
-        console.error(`invalid --port value: "${argv[i]}"`);
+        log.error(`invalid --port value: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--https-port" && argv[i + 1]) {
       httpsPort = parseInt(argv[++i], 10);
       if (Number.isNaN(httpsPort)) {
-        console.error(`invalid --https-port value: "${argv[i]}"`);
+        log.error(`invalid --https-port value: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--cors-origin" && argv[i + 1]) {
@@ -118,7 +118,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg === "--rate-limit-rpm" && argv[i + 1]) {
       rateLimitRpm = parseInt(argv[++i], 10);
       if (Number.isNaN(rateLimitRpm)) {
-        console.error(`invalid --rate-limit-rpm: "${argv[i]}"`);
+        log.error(`invalid --rate-limit-rpm: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--trust-proxy") {
@@ -136,7 +136,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg === "--log-level" && argv[i + 1]) {
       const val = argv[++i];
       if (!VALID_LOG_LEVELS.includes(val as LogLevel)) {
-        console.error(
+        log.error(
           `invalid --log-level "${val}".` +
             ` Valid: ${VALID_LOG_LEVELS.join(", ")}`,
         );
@@ -146,42 +146,42 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg === "--retention-full" && argv[i + 1]) {
       retentionFullMs = parseInt(argv[++i], 10);
       if (Number.isNaN(retentionFullMs)) {
-        console.error(`invalid --retention-full: "${argv[i]}"`);
+        log.error(`invalid --retention-full: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--retention-hourly" && argv[i + 1]) {
       retentionHourlyMs = parseInt(argv[++i], 10);
       if (Number.isNaN(retentionHourlyMs)) {
-        console.error(`invalid --retention-hourly: "${argv[i]}"`);
+        log.error(`invalid --retention-hourly: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--retention-daily" && argv[i + 1]) {
       retentionDailyMs = parseInt(argv[++i], 10);
       if (Number.isNaN(retentionDailyMs)) {
-        console.error(`invalid --retention-daily: "${argv[i]}"`);
+        log.error(`invalid --retention-daily: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--ipns-rate-limit" && argv[i + 1]) {
       ipnsRateLimit = parseInt(argv[++i], 10);
       if (Number.isNaN(ipnsRateLimit) || ipnsRateLimit < 1) {
-        console.error(`invalid --ipns-rate-limit: "${argv[i]}"`);
+        log.error(`invalid --ipns-rate-limit: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--stale-resolve-days" && argv[i + 1]) {
       staleResolveDays = parseInt(argv[++i], 10);
       if (Number.isNaN(staleResolveDays) || staleResolveDays < 0) {
-        console.error(`invalid --stale-resolve-days:` + ` "${argv[i]}"`);
+        log.error(`invalid --stale-resolve-days:` + ` "${argv[i]}"`);
         process.exit(1);
       }
     }
   }
 
   if (!storagePath) {
-    console.error("--storage-path is required");
+    log.error("--storage-path is required");
     process.exit(1);
   }
   if (!relay && pinApps.length === 0) {
-    console.error("at least one of --relay or --pin" + " is required");
+    log.error("at least one of --relay or --pin" + " is required");
     process.exit(1);
   }
 
