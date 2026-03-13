@@ -1,17 +1,19 @@
 import { defineConfig } from "@playwright/test";
 
+const port = Number(process.env.PORT) || 3141;
+
 export default defineConfig({
   testDir: "./src",
   testMatch: "**/*.e2e.ts",
   timeout: 30_000,
   retries: 0,
   use: {
-    baseURL: "http://localhost:3141",
+    baseURL: `http://localhost:${port}`,
     headless: true,
   },
   webServer: {
-    command: "npm run dev",
-    port: 3141,
+    command: `PORT=${port} npm run dev`,
+    port,
     reuseExistingServer: true,
     timeout: 15_000,
   },
