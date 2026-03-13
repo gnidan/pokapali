@@ -434,6 +434,203 @@ describe("createTestNetwork", () => {
     );
   });
 
+  describe("realistic network scenarios", () => {
+    it(
+      "three peers converge under " + "moderate latency with jitter",
+      async () => {
+        const net = createTestNetwork({
+          channels: ["content", "comments"],
+          latency: { ms: 100, jitter: 50 },
+        });
+        const alice = net.peer("alice");
+        const bob = net.peer("bob");
+        const charlie = net.peer("charlie");
+
+        // All three edit different channels
+        // concurrently.
+        alice.channel("content").getMap("d").set("title", "Hello");
+        bob.channel("comments").getMap("d").set("c1", "Nice doc");
+        charlie.channel("content").getMap("d").set("footer", "Bye");
+
+        // Not converged yet — updates in flight.
+        expect(net.isConverged()).toBe(false);
+
+        await net.settle();
+
+        // All peers see all edits.
+        expect(net.isConverged()).toBe(true);
+        for (const p of [alice, bob, charlie]) {
+          expect(p.channel("content").getMap("d").get("title")).toBe("Hello");
+          expect(p.channel("content").getMap("d").get("footer")).toBe("Bye");
+          expect(p.channel("comments").getMap("d").get("c1")).toBe("Nice doc");
+        }
+
+        net.destroy();
+      },
+    );
+
+    it(
+      "partition + heal under high latency " + "preserves all edits",
+      async () => {
+        const net = createTestNetwork({
+          channels: ["content"],
+          latency: { ms: 200, jitter: 50 },
+        });
+        const alice = net.peer("alice");
+        const bob = net.peer("bob");
+        const charlie = net.peer("charlie");
+
+        // Let initial sync settle.
+        await net.settle();
+
+        // Partition: alice alone, bob+charlie together.
+        net.partition(["alice"], ["bob", "charlie"]);
+
+        // Each side edits independently.
+        alice.channel("content").getMap("d").set("a", "from-alice");
+        bob.channel("content").getMap("d").set("b", "from-bob");
+        charlie.channel("content").getMap("d").set("c", "from-charlie");
+
+        await net.settle();
+
+        // Bob and Charlie converged with each other.
+        expect(bob.channel("content").getMap("d").get("c")).toBe(
+          "from-charlie",
+        );
+        expect(charlie.channel("content").getMap("d").get("b")).toBe(
+          "from-bob",
+        );
+
+        // Alice is still isolated.
+        expect(alice.channel("content").getMap("d").get("b")).toBeUndefined();
+
+        // Heal the network.
+        net.heal();
+        await net.settle();
+
+        // Full convergence.
+        expect(net.isConverged()).toBe(true);
+        for (const p of [alice, bob, charlie]) {
+          const m = p.channel("content").getMap("d");
+          expect(m.get("a")).toBe("from-alice");
+          expect(m.get("b")).toBe("from-bob");
+          expect(m.get("c")).toBe("from-charlie");
+        }
+
+        net.destroy();
+      },
+    );
+
+    it(
+      "rapid edits from many peers converge " + "under jittery latency",
+      async () => {
+        const net = createTestNetwork({
+          channels: ["content"],
+          latency: { ms: 50, jitter: 30 },
+        });
+
+        const peers = Array.from({ length: 5 }, (_, i) =>
+          net.peer(`peer-${i}`),
+        );
+
+        // Each peer writes 10 keys rapidly.
+        for (const p of peers) {
+          const map = p.channel("content").getMap("d");
+          for (let k = 0; k < 10; k++) {
+            map.set(`${p.name}-${k}`, k);
+          }
+        }
+
+        await net.settle();
+
+        expect(net.isConverged()).toBe(true);
+
+        // Verify all 50 keys visible to every peer.
+        for (const p of peers) {
+          const map = p.channel("content").getMap("d");
+          for (const other of peers) {
+            for (let k = 0; k < 10; k++) {
+              expect(map.get(`${other.name}-${k}`)).toBe(k);
+            }
+          }
+        }
+
+        net.destroy();
+      },
+    );
+
+    it(
+      "disconnect during latency window " + "drops in-flight updates",
+      async () => {
+        const net = createTestNetwork({
+          channels: ["content"],
+          latency: { ms: 200 },
+        });
+        const alice = net.peer("alice");
+        const bob = net.peer("bob");
+
+        // Alice sends — update is in-flight (200ms).
+        alice.channel("content").getMap("d").set("key", "val");
+
+        // Disconnect before delivery.
+        net.disconnect("alice", "bob");
+
+        await net.settle();
+
+        // Bob never got it — link was severed
+        // before delivery.
+        expect(bob.channel("content").getMap("d").get("key")).toBeUndefined();
+
+        // Reconnect flushes state.
+        net.reconnect("alice", "bob");
+
+        expect(bob.channel("content").getMap("d").get("key")).toBe("val");
+
+        net.destroy();
+      },
+    );
+
+    it(
+      "multiple channels converge " + "independently under latency",
+      async () => {
+        const net = createTestNetwork({
+          channels: ["content", "comments", "meta"],
+          latency: { ms: 75, jitter: 25 },
+        });
+        const alice = net.peer("alice");
+        const bob = net.peer("bob");
+
+        alice.channel("content").getMap("d").set("title", "Doc");
+        alice.channel("comments").getArray("list").push(["first comment"]);
+        alice.channel("meta").getMap("d").set("author", "alice");
+
+        bob.channel("content").getMap("d").set("body", "Hello world");
+        bob.channel("comments").getArray("list").push(["reply"]);
+        bob.channel("meta").getMap("d").set("editor", "bob");
+
+        await net.settle();
+
+        expect(net.isConverged()).toBe(true);
+
+        // Content channel.
+        expect(alice.channel("content").getMap("d").get("body")).toBe(
+          "Hello world",
+        );
+        expect(bob.channel("content").getMap("d").get("title")).toBe("Doc");
+
+        // Comments channel — both entries present.
+        expect(alice.channel("comments").getArray("list").length).toBe(2);
+        expect(bob.channel("comments").getArray("list").length).toBe(2);
+
+        // Meta channel.
+        expect(alice.channel("meta").getMap("d").get("editor")).toBe("bob");
+        expect(bob.channel("meta").getMap("d").get("author")).toBe("alice");
+
+        net.destroy();
+      },
+    );
+  });
+
   describe("errors", () => {
     it("throws on unknown channel", () => {
       const net = createTestNetwork({
