@@ -55,7 +55,8 @@ while IFS=' ' read -r NAME HOST; do
   USER=$(jq -r '.defaults.user' "$CONFIG")
 
   # Check if key already installed
-  INSTALLED=$(ssh -o ConnectTimeout=15 \
+  # -n prevents SSH from consuming the while loop's stdin
+  INSTALLED=$(ssh -n -o ConnectTimeout=15 \
     "$USER@$HOST" \
     "grep -c '${PUB_KEY}' ~/.ssh/authorized_keys" \
     2>/dev/null || echo "0")
