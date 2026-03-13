@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import type { Doc, Diagnostics, LoadingState } from "@pokapali/core";
+import type {
+  Doc,
+  Diagnostics,
+  LoadingState,
+  VersionHistory,
+} from "@pokapali/core";
 import { TopologyMap } from "./TopologyMap";
+import { useFeed } from "./useFeed";
 
 // --- Time formatting ---
 
@@ -203,7 +209,79 @@ function networkHealth(ipfsPeers: number, meshPeers: number): Health {
   return "disconnected";
 }
 
-function SyncSummary({ info }: { info: Diagnostics }) {
+function truncateCid(cid: string): string {
+  if (cid.length <= 12) return cid;
+  return cid.slice(0, 6) + "\u2026" + cid.slice(-6);
+}
+
+function entryStatusLabel(
+  status: string,
+  loading: LoadingState,
+  cid: string,
+): string {
+  if (status === "available") return "Available";
+  if (status === "failed") return "Failed";
+  // "loading" — check if this is the active fetch
+  if (loading.status === "fetching" && loading.cid === cid) {
+    return "Fetching\u2026";
+  }
+  if (loading.status === "retrying" && loading.cid === cid) {
+    const wait = Math.max(
+      0,
+      Math.round((loading.nextRetryAt - Date.now()) / 1000),
+    );
+    return `Retry #${loading.attempt} in ${wait}s`;
+  }
+  return "Queued";
+}
+
+function BlockRequestsDropdown({
+  versions,
+  loading,
+}: {
+  versions: VersionHistory;
+  loading: LoadingState;
+}) {
+  const pending = versions.entries.filter((e) => e.status !== "available");
+
+  if (pending.length === 0 && !versions.walking) {
+    return null;
+  }
+
+  return (
+    <div className="cs-block-dropdown">
+      {versions.walking && (
+        <div className="cs-block-row cs-block-walking">
+          Walking version chain\u2026
+        </div>
+      )}
+      {pending.map((e) => {
+        const cid = e.cid.toString();
+        return (
+          <div
+            key={cid}
+            className={
+              "cs-block-row" + (e.status === "failed" ? " cs-block-failed" : "")
+            }
+          >
+            <span className="cs-block-cid" title={cid}>
+              {truncateCid(cid)}
+            </span>
+            <span className="cs-block-seq">#{e.seq}</span>
+            <span className="cs-block-status">
+              {entryStatusLabel(e.status, loading, cid)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
+  const versions = useFeed(doc.versions);
+  const loading = useFeed(doc.loading);
+
   const behind =
     Math.max(info.maxPeerClockSum, info.latestAnnouncedSeq) - info.clockSum;
   const fs = info.loadingState;
@@ -211,26 +289,38 @@ function SyncSummary({ info }: { info: Diagnostics }) {
     !info.hasAppliedSnapshot && fs.status !== "failed" && fs.status !== "idle";
   const isFailed = fs.status === "failed";
 
+  const hasPending = versions.entries.some((e) => e.status !== "available");
+  const showDropdown = hasPending || versions.walking;
+
   if (behind <= 0 && !isFailed && !isLoading) {
     return null;
   }
+
+  const label = isLoading
+    ? "Loading\u2026"
+    : isFailed
+      ? "Load failed"
+      : `~${behind} edits behind`;
 
   return (
     <>
       <span className="cs-divider" />
       <span
-        className={"cs-section " + (isFailed ? "cs-fetch-failed" : "cs-behind")}
+        className={
+          "cs-section cs-sync-summary" +
+          (isFailed ? " cs-fetch-failed" : " cs-behind") +
+          (showDropdown ? " cs-has-dropdown" : "")
+        }
         title={
           `Local: ${info.clockSum}, ` +
           `peers: ${info.maxPeerClockSum}, ` +
           `announced: ${info.latestAnnouncedSeq}`
         }
       >
-        {isLoading
-          ? "Loading\u2026"
-          : isFailed
-            ? "Load failed"
-            : `~${behind} edits behind`}
+        {label}
+        {showDropdown && (
+          <BlockRequestsDropdown versions={versions} loading={loading} />
+        )}
       </span>
     </>
   );
@@ -465,7 +555,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
           <span className="cs-label">libp2p network</span>
         </span>
 
-        <SyncSummary info={info} />
+        <SyncSummary info={info} doc={doc} />
 
         {doc.capability.canPushSnapshots &&
           !info.nodes.some(

@@ -1361,6 +1361,81 @@ body {
   opacity: 0.7;
 }
 
+/* Block requests dropdown */
+
+.cs-sync-summary {
+  position: relative;
+  cursor: default;
+}
+
+.cs-sync-summary.cs-has-dropdown {
+  cursor: pointer;
+}
+
+.cs-block-dropdown {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  padding: 0.35rem 0;
+  z-index: 20;
+  font-size: 0.7rem;
+  color: #334155;
+}
+
+.cs-sync-summary:hover .cs-block-dropdown,
+.cs-sync-summary:focus-within .cs-block-dropdown {
+  display: block;
+}
+
+.cs-block-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  white-space: nowrap;
+}
+
+.cs-block-row:not(:last-child) {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.cs-block-walking {
+  color: #2563eb;
+  font-style: italic;
+}
+
+.cs-block-failed {
+  color: #ef4444;
+}
+
+.cs-block-cid {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.65rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.cs-block-seq {
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.cs-block-status {
+  margin-left: auto;
+  font-weight: 500;
+}
+
 /* Expanded diagnostics panel */
 
 .cs-detail {
