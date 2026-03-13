@@ -18,6 +18,9 @@
 // --all bumps every publishable package to the same version
 // (useful for initial release).
 //
+// Creates per-package git tags (e.g. @pokapali/core@0.1.0)
+// that trigger the publish workflow.
+//
 // Rule: version bumps must be single commits on main.
 
 import { readFileSync, writeFileSync, readdirSync } from "fs";
@@ -31,7 +34,10 @@ const rootDir = join(
 const packagesDir = join(rootDir, "packages");
 
 function run(cmd) {
-  return execSync(cmd, { cwd: rootDir, encoding: "utf8" }).trim();
+  return execSync(cmd, {
+    cwd: rootDir,
+    encoding: "utf8",
+  }).trim();
 }
 
 // --- preconditions ---
@@ -62,7 +68,10 @@ function readPkg(dir) {
 
 function writePkg(dir, pkg) {
   const path = join(packagesDir, dir, "package.json");
-  writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
+  writeFileSync(
+    path,
+    JSON.stringify(pkg, null, 2) + "\n"
+  );
 }
 
 function isPublishable(pkg) {
@@ -71,7 +80,9 @@ function isPublishable(pkg) {
 
 // --- load all publishable packages ---
 
-const dirs = readdirSync(packagesDir, { withFileTypes: true })
+const dirs = readdirSync(packagesDir, {
+  withFileTypes: true,
+})
   .filter((d) => d.isDirectory())
   .map((d) => d.name);
 
@@ -90,9 +101,7 @@ for (const dir of dirs) {
 
 // --- build dependency graph ---
 
-// Forward deps: package name → Set of @pokapali/* dep names
 const deps = new Map();
-// Reverse deps: package name → Set of dependents
 const reverseDeps = new Map();
 
 for (const [name] of packages) {
@@ -101,7 +110,9 @@ for (const [name] of packages) {
 }
 
 for (const [name, { pkg }] of packages) {
-  for (const depName of Object.keys(pkg.dependencies || {})) {
+  for (const depName of Object.keys(
+    pkg.dependencies || {}
+  )) {
     if (packages.has(depName)) {
       deps.get(name).add(depName);
       reverseDeps.get(depName).add(name);
@@ -161,7 +172,9 @@ if (target === "--all") {
     resolved = `@pokapali/${target}`;
   }
   if (!packages.has(resolved)) {
-    console.error(`Error: unknown package "${resolved}"`);
+    console.error(
+      `Error: unknown package "${resolved}"`
+    );
     console.error(
       "Available:",
       [...packages.keys()].join(", ")
@@ -200,7 +213,65 @@ console.log(
   `\nBumped ${toBump.size} package(s) to ${version}`
 );
 
-// --- sync lockfile and commit ---
+// --- update dep references in private consumers ---
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function writeJson(path, obj) {
+  writeFileSync(path, JSON.stringify(obj, null, 2) + "\n");
+}
+
+const consumerDirs = [
+  ...readdirSync(packagesDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => join(packagesDir, d.name)),
+  ...(() => {
+    const appsDir = join(rootDir, "apps");
+    try {
+      return readdirSync(appsDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => join(appsDir, d.name));
+    } catch {
+      return [];
+    }
+  })(),
+];
+
+let consumersUpdated = 0;
+for (const dir of consumerDirs) {
+  const pkgPath = join(dir, "package.json");
+  let pkg;
+  try {
+    pkg = readJson(pkgPath);
+  } catch {
+    continue;
+  }
+  if (!pkg.private) continue;
+  let changed = false;
+  for (const depName of Object.keys(
+    pkg.dependencies || {}
+  )) {
+    if (toBump.has(depName)) {
+      pkg.dependencies[depName] = version;
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeJson(pkgPath, pkg);
+    consumersUpdated++;
+    console.log(`  updated deps in ${pkg.name}`);
+  }
+}
+
+if (consumersUpdated > 0) {
+  console.log(
+    `Updated ${consumersUpdated} private consumer(s)`
+  );
+}
+
+// --- sync lockfile, commit, and tag ---
 
 console.log("\nRunning npm install to sync lockfile...");
 execSync("npm install --ignore-scripts", {
@@ -209,9 +280,11 @@ execSync("npm install --ignore-scripts", {
 });
 
 console.log("Creating commit...");
-run("git add packages/*/package.json package-lock.json");
+run(
+  "git add packages/*/package.json"
+  + " apps/*/package.json package-lock.json"
+);
 
-// Build commit message from bumped package dirs
 const bumped = [...toBump]
   .map((name) => packages.get(name).dir)
   .join(", ");
@@ -220,5 +293,18 @@ run(
   `git commit -m "chore: bump ${bumped} to ${version}"`
 );
 
-console.log("\nDone. Review with: git log -1 --stat");
-console.log("Push with: git push origin main");
+// Create per-package tags for publish workflow
+const tags = [...toBump].map(
+  (name) => `${name}@${version}`
+);
+for (const tag of tags) {
+  run(`git tag "${tag}"`);
+  console.log(`  tagged ${tag}`);
+}
+
+console.log(
+  `\nDone. Review with: git log -1 --stat`
+);
+console.log(
+  `Push with: git push origin main ${tags.map((t) => `"${t}"`).join(" ")}`
+);
