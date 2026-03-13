@@ -25,6 +25,7 @@ if [ -z "$BRANCH" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIFY="$SCRIPT_DIR/verify-branch.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -73,7 +74,7 @@ echo "=== Verifying branch '$BRANCH' ==="
 WORKTREE_DIR=""
 if WORKTREE_DIR=$(find_worktree "$BRANCH"); then
   echo "  (running in worktree: $WORKTREE_DIR)"
-  if ! (cd "$WORKTREE_DIR" && bin/verify-branch.sh)
+  if ! (cd "$WORKTREE_DIR" && "$VERIFY")
   then
     echo ""
     echo "Verification FAILED. Not merging."
@@ -83,7 +84,7 @@ else
   # Branch not in a worktree — check it out temporarily
   echo "  (no worktree found, checking out)"
   git checkout "$BRANCH"
-  if ! bin/verify-branch.sh; then
+  if ! "$VERIFY"; then
     echo ""
     echo "Verification FAILED. Not merging."
     git checkout main
