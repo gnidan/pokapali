@@ -57,7 +57,7 @@ export function resolveAnchors(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   syncState: any,
 ): ResolvedCommentAnchor[] {
-  if (!syncState) return [];
+  if (!syncState?.mapping) return [];
 
   const { type: xmlFragment, mapping } = syncState;
   const commentsMap = commentsDoc.getMap("comments");
