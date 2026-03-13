@@ -18,6 +18,9 @@ import type {
   GossipActivity,
 } from "./facts.js";
 import type { AsyncQueue } from "./sources.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("interpreter");
 
 // ------------------------------------------------
 // EffectHandlers — injected dependency
@@ -74,6 +77,7 @@ export interface EffectHandlers {
 const AUTO_FETCH_SOURCES: ReadonlySet<CidSource> = new Set([
   "gossipsub",
   "ipns",
+  "http-tip",
   "reannounce",
   "chain-walk",
 ]);
@@ -234,8 +238,17 @@ export async function runInterpreter(
       // Only fetch if entry just became unknown
       // (new discovery or retry reset)
       if (prevEntry?.blockStatus === "unknown") continue;
-      // Only auto-fetch tip-candidate sources
-      if (!shouldAutoFetch(entry)) continue;
+      // Only auto-fetch tip-candidate sources.
+      // Exception: cache-sourced entries that are
+      // the newest seq get fetched so the editor
+      // has its block on reload.
+      if (!shouldAutoFetch(entry)) {
+        const isNewestCached =
+          entry.discoveredVia.has("cache") &&
+          entry.seq !== undefined &&
+          entry.seq === next.chain.maxSeq;
+        if (!isNewestCached) continue;
+      }
 
       // Fast path: if the block is already cached
       // locally (e.g. from a prior publish or
@@ -323,6 +336,11 @@ export async function runInterpreter(
           cid: fact.cid,
           seq: fact.seq,
         });
+      } else {
+        log.warn(
+          "announce skipped: block not cached",
+          fact.cid.toString().slice(0, 16) + "...",
+        );
       }
     }
 
@@ -339,6 +357,11 @@ export async function runInterpreter(
           cid,
           seq: entry?.seq ?? 0,
         });
+      } else {
+        log.warn(
+          "reannounce skipped: block not cached",
+          cid.toString().slice(0, 16) + "...",
+        );
       }
     }
 
@@ -349,6 +372,11 @@ export async function runInterpreter(
       if (block) {
         const entry = next.chain.entries.get(cid.toString());
         effects.announce(cid, block, entry?.seq ?? 0);
+      } else {
+        log.warn(
+          "relay-connect announce skipped:" + " block not cached",
+          cid.toString().slice(0, 16) + "...",
+        );
       }
     }
 

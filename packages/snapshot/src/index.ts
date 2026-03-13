@@ -116,6 +116,9 @@ export async function validateStructure(block: Uint8Array): Promise<boolean> {
     // Include publisher fields in doc-sig payload
     // if present
     if (node.publisher) {
+      // publisher without publisherSig is invalid —
+      // reject unproven publisher claims
+      if (!node.publisherSig) return false;
       payload.publisher = node.publisher;
       payload.publisherSig = node.publisherSig;
     }

@@ -357,6 +357,7 @@ export function reduceContent(state: ContentState, fact: Fact): ContentState {
       ...state,
       clockSum: fact.clockSum,
       isDirty: true,
+      lastSaveError: null,
     };
   }
 
@@ -370,11 +371,16 @@ export function reduceContent(state: ContentState, fact: Fact): ContentState {
       isSaving: false,
       isDirty: false,
       ipnsSeq: fact.seq,
+      lastSaveError: null,
     };
   }
 
   if (fact.type === "publish-failed") {
-    return { ...state, isSaving: false };
+    return {
+      ...state,
+      isSaving: false,
+      lastSaveError: fact.error,
+    };
   }
 
   return state;
@@ -486,6 +492,7 @@ export function deriveSaveState(
   chain: ChainState,
 ): SaveState {
   if (content.isSaving) return "saving";
+  if (content.lastSaveError) return "save-error";
   if (content.isDirty) return "dirty";
   if (chain.tip) return "saved";
   return "unpublished";

@@ -127,7 +127,90 @@ const readInvite = await doc.invite({
 });
 ```
 
-### 6. Persistence with snapshots
+### 6. Identity and publisher authorization
+
+Every device automatically gets an Ed25519 identity
+keypair, scoped per `appId`. No configuration needed —
+identity is a built-in property of being a peer.
+
+```ts
+// Your device's identity public key (hex)
+doc.identityPubkey; // string | null
+```
+
+**Publisher attribution:** Every snapshot includes the
+publisher's identity public key and signature. This is
+always present — you can see who published each version
+without enabling any authorization.
+
+**Participant awareness:** All connected peers
+broadcast their identity via the awareness protocol.
+Access current participants:
+
+```ts
+const participants = doc.participants;
+// ReadonlyMap<number, ParticipantInfo>
+// clientId → { pubkey: string, displayName?: string }
+
+for (const [clientId, info] of participants) {
+  console.log(info.pubkey, info.displayName);
+}
+```
+
+Apps can set a display name via awareness before
+opening or creating a doc:
+
+```ts
+doc.awareness.setLocalStateField("user", {
+  name: "Alice",
+});
+```
+
+The `displayName` in `ParticipantInfo` comes from the
+app-provided awareness `user.name` field — unsigned,
+for display only.
+
+#### Permissionless vs authorized mode
+
+By default, documents are **permissionless** — anyone
+with write access can publish snapshots. Publisher
+attribution is informational only.
+
+Admins can enable **authorized mode** by adding
+identity public keys to the publisher allowlist:
+
+```ts
+// Enable authorization (admin only)
+doc.authorize(alicePubkey);
+doc.authorize(bobPubkey);
+
+// Revoke a publisher
+doc.deauthorize(bobPubkey);
+
+// Check current allowlist
+doc.authorizedPublishers;
+// ReadonlySet<string> (hex pubkeys)
+```
+
+Once `authorizedPublishers` is non-empty, readers
+reject snapshots from unlisted publishers. Snapshots
+from before auth was enabled (no publisher field) are
+also rejected.
+
+**Key points:**
+
+- `authorize()` / `deauthorize()` require admin
+  capability — non-admins get an error
+- Auth changes propagate via Yjs sync (eventually
+  consistent across peers)
+- The doc creator's identity is **not** auto-added —
+  the admin explicitly chooses when to enable auth
+  and who to authorize
+- Pinners store all snapshots regardless (they can't
+  decrypt `_meta` to check authorization). Enforcement
+  is reader-side only.
+
+### 7. Persistence with snapshots
 
 Pokapali persists document state to IPFS as encrypted
 snapshots, published via IPNS. This means a document can
@@ -160,7 +243,7 @@ via HTTP POST and fetched by readers via HTTP GET. This
 is transparent — `publish()` and snapshot fetching
 handle it automatically.
 
-### 7. Document status
+### 8. Document status
 
 Pokapali separates connectivity from persistence:
 
@@ -218,7 +301,7 @@ doc.on("ack", (peerId) => {});
 doc.on("node-change", () => {});
 ```
 
-### 8. Reactive Feeds
+### 9. Reactive Feeds
 
 For framework integration (especially React), each
 status property has a corresponding `Feed<T>` that
@@ -230,8 +313,8 @@ import { useSyncExternalStore } from "react";
 // Status indicator
 function StatusBadge({ doc }) {
   const status = useSyncExternalStore(
-    doc.statusFeed.subscribe,
-    doc.statusFeed.getSnapshot,
+    doc.status.subscribe,
+    doc.status.getSnapshot,
   );
   return <span className={status}>{status}</span>;
 }
@@ -239,8 +322,8 @@ function StatusBadge({ doc }) {
 // Save state indicator
 function SaveIndicator({ doc }) {
   const saveState = useSyncExternalStore(
-    doc.saveStateFeed.subscribe,
-    doc.saveStateFeed.getSnapshot,
+    doc.saveState.subscribe,
+    doc.saveState.getSnapshot,
   );
   return <span>{saveState}</span>;
 }
@@ -248,12 +331,13 @@ function SaveIndicator({ doc }) {
 
 Available Feeds:
 
-| Feed                | Type                        | Changes when                              |
-| ------------------- | --------------------------- | ----------------------------------------- |
-| `doc.statusFeed`    | `Feed<DocStatus>`           | Connectivity changes                      |
-| `doc.saveStateFeed` | `Feed<SaveState>`           | Publish starts/completes, content dirtied |
-| `doc.tipFeed`       | `Feed<VersionInfo \| null>` | New snapshot applied                      |
-| `doc.loadingFeed`   | `Feed<LoadingState>`        | IPNS resolving, block fetching            |
+| Feed            | Type                        | Changes when                              |
+| --------------- | --------------------------- | ----------------------------------------- |
+| `doc.status`    | `Feed<DocStatus>`           | Connectivity changes                      |
+| `doc.saveState` | `Feed<SaveState>`           | Publish starts/completes, content dirtied |
+| `doc.tip`       | `Feed<VersionInfo \| null>` | New snapshot applied                      |
+| `doc.loading`   | `Feed<LoadingState>`        | IPNS resolving, block fetching            |
+| `doc.versions`  | `Feed<VersionHistory>`      | Chain walk progress, new snapshots        |
 
 Each Feed has an equality gate that prevents spurious
 notifications — high-frequency events like GossipSub
@@ -272,7 +356,45 @@ interface Feed<T> {
 No wrapper hook needed. The interface is designed to
 match `useSyncExternalStore` exactly.
 
-### 9. Node diagnostics and topology
+**Version history Feed:**
+
+`doc.versions` provides reactive version history that
+updates as the chain walk progresses:
+
+```ts
+function VersionList({ doc }) {
+  const { entries, walking } = useSyncExternalStore(
+    doc.versions.subscribe,
+    doc.versions.getSnapshot,
+  );
+
+  return (
+    <ul>
+      {entries.map((v) => (
+        <li key={v.cid.toString()}>
+          v{v.seq} — {v.status}
+        </li>
+      ))}
+      {walking && <li>Loading older versions…</li>}
+    </ul>
+  );
+}
+```
+
+Each `VersionHistoryEntry` has:
+
+| Field    | Type                                   | Description              |
+| -------- | -------------------------------------- | ------------------------ |
+| `cid`    | `CID`                                  | Content-addressed block  |
+| `seq`    | `number`                               | Snapshot sequence number |
+| `ts`     | `number`                               | Unix timestamp (ms)      |
+| `status` | `"available" \| "loading" \| "failed"` | Block fetch status       |
+
+The `walking` flag is `true` while the chain walk is
+in progress (entries with pending block fetches). Use
+it to show a loading indicator.
+
+### 10. Node diagnostics and topology
 
 `doc.diagnostics()` returns detailed network info
 including discovered nodes with their roles:
@@ -324,7 +446,7 @@ and awareness state from remote peers, giving a
 whole-network view even of nodes not directly connected
 to you.
 
-### 10. Auto-save
+### 11. Auto-save
 
 The `createAutoSaver` utility handles snapshot publishing
 automatically on visibility change, beforeunload, and
@@ -340,7 +462,7 @@ const cleanup = createAutoSaver(doc);
 useEffect(() => createAutoSaver(doc), [doc]);
 ```
 
-### 11. Cleanup
+### 12. Cleanup
 
 Always destroy when done to release WebRTC connections,
 awareness rooms, and the shared Helia instance:
@@ -489,7 +611,7 @@ a new identity, it doesn't delete the old one.
 
 ## Loading State Machine
 
-`doc.loadingFeed` (or `doc.on("loading", ...)`) reports
+`doc.loading` (or `doc.on("loading", ...)`) reports
 the snapshot fetch lifecycle as a discriminated union:
 
 ```

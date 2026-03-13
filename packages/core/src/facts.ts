@@ -17,9 +17,11 @@ import type { KnownNode } from "./node-registry.js";
 export type CidSource =
   | "gossipsub"
   | "ipns"
+  | "http-tip"
   | "reannounce"
   | "chain-walk"
-  | "pinner-index";
+  | "pinner-index"
+  | "cache";
 
 export type Fact =
   // --- Chain discovery ---
@@ -153,7 +155,12 @@ export type Fact =
 
 export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
 
-export type SaveState = "saved" | "unpublished" | "saving" | "dirty";
+export type SaveState =
+  | "saved"
+  | "unpublished"
+  | "saving"
+  | "dirty"
+  | "save-error";
 
 export type DocRole = "admin" | "writer" | "reader";
 
@@ -251,6 +258,9 @@ export interface ContentState {
   isDirty: boolean;
   isSaving: boolean;
   ipnsSeq: number | null;
+  /** Error message from the last failed publish,
+   *  or null if the last publish succeeded. */
+  lastSaveError: string | null;
 }
 
 export interface AnnounceState {
@@ -287,6 +297,7 @@ export const INITIAL_CONTENT: ContentState = {
   isDirty: false,
   isSaving: false,
   ipnsSeq: null,
+  lastSaveError: null,
 };
 
 /** Shared empty set — avoids repeat allocations. */
