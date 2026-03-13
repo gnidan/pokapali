@@ -612,6 +612,37 @@ describe("reduceContent", () => {
     });
     expect(state.isSaving).toBe(false);
     expect(state.isDirty).toBe(true);
+    expect(state.lastSaveError).toBe("network");
+  });
+
+  it("publish-succeeded clears lastSaveError", async () => {
+    const cid = await fakeCid(99);
+    let state: ContentState = {
+      ...INITIAL_CONTENT,
+      isDirty: true,
+      lastSaveError: "prior error",
+    };
+    state = reduceContent(state, {
+      type: "publish-succeeded",
+      ts: 1,
+      cid,
+      seq: 1,
+    });
+    expect(state.lastSaveError).toBeNull();
+  });
+
+  it("content-dirty clears lastSaveError", () => {
+    let state: ContentState = {
+      ...INITIAL_CONTENT,
+      lastSaveError: "prior error",
+    };
+    state = reduceContent(state, {
+      type: "content-dirty",
+      ts: 1,
+      clockSum: 5,
+    });
+    expect(state.lastSaveError).toBeNull();
+    expect(state.isDirty).toBe(true);
   });
 });
 
@@ -760,6 +791,45 @@ describe("deriveSaveState", () => {
         INITIAL_CHAIN,
       ),
     ).toBe("saving");
+  });
+
+  it("save-error when lastSaveError is set", () => {
+    expect(
+      deriveSaveState(
+        {
+          ...INITIAL_CONTENT,
+          isDirty: true,
+          lastSaveError: "network",
+        },
+        INITIAL_CHAIN,
+      ),
+    ).toBe("save-error");
+  });
+
+  it("saving takes priority over save-error", () => {
+    expect(
+      deriveSaveState(
+        {
+          ...INITIAL_CONTENT,
+          isSaving: true,
+          lastSaveError: "stale error",
+        },
+        INITIAL_CHAIN,
+      ),
+    ).toBe("saving");
+  });
+
+  it("save-error takes priority over dirty", () => {
+    expect(
+      deriveSaveState(
+        {
+          ...INITIAL_CONTENT,
+          isDirty: true,
+          lastSaveError: "failed",
+        },
+        INITIAL_CHAIN,
+      ),
+    ).toBe("save-error");
   });
 });
 
