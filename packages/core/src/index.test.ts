@@ -677,4 +677,77 @@ describe("@pokapali/core", () => {
       },
     );
   });
+
+  describe("authorize / deauthorize", () => {
+    it("authorize() throws for non-admin " + "(reader)", async () => {
+      const lib = pokapali(OPTS);
+      const admin = await lib.create();
+      const readUrl = admin.urls.read;
+      admin.destroy();
+
+      const reader = await lib.open(readUrl);
+      expect(() => reader.authorize("abc123")).toThrow(/requires admin/);
+      reader.destroy();
+    });
+
+    it("deauthorize() throws for non-admin " + "(reader)", async () => {
+      const lib = pokapali(OPTS);
+      const admin = await lib.create();
+      const readUrl = admin.urls.read;
+      admin.destroy();
+
+      const reader = await lib.open(readUrl);
+      expect(() => reader.deauthorize("abc123")).toThrow(/requires admin/);
+      reader.destroy();
+    });
+
+    it("admin can authorize and read " + "authorizedPublishers", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      expect(doc.authorizedPublishers.size).toBe(0);
+
+      doc.authorize("pub-a");
+      expect(doc.authorizedPublishers.has("pub-a")).toBe(true);
+      expect(doc.authorizedPublishers.size).toBe(1);
+
+      doc.authorize("pub-b");
+      expect(doc.authorizedPublishers.size).toBe(2);
+
+      doc.destroy();
+    });
+
+    it("admin can deauthorize a publisher", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      doc.authorize("pub-a");
+      doc.authorize("pub-b");
+      expect(doc.authorizedPublishers.size).toBe(2);
+
+      doc.deauthorize("pub-a");
+      expect(doc.authorizedPublishers.has("pub-a")).toBe(false);
+      expect(doc.authorizedPublishers.has("pub-b")).toBe(true);
+      expect(doc.authorizedPublishers.size).toBe(1);
+
+      doc.destroy();
+    });
+
+    it("authorizedPublishers returns " + "ReadonlySet snapshot", async () => {
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      doc.authorize("pub-x");
+      const snap1 = doc.authorizedPublishers;
+      expect(snap1.has("pub-x")).toBe(true);
+
+      // Mutating the Y.Map updates the getter
+      doc.authorize("pub-y");
+      const snap2 = doc.authorizedPublishers;
+      expect(snap2.has("pub-y")).toBe(true);
+      expect(snap2.size).toBe(2);
+
+      doc.destroy();
+    });
+  });
 });

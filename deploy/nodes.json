@@ -1,0 +1,69 @@
+{
+  "batches": [
+    {
+      "name": "batch-1",
+      "nodes": [
+        {
+          "name": "chi",
+          "host": "144.202.54.236",
+          "role": "pinner"
+        },
+        {
+          "name": "de",
+          "host": "45.76.93.239",
+          "role": "pinner"
+        }
+      ]
+    },
+    {
+      "name": "batch-2",
+      "nodes": [
+        {
+          "name": "nyc",
+          "host": "104.207.134.221",
+          "role": "relay"
+        },
+        {
+          "name": "ams",
+          "host": "140.82.59.107",
+          "role": "relay"
+        }
+      ]
+    },
+    {
+      "name": "batch-3",
+      "nodes": [
+        {
+          "name": "atl",
+          "host": "155.138.220.25",
+          "role": "pinner"
+        },
+        {
+          "name": "bay",
+          "host": "45.32.137.156",
+          "role": "pinner"
+        }
+      ]
+    },
+    {
+      "name": "batch-4",
+      "nodes": [
+        {
+          "name": "yto",
+          "host": "155.138.155.132",
+          "role": "relay"
+        }
+      ]
+    }
+  ],
+  "defaults": {
+    "user": "root",
+    "repo_path": "/opt/pokapali",
+    "service": "pokapali-node",
+    "health_port": 3000,
+    "health_timeout": 15,
+    "health_retries": 4,
+    "health_retry_delay": 20,
+    "startup_wait": 80
+  }
+}

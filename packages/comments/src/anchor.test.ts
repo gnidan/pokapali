@@ -1,18 +1,23 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createAnchor, resolveAnchor } from "./anchor.js";
+import {
+  anchorFromRelativePositions,
+  createAnchor,
+  resolveAnchor,
+} from "./anchor.js";
 
-function makeContentDoc(text: string): Y.Doc {
+function makeContentDoc(text: string) {
   const doc = new Y.Doc();
-  doc.getText("default").insert(0, text);
-  return doc;
+  const t = doc.getText("default");
+  t.insert(0, text);
+  return { doc, text: t };
 }
 
 describe("anchor", () => {
   describe("createAnchor", () => {
     it("returns encoded start/end bytes", () => {
-      const doc = makeContentDoc("hello world");
-      const anchor = createAnchor(doc, 0, 5);
+      const { text } = makeContentDoc("hello world");
+      const anchor = createAnchor(text, 0, 5);
 
       expect(anchor.start).toBeInstanceOf(Uint8Array);
       expect(anchor.end).toBeInstanceOf(Uint8Array);
@@ -21,11 +26,55 @@ describe("anchor", () => {
     });
   });
 
+  describe("anchorFromRelativePositions", () => {
+    it("produces same result as createAnchor", () => {
+      const { text } = makeContentDoc("hello world");
+      const startRelPos = Y.createRelativePositionFromTypeIndex(text, 0);
+      const endRelPos = Y.createRelativePositionFromTypeIndex(text, 5);
+
+      const a1 = createAnchor(text, 0, 5);
+      const a2 = anchorFromRelativePositions(startRelPos, endRelPos);
+
+      expect(a2.start).toEqual(a1.start);
+      expect(a2.end).toEqual(a1.end);
+    });
+
+    it("works with XmlFragment positions", () => {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment("default");
+      frag.insert(0, [new Y.XmlText("para one")]);
+      frag.insert(1, [new Y.XmlText("para two")]);
+
+      const startRelPos = Y.createRelativePositionFromTypeIndex(frag, 0);
+      const endRelPos = Y.createRelativePositionFromTypeIndex(frag, 2);
+
+      const anchor = anchorFromRelativePositions(startRelPos, endRelPos);
+
+      expect(anchor.start).toBeInstanceOf(Uint8Array);
+      expect(anchor.end).toBeInstanceOf(Uint8Array);
+
+      // Resolve against the same doc/fragment.
+      const absStart = Y.createAbsolutePositionFromRelativePosition(
+        Y.decodeRelativePosition(anchor.start),
+        doc,
+      );
+      const absEnd = Y.createAbsolutePositionFromRelativePosition(
+        Y.decodeRelativePosition(anchor.end),
+        doc,
+      );
+
+      expect(absStart).not.toBeNull();
+      expect(absEnd).not.toBeNull();
+      expect(absStart!.index).toBe(0);
+      expect(absEnd!.index).toBe(2);
+    });
+  });
+
   describe("resolveAnchor", () => {
     it("resolves to indices on unchanged doc", () => {
-      const doc = makeContentDoc("hello world");
-      const anchor = createAnchor(doc, 0, 5);
-      const resolved = resolveAnchor(doc, anchor.start, anchor.end);
+      const { doc, text } = makeContentDoc("hello world");
+      const anchor = createAnchor(text, 0, 5);
+      const resolved = resolveAnchor(doc, text, anchor.start, anchor.end);
 
       expect(resolved.status).toBe("resolved");
       if (resolved.status === "resolved") {
@@ -35,13 +84,13 @@ describe("anchor", () => {
     });
 
     it("tracks position after insert before", () => {
-      const doc = makeContentDoc("hello world");
-      const anchor = createAnchor(doc, 6, 11);
+      const { doc, text } = makeContentDoc("hello world");
+      const anchor = createAnchor(text, 6, 11);
 
       // Insert text before the anchor.
-      doc.getText("default").insert(0, "hey ");
+      text.insert(0, "hey ");
 
-      const resolved = resolveAnchor(doc, anchor.start, anchor.end);
+      const resolved = resolveAnchor(doc, text, anchor.start, anchor.end);
 
       expect(resolved.status).toBe("resolved");
       if (resolved.status === "resolved") {
@@ -53,47 +102,64 @@ describe("anchor", () => {
 
     it("returns pending for empty doc", () => {
       const doc = new Y.Doc();
+      const text = doc.getText("default");
       // Create anchor bytes from a different doc.
-      const other = makeContentDoc("hello");
-      const anchor = createAnchor(other, 0, 3);
+      const { text: otherText } = makeContentDoc("hello");
+      const anchor = createAnchor(otherText, 0, 3);
 
-      const resolved = resolveAnchor(doc, anchor.start, anchor.end);
+      const resolved = resolveAnchor(doc, text, anchor.start, anchor.end);
       expect(resolved.status).toBe("pending");
     });
 
     it("returns orphaned when text deleted", () => {
-      const doc = makeContentDoc("hello world");
-      const anchor = createAnchor(doc, 2, 5);
+      const { doc, text } = makeContentDoc("hello world");
+      const anchor = createAnchor(text, 2, 5);
 
       // Delete all content.
-      doc.getText("default").delete(0, doc.getText("default").length);
+      text.delete(0, text.length);
 
-      const resolved = resolveAnchor(doc, anchor.start, anchor.end);
+      const resolved = resolveAnchor(doc, text, anchor.start, anchor.end);
       // Empty text after deletion → pending.
       expect(resolved.status).toBe("pending");
     });
 
     it("orphaned when partial text deleted", () => {
-      const doc = makeContentDoc("hello world");
+      const { doc, text } = makeContentDoc("hello world");
       // Anchor the "llo w" range (2..7).
-      const anchor = createAnchor(doc, 2, 7);
+      const anchor = createAnchor(text, 2, 7);
 
       // Delete chars 0..5 ("hello"). Chars at 2-4
       // are deleted, so at least start should shift
       // or become orphaned depending on Yjs behavior.
-      doc.getText("default").delete(0, 5);
+      text.delete(0, 5);
 
-      const resolved = resolveAnchor(doc, anchor.start, anchor.end);
+      const resolved = resolveAnchor(doc, text, anchor.start, anchor.end);
       // After deleting "hello", remaining is " world".
       // The positions were relative to deleted chars,
       // so they should still resolve (Yjs tracks them).
       expect(resolved.status).toBe("resolved");
     });
 
+    it("resolves XmlFragment anchors", () => {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment("default");
+      frag.insert(0, [new Y.XmlText("para one")]);
+      frag.insert(1, [new Y.XmlText("para two")]);
+      frag.insert(2, [new Y.XmlText("para three")]);
+
+      const anchor = createAnchor(frag, 0, 2);
+      const resolved = resolveAnchor(doc, frag, anchor.start, anchor.end);
+      expect(resolved.status).toBe("resolved");
+      if (resolved.status === "resolved") {
+        expect(resolved.start).toBe(0);
+        expect(resolved.end).toBe(2);
+      }
+    });
+
     it("handles same start and end (cursor)", () => {
-      const doc = makeContentDoc("hello");
-      const anchor = createAnchor(doc, 3, 3);
-      const resolved = resolveAnchor(doc, anchor.start, anchor.end);
+      const { doc, text } = makeContentDoc("hello");
+      const anchor = createAnchor(text, 3, 3);
+      const resolved = resolveAnchor(doc, text, anchor.start, anchor.end);
       expect(resolved.status).toBe("resolved");
       if (resolved.status === "resolved") {
         expect(resolved.start).toBe(3);

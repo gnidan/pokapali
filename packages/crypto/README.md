@@ -1,7 +1,8 @@
 # @pokapali/crypto
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/crypto
+```
 
 Cryptographic primitives for Pokapali. Derives all document
 keys from a single admin secret via HKDF (RFC 5869), with
@@ -30,4 +31,4 @@ data, signature, publicKey)`** — Ed25519 sign/verify
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Key Derivation](../../docs/architecture.md)
+- [Architecture — Key Derivation](../../docs/internals/architecture.md)

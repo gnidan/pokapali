@@ -1,7 +1,8 @@
 # @pokapali/capability
 
-> **This package is not published to npm.** It is under
-> active development and not yet ready for production use.
+```sh
+npm install @pokapali/capability
+```
 
 Capability URL encoding, decoding, and access level
 inference. A capability URL's fragment contains a
@@ -31,4 +32,4 @@ This package handles serialization and provides
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Capability URLs](../../docs/architecture.md)
+- [Architecture — Capability URLs](../../docs/internals/architecture.md)

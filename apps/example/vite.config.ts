@@ -5,7 +5,10 @@ import path from "path";
 const pkgs = ["core", "crypto", "capability", "subdocs", "snapshot", "sync"];
 
 export default defineConfig(({ command }) => ({
-  server: { port: 3141 },
+  server: {
+    port: Number(process.env.PORT) || 3141,
+    strictPort: true,
+  },
   base: command === "build" ? "/pokapali/" : "/",
   build: { target: "es2020" },
   plugins: [react()],

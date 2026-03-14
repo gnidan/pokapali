@@ -9,8 +9,8 @@
 import * as Y from "yjs";
 import { createLogger } from "@pokapali/log";
 import {
+  anchorFromRelativePositions,
   createAnchor as createAnchorImpl,
-  getContentType,
   resolveAnchor,
 } from "./anchor.js";
 import type { Anchor, ResolvedAnchor } from "./anchor.js";
@@ -26,6 +26,7 @@ import {
 import { verifyAuthor } from "./verify.js";
 import type { ClientIdMapping, ClientIdentityInfo } from "./verify.js";
 
+export { anchorFromRelativePositions };
 export type {
   Anchor,
   ResolvedAnchor,
@@ -83,6 +84,15 @@ export interface CommentsOptions {
    * verification. Pass doc.clientIdMapping from core.
    */
   clientIdMapping: Feed<ClientIdMapping>;
+  /**
+   * The Yjs shared type that holds the document
+   * content. Anchors are resolved against this type.
+   * Defaults to contentDoc.getText("default").
+   * Pass contentDoc.getXmlFragment("default") for
+   * Tiptap/ProseMirror.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contentType?: Y.AbstractType<any>;
 }
 
 // ── Factory ───────────────────────────────────────
@@ -93,6 +103,7 @@ export function comments<T>(
   options: CommentsOptions,
 ): Comments<T> {
   const map = commentsMap(commentsDoc);
+  const contentType = options.contentType ?? contentDoc.getText("default");
   const feed = createFeed<Comment<T>[]>(
     [],
     () => false, // always notify — we rebuild arrays
@@ -108,7 +119,12 @@ export function comments<T>(
       const stored = readComment<T>(entry);
       const anchor =
         stored.anchorStart && stored.anchorEnd
-          ? resolveAnchor(contentDoc, stored.anchorStart, stored.anchorEnd)
+          ? resolveAnchor(
+              contentDoc,
+              contentType,
+              stored.anchorStart,
+              stored.anchorEnd,
+            )
           : null;
       const comment: Comment<T> = {
         id,
@@ -165,8 +181,7 @@ export function comments<T>(
   };
   map.observeDeep(onMapChange);
 
-  // Observe content doc for anchor re-resolution.
-  const contentType = getContentType(contentDoc);
+  // Observe content type for anchor re-resolution.
   const onContentChange = () => {
     rebuild();
   };
@@ -190,7 +205,7 @@ export function comments<T>(
 
     createAnchor(start: number, end: number): Anchor {
       assertAlive();
-      return createAnchorImpl(contentDoc, start, end);
+      return createAnchorImpl(contentType, start, end);
     },
 
     add(params): string {

@@ -126,4 +126,70 @@ describe("helia lifecycle", () => {
     expect(helia).toBe(mockHelia);
     expect(mockCreateHelia).toHaveBeenCalledTimes(2);
   });
+
+  it(
+    "concurrent acquireHelia() calls share one " + "createHelia (#106)",
+    async () => {
+      // Make createHelia slow so both calls overlap.
+      let resolveCreate!: (v: unknown) => void;
+      mockCreateHelia.mockReturnValue(
+        new Promise((r) => {
+          resolveCreate = r;
+        }),
+      );
+
+      const p1 = acquireHelia();
+      const p2 = acquireHelia();
+
+      resolveCreate(mockHelia);
+      const [h1, h2] = await Promise.all([p1, p2]);
+
+      expect(h1).toBe(mockHelia);
+      expect(h2).toBe(mockHelia);
+      expect(mockCreateHelia).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it(
+    "releaseHelia() during bootstrap defers " + "destruction (#107)",
+    async () => {
+      let resolveCreate!: (v: unknown) => void;
+      mockCreateHelia.mockReturnValue(
+        new Promise((r) => {
+          resolveCreate = r;
+        }),
+      );
+
+      const p = acquireHelia();
+
+      // Release while createHelia is still pending.
+      await releaseHelia();
+
+      resolveCreate(mockHelia);
+      await expect(p).rejects.toThrow("released during bootstrap");
+      expect(mockStop).toHaveBeenCalledOnce();
+    },
+  );
+
+  it(
+    "concurrent acquire + bootstrap release " +
+      "rejects all waiters (#106 + #107)",
+    async () => {
+      let resolveCreate!: (v: unknown) => void;
+      mockCreateHelia.mockReturnValue(
+        new Promise((r) => {
+          resolveCreate = r;
+        }),
+      );
+
+      const p1 = acquireHelia();
+      const p2 = acquireHelia();
+
+      await releaseHelia();
+      resolveCreate(mockHelia);
+
+      await expect(p1).rejects.toThrow("released during bootstrap");
+      await expect(p2).rejects.toThrow("released during bootstrap");
+    },
+  );
 });

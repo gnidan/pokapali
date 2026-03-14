@@ -3,3 +3,5 @@ dist
 .DS_Store
 *.tsbuildinfo
 .worktrees
+deploy/.deploy-key
+deploy/.deploy-key.pub

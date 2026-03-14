@@ -1,0 +1,72 @@
+name: Publish
+
+on:
+  push:
+    tags: ["publish/**"]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package directory name (e.g. core, crypto)"
+        required: true
+        type: string
+      version:
+        description: "Version to verify (e.g. 0.1.0-alpha.2)"
+        required: true
+        type: string
+
+concurrency:
+  group: publish-${{ inputs.package || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse inputs
+        id: pkg
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tag format: publish/<dir>/<version>
+            TAG="${GITHUB_REF#refs/tags/publish/}"
+            DIR="${TAG%%/*}"
+            VERSION="${TAG#*/}"
+          else
+            # workflow_dispatch
+            DIR="${{ inputs.package }}"
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing @pokapali/$DIR@$VERSION"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Verify version
+        run: |
+          ACTUAL=$(node -p "require('./packages/${{ steps.pkg.outputs.dir }}/package.json').version")
+          if [ "$ACTUAL" != "${{ steps.pkg.outputs.version }}" ]; then
+            echo "Version mismatch: package.json=$ACTUAL tag=${{ steps.pkg.outputs.version }}"
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish -w packages/${{ steps.pkg.outputs.dir }} --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

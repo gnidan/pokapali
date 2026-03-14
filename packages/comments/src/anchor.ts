@@ -1,11 +1,10 @@
 /**
  * Anchor model using Y.RelativePosition.
- * Editor-agnostic — works with raw Yjs type indices.
+ * Editor-agnostic — works with any Yjs shared type.
  *
- * Default content type is Y.Text("default") for
- * character-level anchoring. Tiptap/ProseMirror apps
- * should use the adapter package for XmlFragment
- * position conversion.
+ * Default content type is Y.Text("default"). Pass
+ * contentType in CommentsOptions to use XmlFragment
+ * or any other AbstractType.
  */
 
 import * as Y from "yjs";
@@ -21,28 +20,36 @@ export type ResolvedAnchor =
   | { status: "orphaned" }
   | { status: "pending" };
 
-/** Get the default content type from a content doc. */
-export function getContentType(contentDoc: Y.Doc): Y.Text {
-  return contentDoc.getText("default");
+/**
+ * Build an Anchor from pre-existing RelativePositions.
+ * Use this when the caller already has positions (e.g.,
+ * from y-prosemirror's absolutePositionToRelativePosition).
+ */
+export function anchorFromRelativePositions(
+  start: Y.RelativePosition,
+  end: Y.RelativePosition,
+): Anchor {
+  return {
+    start: Y.encodeRelativePosition(start),
+    end: Y.encodeRelativePosition(end),
+  };
 }
 
 /**
- * Create an anchor from raw Yjs indices on the
- * content doc's Text("default").
+ * Create an anchor from raw Yjs type indices. For
+ * editor integrations that already have
+ * RelativePositions, use anchorFromRelativePositions().
  */
 export function createAnchor(
-  contentDoc: Y.Doc,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contentType: Y.AbstractType<any>,
   startIdx: number,
   endIdx: number,
 ): Anchor {
-  const contentType = getContentType(contentDoc);
-  const start = Y.encodeRelativePosition(
+  return anchorFromRelativePositions(
     Y.createRelativePositionFromTypeIndex(contentType, startIdx),
-  );
-  const end = Y.encodeRelativePosition(
     Y.createRelativePositionFromTypeIndex(contentType, endIdx),
   );
-  return { start, end };
 }
 
 /**
@@ -50,18 +57,18 @@ export function createAnchor(
  * content doc state. Returns three-state result:
  * - resolved: both positions map to valid indices
  * - orphaned: anchored text was deleted
- * - pending: content not loaded yet (empty doc)
+ * - pending: content not loaded yet (empty type)
  */
 export function resolveAnchor(
   contentDoc: Y.Doc,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contentType: Y.AbstractType<any>,
   startBytes: Uint8Array,
   endBytes: Uint8Array,
 ): ResolvedAnchor {
-  const contentType = getContentType(contentDoc);
-
   // If the content type has no content, content
   // hasn't loaded yet.
-  if (contentType.length === 0) {
+  if (contentType._length === 0) {
     return { status: "pending" };
   }
 

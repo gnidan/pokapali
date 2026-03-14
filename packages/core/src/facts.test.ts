@@ -17,11 +17,9 @@ import {
   isGuaranteeActive,
   CLOCK_SKEW_TOLERANCE_MS,
   INITIAL_CHAIN,
-  INITIAL_CONNECTIVITY,
-  INITIAL_CONTENT,
-  INITIAL_GOSSIP,
 } from "./facts.js";
 import type { ChainState, ChainEntry } from "./facts.js";
+import { deriveStatus, deriveSaveState } from "./reducers.js";
 
 async function fakeCid(n: number): Promise<CID> {
   const hash = await sha256.digest(new Uint8Array([n]));
@@ -41,45 +39,23 @@ function fakeEntry(cid: CID, overrides?: Partial<ChainEntry>): ChainEntry {
 }
 
 describe("initialDocState", () => {
-  it("creates correct defaults", () => {
-    const state = initialDocState({
-      ipnsName: "test",
-      role: "writer",
-      channels: ["content"],
-      appId: "app1",
-    });
-    expect(state.status).toBe("offline");
-    expect(state.saveState).toBe("unpublished");
-    expect(state.chain.entries.size).toBe(0);
-    expect(state.chain.tip).toBeNull();
-    expect(state.connectivity.syncStatus).toBe("disconnected");
-    expect(state.content.isDirty).toBe(false);
-  });
-});
-
-describe("INITIAL constants", () => {
-  it("INITIAL_CHAIN has empty entries", () => {
-    expect(INITIAL_CHAIN.entries.size).toBe(0);
-    expect(INITIAL_CHAIN.tip).toBeNull();
-    expect(INITIAL_CHAIN.newestFetched).toBeNull();
-  });
-
-  it("INITIAL_CONNECTIVITY is offline", () => {
-    expect(INITIAL_CONNECTIVITY.syncStatus).toBe("disconnected");
-    expect(INITIAL_CONNECTIVITY.awarenessConnected).toBe(false);
-    expect(INITIAL_CONNECTIVITY.relayPeers.size).toBe(0);
-  });
-
-  it("INITIAL_GOSSIP is inactive", () => {
-    expect(INITIAL_GOSSIP.activity).toBe("inactive");
-    expect(INITIAL_GOSSIP.subscribed).toBe(false);
-  });
-
-  it("INITIAL_CONTENT is clean", () => {
-    expect(INITIAL_CONTENT.isDirty).toBe(false);
-    expect(INITIAL_CONTENT.isSaving).toBe(false);
-    expect(INITIAL_CONTENT.clockSum).toBe(0);
-  });
+  it(
+    "initial state derives offline status " + "and unpublished save state",
+    () => {
+      const state = initialDocState({
+        ipnsName: "test",
+        role: "writer",
+        channels: ["content"],
+        appId: "app1",
+      });
+      // Exercise downstream derivation functions
+      // rather than asserting raw defaults
+      expect(deriveStatus(state.connectivity)).toBe("offline");
+      expect(deriveSaveState(state.content, state.chain)).toBe("unpublished");
+      // Version history is empty from initial chain
+      expect(versionHistory(state.chain)).toEqual([]);
+    },
+  );
 });
 
 describe("versionHistory", () => {

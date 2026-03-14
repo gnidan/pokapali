@@ -208,6 +208,61 @@ describe("isPublisherAuthorized logic", () => {
     map.set("real-pub", true);
     expect(isAuthorized(map, "")).toBe(false);
   });
+
+  it(
+    "self-deauthorization: admin removes " +
+      "own pubkey → no longer authorized",
+    () => {
+      const doc = new Y.Doc();
+      const map = doc.getMap<true>("authorizedPublishers");
+
+      // Admin authorizes self
+      map.set("admin-pub", true);
+      expect(isAuthorized(map, "admin-pub")).toBe(true);
+
+      // Admin removes self
+      map.delete("admin-pub");
+      // Now permissionless (map empty)
+      expect(isAuthorized(map, "admin-pub")).toBe(true);
+      expect(isAuthorized(map, "stranger")).toBe(true);
+    },
+  );
+
+  it(
+    "self-deauthorization with other " +
+      "publishers: admin removed but " +
+      "others remain",
+    () => {
+      const doc = new Y.Doc();
+      const map = doc.getMap<true>("authorizedPublishers");
+
+      map.set("admin-pub", true);
+      map.set("other-pub", true);
+      expect(isAuthorized(map, "admin-pub")).toBe(true);
+
+      // Admin removes only self
+      map.delete("admin-pub");
+      // Auth still enabled (other-pub remains)
+      expect(isAuthorized(map, "admin-pub")).toBe(false);
+      expect(isAuthorized(map, "other-pub")).toBe(true);
+    },
+  );
+
+  it("self-deauthorization then re-auth " + "restores access", () => {
+    const doc = new Y.Doc();
+    const map = doc.getMap<true>("authorizedPublishers");
+
+    map.set("admin-pub", true);
+    map.set("other-pub", true);
+
+    // Remove self
+    map.delete("admin-pub");
+    expect(isAuthorized(map, "admin-pub")).toBe(false);
+
+    // Re-authorize self
+    map.set("admin-pub", true);
+    expect(isAuthorized(map, "admin-pub")).toBe(true);
+  });
 });
 
 // ── interpreter authorization test ──────────────
@@ -787,6 +842,143 @@ describe("interpreter publisher authorization", () => {
     for (const call of applyMock.mock.calls) {
       expect(call[0].toString()).not.toBe(cidBad.toString());
     }
+
+    ac.abort();
+    await done.catch(() => {});
+  });
+});
+
+// ── interpreter http-tip integration ────────────
+
+describe("interpreter http-tip source", () => {
+  it("http-tip cid-discovered triggers " + "auto-fetch and apply", async () => {
+    const cid = await makeCid("http-tip-block");
+    const block = new Uint8Array([7, 8, 9]);
+
+    const init = initialDocState({
+      ipnsName: "http-tip-test",
+      role: "reader",
+      channels: ["content"],
+      appId: "http-tip",
+    });
+
+    const ac = new AbortController();
+    const input = createAsyncQueue<Fact>(ac.signal);
+    const feedback = createAsyncQueue<Fact>(ac.signal);
+
+    const applyMock = vi.fn().mockResolvedValue({ seq: 1 });
+
+    const effects = mockEffects({
+      fetchBlock: vi.fn().mockResolvedValue(block),
+      applySnapshot: applyMock,
+      getBlock: vi.fn().mockReturnValue(block),
+      decodeBlock: vi.fn().mockReturnValue({
+        seq: 1,
+      }),
+      isPublisherAuthorized: vi.fn().mockReturnValue(true),
+    });
+
+    const stateStream = scan(merge(input, feedback), reduce, init);
+
+    async function* capture(
+      stream: AsyncIterable<{
+        prev: DocState;
+        next: DocState;
+        fact: Fact;
+      }>,
+    ) {
+      yield* stream;
+    }
+
+    const done = runInterpreter(
+      capture(stateStream),
+      effects,
+      feedback,
+      ac.signal,
+    );
+
+    // Discover CID via http-tip source
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid,
+      source: "http-tip",
+      block,
+      seq: 1,
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // http-tip should trigger apply
+    expect(applyMock).toHaveBeenCalledWith(cid, block);
+
+    ac.abort();
+    await done.catch(() => {});
+  });
+
+  it("http-tip with inline block skips " + "fetchBlock", async () => {
+    const cid = await makeCid("inline-http");
+    const block = new Uint8Array([10, 11, 12]);
+
+    const init = initialDocState({
+      ipnsName: "inline-test",
+      role: "reader",
+      channels: ["content"],
+      appId: "inline",
+    });
+
+    const ac = new AbortController();
+    const input = createAsyncQueue<Fact>(ac.signal);
+    const feedback = createAsyncQueue<Fact>(ac.signal);
+
+    const fetchMock = vi.fn().mockResolvedValue(null);
+    const applyMock = vi.fn().mockResolvedValue({ seq: 1 });
+
+    const effects = mockEffects({
+      fetchBlock: fetchMock,
+      applySnapshot: applyMock,
+      getBlock: vi.fn().mockReturnValue(block),
+      decodeBlock: vi.fn().mockReturnValue({
+        seq: 1,
+      }),
+      isPublisherAuthorized: vi.fn().mockReturnValue(true),
+    });
+
+    const stateStream = scan(merge(input, feedback), reduce, init);
+
+    async function* capture(
+      stream: AsyncIterable<{
+        prev: DocState;
+        next: DocState;
+        fact: Fact;
+      }>,
+    ) {
+      yield* stream;
+    }
+
+    const done = runInterpreter(
+      capture(stateStream),
+      effects,
+      feedback,
+      ac.signal,
+    );
+
+    // http-tip with inline block
+    input.push({
+      type: "cid-discovered",
+      ts: Date.now(),
+      cid,
+      source: "http-tip",
+      block,
+      seq: 1,
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Block was inline → should NOT call fetchBlock
+    expect(fetchMock).not.toHaveBeenCalled();
+    // But should still apply
+    expect(applyMock).toHaveBeenCalledWith(cid, block);
 
     ac.abort();
     await done.catch(() => {});

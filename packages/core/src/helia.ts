@@ -28,6 +28,19 @@ type HeliaWithPubsub = Helia<
 let sharedHelia: HeliaWithPubsub | null = null;
 let refCount = 0;
 
+// Guards concurrent acquireHelia() calls (#106).
+// While createHelia() is in-flight, subsequent callers
+// await the same promise instead of spawning a second
+// instance.
+let pendingCreate: Promise<HeliaWithPubsub> | null = null;
+
+// True while createHelia() is running (#107). If
+// releaseHelia() is called during bootstrap it sets
+// deferredDestroy so the instance is torn down once
+// creation completes.
+let bootstrapping = false;
+let deferredDestroy = false;
+
 export async function acquireHelia(
   _options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
@@ -35,6 +48,29 @@ export async function acquireHelia(
     refCount++;
     return sharedHelia;
   }
+
+  // Another caller is already creating Helia — piggy-
+  // back on that promise (#106).
+  if (pendingCreate) {
+    const helia = await pendingCreate;
+    refCount++;
+    return helia;
+  }
+
+  pendingCreate = createHeliaInstance(_options);
+  try {
+    const helia = await pendingCreate;
+    return helia;
+  } finally {
+    pendingCreate = null;
+  }
+}
+
+async function createHeliaInstance(
+  _options?: HeliaOptions,
+): Promise<HeliaWithPubsub> {
+  bootstrapping = true;
+  deferredDestroy = false;
 
   const isSecureContext =
     typeof globalThis.location !== "undefined" &&
@@ -114,15 +150,33 @@ export async function acquireHelia(
   if (_options?.blockstore) {
     heliaOpts.blockstore = _options.blockstore;
   }
-  const helia = (await Promise.race([
-    createHelia(heliaOpts),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error("Helia bootstrap timed out")),
-        BOOTSTRAP_TIMEOUT_MS,
+
+  let helia: HeliaWithPubsub;
+  try {
+    helia = (await Promise.race([
+      createHelia(heliaOpts),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Helia bootstrap timed out")),
+          BOOTSTRAP_TIMEOUT_MS,
+        ),
       ),
-    ),
-  ])) as unknown as HeliaWithPubsub;
+    ])) as unknown as HeliaWithPubsub;
+  } catch (err) {
+    bootstrapping = false;
+    deferredDestroy = false;
+    throw err;
+  }
+
+  bootstrapping = false;
+
+  // releaseHelia() was called while we were creating
+  // the instance (#107). Tear down immediately.
+  if (deferredDestroy) {
+    deferredDestroy = false;
+    await helia.stop();
+    throw new Error("Helia creation aborted: released during bootstrap");
+  }
 
   sharedHelia = helia;
   refCount = 1;
@@ -130,6 +184,13 @@ export async function acquireHelia(
 }
 
 export async function releaseHelia(): Promise<void> {
+  // Released during bootstrap (#107) — defer
+  // destruction until createHeliaInstance() finishes.
+  if (bootstrapping) {
+    deferredDestroy = true;
+    return;
+  }
+
   if (!sharedHelia || refCount <= 0) {
     return;
   }
@@ -171,4 +232,7 @@ export function isHeliaLive(): boolean {
 export function _resetHeliaState(): void {
   sharedHelia = null;
   refCount = 0;
+  pendingCreate = null;
+  bootstrapping = false;
+  deferredDestroy = false;
 }

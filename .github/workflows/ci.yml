@@ -33,3 +33,9 @@ jobs:
 
       - name: Format check
         run: npm run format:check
+
+      - name: Shell lint
+        run: shellcheck bin/*.sh
+
+      - name: Workflow lint
+        uses: rhysd/actionlint-action@v1

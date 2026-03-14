@@ -1,19 +1,36 @@
 {
   "name": "@pokapali/subdocs",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.3",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "!dist/src/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc --build",
+    "prepublishOnly": "npm run build",
     "test": "vitest run"
   },
   "license": "MIT",
-  "dependencies": {
+  "peerDependencies": {
     "yjs": "^13.6.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "yjs": "^13.6.0"
   }
 }

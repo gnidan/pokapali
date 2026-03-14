@@ -11,6 +11,11 @@ persistent snapshots so you can focus on your app.
 npm install @pokapali/core
 ```
 
+> **TypeScript note:** if your `tsconfig.json` targets
+> ES2022 or earlier, add `"skipLibCheck": true` to
+> `compilerOptions`. A transitive dependency uses
+> ES2024 types that would otherwise cause build errors.
+
 ### 1. Create a PokapaliApp instance
 
 ```ts
@@ -170,6 +175,40 @@ The `displayName` in `ParticipantInfo` comes from the
 app-provided awareness `user.name` field — unsigned,
 for display only.
 
+**Client identity mapping:** The `doc.clientIdMapping`
+Feed provides a reactive mapping from Yjs clientIDs
+to verified identity info. This is useful for
+attributing edits and comments to specific users:
+
+```ts
+// Feed<ReadonlyMap<number, ClientIdentityInfo>>
+const mapping = doc.clientIdMapping.getSnapshot();
+
+for (const [clientId, info] of mapping) {
+  // info.pubkey — hex-encoded Ed25519 public key
+  // info.verified — signature verified
+  console.log(clientId, info.pubkey, info.verified);
+}
+
+// Subscribe to changes (e.g. new peers joining)
+doc.clientIdMapping.subscribe(() => {
+  const updated = doc.clientIdMapping.getSnapshot();
+  // rebuild UI...
+});
+```
+
+Pass this feed to `@pokapali/comments` for author
+verification:
+
+```ts
+import { comments } from "@pokapali/comments";
+
+const c = comments(commentsDoc, contentDoc, {
+  author: doc.identityPubkey,
+  clientIdMapping: doc.clientIdMapping,
+});
+```
+
 #### Permissionless vs authorized mode
 
 By default, documents are **permissionless** — anyone
@@ -277,7 +316,7 @@ doc.on("save", (state) => {
 });
 ```
 
-**Additional events** for network visualization:
+Other events:
 
 ```ts
 // Block fetch progress (IPNS resolve, block fetch)
@@ -285,14 +324,6 @@ doc.on("loading", (state) => {
   // state.status: "idle" | "resolving" |
   //   "fetching" | "retrying" | "failed"
 });
-
-// GossipSub activity changes
-doc.on("gossip-activity", (activity) => {
-  // "inactive" | "subscribed" | "receiving"
-});
-
-// Outbound guarantee query sent to pinners
-doc.on("guarantee-query", () => {});
 
 // Pinner acknowledged current snapshot
 doc.on("ack", (peerId) => {});
@@ -579,7 +610,7 @@ preserving the current content:
 
 ```ts
 const result = await doc.rotate();
-// result.doc — new Doc with fresh keys
+// result.newDoc — new Doc with fresh keys
 // result.forwardingRecord — signed redirect from
 //   old IPNS name to new one
 ```

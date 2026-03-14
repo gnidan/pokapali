@@ -112,6 +112,43 @@ describe("reduceChain", () => {
     expect(entry!.discoveredVia.has("ipns")).toBe(true);
   });
 
+  it("http-tip source tracked in " + "discoveredVia", async () => {
+    const cid = await fakeCid(99);
+    const block = new Uint8Array([1, 2, 3]);
+    const state = reduceChain(INITIAL_CHAIN, {
+      type: "cid-discovered",
+      ts: 1,
+      cid,
+      source: "http-tip",
+      block,
+      seq: 5,
+    });
+    const entry = state.entries.get(cid.toString());
+    expect(entry).toBeDefined();
+    expect(entry!.discoveredVia.has("http-tip")).toBe(true);
+    expect(entry!.blockStatus).toBe("fetched");
+  });
+
+  it("http-tip + gossipsub both tracked " + "for same CID", async () => {
+    const cid = await fakeCid(100);
+    let state = reduceChain(INITIAL_CHAIN, {
+      type: "cid-discovered",
+      ts: 1,
+      cid,
+      source: "http-tip",
+      seq: 3,
+    });
+    state = reduceChain(state, {
+      type: "cid-discovered",
+      ts: 2,
+      cid,
+      source: "gossipsub",
+    });
+    const entry = state.entries.get(cid.toString());
+    expect(entry!.discoveredVia.has("http-tip")).toBe(true);
+    expect(entry!.discoveredVia.has("gossipsub")).toBe(true);
+  });
+
   it("resets failed CID to unknown on rediscovery", async () => {
     const cid = await fakeCid(1);
     let state = reduceChain(INITIAL_CHAIN, {
@@ -312,6 +349,130 @@ describe("reduceChain", () => {
       retainUntil: 10000,
     });
   });
+
+  it(
+    "guarantee-received after http-tip " + "discovery stores guarantee",
+    async () => {
+      const cid = await fakeCid(101);
+      const block = new Uint8Array([10, 20]);
+      // Discover via http-tip with inline block
+      let state = reduceChain(INITIAL_CHAIN, {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "http-tip",
+        block,
+        seq: 7,
+      });
+      // Then receive guarantee for same CID
+      state = reduceChain(state, {
+        type: "guarantee-received",
+        ts: 2,
+        peerId: "pinner-chi",
+        cid,
+        guaranteeUntil: 9000,
+        retainUntil: 18000,
+      });
+      const entry = state.entries.get(cid.toString());
+      expect(entry!.discoveredVia.has("http-tip")).toBe(true);
+      expect(entry!.blockStatus).toBe("fetched");
+      const g = entry!.guarantees.get("pinner-chi");
+      expect(g).toEqual({
+        guaranteeUntil: 9000,
+        retainUntil: 18000,
+      });
+    },
+  );
+
+  it(
+    "multiple guarantees from different " + "pinners on same CID",
+    async () => {
+      const cid = await fakeCid(102);
+      let state = reduceChain(INITIAL_CHAIN, {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "http-tip",
+        seq: 1,
+      });
+      state = reduceChain(state, {
+        type: "guarantee-received",
+        ts: 2,
+        peerId: "pinner-a",
+        cid,
+        guaranteeUntil: 5000,
+        retainUntil: 10000,
+      });
+      state = reduceChain(state, {
+        type: "guarantee-received",
+        ts: 3,
+        peerId: "pinner-b",
+        cid,
+        guaranteeUntil: 6000,
+        retainUntil: 12000,
+      });
+      const entry = state.entries.get(cid.toString());
+      expect(entry!.guarantees.size).toBe(2);
+      expect(entry!.guarantees.get("pinner-a")).toEqual({
+        guaranteeUntil: 5000,
+        retainUntil: 10000,
+      });
+      expect(entry!.guarantees.get("pinner-b")).toEqual({
+        guaranteeUntil: 6000,
+        retainUntil: 12000,
+      });
+    },
+  );
+
+  it("guarantee-received for unknown CID " + "is no-op", async () => {
+    const cid = await fakeCid(103);
+    const state = reduceChain(INITIAL_CHAIN, {
+      type: "guarantee-received",
+      ts: 1,
+      peerId: "pinner-x",
+      cid,
+      guaranteeUntil: 5000,
+      retainUntil: 10000,
+    });
+    expect(state).toBe(INITIAL_CHAIN);
+  });
+
+  it(
+    "guarantee-received updates existing " + "guarantee from same pinner",
+    async () => {
+      const cid = await fakeCid(104);
+      let state = reduceChain(INITIAL_CHAIN, {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "http-tip",
+        seq: 2,
+      });
+      state = reduceChain(state, {
+        type: "guarantee-received",
+        ts: 2,
+        peerId: "pinner-chi",
+        cid,
+        guaranteeUntil: 5000,
+        retainUntil: 10000,
+      });
+      // Same pinner, updated guarantee
+      state = reduceChain(state, {
+        type: "guarantee-received",
+        ts: 3,
+        peerId: "pinner-chi",
+        cid,
+        guaranteeUntil: 8000,
+        retainUntil: 16000,
+      });
+      const entry = state.entries.get(cid.toString());
+      expect(entry!.guarantees.size).toBe(1);
+      expect(entry!.guarantees.get("pinner-chi")).toEqual({
+        guaranteeUntil: 8000,
+        retainUntil: 16000,
+      });
+    },
+  );
 
   it("ack for unknown CID is no-op", async () => {
     const cid = await fakeCid(99);
