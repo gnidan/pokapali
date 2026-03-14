@@ -7,6 +7,68 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.5] — 2026-03-14
+
+### Fixed
+
+- Comments pane overlaps editor content when sidebar
+  open — editor container now gets margin-right (#197)
+- Comment button styling mismatch with share/history
+  toolbar buttons (#198)
+- Comment input overlap with spatially positioned
+  comment threads (#196)
+- bootstrapPeers config option not wired through to
+  Helia (#195)
+- Awareness cursor opacity reduced — remote selections
+  no longer obscure text (#194)
+- Comments ordered by document position instead of
+  recency (#193)
+- Display name shown instead of pubkey in comment
+  authors (#191)
+- Dependency version range inconsistencies across
+  workspace packages (#112)
+- engines field (node >=22) added to all package.json
+  files (#111)
+- Production IP removed from relay.ts JSDoc comment
+- Hardcoded relay IPs removed from load test workflow
+
+### Added
+
+- `--no-tls` CLI flag for relay — skips autoTLS cert
+  wait (used by ephemeral test relays)
+- Tier 2 nightly load test workflow with ephemeral
+  relay on test VPS (#173)
+- Churn simulation for load testing — ChurnScheduler
+  with proportional removal, writer protection (#172)
+- Reader peer module for load testing — GossipSub
+  subscriber with convergence tracking (#171)
+- JSONL analysis script with configurable thresholds
+  (#175)
+- bin/loadtest-setup.sh — SSH key setup for test VPS
+- 3 mechanical process guards: pre-commit main block,
+  hardcoded IP check, tracked-gitignored check in
+  verify-branch.sh
+- block-resolver test coverage (#125)
+- snapshot-codec and solo-mode test coverage (#126,
+  #127)
+- helia singleton race condition tests (#132)
+- comments feed.ts and storage.ts tests (#134)
+- 3 new Playwright E2E tests (65 total)
+
+### Changed
+
+- Deploy workflow: per-node fan-out GHA graph with
+  graph visualization
+- Nightly load test workflow: 4-job GHA graph (setup →
+  load-test → stop-relay + metrics)
+- CI workflow: parallel job graph with GHA
+  visualization
+- Docs refreshed: namespace→channel terminology,
+  per-user identity marked implemented, Node >=22
+- README updated for npm alpha release status
+- deploy/nodes.json moved to GH secret
+  (DEPLOY_NODES_CONFIG)
+
 ## [0.1.0-alpha.4] — 2026-03-14
 
 ### Fixed
