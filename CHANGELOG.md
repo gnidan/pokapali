@@ -7,6 +7,53 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.4] — 2026-03-14
+
+### Fixed
+
+- Comment popover: action moved from `onClick` to
+  `onMouseDown` — prevents ProseMirror from collapsing
+  its internal selection before the handler fires
+- y-prosemirror mapping path fixed in all anchor
+  resolvers (`syncState.mapping` → `syncState.binding
+.mapping`) — comment creation and highlight rendering
+  were silently failing in Editor.tsx,
+  commentHighlight.ts, pendingAnchorHighlight.ts
+- Closing comment sidebar no longer leaks pending anchor
+  state
+- `selectedCommentId` cleared on sidebar close
+- Active comment highlight now propagates correctly to
+  the commentHighlight extension
+- Resolve/reopen/delete no longer throw on peer-deleted
+  comments (try/catch added)
+- `commentsDoc` moved to React state for stable reference
+  (was re-obtained on every render)
+- Deploy workflow: SSH config, health check commit hash
+  comparison, deploy-setup already-installed check
+
+### Added
+
+- 31 new Playwright E2E tests (59 total): doc-loading
+  (9), multi-peer editing (4), additional comment and
+  version-history coverage
+- `bin/verify-branch.sh` — automated pre-merge checks
+  (tsc, format, tests, lint, shellcheck, actionlint)
+  (#176)
+- `bin/merge-branch.sh` — merge guard for team workflow
+  (#178)
+- `bin/check-memory-staleness.sh` — memory file
+  staleness checker
+- shellcheck + actionlint added to CI (#177)
+- `bin/deploy-setup.sh` — automated deploy key setup
+  for GHA relay deployments
+
+### Changed
+
+- Node CLI entry point uses `@pokapali/log` instead of
+  `console.log`/`console.error` (#149)
+- Deploy workflow: rolling batches with health checks,
+  config-driven via `deploy/nodes.json`
+
 ## [0.1.0-alpha.3] — 2026-03-13
 
 ### Fixed
