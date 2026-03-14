@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -100,3 +105,32 @@ jobs:
           bash <(curl -s \
             https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
       - run: ./actionlint
+
+  deploy-pages:
+    name: Deploy Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/dist
+            apps/*/dist
+          key: build-${{ github.sha }}
+      - name: Build example app
+        run: npx vite build
+        working-directory: apps/example
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/example/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
