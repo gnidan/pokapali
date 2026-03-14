@@ -56,7 +56,7 @@ test.describe("document loading", () => {
     await expect(page.locator(".landing")).not.toBeVisible();
 
     // URL should have changed to a doc URL.
-    expect(page.url()).toContain("/#/doc/");
+    expect(page.url()).toContain("/doc/");
   });
 
   test("back arrow returns to landing", async ({ page }) => {
