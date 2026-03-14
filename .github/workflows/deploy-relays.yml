@@ -37,6 +37,7 @@ jobs:
 
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
 
@@ -116,6 +117,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
       - name: Configure SSH
@@ -149,6 +151,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
       - name: Configure SSH
@@ -186,6 +189,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
       - name: Configure SSH
@@ -221,6 +225,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
       - name: Configure SSH
@@ -258,6 +263,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
       - name: Configure SSH
@@ -293,6 +299,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
       - name: Configure SSH
@@ -330,6 +337,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Write node config
         run: |
+          mkdir -p deploy
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
       - name: Configure SSH
