@@ -11,9 +11,9 @@ IPNS-resolved and GossipSub-announced snapshot fetches.
 ### Sync architecture
 
 For each channel in the peer's capability set
-(`doc.capability.namespaces`), the library creates a
+(`doc.capability.channels`), the library creates a
 `WebrtcProvider` connecting to a room named
-`${ipnsName}:${namespace}`. This gives the peer
+`${ipnsName}:${channel}`. This gives the peer
 real-time bidirectional CRDT sync for that channel —
 standard y-webrtc, no custom protocol.
 

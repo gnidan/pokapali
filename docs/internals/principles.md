@@ -42,7 +42,7 @@ via DHT, not configuration.
 
 All persistent data (IPFS snapshots) is encrypted with
 AES-GCM before it leaves the client. All real-time sync
-(WebRTC rooms) is encrypted with the namespace access key.
+(WebRTC rooms) is encrypted with the channel access key.
 Relays, pinners, and the DHT see only ciphertext.
 
 This is structural, not policy. There is no "unencrypted
@@ -93,8 +93,8 @@ never blocks the user.
 
 ## Writers sync in real-time, readers sync via snapshots
 
-Peers with write access to a namespace join a WebRTC room
-for that namespace and sync Yjs updates in real-time.
+Peers with write access to a channel join a WebRTC room
+for that channel and sync Yjs updates in real-time.
 Peers with read-only access receive updates via periodic
 GossipSub-announced, IPNS-polled snapshot fetches.
 
@@ -151,7 +151,7 @@ point it at the network, and it works for everyone.
 ## Every snapshot is a complete document
 
 Snapshots are not deltas. Each one contains the full
-`Y.encodeStateAsUpdate` for every namespace — a complete
+`Y.encodeStateAsUpdate` for every channel — a complete
 document state. Any single snapshot CID is sufficient to
 reconstruct the entire document at that point in time.
 
@@ -163,7 +163,7 @@ recoverable.
 
 ## The library has no opinion on content or timing
 
-Pokapali enforces which namespace access key gates which
+Pokapali enforces which channel access key gates which
 subdocument. What lives in those subdocuments — rich text,
 plain text, JSON, drawings — is the application's business.
 
@@ -203,13 +203,13 @@ The trust model has clear boundaries:
 - **Pinners**: trusted to store blocks, not to understand
   them. Compromised pinner = no content exposure, but
   potential availability disruption.
-- **Peers with `readKey`**: can read all namespaces. This
+- **Peers with `readKey`**: can read all channels. This
   is all-or-nothing by design — partial read access would
-  require per-namespace encryption, adding complexity
+  require per-channel encryption, adding complexity
   without clear benefit.
 - **`canPushSnapshots`**: an independent trust flag, not
-  implied by namespace write access. A peer can write to
-  a namespace in real-time (via WebRTC) without being
+  implied by channel write access. A peer can write to
+  a channel in real-time (via WebRTC) without being
   trusted to publish persistent snapshots. This is the
   main social trust boundary.
 - **`rotationKey` (admin)**: can rotate the document's

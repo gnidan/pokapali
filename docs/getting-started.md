@@ -6,6 +6,9 @@ Install `@pokapali/core` and its peer dependency:
 npm install @pokapali/core yjs
 ```
 
+> **Node.js:** Requires Node 22 or later (`engines`
+> field enforced in all packages).
+
 > **TypeScript note:** if your `tsconfig.json` targets
 > ES2022 or earlier, add `"skipLibCheck": true` to
 > `compilerOptions`. A transitive dependency uses

@@ -139,7 +139,7 @@ const doc = await app.create();
 doc.channel("content"); // Y.Doc for "content"
 doc.channel("comments"); // Y.Doc for "comments"
 doc.provider; // for awareness / cursor presence
-doc.capability; // { namespaces, canPushSnapshots,
+doc.capability; // { channels, canPushSnapshots,
 //   isAdmin }
 doc.urls.admin; // keep private — derives everything
 doc.urls.write; // read + write + canPushSnapshots
@@ -159,7 +159,7 @@ doc.saveState; // "saved" | "dirty" | ...
 
 // Generate a custom capability URL
 doc.invite({
-  namespaces: ["comments"],
+  channels: ["comments"],
   canPushSnapshots: true,
 });
 
@@ -192,7 +192,7 @@ The application should reflect this in the editor
 configuration:
 
 ```ts
-const isReadOnly = !doc.capability.namespaces.has("content");
+const isReadOnly = !doc.capability.channels.has("content");
 const editor = new Editor({
   editable: !isReadOnly,
   extensions: [
@@ -267,7 +267,7 @@ module groups:
 
 | Module           | Purpose                                                                                        |
 | ---------------- | ---------------------------------------------------------------------------------------------- |
-| `facts.ts`       | Fact union type (27 variants), DocState/ChainState interfaces, initial state constants         |
+| `facts.ts`       | Fact union type (26 variants), DocState/ChainState interfaces, initial state constants         |
 | `reducers.ts`    | Pure reducers: chain, gossip, connectivity, content, announce. Derives status and saveState    |
 | `sources.ts`     | `createAsyncQueue`, `merge`, `scan`, `createFeed`, fact source generators                      |
 | `interpreter.ts` | Effect dispatcher: fetches blocks, applies snapshots, schedules wake-ups. The only impure code |
@@ -445,30 +445,23 @@ Possible mitigations:
 
 ## Future Extensions
 
-### Per-user identity within channels
+### Per-user identity within channels (implemented)
 
-The current design treats all peers with the same
-channel access key as equal — anyone in the `comments`
-room can edit or delete anyone else's comments. A
-natural next step is per-user identity:
+Every device generates an Ed25519 keypair
+(`client-identity.ts`). The public key is registered
+in `_meta` with a signature for replay protection.
+The `doc.clientIdMapping` Feed maps Yjs clientIDs to
+verified identity info (`ClientIdentityInfo`).
 
-1. Each user generates a keypair client-side (Ed25519)
-2. The user's public key is registered in `_meta`
-   under the channel
-3. Entries include the author's public key and a
-   signature
-4. The application layer enforces "you can only edit
-   entries you authored"
+`@pokapali/comments` uses this for author
+verification — each comment stores the author's
+pubkey, and the `clientIdMapping` feed verifies
+signatures. This is cooperative enforcement at the
+intra-channel level; the room password still provides
+the structural access boundary.
 
-This is cooperative enforcement at the intra-channel
-level, but the trust surface is much smaller than the
-original single-Y.Doc design. The room password still
-provides the structural access boundary.
-
-**Application guidance:** within annotation channels,
-store entries as `Y.Map` instances with room for
-metadata fields (author public key, signature,
-timestamps) rather than bare strings in a `Y.Array`.
+See the [guide](../guide.md) section on identity and
+publisher authorization for API details.
 
 ### CLI and MCP agent interface (designed)
 
