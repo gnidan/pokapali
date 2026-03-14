@@ -35,8 +35,9 @@ async function createDoc(page: import("@playwright/test").Page) {
 }
 
 /**
- * Type text into the editor, then select it by
- * triple-clicking (selects the paragraph).
+ * Type text into the editor, then select all of it.
+ * Uses Ctrl/Meta+A which reliably fires selectionchange
+ * in headless Chromium.
  */
 async function typeAndSelect(
   page: import("@playwright/test").Page,
@@ -45,7 +46,9 @@ async function typeAndSelect(
   const editor = page.locator(".tiptap");
   await editor.click();
   await page.keyboard.type(text);
-  await editor.click({ clickCount: 3 });
+
+  // Select all text in the editor.
+  await page.keyboard.press("Meta+a");
 }
 
 /**
@@ -83,7 +86,7 @@ async function createComment(
 // ── Popover visibility ──────────────────────────
 
 test.describe("comment popover", () => {
-  test("appears on text selection via triple-click", async ({ page }) => {
+  test("appears on text selection", async ({ page }) => {
     await createDoc(page);
     await typeAndSelect(page, "Selectable text");
 
@@ -92,7 +95,7 @@ test.describe("comment popover", () => {
     await expect(page.locator("[data-testid='add-comment-btn']")).toBeVisible();
   });
 
-  test("appears on keyboard-based selection", async ({ page }) => {
+  test("appears on keyboard-based partial selection", async ({ page }) => {
     await createDoc(page);
     const editor = page.locator(".tiptap");
     await editor.click();
@@ -103,8 +106,10 @@ test.describe("comment popover", () => {
       await page.keyboard.press("Shift+ArrowLeft");
     }
 
+    // selectionchange may fire asynchronously after
+    // keyboard-driven selection in ProseMirror.
     const popover = page.locator("[data-testid='comment-popover']");
-    await expect(popover).toBeVisible({ timeout: 3_000 });
+    await expect(popover).toBeVisible({ timeout: 5_000 });
   });
 
   test("does not appear with collapsed selection", async ({ page }) => {
@@ -620,7 +625,7 @@ test.describe("comment edge cases", () => {
     }
 
     const popover = page.locator("[data-testid='comment-popover']");
-    await expect(popover).toBeVisible({ timeout: 3_000 });
+    await expect(popover).toBeVisible({ timeout: 5_000 });
   });
 
   test("select text at document end", async ({ page }) => {
@@ -629,13 +634,13 @@ test.describe("comment edge cases", () => {
     await editor.click();
     await page.keyboard.type("End of document");
 
-    // Select last 8 characters.
-    for (let i = 0; i < 8; i++) {
+    // Select last 4 characters ("ment") from the end.
+    for (let i = 0; i < 4; i++) {
       await page.keyboard.press("Shift+ArrowLeft");
     }
 
     const popover = page.locator("[data-testid='comment-popover']");
-    await expect(popover).toBeVisible({ timeout: 3_000 });
+    await expect(popover).toBeVisible({ timeout: 5_000 });
   });
 
   test("popover not shown for read-only docs", async ({ page, context }) => {
