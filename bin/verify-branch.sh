@@ -55,6 +55,37 @@ echo "verify-branch: starting pre-merge checks..."
 echo "  branch: $(git branch --show-current)"
 echo "  commit: $(git rev-parse --short HEAD)"
 
+# Policy checks (always run, even with --quick)
+step "No hardcoded IPs" bash -c '
+  hits=$(grep -rEn "\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b" \
+    packages/ .github/workflows/ \
+    --include="*.ts" --include="*.yml" --include="*.yaml" \
+    2>/dev/null \
+    | grep -v "node_modules\|/dist/" \
+    | grep -v "\.test\.ts:" \
+    | grep -v "127\.0\.0\.1\|0\.0\.0\.0" \
+    || true)
+  if [ -n "$hits" ]; then
+    echo "Found hardcoded IP addresses:"
+    echo "$hits"
+    echo ""
+    echo "Use secrets or config, not hardcoded IPs."
+    exit 1
+  fi
+'
+
+step "No ignored files tracked" bash -c '
+  tracked=$(git ls-files -- docs/plans/ 2>/dev/null || true)
+  if [ -n "$tracked" ]; then
+    echo "Files under docs/plans/ are tracked but"
+    echo "should not be in source control:"
+    echo "$tracked"
+    echo ""
+    echo "Remove with: git rm --cached <file>"
+    exit 1
+  fi
+'
+
 step "TypeScript build" npx tsc --build
 
 step "Format check" npm run format:check
