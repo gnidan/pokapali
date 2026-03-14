@@ -683,3 +683,64 @@ test.describe("comment edge cases", () => {
     await page2.close();
   });
 });
+
+// ── Button styling (#190) ───────────────────────
+
+test.describe("comment popover button styling", () => {
+  test("popover button matches header button styles", async ({ page }) => {
+    await createDoc(page);
+    await typeAndSelect(page, "Style check text");
+
+    const popover = page.locator("[data-testid='comment-popover']");
+    await expect(popover).toBeVisible({ timeout: 3_000 });
+
+    const btn = page.locator("[data-testid='add-comment-btn']");
+
+    // border-radius should be 6px, matching
+    // .toggle-share / .toggle-history buttons.
+    await expect(btn).toHaveCSS("border-radius", "6px");
+
+    // border-color should be #d1d5db (rgb(209,213,219)).
+    await expect(btn).toHaveCSS("border-color", "rgb(209, 213, 219)");
+
+    // background should be white.
+    await expect(btn).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  });
+});
+
+// ── Click-to-reveal (#192) ──────────────────────
+
+test.describe("click highlighted comment text", () => {
+  test("clicking anchor opens sidebar and selects thread", async ({ page }) => {
+    await createDoc(page);
+    await createComment(page, "Click reveal test", "Thread to reveal");
+
+    // Close the sidebar.
+    await page.locator(".cs-sidebar-close").click();
+    await expect(
+      page.locator("[data-testid='comment-sidebar']"),
+    ).not.toBeVisible();
+
+    // Click the highlighted anchor text in the editor.
+    const anchor = page.locator(".tiptap .comment-anchor");
+    await expect(anchor).toBeVisible({ timeout: 3_000 });
+    await anchor.click();
+
+    // Sidebar should re-open with the comment selected.
+    const sidebar = page.locator("[data-testid='comment-sidebar']");
+    await expect(sidebar).toBeVisible({ timeout: 3_000 });
+
+    // The clicked comment's thread should be visible
+    // and active.
+    const activeAnchor = page.locator(".tiptap .comment-anchor.active");
+    await expect(activeAnchor).toBeVisible({
+      timeout: 3_000,
+    });
+
+    // The comment item should be visible in sidebar.
+    const item = page
+      .locator("[data-testid='comment-item']")
+      .filter({ hasText: "Thread to reveal" });
+    await expect(item).toBeVisible();
+  });
+});
