@@ -219,6 +219,16 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     setShowComments(true);
   }, [editor]);
 
+  const handleCommentClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const anchor = target.closest(".comment-anchor");
+    if (!anchor) return;
+    const id = anchor.getAttribute("data-comment-id");
+    if (!id) return;
+    setSelectedCommentId(id);
+    setShowComments(true);
+  }, []);
+
   // Rebuild comment decorations when comments or
   // active selection change
   useEffect(() => {
@@ -472,6 +482,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         <div
           className="editor-container"
           style={previewVersion ? { visibility: "hidden" } : undefined}
+          onClick={handleCommentClick}
         >
           {showEditor ? (
             <>
