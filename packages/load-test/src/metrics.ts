@@ -12,7 +12,10 @@ export interface LoadTestEvent {
     | "doc-ready"
     | "reader-synced"
     | "convergence-ok"
-    | "convergence-drift";
+    | "convergence-drift"
+    | "node-joined"
+    | "node-left"
+    | "churn-cycle";
   docId: string;
   latencyMs?: number;
   detail?: string;
