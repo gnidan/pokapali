@@ -131,7 +131,10 @@ export function CommentPopover({ onComment }: CommentPopoverProps) {
         className="comment-popover-btn"
         data-testid="add-comment-btn"
         title="Add comment"
-        onClick={onComment}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onComment();
+        }}
       >
         💬
       </button>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -32,6 +32,7 @@ import {
 import {
   CommentHighlight,
   rebuildCommentDecorations,
+  resolveAnchors,
 } from "./commentHighlight";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
@@ -66,6 +67,9 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const [updateFlash, setUpdateFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [user, setUser] = useState<StoredUser>(loadUser);
+  const [displayNames, setDisplayNames] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const nameBtnRef = useRef<HTMLButtonElement>(null);
@@ -93,6 +97,24 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     deleteComment,
     commentsDoc,
   } = useComments(doc);
+
+  // Build pubkey → displayName lookup from awareness
+  useEffect(() => {
+    const update = () => {
+      const names = new Map<string, string>();
+      for (const [, info] of doc.participants) {
+        if (info.displayName) {
+          names.set(info.pubkey, info.displayName);
+        }
+      }
+      setDisplayNames(names);
+    };
+    update();
+    doc.awareness.on("change", update);
+    return () => {
+      doc.awareness.off("change", update);
+    };
+  }, [doc]);
 
   const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
@@ -182,6 +204,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
                 color: user.color,
               },
               render: renderCursor,
+              selectionRender: (u: { color: string }) => ({
+                style: `background-color: ${u.color}1F`,
+                class: "ProseMirror-yjs-selection",
+              }),
             }),
             CommentHighlight.configure({
               commentsDoc: commentsDoc ?? null,
@@ -201,9 +227,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     if (from === to) return;
 
     const syncState = ySyncPluginKey.getState(editor.state);
-    if (!syncState?.mapping) return;
+    if (!syncState?.binding?.mapping) return;
 
-    const { type, mapping } = syncState;
+    const { type, binding } = syncState;
+    const mapping = binding.mapping;
     const startRel = absolutePositionToRelativePosition(from, type, mapping);
     const endRel = absolutePositionToRelativePosition(to, type, mapping);
     if (!startRel || !endRel) return;
@@ -218,6 +245,16 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     setShowComments(true);
   }, [editor]);
 
+  const handleCommentClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const anchor = target.closest(".comment-anchor");
+    if (!anchor) return;
+    const id = anchor.getAttribute("data-comment-id");
+    if (!id) return;
+    setSelectedCommentId(id);
+    setShowComments(true);
+  }, []);
+
   // Rebuild comment decorations when comments or
   // active selection change
   useEffect(() => {
@@ -229,6 +266,19 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     });
     rebuildCommentDecorations(editor.view);
   }, [editor, commentList, selectedCommentId]);
+
+  // Resolve comment anchor positions for sidebar
+  // ordering. Re-derived when comments or editor
+  // state change (via commentList dependency which
+  // triggers the rebuild effect above).
+  const anchorPositions = useMemo(() => {
+    if (!editor?.state || !commentsDoc || !contentDoc) {
+      return new Map<string, number>();
+    }
+    const syncState = ySyncPluginKey.getState(editor.state);
+    const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
+    return new Map(anchors.map((a) => [a.id, a.from]));
+  }, [editor?.state, commentsDoc, contentDoc, commentList]);
 
   useEffect(() => {
     const displayName = user.name || "Anonymous";
@@ -471,6 +521,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         <div
           className="editor-container"
           style={previewVersion ? { visibility: "hidden" } : undefined}
+          onClick={handleCommentClick}
         >
           {showEditor ? (
             <>
@@ -513,7 +564,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         {showComments && (
           <CommentSidebar
             comments={commentList}
+            anchorPositions={anchorPositions}
+            editorView={editor?.view ?? null}
             myPubkey={doc.identityPubkey}
+            displayNames={displayNames}
             hasPendingAnchor={pendingAnchor != null}
             onAddComment={handleAddComment}
             onAddReply={handleAddReply}

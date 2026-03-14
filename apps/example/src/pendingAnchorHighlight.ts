@@ -68,9 +68,10 @@ function resolveAnchor(
   editorState: EditorState,
 ): { from: number; to: number } | null {
   const syncState = ySyncPluginKey.getState(editorState);
-  if (!syncState?.mapping) return null;
+  if (!syncState?.binding?.mapping) return null;
 
-  const { doc: ydoc, type: xmlFragment, mapping } = syncState;
+  const { doc: ydoc, type: xmlFragment, binding } = syncState;
+  const mapping = binding.mapping;
 
   const startRelPos = Y.decodeRelativePosition(anchor.start);
   const endRelPos = Y.decodeRelativePosition(anchor.end);

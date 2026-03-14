@@ -1,14 +1,21 @@
 /**
- * Comment sidebar — threaded comment list with
- * add/reply/resolve/delete flows.
+ * Comment sidebar — threaded comment list ordered
+ * by document position.
  *
- * Slides in from right (~350px), similar to
- * VersionHistory drawer.
+ * Comments with anchors are sorted by their
+ * ProseMirror position in the document. Unanchored
+ * or orphaned comments appear at the end.
+ *
+ * When an editorView is available, cards are
+ * spatially positioned to align with their anchor
+ * text using coordsAtPos().
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import type { EditorView } from "@tiptap/pm/view";
 import type { Comment } from "@pokapali/comments";
 import type { CommentData } from "./useComments";
+import { spatialLayout, type LayoutItem } from "./spatialLayout";
 
 // ── Helpers ──────────────────────────────────────
 
@@ -102,6 +109,7 @@ function CommentItem({
   comment,
   isReply,
   myPubkey,
+  displayNames,
   onReply,
   onResolve,
   onReopen,
@@ -112,6 +120,7 @@ function CommentItem({
   comment: Comment<CommentData>;
   isReply: boolean;
   myPubkey: string | null;
+  displayNames: Map<string, string>;
   onReply: (id: string) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
@@ -122,6 +131,8 @@ function CommentItem({
   const isAuthor = myPubkey === comment.author;
   const isResolved = comment.data.status === "resolved";
   const hasOrphanedAnchor = comment.anchor?.status === "orphaned";
+  const authorLabel =
+    displayNames.get(comment.author) ?? truncatePubkey(comment.author);
 
   return (
     <div
@@ -145,8 +156,9 @@ function CommentItem({
               ? comment.author
               : `${comment.author} (unverified)`
           }
+          data-testid="comment-author"
         >
-          {truncatePubkey(comment.author)}
+          {authorLabel}
           {!comment.authorVerified && (
             <span className="cs-unverified-badge">?</span>
           )}
@@ -217,6 +229,7 @@ function CommentItem({
 function CommentThread({
   comment,
   myPubkey,
+  displayNames,
   replyingTo,
   onReply,
   onSubmitReply,
@@ -229,6 +242,7 @@ function CommentThread({
 }: {
   comment: Comment<CommentData>;
   myPubkey: string | null;
+  displayNames: Map<string, string>;
   replyingTo: string | null;
   onReply: (id: string) => void;
   onSubmitReply: (parentId: string, content: string) => void;
@@ -247,6 +261,7 @@ function CommentThread({
         comment={comment}
         isReply={false}
         myPubkey={myPubkey}
+        displayNames={displayNames}
         onReply={onReply}
         onResolve={onResolve}
         onReopen={onReopen}
@@ -261,6 +276,7 @@ function CommentThread({
           comment={reply}
           isReply={true}
           myPubkey={myPubkey}
+          displayNames={displayNames}
           onReply={onReply}
           onResolve={onResolve}
           onReopen={onReopen}
@@ -284,11 +300,81 @@ function CommentThread({
   );
 }
 
+// ── Sorting ─────────────────────────────────────
+
+/** Sort top-level comments by anchor document
+ *  position. Unanchored comments go to the end,
+ *  ordered by timestamp. */
+function sortByPosition(
+  comments: Comment<CommentData>[],
+  positions: Map<string, number>,
+): Comment<CommentData>[] {
+  return [...comments].sort((a, b) => {
+    const posA = positions.get(a.id);
+    const posB = positions.get(b.id);
+    if (posA != null && posB != null) {
+      return posA - posB;
+    }
+    // Anchored comments before unanchored
+    if (posA != null) return -1;
+    if (posB != null) return 1;
+    // Both unanchored — sort by timestamp
+    return a.ts - b.ts;
+  });
+}
+
+// ── Spatial positioning ─────────────────────────
+
+/** Compute spatial Y offsets for comment threads.
+ *  Returns a Map of commentId → top (px) relative
+ *  to the sidebar body container. Falls back to
+ *  null when coordsAtPos is unavailable. */
+function computeSpatialPositions(
+  comments: Comment<CommentData>[],
+  positions: Map<string, number>,
+  editorView: EditorView | null,
+  bodyEl: HTMLElement | null,
+  threadRefs: Map<string, HTMLElement>,
+): Map<string, number> | null {
+  if (!editorView || !bodyEl || comments.length === 0) {
+    return null;
+  }
+
+  const bodyRect = bodyEl.getBoundingClientRect();
+  const items: LayoutItem[] = [];
+
+  for (const c of comments) {
+    const pos = positions.get(c.id);
+    const el = threadRefs.get(c.id);
+    if (pos == null || !el) continue;
+
+    try {
+      const coords = editorView.coordsAtPos(pos);
+      const desiredY = coords.top - bodyRect.top;
+      items.push({
+        id: c.id,
+        desiredY: Math.max(0, desiredY),
+        height: el.offsetHeight,
+      });
+    } catch {
+      // Position may be out of range
+    }
+  }
+
+  if (items.length === 0) return null;
+
+  const laid = spatialLayout(items);
+  return new Map(laid.map((p) => [p.id, p.y]));
+}
+
 // ── Main sidebar ─────────────────────────────────
 
 export function CommentSidebar({
   comments,
+  anchorPositions,
+  editorView,
   myPubkey,
+  displayNames,
   hasPendingAnchor,
   onAddComment,
   onAddReply,
@@ -300,7 +386,10 @@ export function CommentSidebar({
   onSelect,
 }: {
   comments: Comment<CommentData>[];
+  anchorPositions: Map<string, number>;
+  editorView: EditorView | null;
   myPubkey: string | null;
+  displayNames: Map<string, string>;
   /** True if a pending anchor is captured. */
   hasPendingAnchor: boolean;
   onAddComment: (content: string) => void;
@@ -314,9 +403,27 @@ export function CommentSidebar({
 }) {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const threadRefsRef = useRef(new Map<string, HTMLElement>());
+  const [spatialYs, setSpatialYs] = useState<Map<string, number> | null>(null);
 
-  const openComments = comments.filter((c) => c.data.status === "open");
-  const resolvedComments = comments.filter((c) => c.data.status === "resolved");
+  const openComments = useMemo(
+    () =>
+      sortByPosition(
+        comments.filter((c) => c.data.status === "open"),
+        anchorPositions,
+      ),
+    [comments, anchorPositions],
+  );
+
+  const resolvedComments = useMemo(
+    () =>
+      sortByPosition(
+        comments.filter((c) => c.data.status === "resolved"),
+        anchorPositions,
+      ),
+    [comments, anchorPositions],
+  );
 
   const handleSubmitReply = useCallback(
     (parentId: string, content: string) => {
@@ -325,6 +432,51 @@ export function CommentSidebar({
     },
     [onAddReply],
   );
+
+  // Recompute spatial positions on scroll/resize
+  const recomputeLayout = useCallback(() => {
+    const yPositions = computeSpatialPositions(
+      openComments,
+      anchorPositions,
+      editorView,
+      bodyRef.current,
+      threadRefsRef.current,
+    );
+    setSpatialYs(yPositions);
+  }, [openComments, anchorPositions, editorView]);
+
+  useEffect(() => {
+    // Initial layout after mount
+    requestAnimationFrame(recomputeLayout);
+  }, [recomputeLayout]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      requestAnimationFrame(recomputeLayout);
+    };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [recomputeLayout]);
+
+  const useSpatial = spatialYs != null && spatialYs.size > 0;
+
+  // Compute container height for spatial mode
+  const spatialHeight = useMemo(() => {
+    if (!useSpatial) return undefined;
+    let maxBottom = 0;
+    for (const c of openComments) {
+      const y = spatialYs.get(c.id);
+      const el = threadRefsRef.current.get(c.id);
+      if (y != null && el) {
+        maxBottom = Math.max(maxBottom, y + el.offsetHeight);
+      }
+    }
+    return maxBottom > 0 ? maxBottom + 16 : undefined;
+  }, [useSpatial, spatialYs, openComments]);
 
   return (
     <div
@@ -344,7 +496,18 @@ export function CommentSidebar({
         </button>
       </div>
 
-      <div className="cs-sidebar-body">
+      <div
+        className="cs-sidebar-body"
+        ref={bodyRef}
+        style={
+          useSpatial
+            ? {
+                position: "relative",
+                minHeight: spatialHeight,
+              }
+            : undefined
+        }
+      >
         {hasPendingAnchor && myPubkey && (
           <div className="cs-new-comment">
             <CommentInput
@@ -366,24 +529,51 @@ export function CommentSidebar({
         )}
 
         {openComments.map((comment) => (
-          <CommentThread
+          <div
             key={comment.id}
-            comment={comment}
-            myPubkey={myPubkey}
-            replyingTo={replyingTo}
-            onReply={setReplyingTo}
-            onSubmitReply={handleSubmitReply}
-            onCancelReply={() => setReplyingTo(null)}
-            onResolve={onResolve}
-            onReopen={onReopen}
-            onDelete={onDelete}
-            onSelect={onSelect}
-            selectedId={selectedId}
-          />
+            ref={(el) => {
+              if (el) {
+                threadRefsRef.current.set(comment.id, el);
+              } else {
+                threadRefsRef.current.delete(comment.id);
+              }
+            }}
+            style={
+              useSpatial && spatialYs.has(comment.id)
+                ? {
+                    position: "absolute",
+                    top: spatialYs.get(comment.id),
+                    left: 0,
+                    right: 0,
+                  }
+                : undefined
+            }
+          >
+            <CommentThread
+              comment={comment}
+              myPubkey={myPubkey}
+              displayNames={displayNames}
+              replyingTo={replyingTo}
+              onReply={setReplyingTo}
+              onSubmitReply={handleSubmitReply}
+              onCancelReply={() => setReplyingTo(null)}
+              onResolve={onResolve}
+              onReopen={onReopen}
+              onDelete={onDelete}
+              onSelect={onSelect}
+              selectedId={selectedId}
+            />
+          </div>
         ))}
 
         {resolvedComments.length > 0 && (
-          <>
+          <div
+            style={
+              useSpatial && spatialHeight
+                ? { marginTop: spatialHeight }
+                : undefined
+            }
+          >
             <button
               className="cs-resolved-toggle"
               onClick={() => setShowResolved((s) => !s)}
@@ -397,6 +587,7 @@ export function CommentSidebar({
                   key={comment.id}
                   comment={comment}
                   myPubkey={myPubkey}
+                  displayNames={displayNames}
                   replyingTo={replyingTo}
                   onReply={setReplyingTo}
                   onSubmitReply={handleSubmitReply}
@@ -408,7 +599,7 @@ export function CommentSidebar({
                   selectedId={selectedId}
                 />
               ))}
-          </>
+          </div>
         )}
       </div>
     </div>

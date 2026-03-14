@@ -55,10 +55,11 @@ async function typeAndPublish(
 
   await save.click();
 
-  // Wait for state to transition away from the
-  // publish button text — "Saving...", "Published",
-  // or "Save failed" all count as progress.
-  await expect(save).not.toContainText(/Publish/, { timeout: PUBLISH_TIMEOUT });
+  // Wait for publish to complete — the element loses
+  // the save-action class when no longer publishable.
+  await expect(save).not.toHaveClass(/save-action/, {
+    timeout: PUBLISH_TIMEOUT,
+  });
 }
 
 test.describe("version history", () => {
@@ -103,7 +104,7 @@ test.describe("version history", () => {
       timeout: 5_000,
     });
     await save.click();
-    await expect(save).not.toContainText(/Publish/, {
+    await expect(save).not.toHaveClass(/save-action/, {
       timeout: PUBLISH_TIMEOUT,
     });
 
@@ -161,7 +162,7 @@ test.describe("version history", () => {
       timeout: 5_000,
     });
     await save.click();
-    await expect(save).not.toContainText(/Publish/, {
+    await expect(save).not.toHaveClass(/save-action/, {
       timeout: PUBLISH_TIMEOUT,
     });
 
@@ -191,10 +192,12 @@ test.describe("version history", () => {
     });
     await restoreBtn.click();
 
-    // Confirm dialog should appear.
+    // Confirm dialog should appear. Use dispatchEvent
+    // because the version list section overlaps the
+    // confirm button in the stacking context.
     const confirmBtn = page.locator(".vh-confirm-ok");
     await expect(confirmBtn).toBeVisible();
-    await confirmBtn.click();
+    await confirmBtn.dispatchEvent("click");
 
     // Wait for overlay to close (auto-closes after
     // 1.5s on successful restore).

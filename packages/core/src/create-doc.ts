@@ -780,9 +780,19 @@ export function createDoc(params: DocParams): Doc {
     const kp = params.identity;
     signParticipant(kp, ipnsName)
       .then((sig) => {
+        // Include displayName from awareness "user"
+        // field if already set (#191).
+        const userState = awarenessRoom.awareness.getLocalState() as Record<
+          string,
+          unknown
+        > | null;
+        const userName = (userState?.user as { name?: string } | undefined)
+          ?.name;
+
         const participant: ParticipantAwareness = {
           pubkey: bytesToHex(kp.publicKey),
           sig,
+          ...(userName ? { displayName: userName } : {}),
         };
         awarenessRoom.awareness.setLocalStateField("participant", participant);
 
@@ -803,6 +813,30 @@ export function createDoc(params: DocParams): Doc {
         );
       });
   }
+
+  // Auto-sync awareness "user".name → "participant"
+  // .displayName so comments/presence can show a
+  // human-readable name instead of raw pubkey (#191).
+  function syncDisplayName() {
+    const local = awarenessRoom.awareness.getLocalState() as Record<
+      string,
+      unknown
+    > | null;
+    if (!local) return;
+    const participant = local.participant as ParticipantAwareness | undefined;
+    if (!participant?.pubkey) return;
+
+    const userName = (local.user as { name?: string } | undefined)?.name;
+    if ((participant.displayName ?? "") === (userName ?? "")) {
+      return;
+    }
+    awarenessRoom.awareness.setLocalStateField("participant", {
+      ...participant,
+      displayName: userName,
+    });
+  }
+
+  awarenessRoom.awareness.on("change", syncDisplayName);
 
   // ── Interpreter setup ─────────────────────────
   let stopIPNSWatch: (() => void) | null = null;
@@ -1359,6 +1393,7 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch = null;
     }
     identitiesMap.unobserve(rebuildClientIdMapping);
+    awarenessRoom.awareness.off("change", syncDisplayName);
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();

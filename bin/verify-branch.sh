@@ -66,8 +66,7 @@ if [ "$QUICK" = false ]; then
 
   optional_step "Shell lint" shellcheck \
     bin/deploy-node.sh bin/deploy-setup.sh \
-    bin/health-check.sh bin/merge-branch.sh \
-    bin/verify-branch.sh
+    bin/health-check.sh bin/verify-branch.sh
 
   optional_step "Workflow lint" actionlint
 fi

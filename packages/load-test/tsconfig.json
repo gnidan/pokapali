@@ -10,6 +10,7 @@
     { "path": "../crypto" },
     { "path": "../snapshot" },
     { "path": "../subdocs" },
-    { "path": "../core" }
+    { "path": "../core" },
+    { "path": "../test-utils" }
   ]
 }
