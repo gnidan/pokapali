@@ -7,7 +7,8 @@
   "types": "dist/src/index.d.ts",
   "bin": {
     "pokapali-load-test": "dist/bin/run.js",
-    "pokapali-load-smoke": "dist/bin/smoke.js"
+    "pokapali-load-smoke": "dist/bin/smoke.js",
+    "pokapali-load-analyze": "dist/bin/analyze.js"
   },
   "scripts": {
     "build": "tsc --build",
