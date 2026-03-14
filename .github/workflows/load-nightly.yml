@@ -73,10 +73,20 @@ jobs:
       - name: Run load test
         env:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+          BOOTSTRAP: ${{ secrets.LOADTEST_BOOTSTRAP_PEERS }}
           DURATION: ${{ inputs.duration || 300 }}
           DOCS: ${{ inputs.docs || 50 }}
           READERS: ${{ inputs.readers || 5 }}
         run: |
+          # Build --bootstrap flags from secret
+          # (newline-separated multiaddrs)
+          BOOT_FLAGS=""
+          while IFS= read -r addr; do
+            addr=$(echo "$addr" | xargs)
+            [ -z "$addr" ] && continue
+            BOOT_FLAGS="$BOOT_FLAGS --bootstrap $addr"
+          done <<< "$BOOTSTRAP"
+
           # shellcheck disable=SC2029
           ssh "$LOADTEST_USER@$HOST" \
             bash -s -- \
@@ -84,16 +94,19 @@ jobs:
               "$DURATION" \
               "$DOCS" \
               "$READERS" \
+              "$BOOT_FLAGS" \
             <<'REMOTE'
           set -euo pipefail
           REPO="$1"
           DURATION="$2"
           DOCS="$3"
           READERS="$4"
+          BOOT_FLAGS="$5"
           OUTPUT="/tmp/load-nightly.jsonl"
 
           cd "$REPO"
 
+          # shellcheck disable=SC2086
           node packages/load-test/dist/bin/run.js \
             --docs "$DOCS" \
             --readers "$READERS" \
@@ -102,13 +115,7 @@ jobs:
             --edit-size 100 \
             --app-id pokapali-load-test \
             --output "$OUTPUT" \
-            --bootstrap /ip4/144.202.54.236/tcp/4001 \
-            --bootstrap /ip4/104.207.134.221/tcp/4001 \
-            --bootstrap /ip4/45.76.93.239/tcp/4001 \
-            --bootstrap /ip4/155.138.220.25/tcp/4001 \
-            --bootstrap /ip4/155.138.155.132/tcp/4001 \
-            --bootstrap /ip4/140.82.59.107/tcp/4001 \
-            --bootstrap /ip4/45.32.137.156/tcp/4001
+            $BOOT_FLAGS
 
           echo "Load test complete"
           REMOTE
