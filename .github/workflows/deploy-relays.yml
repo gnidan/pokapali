@@ -129,6 +129,7 @@ jobs:
                 ".batches[].nodes[] |
                  select(.name==\"$NODE_NAME\") |
                  .host" "$CONFIG")
+              # shellcheck disable=SC2029
               CURRENT=$(ssh "$USER@$HOST" \
                 "cd $REPO_PATH && git rev-parse HEAD" \
                 2>/dev/null || echo "unreachable")
