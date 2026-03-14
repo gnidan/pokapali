@@ -201,9 +201,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     if (from === to) return;
 
     const syncState = ySyncPluginKey.getState(editor.state);
-    if (!syncState?.mapping) return;
+    if (!syncState?.binding?.mapping) return;
 
-    const { type, mapping } = syncState;
+    const { type, binding } = syncState;
+    const mapping = binding.mapping;
     const startRel = absolutePositionToRelativePosition(from, type, mapping);
     const endRel = absolutePositionToRelativePosition(to, type, mapping);
     if (!startRel || !endRel) return;
