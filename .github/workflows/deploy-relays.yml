@@ -79,6 +79,7 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          # shellcheck disable=SC2029
           set -euo pipefail
           CONFIG="deploy/nodes.json"
           COMMIT="${{ steps.target.outputs.commit }}"
