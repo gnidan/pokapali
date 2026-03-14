@@ -218,11 +218,17 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     setShowComments(true);
   }, [editor]);
 
-  // Rebuild comment decorations when comments change
+  // Rebuild comment decorations when comments or
+  // active selection change
   useEffect(() => {
     if (!editor?.view) return;
+    editor.extensionManager.extensions.forEach((ext) => {
+      if (ext.name === "commentHighlight") {
+        ext.options.activeCommentId = selectedCommentId;
+      }
+    });
     rebuildCommentDecorations(editor.view);
-  }, [editor, commentList]);
+  }, [editor, commentList, selectedCommentId]);
 
   useEffect(() => {
     const displayName = user.name || "Anonymous";
@@ -514,7 +520,16 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             onResolve={resolveComment}
             onReopen={reopenComment}
             onDelete={deleteComment}
-            onClose={() => setShowComments(false)}
+            onClose={() => {
+              setShowComments(false);
+              setSelectedCommentId(null);
+              if (pendingAnchor) {
+                setPendingAnchor(null);
+                if (editor?.view) {
+                  clearPendingAnchorDecoration(editor.view);
+                }
+              }
+            }}
             selectedId={selectedCommentId}
             onSelect={setSelectedCommentId}
           />
