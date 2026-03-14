@@ -28,14 +28,16 @@ concurrency:
 env:
   LOADTEST_USER: root
   LOADTEST_REPO: /opt/pokapali
-  # Output path is hardcoded in the remote script
-  # to avoid quoting issues across SSH.
 
 jobs:
-  load-test:
-    name: Tier 2 Load Test
+  # --- Setup: pull latest, build, start relay ---
+
+  setup:
+    name: Setup
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    outputs:
+      peer-id: ${{ steps.relay.outputs.peer-id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +47,8 @@ jobs:
           echo "${{ secrets.LOADTEST_SSH_KEY }}" \
             > ~/.ssh/deploy-key
           chmod 600 ~/.ssh/deploy-key
-          echo "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
             > ~/.ssh/known_hosts
           printf '%s\n' \
             "Host *" \
@@ -55,7 +58,7 @@ jobs:
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
 
-      - name: Pull latest on test VPS
+      - name: Pull latest
         env:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
         run: |
@@ -71,7 +74,8 @@ jobs:
           echo "Ready at $(git rev-parse --short HEAD)"
           REMOTE
 
-      - name: Start ephemeral test relay
+      - name: Start ephemeral relay
+        id: relay
         env:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
         run: |
@@ -104,19 +108,12 @@ jobs:
           # Wait for health endpoint (up to 120s)
           for i in $(seq 1 24); do
             HEALTH=$(curl -sf -m 5 \
-              http://localhost:3000/health 2>/dev/null \
-              || true)
+              http://localhost:3000/health \
+              2>/dev/null || true)
             if [ -n "$HEALTH" ]; then
-              PEER_ID=$(echo "$HEALTH" \
-                | node -e \
-                  "process.stdin.setEncoding('utf8'); \
-                   let d=''; \
-                   process.stdin.on('data',c=>d+=c); \
-                   process.stdin.on('end',()=> \
-                     console.log( \
-                       JSON.parse(d).peerId))")
-              echo "$PEER_ID" \
+              echo "$HEALTH" | jq -r '.peerId' \
                 > /tmp/test-relay-peer-id
+              PEER_ID=$(cat /tmp/test-relay-peer-id)
               echo "Relay healthy (peer $PEER_ID)"
               exit 0
             fi
@@ -130,17 +127,46 @@ jobs:
           exit 1
           REMOTE
 
+          # Read peer ID back for downstream jobs
+          PEER_ID=$(ssh -n "$LOADTEST_USER@$HOST" \
+            "cat /tmp/test-relay-peer-id")
+          echo "peer-id=$PEER_ID" \
+            >> "$GITHUB_OUTPUT"
+
+  # --- Run load test ---
+
+  load-test:
+    name: Load Test
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
       - name: Run load test
         env:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
           DURATION: ${{ inputs.duration || 300 }}
           DOCS: ${{ inputs.docs || 50 }}
           READERS: ${{ inputs.readers || 5 }}
+          PEER_ID: >-
+            ${{ needs.setup.outputs.peer-id }}
         run: |
-          # Get relay peer ID for bootstrap addr
-          PEER_ID=$(ssh -n "$LOADTEST_USER@$HOST" \
-            "cat /tmp/test-relay-peer-id")
-
           BOOTSTRAP="/ip4/127.0.0.1/tcp/4001/p2p/$PEER_ID"
           echo "Bootstrap: $BOOTSTRAP"
 
@@ -176,8 +202,33 @@ jobs:
           echo "Load test complete"
           REMOTE
 
-      - name: Stop test relay
-        if: always()
+  # --- Cleanup: stop relay (always) ---
+
+  stop-relay:
+    name: Stop Relay
+    needs: [setup, load-test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Stop relay
         env:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
         run: |
@@ -186,12 +237,10 @@ jobs:
           if [ -f /tmp/test-relay.pid ]; then
             PID=$(cat /tmp/test-relay.pid)
             kill "$PID" 2>/dev/null || true
-            # Wait for graceful shutdown
             for i in $(seq 1 10); do
               kill -0 "$PID" 2>/dev/null || break
               sleep 1
             done
-            # Force kill if still running
             kill -9 "$PID" 2>/dev/null || true
             rm -f /tmp/test-relay.pid
             echo "Relay stopped (PID $PID)"
@@ -199,17 +248,44 @@ jobs:
           rm -rf /tmp/pokapali-test-relay
           REMOTE
 
+  # --- Metrics: download + analyze ---
+
+  metrics:
+    name: Analyze Metrics
+    needs: [setup, load-test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
       - name: Download metrics
-        if: always()
         env:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
         run: |
-          scp "$LOADTEST_USER@$HOST:/tmp/load-nightly.jsonl" \
+          scp \
+            "$LOADTEST_USER@$HOST:/tmp/load-nightly.jsonl" \
             /tmp/load-nightly.jsonl \
             || echo "No metrics file to download"
 
-      - name: Upload metrics artifact
-        if: always()
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: >-
@@ -218,19 +294,16 @@ jobs:
           retention-days: 90
 
       - uses: actions/setup-node@v4
-        if: always()
         with:
           node-version: 22
           cache: npm
 
       - name: Build analyzer
-        if: always()
         run: |
           npm ci
           npm run build -w @pokapali/load-test
 
       - name: Analyze results
-        if: always()
         run: |
           node packages/load-test/dist/bin/analyze.js \
             /tmp/load-nightly.jsonl \
