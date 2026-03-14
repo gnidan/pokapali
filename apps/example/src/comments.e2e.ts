@@ -815,3 +815,33 @@ test.describe("cursor selection opacity (#194)", () => {
     expect(defaultOpacity).toBe(0);
   });
 });
+
+test.describe("auth identity display (#191)", () => {
+  test("comment author shows display name", async ({ page }) => {
+    await createDoc(page);
+
+    // Set a display name via the name-edit UI.
+    const nameBtn = page.locator(".user-name-display");
+    await nameBtn.click();
+    const nameInput = page.locator(".user-name-input");
+    await nameInput.fill("Alice");
+    await nameInput.press("Enter");
+
+    // Wait for awareness to propagate the display name
+    // through the participant identity flow.
+    await page.waitForTimeout(1000);
+
+    // Create a comment.
+    await createComment(page, "Named author test", "Comment by Alice");
+
+    // The comment author should show "Alice",
+    // not a hex pubkey.
+    const author = page.locator("[data-testid='comment-author']").first();
+    await expect(author).toBeVisible({ timeout: 5000 });
+    const text = await author.textContent();
+    expect(text).toContain("Alice");
+    // Hex pubkeys are 64+ chars of [0-9a-f].
+    // Ensure no hex string is shown.
+    expect(text).not.toMatch(/^[0-9a-f]{6,}/);
+  });
+});

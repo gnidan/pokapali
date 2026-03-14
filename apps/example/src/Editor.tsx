@@ -67,6 +67,9 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const [updateFlash, setUpdateFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [user, setUser] = useState<StoredUser>(loadUser);
+  const [displayNames, setDisplayNames] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const nameBtnRef = useRef<HTMLButtonElement>(null);
@@ -94,6 +97,24 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     deleteComment,
     commentsDoc,
   } = useComments(doc);
+
+  // Build pubkey → displayName lookup from awareness
+  useEffect(() => {
+    const update = () => {
+      const names = new Map<string, string>();
+      for (const [, info] of doc.participants) {
+        if (info.displayName) {
+          names.set(info.pubkey, info.displayName);
+        }
+      }
+      setDisplayNames(names);
+    };
+    update();
+    doc.awareness.on("change", update);
+    return () => {
+      doc.awareness.off("change", update);
+    };
+  }, [doc]);
 
   const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
@@ -546,6 +567,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             anchorPositions={anchorPositions}
             editorView={editor?.view ?? null}
             myPubkey={doc.identityPubkey}
+            displayNames={displayNames}
             hasPendingAnchor={pendingAnchor != null}
             onAddComment={handleAddComment}
             onAddReply={handleAddReply}
