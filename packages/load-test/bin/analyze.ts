@@ -40,6 +40,8 @@ interface Event {
   cid?: string;
   guaranteeUntil?: number;
   retainUntil?: number;
+  expectedClockSum?: number;
+  actualClockSum?: number;
 }
 
 function parseArgs(argv: string[]): Config {
@@ -101,6 +103,12 @@ async function analyze(config: Config) {
   const ackLatencies: number[] = [];
   const pendingSnapshots = new Map<string, number>();
 
+  // Reader sync tracking
+  let readerSyncs = 0;
+  let convergenceOk = 0;
+  let convergenceDrift = 0;
+  const syncLatencies: number[] = [];
+
   // Track status changes for mesh recovery
   let lastDisconnectTs: number | null = null;
   let maxRecoveryMs = 0;
@@ -150,6 +158,21 @@ async function analyze(config: Config) {
         }
         break;
 
+      case "reader-synced":
+        readerSyncs++;
+        if (event.latencyMs != null) {
+          syncLatencies.push(event.latencyMs);
+        }
+        break;
+
+      case "convergence-ok":
+        convergenceOk++;
+        break;
+
+      case "convergence-drift":
+        convergenceDrift++;
+        break;
+
       case "status-change":
         if (event.detail === "disconnected" || event.detail === "connecting") {
           lastDisconnectTs = event.ts;
@@ -194,6 +217,20 @@ async function analyze(config: Config) {
   );
   console.log(`  Analyzer RSS:  ${rssMB}MB`);
 
+  if (readerSyncs > 0) {
+    const sortedSync = syncLatencies.slice().sort((a, b) => a - b);
+    const syncP50 = percentile(sortedSync, 0.5);
+    const syncP95 = percentile(sortedSync, 0.95);
+    console.log(`  Reader syncs:  ${readerSyncs}`);
+    console.log(
+      `  Convergence:   ` +
+        `${convergenceOk} ok, ` +
+        `${convergenceDrift} drift`,
+    );
+    console.log(`  Sync p50:      ${syncP50}ms`);
+    console.log(`  Sync p95:      ${syncP95}ms`);
+  }
+
   // Check pass/fail
   const checks: { name: string; pass: boolean; detail: string }[] = [];
 
@@ -220,6 +257,21 @@ async function analyze(config: Config) {
       name: "Ack latency p95",
       pass: p95 <= config.maxLatencyP95,
       detail: `${p95}ms` + ` (threshold: ${config.maxLatencyP95}ms)`,
+    });
+  }
+
+  // Convergence — only if we have reader data
+  if (convergenceDrift > 0) {
+    checks.push({
+      name: "Convergence",
+      pass: false,
+      detail: `${convergenceDrift} drift(s) detected`,
+    });
+  } else if (convergenceOk > 0) {
+    checks.push({
+      name: "Convergence",
+      pass: true,
+      detail: `${convergenceOk} checks passed`,
     });
   }
 

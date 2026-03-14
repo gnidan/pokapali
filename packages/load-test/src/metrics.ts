@@ -9,7 +9,10 @@ export interface LoadTestEvent {
     | "status-change"
     | "error"
     | "doc-created"
-    | "doc-ready";
+    | "doc-ready"
+    | "reader-synced"
+    | "convergence-ok"
+    | "convergence-drift";
   docId: string;
   latencyMs?: number;
   detail?: string;
@@ -18,6 +21,10 @@ export interface LoadTestEvent {
   guaranteeUntil?: number;
   /** ms epoch until pinner retains blocks. */
   retainUntil?: number;
+  /** Expected clockSum from writer announcement. */
+  expectedClockSum?: number;
+  /** Actual text length in reader's Y.Doc. */
+  actualClockSum?: number;
 }
 
 export interface MetricsCollector {

@@ -3,6 +3,11 @@
 import { createMetrics } from "../src/metrics.js";
 import { createHeliaNode, type HeliaNode } from "../src/helia-node.js";
 import { startWriter, type Writer, type WriterEvent } from "../src/writer.js";
+import {
+  startReaderPeer,
+  type ReaderPeer,
+  type ReaderPeerEvent,
+} from "../src/reader-peer.js";
 import { createLogger, setLogLevel } from "@pokapali/log";
 
 const log = createLogger("load-test");
@@ -108,6 +113,49 @@ function mapWriterEvent(
   }
 }
 
+function mapReaderEvent(
+  event: ReaderPeerEvent,
+): Parameters<ReturnType<typeof createMetrics>["record"]>[0] | null {
+  const docId = event.ipnsName
+    ? `reader:${event.ipnsName.slice(0, 12)}`
+    : "reader:unknown";
+  switch (event.type) {
+    case "reader-synced":
+      return {
+        ts: event.timestampMs,
+        type: "reader-synced",
+        docId,
+        latencyMs: event.latencyMs,
+        cid: event.cid,
+      };
+    case "convergence-ok":
+      return {
+        ts: event.timestampMs,
+        type: "convergence-ok",
+        docId,
+        expectedClockSum: event.expectedClockSum,
+        actualClockSum: event.actualClockSum,
+      };
+    case "convergence-drift":
+      return {
+        ts: event.timestampMs,
+        type: "convergence-drift",
+        docId,
+        expectedClockSum: event.expectedClockSum,
+        actualClockSum: event.actualClockSum,
+      };
+    case "error":
+      return {
+        ts: event.timestampMs,
+        type: "error",
+        docId: `reader:${event.peerId}`,
+        detail: event.error,
+      };
+    default:
+      return null;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -118,6 +166,7 @@ async function main() {
 
   log.info(
     `starting: ${config.docs} docs,` +
+      ` ${config.readers} readers,` +
       ` ${config.intervalMs}ms interval,` +
       ` ${config.editSizeBytes}B edits,` +
       ` ${config.durationS}s duration,` +
@@ -130,7 +179,7 @@ async function main() {
     log.info("  ramp: staggering doc creation");
   }
 
-  // Create Helia node
+  // Create writer Helia node
   log.info("creating Helia node...");
   const helia: HeliaNode = await createHeliaNode({
     bootstrapPeers: config.bootstrap,
@@ -172,8 +221,52 @@ async function main() {
     log.info(`writer ${writer.writerId} → ${docId}`);
   }
 
+  // Spawn reader peers
+  const readerPeers: ReaderPeer[] = [];
+  let readerHelia: HeliaNode | null = null;
+
+  if (config.readers > 0) {
+    const writerKeys = new Map<string, CryptoKey>();
+    for (const w of writers) {
+      writerKeys.set(w.ipnsName, w.readKey);
+    }
+
+    log.info("creating reader Helia node...");
+    readerHelia = await createHeliaNode({
+      bootstrapPeers: config.bootstrap,
+    });
+    log.info("reader Helia ready");
+
+    // Connect reader to writer for GossipSub mesh
+    const writerAddrs = helia.libp2p.getMultiaddrs();
+    for (const ma of writerAddrs) {
+      try {
+        await readerHelia.libp2p.dial(ma);
+        log.info("reader dialed writer:", ma.toString().slice(-30));
+        break;
+      } catch {
+        // try next addr
+      }
+    }
+
+    for (let i = 0; i < config.readers; i++) {
+      const peer = startReaderPeer(readerHelia.libp2p.services.pubsub, {
+        appId: config.appId,
+        writers: writerKeys,
+        onEvent(event: ReaderPeerEvent) {
+          const mapped = mapReaderEvent(event);
+          if (mapped) metrics.record(mapped);
+        },
+      });
+      readerPeers.push(peer);
+      log.info(`${peer.peerId} started`);
+    }
+  }
+
   log.info(
-    `${writers.length} writers running,` + ` waiting ${config.durationS}s...`,
+    `${writers.length} writers,` +
+      ` ${readerPeers.length} readers running,` +
+      ` waiting ${config.durationS}s...`,
   );
 
   // Wait for duration then shutdown
@@ -188,15 +281,21 @@ async function main() {
     process.on("SIGTERM", shutdown);
   });
 
+  // Stop readers first
+  for (const r of readerPeers) {
+    r.stop();
+  }
+
   // Stop all writers
   log.info("stopping writers...");
   for (const w of writers) {
     w.stop();
   }
 
-  // Stop Helia
+  // Stop Helia nodes
   log.info("stopping Helia...");
   await helia.stop();
+  if (readerHelia) await readerHelia.stop();
 
   metrics.finish();
   log.info("done");
