@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@paulmillr/qr": "^0.3.0",
-    "@pokapali/comments": "0.1.0-alpha.3",
-    "@pokapali/core": "0.1.0-alpha.3",
+    "@pokapali/comments": "0.1.0-alpha.4",
+    "@pokapali/core": "0.1.0-alpha.4",
     "@tiptap/core": "^2.11.0",
     "@tiptap/extension-collaboration": "^2.11.0",
     "@tiptap/extension-collaboration-cursor": "^2.11.0",

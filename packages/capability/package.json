@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/capability",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0-alpha.4",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -26,7 +26,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@pokapali/crypto": "0.1.0-alpha.3"
+    "@pokapali/crypto": "0.1.0-alpha.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
