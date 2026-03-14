@@ -183,6 +183,10 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
                 color: user.color,
               },
               render: renderCursor,
+              selectionRender: (u: { color: string }) => ({
+                style: `background-color: ${u.color}1F`,
+                class: "ProseMirror-yjs-selection",
+              }),
             }),
             CommentHighlight.configure({
               commentsDoc: commentsDoc ?? null,
