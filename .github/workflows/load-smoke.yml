@@ -1,0 +1,40 @@
+name: Load Smoke Test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: load-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run smoke test
+        run: >
+          node packages/load-test/dist/bin/smoke.js
+          --output /tmp/load-smoke.jsonl
+
+      - name: Upload metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-smoke-metrics
+          path: /tmp/load-smoke.jsonl
+          retention-days: 90
