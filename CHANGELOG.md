@@ -16,7 +16,7 @@ The format is based on
   its internal selection before the handler fires
 - y-prosemirror mapping path fixed in all anchor
   resolvers (`syncState.mapping` → `syncState.binding
-  .mapping`) — comment creation and highlight rendering
+.mapping`) — comment creation and highlight rendering
   were silently failing in Editor.tsx,
   commentHighlight.ts, pendingAnchorHighlight.ts
 - Closing comment sidebar no longer leaks pending anchor
