@@ -48,6 +48,7 @@ Options:
   --stale-resolve-days <n>    Drop names with no activity
                               and no resolve for N days
                               (default: 3, 0 = disable)
+  --no-tls                     Skip autoTLS cert provisioning
   --log-level <level>         debug, info, warn, error
   --help                      Show this help message
 
@@ -76,6 +77,7 @@ interface ParsedArgs {
   retentionDailyMs: number;
   ipnsRateLimit: number;
   staleResolveDays: number;
+  noTls: boolean;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -95,6 +97,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let retentionDailyMs = DEFAULT_RETENTION_DAILY_MS;
   let ipnsRateLimit = 10;
   let staleResolveDays = 3;
+  let noTls = false;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -173,6 +176,8 @@ function parseArgs(argv: string[]): ParsedArgs {
         log.error(`invalid --stale-resolve-days:` + ` "${argv[i]}"`);
         process.exit(1);
       }
+    } else if (arg === "--no-tls") {
+      noTls = true;
     }
   }
 
@@ -202,6 +207,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     retentionDailyMs,
     ipnsRateLimit,
     staleResolveDays,
+    noTls,
   };
 }
 
@@ -230,6 +236,7 @@ async function main() {
     retentionDailyMs,
     ipnsRateLimit,
     staleResolveDays,
+    noTls,
   } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
@@ -252,6 +259,7 @@ async function main() {
       announceAddrs,
       pinAppIds: pinApps.length > 0 ? pinApps : undefined,
       delegatedRoutingUrl: delegatedRoutingUrl ?? undefined,
+      noTls,
     });
     log.info("relay started");
     for (const ma of relayHandle.multiaddrs()) {
@@ -261,7 +269,7 @@ async function main() {
 
   // Start HTTPS block server when cert arrives
   let blockServer: HttpsServer | null = null;
-  if (relayHandle) {
+  if (relayHandle && !noTls) {
     // Check if cert is already available
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const autoTLSSvc = (relayHandle.helia.libp2p.services as any).autoTLS;

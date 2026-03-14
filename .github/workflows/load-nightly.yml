@@ -91,6 +91,7 @@ jobs:
           node packages/node/dist/bin/node.js \
             --storage-path "$STORAGE" \
             --relay \
+            --no-tls \
             --pin pokapali-load-test \
             --port 3000 \
             --log-level info \

@@ -192,6 +192,9 @@ export interface RelayConfig {
   // overrides the default (delegated-ipfs.dev) for
   // IPNS resolve/publish via HTTP.
   delegatedRoutingUrl?: string;
+  // Skip autoTLS cert provisioning. Useful for
+  // ephemeral/test relays that don't need HTTPS.
+  noTls?: boolean;
 }
 
 export interface Relay {
@@ -333,9 +336,13 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
               appSpecificWeight: 1,
             },
           }),
-          autoTLS: autoTLS({
-            autoConfirmAddress: true,
-          }),
+          ...(config.noTls
+            ? {}
+            : {
+                autoTLS: autoTLS({
+                  autoConfirmAddress: true,
+                }),
+              }),
         };
         // Remove circuit relay server — we don't need to
         // relay for the IPFS network, it floods us with
@@ -375,66 +382,70 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     }
   }
 
-  // Wait for autoTLS cert. Give it a grace period to
-  // arrive quickly (from cache). If it doesn't, start
-  // closing connections so the forge can dial back
-  // without getting crowded out by DHT peers.
-  const CERT_WAIT_MS = 120_000;
-  const CERT_GRACE_MS = 10_000;
-  let certResolved = false;
-  let closeTimer: ReturnType<typeof setInterval> | null = null;
-  const certObtained = await new Promise<boolean>((resolve) => {
-    const done = (v: boolean) => {
-      certResolved = true;
-      resolve(v);
-    };
-    const timer = setTimeout(() => {
-      log.warn("autoTLS timeout, proceeding without WSS");
-      done(false);
-    }, CERT_WAIT_MS);
-
-    helia.libp2p.addEventListener(
-      "certificate:provision",
-      () => {
-        clearTimeout(timer);
-        log.info("certificate obtained!");
-        done(true);
-      },
-      { once: true },
-    );
-
-    // After grace period, if cert still hasn't
-    // arrived, start closing connections so the
-    // forge can dial back.
-    const graceTimer = setTimeout(() => {
-      if (certResolved) return;
-      const closeAll = async () => {
-        const conns = helia.libp2p.getConnections();
-        log.debug(`closing ${conns.length}`, `connections for cert`);
-        await Promise.allSettled(conns.map((c) => c.close()));
+  if (!config.noTls) {
+    // Wait for autoTLS cert. Give it a grace period
+    // to arrive quickly (from cache). If it doesn't,
+    // start closing connections so the forge can dial
+    // back without getting crowded out by DHT peers.
+    const CERT_WAIT_MS = 120_000;
+    const CERT_GRACE_MS = 10_000;
+    let certResolved = false;
+    let closeTimer: ReturnType<typeof setInterval> | null = null;
+    const certObtained = await new Promise<boolean>((resolve) => {
+      const done = (v: boolean) => {
+        certResolved = true;
+        resolve(v);
       };
-      log.debug("cert not yet obtained, closing conns");
-      closeAll();
-      closeTimer = setInterval(closeAll, 3_000);
-    }, CERT_GRACE_MS);
+      const timer = setTimeout(() => {
+        log.warn("autoTLS timeout, proceeding without WSS");
+        done(false);
+      }, CERT_WAIT_MS);
 
-    // Clean up grace timer if cert arrives early
-    helia.libp2p.addEventListener(
-      "certificate:provision",
-      () => clearTimeout(graceTimer),
-      { once: true },
-    );
-  });
+      helia.libp2p.addEventListener(
+        "certificate:provision",
+        () => {
+          clearTimeout(timer);
+          log.info("certificate obtained!");
+          done(true);
+        },
+        { once: true },
+      );
 
-  if (closeTimer) clearInterval(closeTimer);
+      // After grace period, if cert still hasn't
+      // arrived, start closing connections so the
+      // forge can dial back.
+      const graceTimer = setTimeout(() => {
+        if (certResolved) return;
+        const closeAll = async () => {
+          const conns = helia.libp2p.getConnections();
+          log.debug(`closing ${conns.length}`, `connections for cert`);
+          await Promise.allSettled(conns.map((c) => c.close()));
+        };
+        log.debug("cert not yet obtained, closing conns");
+        closeAll();
+        closeTimer = setInterval(closeAll, 3_000);
+      }, CERT_GRACE_MS);
 
-  if (certObtained) {
-    const wssAddrs = helia.libp2p
-      .getMultiaddrs()
-      .filter((ma) => ma.toString().includes("/tls/"));
-    for (const a of wssAddrs) {
-      log.info("  WSS:", a.toString());
+      // Clean up grace timer if cert arrives early
+      helia.libp2p.addEventListener(
+        "certificate:provision",
+        () => clearTimeout(graceTimer),
+        { once: true },
+      );
+    });
+
+    if (closeTimer) clearInterval(closeTimer);
+
+    if (certObtained) {
+      const wssAddrs = helia.libp2p
+        .getMultiaddrs()
+        .filter((ma) => ma.toString().includes("/tls/"));
+      for (const a of wssAddrs) {
+        log.info("  WSS:", a.toString());
+      }
     }
+  } else {
+    log.info("TLS disabled, skipping cert wait");
   }
 
   // Re-dial bootstrap peers — the closeAll() during cert
