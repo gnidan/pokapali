@@ -32,6 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Write node config
+        run: |
+          echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
+            > deploy/nodes.json
+
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh

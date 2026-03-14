@@ -115,6 +115,13 @@ This uses `gh` CLI to set `DEPLOY_SSH_KEY` and
 `DEPLOY_KNOWN_HOSTS` secrets programmatically.
 Requires `gh` auth and SSH access to all nodes.
 
+Node config (`deploy/nodes.json`) is stored in the
+`DEPLOY_NODES_CONFIG` secret. Update it with:
+
+```bash
+cat deploy/nodes.json | gh secret set DEPLOY_NODES_CONFIG
+```
+
 **Manual deploy** (if GHA is unavailable):
 
 ```bash
