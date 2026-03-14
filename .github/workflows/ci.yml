@@ -10,32 +10,93 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci
+      - run: npm run build
+      - uses: actions/cache/save@v4
+        with:
+          path: |
+            node_modules
+            packages/*/dist
+            apps/*/dist
+          key: build-${{ github.sha }}
 
-      - name: Build
-        run: npm run build
+  test:
+    name: Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/dist
+            apps/*/dist
+          key: build-${{ github.sha }}
+      - run: npm test
 
-      - name: Test
-        run: npm test
+  lint:
+    name: Lint
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/dist
+            apps/*/dist
+          key: build-${{ github.sha }}
+      - run: npm run lint
 
-      - name: Lint
-        run: npm run lint
+  format:
+    name: Format
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/dist
+            apps/*/dist
+          key: build-${{ github.sha }}
+      - run: npm run format:check
 
-      - name: Format check
-        run: npm run format:check
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck bin/*.sh
 
-      - name: Shell lint
-        run: shellcheck bin/*.sh
-
-      - name: Workflow lint
-        uses: rhysd/actionlint-action@v1
+  actionlint:
+    name: ActionLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: |
+          bash <(curl -s \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+      - run: ./actionlint
