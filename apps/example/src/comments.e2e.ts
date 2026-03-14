@@ -684,6 +684,30 @@ test.describe("comment edge cases", () => {
   });
 });
 
+// ── Button styling (#190) ───────────────────────
+
+test.describe("comment popover button styling", () => {
+  test("popover button matches header button styles", async ({ page }) => {
+    await createDoc(page);
+    await typeAndSelect(page, "Style check text");
+
+    const popover = page.locator("[data-testid='comment-popover']");
+    await expect(popover).toBeVisible({ timeout: 3_000 });
+
+    const btn = page.locator("[data-testid='add-comment-btn']");
+
+    // border-radius should be 6px, matching
+    // .toggle-share / .toggle-history buttons.
+    await expect(btn).toHaveCSS("border-radius", "6px");
+
+    // border-color should be #d1d5db (rgb(209,213,219)).
+    await expect(btn).toHaveCSS("border-color", "rgb(209, 213, 219)");
+
+    // background should be white.
+    await expect(btn).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  });
+});
+
 // ── Click-to-open (#192) ────────────────────────
 
 test.describe("click highlighted text (#192)", () => {
@@ -813,5 +837,35 @@ test.describe("cursor selection opacity (#194)", () => {
       .locator(".ProseMirror-yjs-selection")
       .count();
     expect(defaultOpacity).toBe(0);
+  });
+});
+
+test.describe("auth identity display (#191)", () => {
+  test("comment author shows display name", async ({ page }) => {
+    await createDoc(page);
+
+    // Set a display name via the name-edit UI.
+    const nameBtn = page.locator(".user-name-display");
+    await nameBtn.click();
+    const nameInput = page.locator(".user-name-input");
+    await nameInput.fill("Alice");
+    await nameInput.press("Enter");
+
+    // Wait for awareness to propagate the display name
+    // through the participant identity flow.
+    await page.waitForTimeout(1000);
+
+    // Create a comment.
+    await createComment(page, "Named author test", "Comment by Alice");
+
+    // The comment author should show "Alice",
+    // not a hex pubkey.
+    const author = page.locator("[data-testid='comment-author']").first();
+    await expect(author).toBeVisible({ timeout: 5000 });
+    const text = await author.textContent();
+    expect(text).toContain("Alice");
+    // Hex pubkeys are 64+ chars of [0-9a-f].
+    // Ensure no hex string is shown.
+    expect(text).not.toMatch(/^[0-9a-f]{6,}/);
   });
 });

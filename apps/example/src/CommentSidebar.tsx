@@ -109,6 +109,7 @@ function CommentItem({
   comment,
   isReply,
   myPubkey,
+  displayNames,
   onReply,
   onResolve,
   onReopen,
@@ -119,6 +120,7 @@ function CommentItem({
   comment: Comment<CommentData>;
   isReply: boolean;
   myPubkey: string | null;
+  displayNames: Map<string, string>;
   onReply: (id: string) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
@@ -129,6 +131,8 @@ function CommentItem({
   const isAuthor = myPubkey === comment.author;
   const isResolved = comment.data.status === "resolved";
   const hasOrphanedAnchor = comment.anchor?.status === "orphaned";
+  const authorLabel =
+    displayNames.get(comment.author) ?? truncatePubkey(comment.author);
 
   return (
     <div
@@ -152,8 +156,9 @@ function CommentItem({
               ? comment.author
               : `${comment.author} (unverified)`
           }
+          data-testid="comment-author"
         >
-          {truncatePubkey(comment.author)}
+          {authorLabel}
           {!comment.authorVerified && (
             <span className="cs-unverified-badge">?</span>
           )}
@@ -224,6 +229,7 @@ function CommentItem({
 function CommentThread({
   comment,
   myPubkey,
+  displayNames,
   replyingTo,
   onReply,
   onSubmitReply,
@@ -236,6 +242,7 @@ function CommentThread({
 }: {
   comment: Comment<CommentData>;
   myPubkey: string | null;
+  displayNames: Map<string, string>;
   replyingTo: string | null;
   onReply: (id: string) => void;
   onSubmitReply: (parentId: string, content: string) => void;
@@ -254,6 +261,7 @@ function CommentThread({
         comment={comment}
         isReply={false}
         myPubkey={myPubkey}
+        displayNames={displayNames}
         onReply={onReply}
         onResolve={onResolve}
         onReopen={onReopen}
@@ -268,6 +276,7 @@ function CommentThread({
           comment={reply}
           isReply={true}
           myPubkey={myPubkey}
+          displayNames={displayNames}
           onReply={onReply}
           onResolve={onResolve}
           onReopen={onReopen}
@@ -365,6 +374,7 @@ export function CommentSidebar({
   anchorPositions,
   editorView,
   myPubkey,
+  displayNames,
   hasPendingAnchor,
   onAddComment,
   onAddReply,
@@ -379,6 +389,7 @@ export function CommentSidebar({
   anchorPositions: Map<string, number>;
   editorView: EditorView | null;
   myPubkey: string | null;
+  displayNames: Map<string, string>;
   /** True if a pending anchor is captured. */
   hasPendingAnchor: boolean;
   onAddComment: (content: string) => void;
@@ -541,6 +552,7 @@ export function CommentSidebar({
             <CommentThread
               comment={comment}
               myPubkey={myPubkey}
+              displayNames={displayNames}
               replyingTo={replyingTo}
               onReply={setReplyingTo}
               onSubmitReply={handleSubmitReply}
@@ -575,6 +587,7 @@ export function CommentSidebar({
                   key={comment.id}
                   comment={comment}
                   myPubkey={myPubkey}
+                  displayNames={displayNames}
                   replyingTo={replyingTo}
                   onReply={setReplyingTo}
                   onSubmitReply={handleSubmitReply}

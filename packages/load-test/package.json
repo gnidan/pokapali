@@ -6,7 +6,8 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "pokapali-load-test": "dist/bin/run.js"
+    "pokapali-load-test": "dist/bin/run.js",
+    "pokapali-load-smoke": "dist/bin/smoke.js"
   },
   "scripts": {
     "build": "tsc --build",
@@ -28,7 +29,8 @@
     "helia": "^5.5.1",
     "ipns": "^10.0.0",
     "multiformats": "^13.3.0",
-    "yjs": "^13.6.0"
+    "yjs": "^13.6.0",
+    "@pokapali/test-utils": "0.1.0-alpha.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
