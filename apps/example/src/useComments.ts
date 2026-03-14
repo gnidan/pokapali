@@ -26,18 +26,11 @@ export interface CommentData {
   status: "open" | "resolved";
 }
 
-function tryChannel(doc: Doc, name: string): Y.Doc | null {
-  try {
-    return doc.channel(name);
-  } catch {
-    return null;
-  }
-}
-
 // ── Main hook ────────────────────────────────────
 
 export function useComments(doc: Doc) {
   const [instance, setInstance] = useState<Comments<CommentData> | null>(null);
+  const [commentsYDoc, setCommentsYDoc] = useState<Y.Doc | null>(null);
 
   useEffect(() => {
     let commentsDoc: Y.Doc;
@@ -63,10 +56,12 @@ export function useComments(doc: Doc) {
     });
 
     setInstance(c);
+    setCommentsYDoc(commentsDoc);
 
     return () => {
       c.destroy();
       contentStub.destroy();
+      setCommentsYDoc(null);
     };
   }, [doc]);
 
@@ -104,25 +99,37 @@ export function useComments(doc: Doc) {
 
   const resolveComment = useCallback(
     (id: string) => {
-      instance?.update(id, {
-        data: { status: "resolved" },
-      });
+      try {
+        instance?.update(id, {
+          data: { status: "resolved" },
+        });
+      } catch {
+        // Comment may have been deleted by a peer
+      }
     },
     [instance],
   );
 
   const reopenComment = useCallback(
     (id: string) => {
-      instance?.update(id, {
-        data: { status: "open" },
-      });
+      try {
+        instance?.update(id, {
+          data: { status: "open" },
+        });
+      } catch {
+        // Comment may have been deleted by a peer
+      }
     },
     [instance],
   );
 
   const deleteComment = useCallback(
     (id: string) => {
-      instance?.delete(id);
+      try {
+        instance?.delete(id);
+      } catch {
+        // Comment may have already been deleted
+      }
     },
     [instance],
   );
@@ -135,6 +142,6 @@ export function useComments(doc: Doc) {
     reopenComment,
     deleteComment,
     /** Raw comments doc for anchor resolution. */
-    commentsDoc: instance ? tryChannel(doc, "comments") : null,
+    commentsDoc: commentsYDoc,
   };
 }
