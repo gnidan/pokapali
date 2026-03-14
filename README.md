@@ -1,7 +1,8 @@
 # Pokapali
 
-> **This project is not published to npm.** It is under
-> active development and not yet ready for production use.
+> **Alpha release.** Published to npm as `@pokapali/*`
+> (currently 0.1.0-alpha.4). Under active development —
+> APIs may change.
 
 P2P collaborative document sync built on
 [Yjs](https://yjs.dev), WebRTC, and IPFS. Handles
@@ -25,19 +26,23 @@ no sign-up.
 | [`@pokapali/snapshot`](packages/snapshot)     | Snapshot encoding, decoding, verification, and chain walking |
 | [`@pokapali/node`](packages/node)             | Relay server, pinner, and HTTP health endpoints (Node.js)    |
 | [`@pokapali/log`](packages/log)               | Zero-dependency structured logging                           |
+| [`@pokapali/comments`](packages/comments)     | Comment threads and annotations                              |
+| [`@pokapali/test-utils`](packages/test-utils) | Test helpers and simulated network                           |
 
 Most apps only import `@pokapali/core`. The other packages
 are the building blocks it composes.
 
 ## Documentation
 
-- **[Getting Started](docs/guide.md)** — build an app
-  with Pokapali
-- **[Architecture](docs/architecture.md)** — full design
-  reference (URL structure, key derivation, threat model,
-  namespace enforcement, snapshot chain, IPNS publishing)
-- **[Dependencies](docs/deps.md)** — dependency versioning
-  decisions
+- **[Getting Started](docs/getting-started.md)** —
+  quick start with runnable examples
+- **[Guide](docs/guide.md)** — build an app with Pokapali
+- **[Architecture](docs/internals/architecture.md)** —
+  full design reference (URL structure, key derivation,
+  threat model, namespace enforcement, snapshot chain,
+  IPNS publishing)
+- **[Dependencies](docs/internals/deps.md)** — dependency
+  versioning decisions
 
 ## Development
 
