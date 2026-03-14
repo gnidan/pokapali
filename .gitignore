@@ -7,3 +7,4 @@ deploy/
 .claude/
 test-results
 playwright-report
+docs/plans/

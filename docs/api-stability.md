@@ -31,6 +31,8 @@ safe to depend on and which may change.
 | `SnapshotEvent`     | Snapshot event payload                                                                                       |
 | `truncateUrl()`     | Shorten a capability URL for display                                                                         |
 | `docIdFromUrl()`    | Extract IPNS name from a capability URL                                                                      |
+| `Capability`        | Re-exported from `@pokapali/capability` — access level info                                                  |
+| `CapabilityGrant`   | Re-exported from `@pokapali/capability` — scoped invite grant                                                |
 
 ### Experimental
 
@@ -96,9 +98,12 @@ removed in 0.2.0)
 `createSubdocManager`, `SubdocManager`,
 `SubdocManagerOptions`, `SNAPSHOT_ORIGIN`
 
-## @pokapali/sync — All Internal
+## @pokapali/sync — Mostly Internal
 
-Consumed by `@pokapali/core` only.
+Consumed by `@pokapali/core`. Re-exports `Awareness`
+(from `y-protocols`) and `SubdocManager` (from
+`@pokapali/subdocs`) for consumer convenience.
+All other exports are internal.
 
 ## @pokapali/log — All Stable
 
