@@ -3,7 +3,8 @@ dist
 .DS_Store
 *.tsbuildinfo
 .worktrees
-deploy/.deploy-key
-deploy/.deploy-key.pub
+deploy/
+.claude/
 test-results
 playwright-report
+docs/plans/
