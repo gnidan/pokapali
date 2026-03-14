@@ -136,7 +136,7 @@ test.describe("smoke tests", () => {
 });
 
 test.describe("publish / save flow", () => {
-  test("new doc shows Publish now button", async ({ page }) => {
+  test("new doc shows Publish changes button", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Create new document" }).click();
     await expect(page.locator(".tiptap")).toBeVisible({
@@ -145,7 +145,7 @@ test.describe("publish / save flow", () => {
 
     const save = page.locator(".save-state");
     await expect(save).toBeVisible();
-    await expect(save).toContainText("Publish now");
+    await expect(save).toContainText("Publish changes");
     // It's a button when publishable.
     await expect(save).toHaveClass(/save-action/);
   });
@@ -158,7 +158,7 @@ test.describe("publish / save flow", () => {
     });
 
     const save = page.locator(".save-state");
-    await expect(save).toContainText("Publish now");
+    await expect(save).toContainText("Publish changes");
 
     await page.locator(".tiptap").click();
     await page.keyboard.type("Hello");

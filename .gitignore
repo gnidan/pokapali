@@ -5,3 +5,5 @@ dist
 .worktrees
 deploy/.deploy-key
 deploy/.deploy-key.pub
+test-results
+playwright-report
