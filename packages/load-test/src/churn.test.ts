@@ -138,4 +138,35 @@ describe("ChurnScheduler", () => {
 
     vi.useRealTimers();
   });
+
+  test("keeps at least 1 writer alive", async () => {
+    vi.useFakeTimers();
+
+    const { callbacks, events } = makeCallbacks();
+    const config: ChurnConfig = {
+      baselineWriters: 1,
+      baselineReaders: 0,
+      churnIntervalMs: 50,
+      churnSize: 1,
+      stabilizeMs: 10,
+    };
+
+    const scheduler = await startChurnScheduler(config, callbacks);
+
+    expect(scheduler.writers.size).toBe(1);
+
+    events.length = 0;
+
+    // Trigger churn cycle
+    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Writer should not have been removed
+    expect(scheduler.writers.size).toBe(1);
+    const leftEvents = events.filter((e) => e.type === "node-left");
+    expect(leftEvents.length).toBe(0);
+
+    scheduler.stop();
+    vi.useRealTimers();
+  });
 });

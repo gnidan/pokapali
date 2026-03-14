@@ -83,12 +83,15 @@ export async function startChurnScheduler(
       const total = writerCount + readerCount;
       if (total === 0) break;
 
-      // Pick proportionally, but keep at least 1 writer
+      // Keep at least 1 writer alive
+      if (writerCount <= 1 && readerCount === 0) break;
+
+      // Pick proportionally, but protect last writer
       const pickWriter =
-        readerCount === 0
-          ? true
-          : writerCount <= 1
-            ? false
+        writerCount <= 1
+          ? false
+          : readerCount === 0
+            ? true
             : Math.random() < writerCount / total;
 
       if (pickWriter) {
@@ -139,7 +142,14 @@ export async function startChurnScheduler(
 
   function scheduleNext() {
     timer = setTimeout(() => {
-      runCycle();
+      runCycle().catch((err) => {
+        callbacks.onEvent({
+          ts: Date.now(),
+          type: "error",
+          docId: "churn",
+          detail: (err as Error).message ?? String(err),
+        });
+      });
     }, config.churnIntervalMs);
   }
 
