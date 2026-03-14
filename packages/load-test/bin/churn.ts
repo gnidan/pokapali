@@ -8,47 +8,58 @@ import {
   type ReaderPeer,
   type ReaderPeerEvent,
 } from "../src/reader-peer.js";
+import { startChurnScheduler } from "../src/churn.js";
 import { createLogger, setLogLevel } from "@pokapali/log";
 
-const log = createLogger("load-test");
+const log = createLogger("load-test:churn");
 
 interface Config {
-  docs: number;
-  intervalMs: number;
-  editSizeBytes: number;
+  writers: number;
   readers: number;
+  churnIntervalMs: number;
+  churnSize: number;
+  stabilizeMs: number;
+  editIntervalMs: number;
+  editSizeBytes: number;
   durationS: number;
   bootstrap: string[];
   httpUrls: string[];
   output: string | undefined;
-  ramp: boolean;
   appId: string;
 }
 
 function parseArgs(argv: string[]): Config {
   const config: Config = {
-    docs: 1,
-    intervalMs: 5000,
+    writers: 3,
+    readers: 2,
+    churnIntervalMs: 30_000,
+    churnSize: 1,
+    stabilizeMs: 5_000,
+    editIntervalMs: 5_000,
     editSizeBytes: 100,
-    readers: 0,
-    durationS: 60,
+    durationS: 120,
     bootstrap: [],
     httpUrls: [],
     output: undefined,
-    ramp: false,
-    appId: "pokapali-example",
+    appId: "pokapali-load-test",
   };
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--docs" && argv[i + 1]) {
-      config.docs = parseInt(argv[++i], 10);
-    } else if (arg === "--interval" && argv[i + 1]) {
-      config.intervalMs = parseInt(argv[++i], 10);
-    } else if (arg === "--edit-size" && argv[i + 1]) {
-      config.editSizeBytes = parseInt(argv[++i], 10);
+    if (arg === "--writers" && argv[i + 1]) {
+      config.writers = parseInt(argv[++i], 10);
     } else if (arg === "--readers" && argv[i + 1]) {
       config.readers = parseInt(argv[++i], 10);
+    } else if (arg === "--churn-interval" && argv[i + 1]) {
+      config.churnIntervalMs = parseInt(argv[++i], 10);
+    } else if (arg === "--churn-size" && argv[i + 1]) {
+      config.churnSize = parseInt(argv[++i], 10);
+    } else if (arg === "--stabilize" && argv[i + 1]) {
+      config.stabilizeMs = parseInt(argv[++i], 10);
+    } else if (arg === "--interval" && argv[i + 1]) {
+      config.editIntervalMs = parseInt(argv[++i], 10);
+    } else if (arg === "--edit-size" && argv[i + 1]) {
+      config.editSizeBytes = parseInt(argv[++i], 10);
     } else if (arg === "--duration" && argv[i + 1]) {
       config.durationS = parseInt(argv[++i], 10);
     } else if (arg === "--bootstrap" && argv[i + 1]) {
@@ -57,8 +68,6 @@ function parseArgs(argv: string[]): Config {
       config.httpUrls.push(argv[++i]);
     } else if (arg === "--output" && argv[i + 1]) {
       config.output = argv[++i];
-    } else if (arg === "--ramp") {
-      config.ramp = true;
     } else if (arg === "--app-id" && argv[i + 1]) {
       config.appId = argv[++i];
     } else if (arg === "--log-level" && argv[i + 1]) {
@@ -68,11 +77,6 @@ function parseArgs(argv: string[]): Config {
       console.error(`unknown arg: ${arg}`);
       process.exit(1);
     }
-  }
-
-  if (config.docs < 1) {
-    console.error("--docs must be >= 1");
-    process.exit(1);
   }
 
   return config;
@@ -156,81 +160,29 @@ function mapReaderEvent(
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 async function main() {
   const config = parseArgs(process.argv);
   const metrics = createMetrics(config.output);
 
   log.info(
-    `starting: ${config.docs} docs,` +
+    `churn: ${config.writers} writers,` +
       ` ${config.readers} readers,` +
-      ` ${config.intervalMs}ms interval,` +
-      ` ${config.editSizeBytes}B edits,` +
-      ` ${config.durationS}s duration,` +
-      ` appId=${config.appId}`,
+      ` churn every ${config.churnIntervalMs}ms,` +
+      ` size=${config.churnSize},` +
+      ` stabilize=${config.stabilizeMs}ms,` +
+      ` duration=${config.durationS}s`,
   );
-  if (config.bootstrap.length > 0) {
-    log.info(`  bootstrap: ${config.bootstrap.join(", ")}`);
-  }
-  if (config.ramp) {
-    log.info("  ramp: staggering doc creation");
-  }
 
   // Create writer Helia node
-  log.info("creating Helia node...");
-  const helia: HeliaNode = await createHeliaNode({
+  log.info("creating writer Helia node...");
+  const writerHelia: HeliaNode = await createHeliaNode({
     bootstrapPeers: config.bootstrap,
   });
-  log.info("Helia ready");
+  log.info("writer Helia ready");
 
-  const durationMs = config.durationS * 1000;
-  const writers: Writer[] = [];
-
-  // Spawn writers
-  const rampDelay =
-    config.ramp && config.docs > 1 ? durationMs / config.docs : 0;
-
-  for (let i = 0; i < config.docs; i++) {
-    const docId = `doc-${i}`;
-
-    if (config.ramp && i > 0) {
-      log.info(`ramp: waiting ${rampDelay}ms` + ` before doc ${i}...`);
-      await sleep(rampDelay);
-    }
-
-    const writer = await startWriter(helia, {
-      appId: config.appId,
-      editIntervalMs: config.intervalMs,
-      editSizeBytes: config.editSizeBytes,
-      httpUrls: config.httpUrls,
-      onEvent(event: WriterEvent) {
-        const mapped = mapWriterEvent(event, docId);
-        if (mapped) metrics.record(mapped);
-      },
-    });
-
-    writers.push(writer);
-    metrics.record({
-      ts: Date.now(),
-      type: "doc-created",
-      docId,
-    });
-    log.info(`writer ${writer.writerId} → ${docId}`);
-  }
-
-  // Spawn reader peers
-  const readerPeers: ReaderPeer[] = [];
+  // Create reader Helia node if readers > 0
   let readerHelia: HeliaNode | null = null;
-
   if (config.readers > 0) {
-    const writerKeys = new Map<string, CryptoKey>();
-    for (const w of writers) {
-      writerKeys.set(w.ipnsName, w.readKey);
-    }
-
     log.info("creating reader Helia node...");
     readerHelia = await createHeliaNode({
       bootstrapPeers: config.bootstrap,
@@ -238,7 +190,7 @@ async function main() {
     log.info("reader Helia ready");
 
     // Connect reader to writer for GossipSub mesh
-    const writerAddrs = helia.libp2p.getMultiaddrs();
+    const writerAddrs = writerHelia.libp2p.getMultiaddrs();
     for (const ma of writerAddrs) {
       try {
         await readerHelia.libp2p.dial(ma);
@@ -248,31 +200,94 @@ async function main() {
         // try next addr
       }
     }
-
-    for (let i = 0; i < config.readers; i++) {
-      const peer = startReaderPeer(readerHelia.libp2p.services.pubsub, {
-        appId: config.appId,
-        writers: writerKeys,
-        onEvent(event: ReaderPeerEvent) {
-          const mapped = mapReaderEvent(event);
-          if (mapped) metrics.record(mapped);
-        },
-      });
-      readerPeers.push(peer);
-      log.info(`${peer.peerId} started`);
-    }
   }
 
-  log.info(
-    `${writers.length} writers,` +
-      ` ${readerPeers.length} readers running,` +
-      ` waiting ${config.durationS}s...`,
+  // Track active nodes for cleanup
+  const activeWriters = new Map<string, Writer>();
+  const activeReaders = new Map<string, ReaderPeer>();
+  let writerCounter = 0;
+
+  // Writer readKey map for reader peers
+  const writerKeys = new Map<string, CryptoKey>();
+
+  const scheduler = await startChurnScheduler(
+    {
+      baselineWriters: config.writers,
+      baselineReaders: config.readers,
+      churnIntervalMs: config.churnIntervalMs,
+      churnSize: config.churnSize,
+      stabilizeMs: config.stabilizeMs,
+    },
+    {
+      async addWriter() {
+        const docId = `churn-doc-${writerCounter++}`;
+        const writer = await startWriter(writerHelia, {
+          appId: config.appId,
+          editIntervalMs: config.editIntervalMs,
+          editSizeBytes: config.editSizeBytes,
+          httpUrls: config.httpUrls,
+          onEvent(event: WriterEvent) {
+            const mapped = mapWriterEvent(event, docId);
+            if (mapped) metrics.record(mapped);
+          },
+        });
+        activeWriters.set(docId, writer);
+        writerKeys.set(writer.ipnsName, writer.readKey);
+        metrics.record({
+          ts: Date.now(),
+          type: "doc-created",
+          docId,
+        });
+        log.info(`writer ${writer.writerId} → ${docId}`);
+        return docId;
+      },
+
+      async removeWriter(id: string) {
+        const writer = activeWriters.get(id);
+        if (writer) {
+          writer.stop();
+          writerKeys.delete(writer.ipnsName);
+          activeWriters.delete(id);
+          log.info(`writer ${writer.writerId} removed`);
+        }
+      },
+
+      async addReader() {
+        if (!readerHelia) return "";
+        const peer = startReaderPeer(readerHelia.libp2p.services.pubsub, {
+          appId: config.appId,
+          writers: writerKeys,
+          onEvent(event: ReaderPeerEvent) {
+            const mapped = mapReaderEvent(event);
+            if (mapped) metrics.record(mapped);
+          },
+        });
+        activeReaders.set(peer.peerId, peer);
+        log.info(`reader ${peer.peerId} started`);
+        return peer.peerId;
+      },
+
+      async removeReader(id: string) {
+        const peer = activeReaders.get(id);
+        if (peer) {
+          peer.stop();
+          activeReaders.delete(id);
+          log.info(`reader ${id} removed`);
+        }
+      },
+
+      onEvent(event) {
+        metrics.record(event);
+      },
+    },
   );
 
-  // Wait for duration then shutdown
+  log.info("churn scheduler running...");
+
+  // Wait for duration
+  const durationMs = config.durationS * 1000;
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, durationMs);
-
     function shutdown() {
       clearTimeout(timer);
       resolve();
@@ -281,24 +296,23 @@ async function main() {
     process.on("SIGTERM", shutdown);
   });
 
-  // Stop readers first
-  for (const r of readerPeers) {
+  // Shutdown
+  log.info("stopping churn scheduler...");
+  scheduler.stop();
+
+  for (const r of activeReaders.values()) {
     r.stop();
   }
-
-  // Stop all writers
-  log.info("stopping writers...");
-  for (const w of writers) {
+  for (const w of activeWriters.values()) {
     w.stop();
   }
 
-  // Stop Helia nodes
   log.info("stopping Helia...");
-  await helia.stop();
+  await writerHelia.stop();
   if (readerHelia) await readerHelia.stop();
 
   metrics.finish();
-  log.info("done");
+  log.info(`done — ${scheduler.cycleCount} churn cycles`);
   process.exit(0);
 }
 

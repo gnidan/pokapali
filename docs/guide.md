@@ -8,8 +8,13 @@ persistent snapshots so you can focus on your app.
 ## Quick Start
 
 ```sh
-npm install @pokapali/core
+npm install @pokapali/core yjs
 ```
+
+> **Peer dependency:** `yjs` must be installed
+> alongside `@pokapali/core`. If your package manager
+> doesn't auto-install peer dependencies, add it
+> explicitly.
 
 > **TypeScript note:** if your `tsconfig.json` targets
 > ES2022 or earlier, add `"skipLibCheck": true` to
@@ -171,9 +176,11 @@ doc.awareness.setLocalStateField("user", {
 });
 ```
 
-The `displayName` in `ParticipantInfo` comes from the
-app-provided awareness `user.name` field — unsigned,
-for display only.
+The `displayName` in `ParticipantInfo` is automatically
+synced from the awareness `user.name` field — set
+`user.name` via awareness and it propagates to
+`ParticipantInfo` for all peers. Unsigned, for display
+only.
 
 **Client identity mapping:** The `doc.clientIdMapping`
 Feed provides a reactive mapping from Yjs clientIDs
@@ -826,6 +833,6 @@ operations.
   via HTTP POST and fetched via HTTP GET.
 - **Topology visualization** — use `doc.topologyGraph()`
   combined with the network events (`snapshot`, `ack`,
-  `loading`, `gossip-activity`, `guarantee-query`) to
-  build a live network map showing data flow between
-  your app and infrastructure nodes.
+  `loading`, `node-change`) to build a live network
+  map showing data flow between your app and
+  infrastructure nodes.

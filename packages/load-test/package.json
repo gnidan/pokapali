@@ -7,7 +7,9 @@
   "types": "dist/src/index.d.ts",
   "bin": {
     "pokapali-load-test": "dist/bin/run.js",
-    "pokapali-load-smoke": "dist/bin/smoke.js"
+    "pokapali-load-smoke": "dist/bin/smoke.js",
+    "pokapali-load-analyze": "dist/bin/analyze.js",
+    "pokapali-load-churn": "dist/bin/churn.js"
   },
   "scripts": {
     "build": "tsc --build",
@@ -35,5 +37,8 @@
   "devDependencies": {
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

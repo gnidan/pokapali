@@ -7,11 +7,14 @@ Ed25519-only package. v2.x is pure JS with no dependencies, audited,
 and supports both browser and Node. The broader `@noble/curves`
 package would also work but pulls in more code than needed.
 
-## yjs ^13.6.0
+## yjs ^13.6.0 (peerDependency)
 
 The CRDT engine. v13 is the current stable line with subdocument
 support required for channel isolation. Well-maintained and widely
-deployed.
+deployed. Listed as a `peerDependency` of `@pokapali/core` —
+consumers must install it alongside core. This prevents duplicate
+Yjs instances (which cause silent CRDT corruption when two copies
+try to merge state).
 
 ## y-webrtc ^10.3.0
 

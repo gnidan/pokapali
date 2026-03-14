@@ -64,6 +64,8 @@ export interface Writer {
   readonly ipnsName: string;
   /** Unique writer identifier. */
   readonly writerId: string;
+  /** Read key for decrypting snapshots. */
+  readonly readKey: CryptoKey;
   /** Stop the writer loop and unsubscribe. */
   stop(): void;
 }
@@ -258,6 +260,7 @@ export async function startWriter(
   return {
     ipnsName,
     writerId,
+    readKey: keys.readKey,
     stop() {
       stopped = true;
       clearInterval(timer);
