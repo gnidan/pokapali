@@ -1,0 +1,153 @@
+name: Nightly Load Test (Tier 2)
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Test duration in seconds"
+        required: false
+        type: number
+        default: 300
+      docs:
+        description: "Number of writer docs"
+        required: false
+        type: number
+        default: 50
+      readers:
+        description: "Number of reader peers"
+        required: false
+        type: number
+        default: 5
+
+concurrency:
+  group: load-nightly
+  cancel-in-progress: false
+
+env:
+  LOADTEST_USER: root
+  LOADTEST_REPO: /opt/pokapali
+  LOADTEST_OUTPUT: /tmp/load-nightly.jsonl
+
+jobs:
+  load-test:
+    name: Tier 2 Load Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Pull latest on test VPS
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+        run: |
+          ssh -n "$LOADTEST_USER@$HOST" \
+            bash -s -- "$LOADTEST_REPO" <<'REMOTE'
+          set -euo pipefail
+          REPO="$1"
+          cd "$REPO"
+          git fetch origin main
+          git checkout origin/main
+          npm ci
+          npm run build
+          echo "Ready at $(git rev-parse --short HEAD)"
+          REMOTE
+
+      - name: Run load test
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+          DURATION: ${{ inputs.duration || 300 }}
+          DOCS: ${{ inputs.docs || 50 }}
+          READERS: ${{ inputs.readers || 5 }}
+        run: |
+          # shellcheck disable=SC2029
+          ssh "$LOADTEST_USER@$HOST" \
+            bash -s -- \
+              "$LOADTEST_REPO" \
+              "$DURATION" \
+              "$DOCS" \
+              "$READERS" \
+            <<'REMOTE'
+          set -euo pipefail
+          REPO="$1"
+          DURATION="$2"
+          DOCS="$3"
+          READERS="$4"
+          OUTPUT="/tmp/load-nightly.jsonl"
+
+          cd "$REPO"
+
+          node packages/load-test/dist/bin/run.js \
+            --docs "$DOCS" \
+            --readers "$READERS" \
+            --duration "$DURATION" \
+            --interval 5000 \
+            --edit-size 100 \
+            --app-id pokapali-load-test \
+            --output "$OUTPUT" \
+            --bootstrap /ip4/144.202.54.236/tcp/4001 \
+            --bootstrap /ip4/104.207.134.221/tcp/4001 \
+            --bootstrap /ip4/45.76.93.239/tcp/4001 \
+            --bootstrap /ip4/155.138.220.25/tcp/4001 \
+            --bootstrap /ip4/155.138.155.132/tcp/4001 \
+            --bootstrap /ip4/140.82.59.107/tcp/4001 \
+            --bootstrap /ip4/45.32.137.156/tcp/4001
+
+          echo "Load test complete"
+          REMOTE
+
+      - name: Download metrics
+        if: always()
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+        run: |
+          scp "$LOADTEST_USER@$HOST:/tmp/load-nightly.jsonl" \
+            /tmp/load-nightly.jsonl \
+            || echo "No metrics file to download"
+
+      - name: Upload metrics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: >-
+            load-nightly-${{ github.run_number }}
+          path: /tmp/load-nightly.jsonl
+          retention-days: 90
+
+      - uses: actions/setup-node@v4
+        if: always()
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build analyzer
+        if: always()
+        run: |
+          npm ci
+          npm run build -w @pokapali/load-test
+
+      - name: Analyze results
+        if: always()
+        run: |
+          node packages/load-test/dist/bin/analyze.js \
+            /tmp/load-nightly.jsonl \
+            --cross-region \
+            --max-errors 5 \
+            --ack-rate 90
