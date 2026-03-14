@@ -13,3 +13,10 @@ export {
 
 export type { LoadTestEvent, MetricsCollector } from "./metrics.js";
 export { createMetrics } from "./metrics.js";
+
+export {
+  startReader,
+  type Reader,
+  type ReaderConfig,
+  type ReaderEvent,
+} from "./reader.js";

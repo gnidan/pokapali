@@ -1,4 +1,5 @@
 import { createHelia, libp2pDefaults } from "helia";
+import { bootstrap } from "@libp2p/bootstrap";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
 import { pubsubPeerDiscovery } from "@libp2p/pubsub-peer-discovery";
 import type { Helia } from "helia";
@@ -95,6 +96,9 @@ async function createHeliaInstance(
         interval: 10_000,
         topics: [DISCOVERY_TOPIC],
       }),
+      ...(_options?.bootstrapPeers?.length
+        ? [bootstrap({ list: _options.bootstrapPeers })]
+        : []),
     ],
     services: {
       ...defaults.services,
