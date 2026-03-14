@@ -74,66 +74,50 @@ jobs:
 
       - name: Preflight
         env:
-          SKIP: ${{ inputs.skip_nodes }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           CONFIG="deploy/nodes.json"
           COMMIT="${{ steps.target.outputs.commit }}"
           USER=$(jq -r '.defaults.user' "$CONFIG")
-          REPO_PATH=$(jq -r \
-            '.defaults.repo_path' "$CONFIG")
-          BATCHES=$(jq '.batches | length' "$CONFIG")
+          REPO=$(jq -r '.defaults.repo_path' "$CONFIG")
 
           echo "=== Deploy Plan ==="
           echo "Commit: ${COMMIT:0:7}"
-          echo "Batches: $BATCHES"
-          echo "Skip: ${SKIP:-none}"
+          echo "Skip: ${{ inputs.skip_nodes || 'none' }}"
           echo "Dry run: $DRY_RUN"
           echo ""
 
           echo "=== Current Node State ==="
           if [ "$DRY_RUN" = "true" ]; then
-            echo "  [DRY RUN] Skipping SSH preflight"
+            echo "  [DRY RUN] Skipping preflight"
           else
-            IFS=',' read -ra SKIP_ARR <<< "${SKIP:-}"
-            ALL_NODES=$(jq -r \
-              '.batches[].nodes[].name' "$CONFIG")
-            for NODE_NAME in $ALL_NODES; do
-              SKIPPED=false
-              for s in "${SKIP_ARR[@]}"; do
-                s=$(echo "$s" | xargs)
-                if [ "$s" = "$NODE_NAME" ]; then
-                  SKIPPED=true
-                fi
-              done
-              if [ "$SKIPPED" = "true" ]; then
-                continue
-              fi
-              HOST=$(jq -r \
-                ".batches[].nodes[] |
-                 select(.name==\"$NODE_NAME\") |
-                 .host" "$CONFIG")
+            NODES=$(jq -r \
+              '.batches[].nodes[] |
+               "\(.name) \(.host)"' "$CONFIG")
+            while IFS=' ' read -r NAME HOST; do
               # shellcheck disable=SC2029
-              CUR=$(ssh "$USER@$HOST" \
-                "cd $REPO_PATH && git rev-parse HEAD" \
+              CUR=$(ssh -n "$USER@$HOST" \
+                "cd $REPO && git rev-parse HEAD" \
                 2>/dev/null || echo "unreachable")
-              echo "  $NODE_NAME ($HOST): ${CUR:0:7}"
-            done
+              echo "  $NAME ($HOST): ${CUR:0:7}"
+            done <<< "$NODES"
           fi
 
-  batch-1:
-    name: "Batch 1: chi + de"
+  # --- Batch 1: chi + de (parallel) ---
+
+  chi:
+    name: "chi"
     needs: setup
+    if: >-
+      !contains(inputs.skip_nodes, 'chi')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Write node config
         run: |
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
-
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
@@ -149,26 +133,24 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-
       - name: Deploy + health check
         run: |
-          bin/deploy-batch.sh 0 \
+          bin/deploy-single-node.sh chi \
             "${{ needs.setup.outputs.commit }}" \
-            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
 
-  batch-2:
-    name: "Batch 2: nyc + ams"
-    needs: [setup, batch-1]
+  de:
+    name: "de"
+    needs: setup
+    if: >-
+      !contains(inputs.skip_nodes, 'de')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Write node config
         run: |
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
-
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
@@ -184,26 +166,28 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-
       - name: Deploy + health check
         run: |
-          bin/deploy-batch.sh 1 \
+          bin/deploy-single-node.sh de \
             "${{ needs.setup.outputs.commit }}" \
-            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
 
-  batch-3:
-    name: "Batch 3: atl + bay"
-    needs: [setup, batch-2]
+  # --- Batch 2: nyc + ams (after batch 1) ---
+
+  nyc:
+    name: "nyc"
+    needs: [setup, chi, de]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(inputs.skip_nodes, 'nyc')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Write node config
         run: |
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
-
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
@@ -219,26 +203,26 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-
       - name: Deploy + health check
         run: |
-          bin/deploy-batch.sh 2 \
+          bin/deploy-single-node.sh nyc \
             "${{ needs.setup.outputs.commit }}" \
-            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
 
-  batch-4:
-    name: "Batch 4: yto"
-    needs: [setup, batch-3]
+  ams:
+    name: "ams"
+    needs: [setup, chi, de]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(inputs.skip_nodes, 'ams')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Write node config
         run: |
           echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
             > deploy/nodes.json
-
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
@@ -254,10 +238,117 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-
       - name: Deploy + health check
         run: |
-          bin/deploy-batch.sh 3 \
+          bin/deploy-single-node.sh ams \
             "${{ needs.setup.outputs.commit }}" \
-            "${{ inputs.skip_nodes }}" \
+            "${{ inputs.dry_run }}"
+
+  # --- Batch 3: atl + bay (after batch 2) ---
+
+  atl:
+    name: "atl"
+    needs: [setup, nyc, ams]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(inputs.skip_nodes, 'atl')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        run: |
+          echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh atl \
+            "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.dry_run }}"
+
+  bay:
+    name: "bay"
+    needs: [setup, nyc, ams]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(inputs.skip_nodes, 'bay')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        run: |
+          echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh bay \
+            "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.dry_run }}"
+
+  # --- Batch 4: yto (after batch 3) ---
+
+  yto:
+    name: "yto"
+    needs: [setup, atl, bay]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(inputs.skip_nodes, 'yto')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        run: |
+          echo "${{ secrets.DEPLOY_NODES_CONFIG }}" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh yto \
+            "${{ needs.setup.outputs.commit }}" \
             "${{ inputs.dry_run }}"
