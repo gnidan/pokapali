@@ -80,8 +80,8 @@ export function deriveHttpUrl(
  * yet at cert provision time.
  *
  * Cert SAN: *.k51qzi...libp2p.direct
- * Public IP: 144.202.54.236 (from /ip4/ multiaddrs)
- * Result: https://144-202-54-236.k51qzi...libp2p.direct:4443
+ * Public IP: <relay-ip> (from /ip4/ multiaddrs)
+ * Result: https://<ip-dashed>.k51qzi...libp2p.direct:4443
  */
 export function deriveHttpUrlFromCert(
   certPem: string,

@@ -56,6 +56,7 @@ echo "  branch: $(git branch --show-current)"
 echo "  commit: $(git rev-parse --short HEAD)"
 
 # Policy checks (always run, even with --quick)
+# shellcheck disable=SC2016
 step "No hardcoded IPs" bash -c '
   hits=$(grep -rEn "\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b" \
     packages/ .github/workflows/ \
@@ -74,6 +75,7 @@ step "No hardcoded IPs" bash -c '
   fi
 '
 
+# shellcheck disable=SC2016
 step "No ignored files tracked" bash -c '
   tracked=$(git ls-files -- docs/plans/ 2>/dev/null || true)
   if [ -n "$tracked" ]; then
