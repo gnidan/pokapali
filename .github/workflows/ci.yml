@@ -108,7 +108,7 @@ jobs:
 
   deploy-pages:
     name: Deploy Pages
-    needs: [test, lint, format, shellcheck, actionlint]
+    needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
