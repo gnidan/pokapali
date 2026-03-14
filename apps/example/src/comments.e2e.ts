@@ -684,6 +684,30 @@ test.describe("comment edge cases", () => {
   });
 });
 
+// ── Button styling (#190) ───────────────────────
+
+test.describe("comment popover button styling", () => {
+  test("popover button matches header button styles", async ({ page }) => {
+    await createDoc(page);
+    await typeAndSelect(page, "Style check text");
+
+    const popover = page.locator("[data-testid='comment-popover']");
+    await expect(popover).toBeVisible({ timeout: 3_000 });
+
+    const btn = page.locator("[data-testid='add-comment-btn']");
+
+    // border-radius should be 6px, matching
+    // .toggle-share / .toggle-history buttons.
+    await expect(btn).toHaveCSS("border-radius", "6px");
+
+    // border-color should be #d1d5db (rgb(209,213,219)).
+    await expect(btn).toHaveCSS("border-color", "rgb(209, 213, 219)");
+
+    // background should be white.
+    await expect(btn).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  });
+});
+
 // ── Click-to-open (#192) ────────────────────────
 
 test.describe("click highlighted text (#192)", () => {
