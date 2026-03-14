@@ -27,3 +27,10 @@ export {
   type ReaderPeerConfig,
   type ReaderPeerEvent,
 } from "./reader-peer.js";
+
+export {
+  startChurnScheduler,
+  type ChurnConfig,
+  type ChurnCallbacks,
+  type ChurnScheduler,
+} from "./churn.js";

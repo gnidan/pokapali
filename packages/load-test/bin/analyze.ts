@@ -113,6 +113,11 @@ async function analyze(config: Config) {
   let lastDisconnectTs: number | null = null;
   let maxRecoveryMs = 0;
 
+  // Churn tracking
+  let churnCycles = 0;
+  let nodesJoined = 0;
+  let nodesLeft = 0;
+
   const rl = createInterface({
     input: createReadStream(config.file),
     crlfDelay: Infinity,
@@ -173,6 +178,18 @@ async function analyze(config: Config) {
         convergenceDrift++;
         break;
 
+      case "node-joined":
+        nodesJoined++;
+        break;
+
+      case "node-left":
+        nodesLeft++;
+        break;
+
+      case "churn-cycle":
+        churnCycles++;
+        break;
+
       case "status-change":
         if (event.detail === "disconnected" || event.detail === "connecting") {
           lastDisconnectTs = event.ts;
@@ -229,6 +246,12 @@ async function analyze(config: Config) {
     );
     console.log(`  Sync p50:      ${syncP50}ms`);
     console.log(`  Sync p95:      ${syncP95}ms`);
+  }
+
+  if (churnCycles > 0) {
+    console.log(`  Churn cycles:  ${churnCycles}`);
+    console.log(`  Nodes joined:  ${nodesJoined}`);
+    console.log(`  Nodes left:    ${nodesLeft}`);
   }
 
   // Check pass/fail
