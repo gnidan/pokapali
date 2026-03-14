@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -32,6 +32,7 @@ import {
 import {
   CommentHighlight,
   rebuildCommentDecorations,
+  resolveAnchors,
 } from "./commentHighlight";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
@@ -240,6 +241,19 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     });
     rebuildCommentDecorations(editor.view);
   }, [editor, commentList, selectedCommentId]);
+
+  // Resolve comment anchor positions for sidebar
+  // ordering. Re-derived when comments or editor
+  // state change (via commentList dependency which
+  // triggers the rebuild effect above).
+  const anchorPositions = useMemo(() => {
+    if (!editor?.state || !commentsDoc || !contentDoc) {
+      return new Map<string, number>();
+    }
+    const syncState = ySyncPluginKey.getState(editor.state);
+    const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
+    return new Map(anchors.map((a) => [a.id, a.from]));
+  }, [editor?.state, commentsDoc, contentDoc, commentList]);
 
   useEffect(() => {
     const displayName = user.name || "Anonymous";
@@ -525,6 +539,8 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         {showComments && (
           <CommentSidebar
             comments={commentList}
+            anchorPositions={anchorPositions}
+            editorView={editor?.view ?? null}
             myPubkey={doc.identityPubkey}
             hasPendingAnchor={pendingAnchor != null}
             onAddComment={handleAddComment}
