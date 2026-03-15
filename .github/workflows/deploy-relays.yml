@@ -72,6 +72,8 @@ jobs:
               "on main branch"
             exit 1
           fi
+          # Resolve to full SHA for health check
+          COMMIT=$(git rev-parse "$COMMIT")
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "Target commit: ${COMMIT:0:7}"
 

@@ -1,0 +1,129 @@
+name: Relay Health Check
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    name: Check Relays
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write node config
+        env:
+          NODES_JSON: ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          mkdir -p deploy
+          printf '%s\n' "$NODES_JSON" \
+            > deploy/nodes.json
+
+      - name: Check all relays
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CONFIG="deploy/nodes.json"
+          BODY_FILE=$(mktemp)
+          FAILED=""
+
+          NODES=$(jq -r \
+            '.batches[].nodes[] |
+             "\(.name) \(.host)"' "$CONFIG")
+
+          while IFS=' ' read -r NAME HOST; do
+            echo "Checking $NAME ($HOST)..."
+
+            HEALTH=$(curl -sf -m 10 \
+              "http://$HOST:3000/health" \
+              2>/dev/null || true)
+
+            if [ -z "$HEALTH" ]; then
+              echo "  FAIL: no response"
+              FAILED="$FAILED $NAME"
+              echo "- **$NAME** ($HOST): no response" \
+                >> "$BODY_FILE"
+              continue
+            fi
+
+            OK=$(echo "$HEALTH" | jq -r '.ok')
+            UPTIME=$(echo "$HEALTH" \
+              | jq -r '.uptime')
+            PEERS=$(echo "$HEALTH" \
+              | jq -r '.peers')
+            CONNS=$(echo "$HEALTH" \
+              | jq -r '.connections')
+
+            if [ "$OK" != "true" ]; then
+              echo "  FAIL: ok=$OK"
+              FAILED="$FAILED $NAME"
+              echo "- **$NAME** ($HOST): ok=$OK" \
+                >> "$BODY_FILE"
+            else
+              echo "  OK (up ${UPTIME}s," \
+                "$PEERS peers, $CONNS conns)"
+            fi
+          done <<< "$NODES"
+
+          if [ -z "$FAILED" ]; then
+            echo ""
+            echo "All relays healthy."
+            rm -f "$BODY_FILE"
+            exit 0
+          fi
+
+          echo ""
+          echo "FAILED:$FAILED"
+
+          EXISTING=$(gh issue list \
+            --label "relay-health" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+
+          DETAILS=$(cat "$BODY_FILE")
+
+          if [ -n "$EXISTING" ]; then
+            echo "Existing issue #$EXISTING," \
+              "adding comment"
+            NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            printf 'Still failing (%s):\n\n%s\n' \
+              "$NOW" "$DETAILS" > "$BODY_FILE"
+            gh issue comment "$EXISTING" \
+              --body-file "$BODY_FILE"
+          else
+            echo "Opening new issue"
+            {
+              printf '%s\n\n' \
+                "Automated health check failure."
+              printf '## Failed nodes\n\n'
+              printf '%s\n\n' "$DETAILS"
+              printf '## Action needed\n\n'
+              printf '%s\n' \
+                "1. SSH to the failed node(s):"
+              printf '%s\n' \
+                "   - \`systemctl status pokapali-node\`"
+              printf '%s\n' \
+                "   - \`journalctl -u pokapali-node --no-pager -n 50\`"
+              printf '%s\n' \
+                "   - \`curl -s http://localhost:3000/health\`"
+              printf '%s\n' \
+                "2. Restart if needed: \`systemctl restart pokapali-node\`"
+              printf '%s\n\n' \
+                "3. Close this issue when resolved."
+              printf '%s\n' \
+                "Subsequent failures will be added as comments."
+            } > "$BODY_FILE"
+            gh issue create \
+              --title \
+                "Relay health check failed:$FAILED" \
+              --label "relay-health" \
+              --body-file "$BODY_FILE"
+          fi
+
+          rm -f "$BODY_FILE"
+          exit 1
