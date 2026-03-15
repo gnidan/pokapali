@@ -398,6 +398,10 @@ body {
   min-height: 400px;
 }
 
+.editor-container.comments-open {
+  margin-right: 340px;
+}
+
 .editor-container .tiptap p {
   margin: 0.5em 0;
 }
@@ -659,7 +663,8 @@ body {
 }
 
 .toggle-share,
-.toggle-history {
+.toggle-history,
+.toggle-comments {
   padding: 0.4rem 0.75rem;
   font-size: 0.875rem;
   border: 1px solid #d1d5db;
@@ -669,7 +674,8 @@ body {
 }
 
 .toggle-share:hover,
-.toggle-history:hover {
+.toggle-history:hover,
+.toggle-comments:hover {
   background: #f3f4f6;
 }
 
@@ -1862,9 +1868,18 @@ body {
     padding: 0.5rem;
   }
 
-  .toggle-history {
+  .toggle-history,
+  .toggle-comments {
     font-size: 0.75rem;
     padding: 0.3rem 0.5rem;
+  }
+
+  .editor-container.comments-open {
+    margin-right: 0;
+  }
+
+  .cs-sidebar {
+    width: 100%;
   }
 
   .vh-drawer {

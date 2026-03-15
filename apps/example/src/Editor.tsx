@@ -519,7 +519,9 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
       <div className="editor-area">
         <div
-          className="editor-container"
+          className={
+            "editor-container" + (showComments ? " comments-open" : "")
+          }
           style={previewVersion ? { visibility: "hidden" } : undefined}
           onClick={handleCommentClick}
         >

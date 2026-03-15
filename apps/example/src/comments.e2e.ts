@@ -869,3 +869,61 @@ test.describe("auth identity display (#191)", () => {
     expect(text).not.toMatch(/^[0-9a-f]{6,}/);
   });
 });
+
+test.describe("sidebar layout (#197)", () => {
+  test("editor shrinks when comments sidebar opens", async ({ page }) => {
+    await createDoc(page);
+    await typeAndSelect(page, "Layout test");
+
+    const container = page.locator(".editor-container");
+
+    // Before opening comments, no comments-open class.
+    await expect(container).not.toHaveClass(/comments-open/);
+
+    // Open sidebar via popover.
+    await expect(page.locator("[data-testid='comment-popover']")).toBeVisible({
+      timeout: 3_000,
+    });
+    await page.locator("[data-testid='add-comment-btn']").click();
+    await expect(page.locator("[data-testid='comment-sidebar']")).toBeVisible({
+      timeout: 3_000,
+    });
+
+    // Editor container should have comments-open class
+    // and a right margin matching the sidebar width.
+    await expect(container).toHaveClass(/comments-open/);
+    const margin = await container.evaluate(
+      (el) => getComputedStyle(el).marginRight,
+    );
+    expect(margin).toBe("340px");
+  });
+});
+
+test.describe("comment button style (#198)", () => {
+  test("comments button matches toolbar button styles", async ({ page }) => {
+    await createDoc(page);
+
+    const commentsBtn = page.locator(".toggle-comments");
+    const historyBtn = page.locator(".toggle-history");
+
+    // Both buttons should have matching border,
+    // border-radius, and background styles.
+    const getStyles = (el: Element) => {
+      const s = getComputedStyle(el);
+      return {
+        border: s.border,
+        borderRadius: s.borderRadius,
+        background: s.backgroundColor,
+        fontSize: s.fontSize,
+        padding: s.padding,
+      };
+    };
+
+    const commentStyles = await commentsBtn.evaluate(getStyles);
+    const historyStyles = await historyBtn.evaluate(getStyles);
+
+    expect(commentStyles.borderRadius).toBe(historyStyles.borderRadius);
+    expect(commentStyles.background).toBe(historyStyles.background);
+    expect(commentStyles.fontSize).toBe(historyStyles.fontSize);
+  });
+});
