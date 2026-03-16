@@ -269,7 +269,14 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         if (keys.rotationKey) {
           const valid = await verifyForwardingRecord(fwd, keys.rotationKey);
           if (!valid) {
-            throw new Error("Invalid forwarding record" + " signature");
+            throw new Error(
+              "Invalid forwarding record signature" +
+                " — the document may have been" +
+                " rotated with a different key," +
+                " or the forwarding record is" +
+                " corrupted. Try using a freshly" +
+                " shared URL",
+            );
           }
         }
         return this.open(fwd.newUrl);

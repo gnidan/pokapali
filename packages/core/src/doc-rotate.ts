@@ -65,7 +65,11 @@ export async function rotateDoc(
   ) => void,
 ): Promise<RotateResult> {
   if (!ctx.cap.isAdmin || !ctx.keys.rotationKey) {
-    throw new Error("Only admins can rotate" + " (requires rotationKey)");
+    throw new Error(
+      "Only admins can rotate a document" +
+        " — this operation requires the admin URL" +
+        " which includes the rotationKey",
+    );
   }
 
   const newAdminSecret = generateAdminSecret();

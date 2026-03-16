@@ -96,11 +96,19 @@ export async function decodeFragment(
 ): Promise<CapabilityKeys> {
   const buf = base64urlDecode(fragment);
   if (buf.length < 1) {
-    throw new Error("Fragment too short");
+    throw new Error(
+      "Fragment too short — the URL fragment should" +
+        " contain an encoded capability." +
+        " Check that the URL was not truncated",
+    );
   }
   const version = buf[0];
   if (version !== VERSION) {
-    throw new Error(`Unknown fragment version: ${version}`);
+    throw new Error(
+      `Unknown fragment version: ${version}` +
+        " — this URL may have been created by a" +
+        " newer version of pokapali",
+    );
   }
 
   const keys: CapabilityKeys = {};
@@ -109,11 +117,21 @@ export async function decodeFragment(
 
   while (offset < buf.length) {
     if (offset + 1 > buf.length) {
-      throw new Error("Truncated fragment: missing label length");
+      throw new Error(
+        "Truncated capability fragment at byte " +
+          `${offset}: missing label length.` +
+          " The URL may have been truncated" +
+          " when copied",
+      );
     }
     const labelLen = buf[offset++];
     if (offset + labelLen > buf.length) {
-      throw new Error("Truncated fragment: missing label");
+      throw new Error(
+        "Truncated capability fragment at byte " +
+          `${offset}: expected ${labelLen}-byte` +
+          " label. The URL may have been" +
+          " truncated when copied",
+      );
     }
     const label = new TextDecoder().decode(
       buf.slice(offset, offset + labelLen),
@@ -121,11 +139,21 @@ export async function decodeFragment(
     offset += labelLen;
 
     if (offset + 1 > buf.length) {
-      throw new Error("Truncated fragment: missing value length");
+      throw new Error(
+        "Truncated capability fragment at byte " +
+          `${offset}: missing value length.` +
+          " The URL may have been truncated" +
+          " when copied",
+      );
     }
     const valueLen = buf[offset++];
     if (offset + valueLen > buf.length) {
-      throw new Error("Truncated fragment: missing value");
+      throw new Error(
+        "Truncated capability fragment at byte " +
+          `${offset}: expected ${valueLen}-byte` +
+          " value. The URL may have been" +
+          " truncated when copied",
+      );
     }
     const value = buf.slice(offset, offset + valueLen);
     offset += valueLen;
@@ -197,14 +225,24 @@ export async function buildUrl(
 export async function parseUrl(url: string): Promise<ParsedUrl> {
   const hashIdx = url.indexOf("#");
   if (hashIdx === -1) {
-    throw new Error("URL has no fragment");
+    throw new Error(
+      "URL has no fragment — a pokapali URL must" +
+        " contain a '#' followed by the encoded" +
+        " capability (e.g., https://example.com" +
+        "/doc/<ipnsName>#<capability>)",
+    );
   }
   const fragment = url.slice(hashIdx + 1);
   const pathPart = url.slice(0, hashIdx);
 
   const docIdx = pathPart.indexOf("/doc/");
   if (docIdx === -1) {
-    throw new Error("URL missing /doc/ path segment");
+    throw new Error(
+      "URL missing /doc/ path segment — a pokapali" +
+        " URL must contain /doc/<ipnsName>" +
+        " (e.g., https://example.com/doc/<ipnsName>" +
+        "#<capability>)",
+    );
   }
   const base = pathPart.slice(0, docIdx);
   const ipnsName = pathPart.slice(docIdx + 5);

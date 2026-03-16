@@ -268,7 +268,7 @@ describe("ready() after interpreter crash (#39)", () => {
     });
 
     await expect(doc.ready({ timeoutMs: 50 })).rejects.toThrow(
-      "ready() timed out",
+      "ready() timed out after",
     );
 
     doc.destroy();

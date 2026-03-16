@@ -121,7 +121,7 @@ describe("rotateDoc", () => {
 
     await expect(
       rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta),
-    ).rejects.toThrow("Only admins can rotate");
+    ).rejects.toThrow("Only admins can rotate a document");
   });
 
   it("throws when rotationKey missing", async () => {
@@ -137,7 +137,7 @@ describe("rotateDoc", () => {
 
     await expect(
       rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta),
-    ).rejects.toThrow("Only admins can rotate");
+    ).rejects.toThrow("Only admins can rotate a document");
   });
 
   it("returns newDoc and forwardingRecord", async () => {

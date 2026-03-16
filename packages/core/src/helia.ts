@@ -161,7 +161,16 @@ async function createHeliaInstance(
       createHelia(heliaOpts),
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error("Helia bootstrap timed out")),
+          () =>
+            reject(
+              new Error(
+                "Helia bootstrap timed out after " +
+                  `${BOOTSTRAP_TIMEOUT_MS / 1000}s` +
+                  " — check network connectivity" +
+                  " and ensure relay addresses" +
+                  " are reachable",
+              ),
+            ),
           BOOTSTRAP_TIMEOUT_MS,
         ),
       ),
@@ -179,7 +188,12 @@ async function createHeliaInstance(
   if (deferredDestroy) {
     deferredDestroy = false;
     await helia.stop();
-    throw new Error("Helia creation aborted: released during bootstrap");
+    throw new Error(
+      "Helia creation aborted: the Helia instance" +
+        " was released while still bootstrapping" +
+        " (all Docs were destroyed before" +
+        " initialization finished)",
+    );
   }
 
   sharedHelia = helia;
@@ -208,14 +222,22 @@ export async function releaseHelia(): Promise<void> {
 
 export function getHeliaPubsub(): PubSub {
   if (!sharedHelia) {
-    throw new Error("No Helia instance exists");
+    throw new Error(
+      "No Helia instance exists — ensure a Doc has" +
+        " been created or opened before accessing" +
+        " the P2P network layer",
+    );
   }
   return sharedHelia.libp2p.services.pubsub;
 }
 
 export function getHelia(): Helia {
   if (!sharedHelia) {
-    throw new Error("No Helia instance exists");
+    throw new Error(
+      "No Helia instance exists — ensure a Doc has" +
+        " been created or opened before accessing" +
+        " the P2P network layer",
+    );
   }
   return sharedHelia;
 }

@@ -140,7 +140,14 @@ export function createSnapshotCodec(
 
       const block = await resolver.get(cid);
       if (!block || block.length === 0) {
-        throw new Error("Block not found: " + cidStr);
+        throw new Error(
+          "Block not found: " +
+            cidStr +
+            " — the snapshot data could not be" +
+            " retrieved from the network or local" +
+            " storage. The version may no longer" +
+            " be available from any connected peer",
+        );
       }
 
       const node = decodeSnapshot(block);
