@@ -1,0 +1,1 @@
+// @pokapali/comments-tiptap
