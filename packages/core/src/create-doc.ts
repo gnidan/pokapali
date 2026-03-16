@@ -437,6 +437,7 @@ export function createDoc(params: DocParams): Doc {
   let localChain: ChainState | null = null;
 
   let interpreterAc: AbortController | null = null;
+  let pendingAnnounceRetry: ReturnType<typeof setTimeout> | null = null;
   let lastLocalPublishCid: string | null = null;
   let lastEmittedAcks = new Set<string>();
   let lastEmittedGuarantees = new Map<
@@ -887,29 +888,78 @@ export function createDoc(params: DocParams): Doc {
       },
 
       announce: (cid, block, seq) => {
-        if (block.length > MAX_INLINE_BLOCK_BYTES) {
-          const urls = getHttpUrls();
-          if (urls.length > 0) {
-            uploadBlock(cid, block, urls).catch((err) => {
-              log.warn("announce upload failed:", err);
+        // Cancel any pending retry from a previous
+        // announce — superseded by this one.
+        if (pendingAnnounceRetry !== null) {
+          clearTimeout(pendingAnnounceRetry);
+          pendingAnnounceRetry = null;
+        }
+
+        const doAnnounce = () => {
+          if (block.length > MAX_INLINE_BLOCK_BYTES) {
+            const urls = getHttpUrls();
+            if (urls.length > 0) {
+              uploadBlock(cid, block, urls).catch((err) => {
+                log.warn("announce upload failed:", err);
+              });
+            }
+            announceSnapshot(
+              pubsub,
+              appId,
+              ipnsName,
+              cid.toString(),
+              seq,
+            ).catch((err) => {
+              log.warn("announce failed:", err);
+            });
+          } else {
+            announceSnapshot(
+              pubsub,
+              appId,
+              ipnsName,
+              cid.toString(),
+              seq,
+              block,
+            ).catch((err) => {
+              log.warn("announce failed:", err);
             });
           }
-          announceSnapshot(pubsub, appId, ipnsName, cid.toString(), seq).catch(
-            (err) => {
-              log.warn("announce failed:", err);
-            },
-          );
-        } else {
-          announceSnapshot(
-            pubsub,
-            appId,
-            ipnsName,
-            cid.toString(),
-            seq,
-            block,
-          ).catch((err) => {
-            log.warn("announce failed:", err);
-          });
+        };
+
+        // Always attempt the announce immediately
+        // (may reach fanout peers even without mesh).
+        doAnnounce();
+
+        // Check mesh peers — if none, retry with
+        // short interval until mesh forms. Prevents
+        // silent publish drop when floodPublish is
+        // false and the mesh hasn't formed yet.
+        const topic = announceTopic(appId);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const gs = pubsub as any;
+        const hasMesh = () => (gs.getMeshPeers?.(topic)?.length ?? 0) > 0;
+
+        if (!hasMesh()) {
+          log.info("no mesh peers for announce topic," + " scheduling retries");
+          let retries = 0;
+          const ANNOUNCE_RETRY_MAX = 14;
+          const ANNOUNCE_RETRY_MS = 1_000;
+          const scheduleRetry = () => {
+            if (signal.aborted) return;
+            if (retries >= ANNOUNCE_RETRY_MAX) return;
+            retries++;
+            pendingAnnounceRetry = setTimeout(() => {
+              pendingAnnounceRetry = null;
+              if (signal.aborted) return;
+              if (hasMesh()) {
+                log.info("mesh peers available," + " re-announcing");
+                doAnnounce();
+              } else {
+                scheduleRetry();
+              }
+            }, ANNOUNCE_RETRY_MS);
+          };
+          scheduleRetry();
         }
       },
 
@@ -1149,6 +1199,10 @@ export function createDoc(params: DocParams): Doc {
     // Flush version cache before cleanup
     flushVersionCache();
     // Interpreter cleanup
+    if (pendingAnnounceRetry !== null) {
+      clearTimeout(pendingAnnounceRetry);
+      pendingAnnounceRetry = null;
+    }
     interpreterAc?.abort();
     if (initialQueryTimer) {
       clearTimeout(initialQueryTimer);
