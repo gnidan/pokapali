@@ -405,6 +405,10 @@ export function createDoc(params: DocParams): Doc {
   // Mutable refs — updated when p2pReady resolves.
   let liveSyncManager: SyncManager | null = syncManager ?? null;
   let liveAwarenessRoom: AwarenessRoom | null = awarenessRoom ?? null;
+  // Tracks whether p2pReady resolved so teardown
+  // knows to release Helia (avoids ref-count
+  // underflow if Helia was never acquired).
+  let p2pResolved = false;
   // Standalone awareness: prefer awarenessRoom's if
   // available, otherwise use the standalone param.
   const awareness: Awareness = awarenessRoom?.awareness ?? params.awareness!;
@@ -1256,6 +1260,7 @@ export function createDoc(params: DocParams): Doc {
     params.p2pReady
       .then((deps) => {
         if (destroyed) return;
+        p2pResolved = true;
         liveSyncManager = deps.syncManager;
         liveAwarenessRoom = deps.awarenessRoom;
         wireSyncBridges(deps.syncManager, deps.awarenessRoom);
@@ -1337,8 +1342,19 @@ export function createDoc(params: DocParams): Doc {
     params.persistence?.destroy();
     liveSyncManager?.destroy();
     liveAwarenessRoom?.destroy();
+    // Clean up standalone awareness + backing doc
+    // when awarenessRoom never materialized (e.g.
+    // p2pReady rejected or doc destroyed early).
+    if (params.awareness && !liveAwarenessRoom) {
+      params.awareness.destroy();
+      params.awareness.doc.destroy();
+    }
     subdocManager.destroy();
-    releaseHelia();
+    // Only release Helia if p2pReady resolved (we
+    // acquired it) or if inline path (no p2pReady).
+    if (p2pResolved || !params.p2pReady) {
+      releaseHelia();
+    }
   }
 
   function assertNotDestroyed() {

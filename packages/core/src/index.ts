@@ -175,43 +175,48 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       }
       await acquireHelia({ bootstrapPeers, blockstore });
 
-      const pubsub = getHeliaPubsub() as unknown as PubSubLike;
-      acquireNodeRegistry(pubsub, () => getHelia());
+      try {
+        const pubsub = getHeliaPubsub() as unknown as PubSubLike;
+        acquireNodeRegistry(pubsub, () => getHelia());
 
-      const userIce = options.rtc?.config?.iceServers;
-      const syncOpts: SyncOptions = {
-        peerOpts: {
-          config: {
-            iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+        const userIce = options.rtc?.config?.iceServers;
+        const syncOpts: SyncOptions = {
+          peerOpts: {
+            config: {
+              iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+            },
           },
-        },
-        pubsub,
-      };
+          pubsub,
+        };
 
-      const syncManager = setupNamespaceRooms(
-        ipnsName,
-        subdocManager,
-        chKeys,
-        signalingUrls,
-        syncOpts,
-      );
+        const syncManager = setupNamespaceRooms(
+          ipnsName,
+          subdocManager,
+          chKeys,
+          signalingUrls,
+          syncOpts,
+        );
 
-      const awarenessRoom = setupAwarenessRoom(
-        ipnsName,
-        keys.awarenessRoomPassword ?? "",
-        signalingUrls,
-        syncOpts,
-        awareness,
-      );
+        const awarenessRoom = setupAwarenessRoom(
+          ipnsName,
+          keys.awarenessRoomPassword ?? "",
+          signalingUrls,
+          syncOpts,
+          awareness,
+        );
 
-      const roomDiscovery = startRoomDiscovery(getHelia(), appId);
+        const roomDiscovery = startRoomDiscovery(getHelia(), appId);
 
-      return {
-        pubsub,
-        syncManager,
-        awarenessRoom,
-        roomDiscovery,
-      };
+        return {
+          pubsub,
+          syncManager,
+          awarenessRoom,
+          roomDiscovery,
+        };
+      } catch (err) {
+        releaseHelia();
+        throw err;
+      }
     })();
 
     return createDoc({
