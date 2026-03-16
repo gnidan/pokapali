@@ -117,6 +117,47 @@ describe("BlockResolver", () => {
       expect(resolver.getCached(cid)).toEqual(block);
     });
 
+    it("calls onWriteError on blockstore.put failure", async () => {
+      const getter = mockBlockGetter();
+      (getter.blockstore.put as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("QuotaExceededError"),
+      );
+      const onWriteError = vi.fn();
+      const resolver = createBlockResolver({
+        getHelia: () => getter,
+        httpUrls: () => [],
+        onWriteError,
+      });
+      resolver.put(cid, block);
+      // Let the rejected promise settle
+      await vi.waitFor(() => {
+        expect(onWriteError).toHaveBeenCalledTimes(1);
+      });
+      expect(onWriteError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "QuotaExceededError",
+        }),
+      );
+    });
+
+    it("calls onWriteError when getHelia throws", () => {
+      const onWriteError = vi.fn();
+      const resolver = createBlockResolver({
+        getHelia: () => {
+          throw new Error("no helia");
+        },
+        httpUrls: () => [],
+        onWriteError,
+      });
+      resolver.put(cid, block);
+      expect(onWriteError).toHaveBeenCalledTimes(1);
+      expect(onWriteError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "no helia",
+        }),
+      );
+    });
+
     it("tolerates missing blockstore.put", () => {
       const getter: BlockGetter = {
         blockstore: {

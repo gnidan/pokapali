@@ -329,6 +329,13 @@ describe("@pokapali/core", () => {
     doc.destroy();
   });
 
+  it("lastPersistenceError Feed starts null", async () => {
+    const lib = pokapali(OPTS);
+    const doc = await lib.create();
+    expect(doc.lastPersistenceError.getSnapshot()).toBeNull();
+    doc.destroy();
+  });
+
   it("on('publish-needed') fires", async () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
