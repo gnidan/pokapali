@@ -15,6 +15,7 @@
     { "path": "../../packages/comments" },
     { "path": "../../packages/comments-tiptap" },
     { "path": "../../packages/core" },
+    { "path": "../../packages/react" },
     { "path": "../../packages/test-utils" }
   ]
 }
