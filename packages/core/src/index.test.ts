@@ -630,10 +630,25 @@ describe("@pokapali/core", () => {
         const lib = pokapali(OPTS);
         const doc = await lib.create();
 
-        // Flush all microtasks from the p2pReady
-        // .then() chain so startP2PLayer has run
-        // and fireGuaranteeQuery is set.
-        await new Promise((r) => setTimeout(r, 0));
+        // nodeChangeHandler is registered
+        // synchronously during createDoc() via
+        // the topology-sharing setup path. But
+        // fireGuaranteeQuery is set inside
+        // startP2PLayer(), which only runs when
+        // the p2pReady .then() chain completes.
+        // A single setTimeout(0) is insufficient
+        // because the p2pReady IIFE includes
+        // dynamic import + multiple awaits whose
+        // microtask count varies by environment.
+        //
+        // Wait for watchIPNS to be called — it's
+        // invoked inside startP2PLayer(), so its
+        // presence guarantees fireGuaranteeQuery
+        // has been set.
+        const { watchIPNS } = await import("./ipns-helpers.js");
+        await vi.waitFor(() => {
+          expect(watchIPNS).toHaveBeenCalled();
+        });
 
         // nodeChangeHandler should have been
         // registered
@@ -658,7 +673,6 @@ describe("@pokapali/core", () => {
         nodeChangeCb!();
 
         // publishGuaranteeQuery should fire
-        // (called by snapshotWatcher.queryGuarantees)
         expect(publishGuaranteeQuery).toHaveBeenCalled();
 
         // Firing again with same pinner should
