@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.10] — 2026-03-16
+
 ### Added
 
 - `useParticipants` React hook — subscribes to `clientIdMapping` Feed, returns
