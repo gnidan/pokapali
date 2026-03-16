@@ -15,7 +15,7 @@ The format is based on
   anchor creation, highlight extensions, spatial
   sidebar, threading, resolve/delete (#209)
 - Migration guide for breaking changes across alpha
-  releases (`docs/migration-guide.md`) (#162)
+  releases (`docs/migration.md`) (#162)
 - `lastPersistenceError` Feed classified as
   experimental in api-stability.md
 
