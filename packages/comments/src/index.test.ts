@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
+import { setLogLevel, getLogLevel } from "@pokapali/log";
 import { comments } from "./index.js";
 import type { ClientIdMapping } from "./index.js";
 import { createFeed } from "./feed.js";
@@ -558,6 +559,55 @@ describe("comments()", () => {
         expect(anchor.end).toBe(5);
       }
       c.destroy();
+    });
+
+    it("warns when contentType is not provided", () => {
+      const prev = getLogLevel();
+      setLogLevel("warn");
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { c } = setup();
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining("[pokapali:comments]"),
+        expect.stringContaining("No contentType provided"),
+      );
+      c.destroy();
+      spy.mockRestore();
+      setLogLevel(prev);
+    });
+
+    it("no warning when contentType is explicit", () => {
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const commentsDoc = new Y.Doc();
+      const contentDoc = new Y.Doc();
+      const text = contentDoc.getText("default");
+      text.insert(0, "hello");
+      const c = comments<TestData>(commentsDoc, contentDoc, {
+        author: "alice-pubkey",
+        clientIdMapping: createFeed(new Map()),
+        contentType: text,
+      });
+      expect(spy).not.toHaveBeenCalledWith(
+        expect.stringContaining("[pokapali:comments]"),
+        expect.stringContaining("No contentType provided"),
+      );
+      c.destroy();
+      spy.mockRestore();
+    });
+
+    it("throws when XmlFragment registered but no contentType", () => {
+      const commentsDoc = new Y.Doc();
+      const contentDoc = new Y.Doc();
+      // Register "default" as XmlFragment
+      const frag = contentDoc.getXmlFragment("default");
+      frag.insert(0, [new Y.XmlText("paragraph")]);
+
+      // Omit contentType — should throw
+      expect(() =>
+        comments<TestData>(commentsDoc, contentDoc, {
+          author: "alice-pubkey",
+          clientIdMapping: createFeed(new Map()),
+        }),
+      ).toThrow(/No contentType provided/);
     });
   });
 
