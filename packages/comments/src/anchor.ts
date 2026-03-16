@@ -18,7 +18,12 @@ export interface Anchor {
 export type ResolvedAnchor =
   | { status: "resolved"; start: number; end: number }
   | { status: "orphaned" }
-  | { status: "pending" };
+  | { status: "pending" }
+  | {
+      status: "inverted";
+      start: number;
+      end: number;
+    };
 
 /**
  * Build an Anchor from pre-existing RelativePositions.
@@ -54,8 +59,12 @@ export function createAnchor(
 
 /**
  * Resolve stored anchor bytes against the current
- * content doc state. Returns three-state result:
+ * content doc state. Returns four-state result:
  * - resolved: both positions map to valid indices
+ *   with start <= end
+ * - inverted: both positions resolved but start > end
+ *   (typically caused by a paragraph split moving
+ *   one endpoint past the other)
  * - orphaned: anchored text was deleted
  * - pending: content not loaded yet (empty type)
  */
@@ -86,6 +95,14 @@ export function resolveAnchor(
 
   if (absStart === null || absEnd === null) {
     return { status: "orphaned" };
+  }
+
+  if (absStart.index > absEnd.index) {
+    return {
+      status: "inverted",
+      start: absStart.index,
+      end: absEnd.index,
+    };
   }
 
   return {
