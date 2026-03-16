@@ -106,8 +106,8 @@ test.describe("comment popover", () => {
       await page.keyboard.press("Shift+ArrowLeft");
     }
 
-    // selectionchange may fire asynchronously after
-    // keyboard-driven selection in ProseMirror.
+    // keyup fallback catches Shift+Arrow selections
+    // when selectionchange doesn't fire in PM.
     const popover = page.locator("[data-testid='comment-popover']");
     await expect(popover).toBeVisible({ timeout: 5_000 });
   });
@@ -152,6 +152,39 @@ test.describe("comment popover", () => {
     await expect(popover).not.toBeVisible({
       timeout: 2_000,
     });
+  });
+
+  test("keyboard-activatable via Tab + Enter", async ({ page }) => {
+    await createDoc(page);
+    await typeAndSelect(page, "Keyboard activate test");
+
+    const popover = page.locator("[data-testid='comment-popover']");
+    await expect(popover).toBeVisible({ timeout: 3_000 });
+
+    const btn = page.locator("[data-testid='add-comment-btn']");
+
+    // Tab to the button and press Enter.
+    await page.keyboard.press("Tab");
+    await expect(btn).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    // Sidebar should open — PM selection persists
+    // across blur so anchorFromSelection still works.
+    const sidebar = page.locator("[data-testid='comment-sidebar']");
+    await expect(sidebar).toBeVisible({ timeout: 3_000 });
+  });
+
+  test("has accessible role and label", async ({ page }) => {
+    await createDoc(page);
+    await typeAndSelect(page, "A11y check");
+
+    const popover = page.locator("[data-testid='comment-popover']");
+    await expect(popover).toBeVisible({ timeout: 3_000 });
+    await expect(popover).toHaveAttribute("role", "toolbar");
+    await expect(popover).toHaveAttribute("aria-label", "Comment actions");
+
+    const btn = page.locator("[data-testid='add-comment-btn']");
+    await expect(btn).toHaveAttribute("aria-label", "Add comment");
   });
 });
 
