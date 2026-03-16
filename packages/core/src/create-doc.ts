@@ -123,6 +123,7 @@ export interface DocUrls {
 
 export interface Doc {
   channel(name: string): Y.Doc;
+  /** @deprecated Use `doc.awareness` directly. */
   readonly provider: {
     readonly awareness: Awareness;
   };
@@ -132,44 +133,18 @@ export interface Doc {
   /** Role derived from capability. */
   readonly role: DocRole;
   invite(grant: CapabilityGrant): Promise<string>;
+
+  // ── Reactive Feeds ─────────────────────────
   /** Reactive status feed (useSyncExternalStore). */
   readonly status: Feed<DocStatus>;
-  /** Reactive save-state feed (useSyncExternalStore). */
+  /** Reactive save-state feed. */
   readonly saveState: Feed<SaveState>;
-  /** Error message from the last failed save,
-   *  or null. Cleared on next edit or successful
-   *  save. Present when saveState is "save-error". */
-  readonly lastSaveError: string | null;
-  /** Peer IDs of relays discovered for this app. */
-  readonly relays: ReadonlySet<string>;
-  /** Sum of all Y.Doc state vector clocks. */
-  readonly clockSum: number;
-  /** Last IPNS sequence number used for publish. */
-  readonly ipnsSeq: number | null;
-  /** Highest seq seen in GossipSub announcements. */
-  readonly latestAnnouncedSeq: number;
-  /** Current loading lifecycle state. */
-  readonly loadingState: LoadingState;
-  /** True after first remote snapshot applied. */
-  readonly hasAppliedSnapshot: boolean;
-  /** Peer IDs of pinners that acked the latest CID. */
-  readonly ackedBy: ReadonlySet<string>;
-  /** Latest guarantee-until timestamp across all
-   *  pinners for the current CID, or null if none. */
-  readonly guaranteeUntil: number | null;
-  /** Latest retain-until timestamp across all
-   *  pinners for the current CID, or null if none. */
-  readonly retainUntil: number | null;
-  /** CID of the current chain tip, or null if no
-   *  snapshot has been created/applied yet. */
-  readonly tipCid: CID | null;
-  /** Reactive tip feed (useSyncExternalStore). */
+  /** Reactive tip feed. */
   readonly tip: Feed<VersionInfo | null>;
-  /** Reactive loading feed (useSyncExternalStore). */
+  /** Reactive loading feed. */
   readonly loading: Feed<LoadingState>;
-  /** True when the current tip is acked by at least
-   *  one pinner. Reactive feed (useSyncExternalStore).
-   *  Resets to false on new publish until re-acked. */
+  /** True when current tip has at least one
+   *  pinner ack. Resets on new publish. */
   readonly backedUp: Feed<boolean>;
   /** Reactive version history feed. Updates as
    *  chain walks discover and fetch entries. */
@@ -179,11 +154,30 @@ export interface Doc {
   readonly snapshotEvents: Feed<SnapshotEvent | null>;
   /** Reactive gossip activity state. */
   readonly gossipActivity: Feed<GossipActivity>;
+  /** Persistent clientID→pubkey mapping from _meta.
+   *  Updates reactively as peers register. */
+  readonly clientIdMapping: Feed<ReadonlyMap<number, ClientIdentityInfo>>;
+
+  // ── Derived getters (from tip Feed) ────────
+  /** @deprecated Use `tip.getSnapshot()?.cid`. */
+  readonly tipCid: CID | null;
+  /** @deprecated Use `tip.getSnapshot()?.ackedBy`. */
+  readonly ackedBy: ReadonlySet<string>;
+  /** @deprecated Use
+   *  `tip.getSnapshot()?.guaranteeUntil`. */
+  readonly guaranteeUntil: number | null;
+  /** @deprecated Use
+   *  `tip.getSnapshot()?.retainUntil`. */
+  readonly retainUntil: number | null;
+  /** @deprecated Use `loading.getSnapshot()`. */
+  readonly loadingState: LoadingState;
+
+  // ── Lifecycle ──────────────────────────────
   /**
    * Resolves when the document has meaningful state:
-   * either a remote snapshot was applied, initial IPNS
-   * resolution found nothing to load, or the document
-   * was locally created (resolves immediately).
+   * either a remote snapshot was applied, initial
+   * IPNS resolution found nothing to load, or the
+   * document was locally created.
    *
    * @param options.timeoutMs - Optional timeout in ms.
    *   Rejects with Error("ready() timed out") if
@@ -192,8 +186,27 @@ export interface Doc {
   ready(options?: { timeoutMs?: number }): Promise<void>;
   publish(): Promise<void>;
   rotate(): Promise<RotateResult>;
-  /** @deprecated Use Feed subscriptions instead:
-   *  doc.status, doc.saveState, doc.loading, etc. */
+  destroy(): void;
+
+  // ── Identity & authorization ───────────────
+  /** This device's identity public key (hex). */
+  readonly identityPubkey: string | null;
+  authorize(pubkey: string): void;
+  deauthorize(pubkey: string): void;
+  readonly authorizedPublishers: ReadonlySet<string>;
+  /** Participants currently visible via awareness. */
+  readonly participants: ReadonlyMap<number, ParticipantInfo>;
+
+  // ── Diagnostics ────────────────────────────
+  diagnostics(): Diagnostics;
+  topologyGraph(): TopologyGraph;
+  /** Fetch version history from pinners (via HTTP),
+   *  falling back to local chain walking. */
+  versionHistory(): Promise<VersionEntry[]>;
+  loadVersion(cid: CID): Promise<Record<string, Y.Doc>>;
+
+  // ── Deprecated ─────────────────────────────
+  /** @deprecated Use Feed subscriptions instead. */
   on(event: "status", cb: (status: DocStatus) => void): void;
   on(event: "publish-needed", cb: () => void): void;
   on(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
@@ -209,44 +222,6 @@ export interface Doc {
   off(event: "ack", cb: (peerId: string) => void): void;
   off(event: "save", cb: (state: SaveState) => void): void;
   off(event: "node-change", cb: () => void): void;
-  diagnostics(): Diagnostics;
-  /** Merged topology graph from own connections,
-   *  peer-reported relays (awareness), and
-   *  relay-to-relay edges (node-registry). */
-  topologyGraph(): TopologyGraph;
-  /** @deprecated Use `doc.versions` Feed or
-   *  `versionHistory()` instead. */
-  history(): Promise<
-    Array<{
-      cid: CID;
-      seq: number;
-      ts: number;
-    }>
-  >;
-  /** Fetch version history from pinners (via HTTP),
-   *  falling back to local chain walking. */
-  versionHistory(): Promise<VersionEntry[]>;
-  loadVersion(cid: CID): Promise<Record<string, Y.Doc>>;
-  /** This device's identity public key (hex). */
-  readonly identityPubkey: string | null;
-  /** Authorize a publisher by identity pubkey (hex).
-   *  Requires admin capability. Adds to
-   *  authorizedPublishers Y.Map in _meta. */
-  authorize(pubkey: string): void;
-  /** Deauthorize a publisher by identity pubkey.
-   *  Requires admin capability. */
-  deauthorize(pubkey: string): void;
-  /** Current authorized publishers (hex pubkeys).
-   *  Empty set = permissionless (anyone can publish).
-   */
-  readonly authorizedPublishers: ReadonlySet<string>;
-  /** Participants currently visible via awareness. */
-  readonly participants: ReadonlyMap<number, ParticipantInfo>;
-  /** Persistent clientID→pubkey mapping from _meta.
-   *  Updates reactively as peers register. Used by
-   *  comments attribution and edit blame. */
-  readonly clientIdMapping: Feed<ReadonlyMap<number, ClientIdentityInfo>>;
-  destroy(): void;
 }
 
 export interface ParticipantInfo {
@@ -1284,37 +1259,6 @@ export function createDoc(params: DocParams): Doc {
     status: statusFeed as Feed<DocStatus>,
     saveState: saveStateFeed as Feed<SaveState>,
 
-    get relays(): ReadonlySet<string> {
-      return params.roomDiscovery?.relayPeerIds ?? new Set();
-    },
-
-    get lastSaveError(): string | null {
-      return lastSaveError;
-    },
-
-    get clockSum(): number {
-      return computeClockSum();
-    },
-
-    get ipnsSeq(): number | null {
-      return snapshotLC.lastIpnsSeq;
-    },
-
-    get latestAnnouncedSeq(): number {
-      return interpreterState?.chain.maxSeq ?? 0;
-    },
-
-    get loadingState(): LoadingState {
-      return loadingFeed.getSnapshot();
-    },
-
-    get hasAppliedSnapshot(): boolean {
-      return (
-        interpreterState?.chain.tip !== null &&
-        interpreterState?.chain.tip !== undefined
-      );
-    },
-
     get ackedBy(): ReadonlySet<string> {
       if (!interpreterState?.chain.tip) {
         return EMPTY_SET;
@@ -1339,6 +1283,10 @@ export function createDoc(params: DocParams): Doc {
 
     get tipCid(): CID | null {
       return snapshotLC.prev;
+    },
+
+    get loadingState(): LoadingState {
+      return loadingFeed.getSnapshot();
     },
 
     tip: tipFeed as Feed<VersionInfo | null>,
@@ -1376,7 +1324,7 @@ export function createDoc(params: DocParams): Doc {
       });
 
       const plaintext = subdocManager.encodeAll();
-      const clockSum = this.clockSum;
+      const clockSum = computeClockSum();
       let pushResult;
       try {
         pushResult = await snapshotLC.push(
@@ -1444,9 +1392,9 @@ export function createDoc(params: DocParams): Doc {
         seq: pushResult.seq,
       };
 
-      // Synchronously advance localChain so
-      // history() works without waiting for the
-      // async interpreter pipeline.
+      // Synchronously advance localChain so the
+      // versions Feed updates without waiting for
+      // the async interpreter pipeline.
       const base =
         localChain ??
         interpreterState?.chain ??
@@ -1592,9 +1540,11 @@ export function createDoc(params: DocParams): Doc {
         : { guaranteeUntil: 0, retainUntil: 0 };
       return buildDiagnostics({
         ackedBy: tipEntry?.ackedBy ?? EMPTY_SET,
-        latestAnnouncedSeq: this.latestAnnouncedSeq,
-        loadingState: this.loadingState,
-        hasAppliedSnapshot: this.hasAppliedSnapshot,
+        latestAnnouncedSeq: interpreterState?.chain.maxSeq ?? 0,
+        loadingState: loadingFeed.getSnapshot(),
+        hasAppliedSnapshot:
+          interpreterState?.chain.tip !== null &&
+          interpreterState?.chain.tip !== undefined,
         guaranteeUntil: g.guaranteeUntil || null,
         retainUntil: g.retainUntil || null,
         roomDiscovery: params.roomDiscovery,
@@ -1607,18 +1557,6 @@ export function createDoc(params: DocParams): Doc {
     topologyGraph(): TopologyGraph {
       assertNotDestroyed();
       return buildTopologyGraph(this.diagnostics(), awarenessRoom.awareness);
-    },
-
-    /** @deprecated Use `doc.versions` Feed or
-     *  `versionHistory()` instead. */
-    async history() {
-      assertNotDestroyed();
-      const { entries } = versionsFeed.getSnapshot();
-      return entries.map((e) => ({
-        cid: e.cid,
-        seq: e.seq,
-        ts: e.ts,
-      }));
     },
 
     async versionHistory(): Promise<VersionEntry[]> {

@@ -377,11 +377,11 @@ describe("@pokapali/core", () => {
     doc.destroy();
   });
 
-  describe("history()", () => {
+  describe("versionHistory()", () => {
     it("returns empty before any publish", async () => {
       const lib = pokapali(OPTS);
       const doc = await lib.create();
-      const h = await doc.history();
+      const h = await doc.versionHistory();
       expect(h).toEqual([]);
       doc.destroy();
     });
@@ -391,7 +391,7 @@ describe("@pokapali/core", () => {
       const doc = await lib.create();
 
       await doc.publish();
-      const h = await doc.history();
+      const h = await doc.versionHistory();
       expect(h).toHaveLength(1);
       expect(h[0].seq).toBe(1);
       expect(h[0].ts).toBeTypeOf("number");
@@ -408,7 +408,7 @@ describe("@pokapali/core", () => {
       content.getMap("test").set("k", "v");
       await doc.publish();
 
-      const h = await doc.history();
+      const h = await doc.versionHistory();
       expect(h).toHaveLength(2);
       // newest first
       expect(h[0].seq).toBe(2);
@@ -418,7 +418,7 @@ describe("@pokapali/core", () => {
       doc.destroy();
     });
 
-    it("versionHistory falls back to local chain", async () => {
+    it("falls back to local chain", async () => {
       const lib = pokapali(OPTS);
       const doc = await lib.create();
 
@@ -448,7 +448,7 @@ describe("@pokapali/core", () => {
       content.getMap("data").set("hello", "world");
       await doc.publish();
 
-      const h = await doc.history();
+      const h = await doc.versionHistory();
       const version = await doc.loadVersion(h[0].cid);
       expect(version).toBeDefined();
       expect(version["content"]).toBeInstanceOf(Y.Doc);
