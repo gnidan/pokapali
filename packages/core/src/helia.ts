@@ -4,6 +4,7 @@ import { gossipsub } from "@chainsafe/libp2p-gossipsub";
 import { pubsubPeerDiscovery } from "@libp2p/pubsub-peer-discovery";
 import type { Helia } from "helia";
 import type { Libp2p, PubSub } from "@libp2p/interface";
+import { TimeoutError } from "./errors.js";
 
 const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
 
@@ -163,7 +164,7 @@ async function createHeliaInstance(
         setTimeout(
           () =>
             reject(
-              new Error(
+              new TimeoutError(
                 "Helia bootstrap timed out after " +
                   `${BOOTSTRAP_TIMEOUT_MS / 1000}s` +
                   " — check network connectivity" +

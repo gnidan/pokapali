@@ -10,6 +10,7 @@ import {
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
 import type { BlockResolver } from "./block-resolver.js";
+import { NotFoundError } from "./errors.js";
 
 const log = createLogger("snapshot-codec");
 
@@ -140,7 +141,7 @@ export function createSnapshotCodec(
 
       const block = await resolver.get(cid);
       if (!block || block.length === 0) {
-        throw new Error(
+        throw new NotFoundError(
           "Block not found: " +
             cidStr +
             " — the snapshot data could not be" +

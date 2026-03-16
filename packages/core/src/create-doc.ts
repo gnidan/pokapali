@@ -52,6 +52,7 @@ import { buildDiagnostics } from "./doc-diagnostics.js";
 import type { Diagnostics } from "./doc-diagnostics.js";
 import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
+import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
 import {
@@ -1359,7 +1360,7 @@ export function createDoc(params: DocParams): Doc {
 
   function assertNotDestroyed() {
     if (destroyed) {
-      throw new Error(
+      throw new DestroyedError(
         "Doc has been destroyed and can no longer" +
           " be used. Create or open a new Doc" +
           " instance instead",
@@ -1419,14 +1420,14 @@ export function createDoc(params: DocParams): Doc {
       if (grant.channels) {
         for (const ch of grant.channels) {
           if (!cap.channels.has(ch)) {
-            throw new Error(
+            throw new PermissionError(
               `Cannot grant "${ch}" ` + "— not in own capability",
             );
           }
         }
       }
       if (grant.canPushSnapshots && !cap.canPushSnapshots) {
-        throw new Error(
+        throw new PermissionError(
           "Cannot grant canPushSnapshots " + "— not in own capability",
         );
       }
@@ -1484,7 +1485,7 @@ export function createDoc(params: DocParams): Doc {
           setTimeout(
             () =>
               reject(
-                new Error(
+                new TimeoutError(
                   "ready() timed out after " +
                     `${options.timeoutMs}ms` +
                     " — the document did not finish" +
@@ -1786,7 +1787,7 @@ export function createDoc(params: DocParams): Doc {
     async loadVersion(cid: CID) {
       assertNotDestroyed();
       if (!readKey) {
-        throw new Error(
+        throw new PermissionError(
           "loadVersion() requires read capability" +
             " — the current URL does not include" +
             " a readKey. Use an admin or read URL" +
@@ -1820,7 +1821,7 @@ export function createDoc(params: DocParams): Doc {
     authorize(pubkey: string): void {
       assertNotDestroyed();
       if (!cap.isAdmin) {
-        throw new Error(
+        throw new PermissionError(
           "authorize() requires admin capability" +
             " — only the document creator can" +
             " manage authorized publishers",
@@ -1833,7 +1834,7 @@ export function createDoc(params: DocParams): Doc {
     deauthorize(pubkey: string): void {
       assertNotDestroyed();
       if (!cap.isAdmin) {
-        throw new Error(
+        throw new PermissionError(
           "deauthorize() requires admin capability" +
             " — only the document creator can" +
             " manage authorized publishers",

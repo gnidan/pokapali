@@ -1,4 +1,5 @@
 import { createLogger } from "@pokapali/log";
+import { PermissionError } from "./errors.js";
 import type { Capability, CapabilityKeys } from "@pokapali/capability";
 import {
   inferCapability,
@@ -65,7 +66,7 @@ export async function rotateDoc(
   ) => void,
 ): Promise<RotateResult> {
   if (!ctx.cap.isAdmin || !ctx.keys.rotationKey) {
-    throw new Error(
+    throw new PermissionError(
       "Only admins can rotate a document" +
         " — this operation requires the admin URL" +
         " which includes the rotationKey",
