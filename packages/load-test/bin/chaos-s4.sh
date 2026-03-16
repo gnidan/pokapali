@@ -16,6 +16,7 @@ set -euo pipefail
 # Usage:
 #   chaos-s4.sh [--output DIR] [--baseline S]
 #     [--churn S] [--recovery S] [--writers N]
+#     [--readers N]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -24,6 +25,7 @@ BASELINE_S=60
 CHURN_S=180
 RECOVERY_S=60
 WRITERS=10
+READERS=2
 APP_ID="pokapali-chaos-test"
 RELAY_COUNT=4
 PIN_COUNT=2
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
     --churn) CHURN_S="$2"; shift 2 ;;
     --recovery) RECOVERY_S="$2"; shift 2 ;;
     --writers) WRITERS="$2"; shift 2 ;;
+    --readers) READERS="$2"; shift 2 ;;
     *) echo "Unknown: $1"; exit 1 ;;
   esac
 done
@@ -46,6 +49,7 @@ mkdir -p "$OUTPUT_DIR"
 echo "=== S4: Rapid Peer Churn ==="
 echo "  Relays: $RELAY_COUNT (${PIN_COUNT} pinners)"
 echo "  Stable writers: $WRITERS"
+echo "  Readers: $READERS"
 echo "  Baseline: ${BASELINE_S}s"
 echo "  Churn: ${CHURN_S}s"
 echo "  Recovery: ${RECOVERY_S}s"
@@ -73,7 +77,7 @@ echo "--- Phase 1: Baseline (no churn) ---"
 # shellcheck disable=SC2086
 node "$REPO/packages/load-test/dist/bin/churn.js" \
   --writers "$WRITERS" \
-  --readers 0 \
+  --readers "$READERS" \
   --duration "$BASELINE_S" \
   --churn-interval 999999 \
   --churn-size 0 \
@@ -89,7 +93,7 @@ echo "--- Phase 2: Aggressive churn ---"
 # shellcheck disable=SC2086
 node "$REPO/packages/load-test/dist/bin/churn.js" \
   --writers "$WRITERS" \
-  --readers 0 \
+  --readers "$READERS" \
   --duration "$CHURN_S" \
   --churn-interval 5000 \
   --churn-size 3 \
@@ -105,7 +109,7 @@ echo "--- Phase 3: Recovery (no churn) ---"
 # shellcheck disable=SC2086
 node "$REPO/packages/load-test/dist/bin/churn.js" \
   --writers "$WRITERS" \
-  --readers 0 \
+  --readers "$READERS" \
   --duration "$RECOVERY_S" \
   --churn-interval 999999 \
   --churn-size 0 \
