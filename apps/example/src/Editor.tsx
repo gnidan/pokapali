@@ -146,10 +146,13 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
       }
       flashTimer.current = setTimeout(() => setUpdateFlash(false), 2_000);
     };
-    doc.on("snapshot", onSnapshotApplied);
+    const unsub = doc.snapshotEvents.subscribe(() => {
+      const event = doc.snapshotEvents.getSnapshot();
+      if (event) onSnapshotApplied();
+    });
 
     return () => {
-      doc.off("snapshot", onSnapshotApplied);
+      unsub();
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }

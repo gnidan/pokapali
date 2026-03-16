@@ -121,13 +121,17 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     // hasn't resolved (matches Editor's timeout).
     const timeout = setTimeout(fetchHistory, 60_000);
 
-    const onSnapshot = (e: { cid: unknown; seq: number; ts: number }) => {
+    const unsubSnapshot = doc.snapshotEvents.subscribe(() => {
+      const e = doc.snapshotEvents.getSnapshot();
+      if (!e) return;
       if (cancelRef.current) return;
-      // If we haven't fetched yet, trigger fetch now
-      // since the doc clearly has data.
+      // If we haven't fetched yet, trigger fetch
+      // now since the doc clearly has data.
       if (!fetched) fetchHistory();
       setVersions((prev) => {
-        if (prev.some((v) => v.seq === e.seq)) return prev;
+        if (prev.some((v) => v.seq === e.seq)) {
+          return prev;
+        }
         const entry: VersionEntry = {
           cid: e.cid as VersionEntry["cid"],
           seq: e.seq,
@@ -136,8 +140,7 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
         return [entry, ...prev];
       });
       setListState((s) => (s.status === "idle" ? s : { status: "idle" }));
-    };
-    doc.on("snapshot", onSnapshot);
+    });
 
     // Re-fetch when a new node appears (may now have
     // httpUrl for enriched history with tier data).
@@ -152,7 +155,7 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     return () => {
       cancelRef.current = true;
       clearTimeout(timeout);
-      doc.off("snapshot", onSnapshot);
+      unsubSnapshot();
       doc.off("node-change", onNodeChange);
     };
   }, [doc]);
