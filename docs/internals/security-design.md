@@ -83,26 +83,42 @@ URL.
 ```typescript
 // In onAnnouncement:
 if (msg.proof) {
-  const payload = encode(msg.ipnsName + msg.cid);
-  const ipnsKeyBytes = hexToBytes(msg.ipnsName);
-  const valid = await verifySignature(
-    ipnsKeyBytes,
-    hexToBytes(msg.proof),
-    payload,
-  );
+  // ipnsName IS the hex-encoded Ed25519 public key.
+  // The pinner only needs the public key to verify —
+  // it never has (or needs) ipnsKeyBytes (the seed).
+  const pubKey = hexToBytes(msg.ipnsName);
+  const payload = new TextEncoder().encode(msg.ipnsName + ":" + msg.cid);
+  const valid = await ed25519.verify(hexToBytes(msg.proof), payload, pubKey);
   if (!valid) return; // reject
 }
 ```
+
+**Payload encoding:** `TextEncoder.encode(ipnsName +
+":" + cid)` — the colon separator prevents ambiguity
+between ipnsName and CID boundaries. Plain UTF-8 is
+simpler than CBOR here since both inputs are already
+hex strings.
 
 **Migration:** Accept announcements without `proof`
 during a transition period (1-2 alpha releases), then
 require it. Log a warning for unproven announcements.
 
-**Pinner re-announcements:** When a pinner re-announces
-a snapshot it previously verified, it sets
-`fromPinner: true`. Pinners already trust each other's
-re-announcements (they share appId). No proof needed
-for re-announces — the pinner verified the original.
+**Pinner re-announcements and acks:** When a pinner
+re-announces a snapshot it previously verified, it
+sets `fromPinner: true`. Pinners already trust each
+other's re-announcements (they share appId). No proof
+needed for re-announces or acks — the pinner verified
+the original.
+
+**Reader re-announcements:** Readers gossip CIDs they
+receive (session-scoped dedup, reliability). They
+don't hold the signing key and cannot produce proofs.
+During the migration period, their unproven
+re-announces are accepted. After migration, readers
+can no longer re-announce. This is acceptable — reader
+re-announces are a reliability optimization, not
+essential for convergence. Pinners and writers cover
+the announcement path.
 
 ### Tier 2: Publisher Authorization at Pinner (#76)
 
@@ -132,6 +148,17 @@ This is weaker than full authorization enforcement
 prevents the most dangerous attack: injecting
 snapshots from unauthorized devices when auth is
 enabled.
+
+**Bootstrapping caveat:** The pinner trusts the first
+`authHash` it sees for a given ipnsName. An attacker
+who publishes first could set the initial hash. To
+mitigate: the initial `authHash` should be signed by
+the doc signing key (proving the setter has write
+capability), and subsequent `authHash` changes should
+only be accepted if the `publisher` was present in
+the previous cached list. This anchors the
+authorization chain to the doc owner. Full design
+deferred to Tier 2 implementation.
 
 **Full enforcement alternative:** Share the
 authorization list with pinners in cleartext (as a
