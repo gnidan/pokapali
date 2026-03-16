@@ -11,7 +11,7 @@ set -euo pipefail
 #
 # Usage:
 #   chaos-s1.sh [--output DIR] [--baseline S]
-#     [--degraded S] [--writers N]
+#     [--degraded S] [--writers N] [--readers N]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -19,6 +19,7 @@ OUTPUT_DIR="/tmp/chaos-s1"
 BASELINE_S=60
 DEGRADED_S=120
 WRITERS=20
+READERS=3
 APP_ID="pokapali-chaos-test"
 RELAY_COUNT=4
 PIN_COUNT=2
@@ -31,6 +32,7 @@ while [ $# -gt 0 ]; do
     --baseline) BASELINE_S="$2"; shift 2 ;;
     --degraded) DEGRADED_S="$2"; shift 2 ;;
     --writers) WRITERS="$2"; shift 2 ;;
+    --readers) READERS="$2"; shift 2 ;;
     *) echo "Unknown: $1"; exit 1 ;;
   esac
 done
@@ -43,6 +45,7 @@ mkdir -p "$OUTPUT_DIR"
 echo "=== S1: Relay Kill Mid-Session ==="
 echo "  Relays: $RELAY_COUNT (${PIN_COUNT} pinners)"
 echo "  Writers: $WRITERS"
+echo "  Readers: $READERS"
 echo "  Baseline: ${BASELINE_S}s"
 echo "  Degraded: ${DEGRADED_S}s"
 echo "  Kill relay-2 at: ${KILL_AT_S}s"
@@ -86,7 +89,7 @@ KILL_JOB=$!
 # shellcheck disable=SC2086
 node "$REPO/packages/load-test/dist/bin/churn.js" \
   --writers "$WRITERS" \
-  --readers 0 \
+  --readers "$READERS" \
   --duration "$TOTAL_S" \
   --churn-interval 999999 \
   --churn-size 0 \

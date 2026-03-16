@@ -21,6 +21,11 @@ on:
         required: false
         type: number
         default: 60
+      readers:
+        description: "Number of readers"
+        required: false
+        type: number
+        default: 3
 
 concurrency:
   group: chaos-weekly
@@ -100,18 +105,21 @@ jobs:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
           WRITERS: ${{ inputs.writers || 20 }}
           BASELINE: ${{ inputs.baseline || 60 }}
+          READERS: ${{ inputs.readers || 3 }}
         run: |
           ssh "$LOADTEST_USER@$HOST" \
             bash -s -- \
               "$LOADTEST_REPO" \
               "$WRITERS" \
               "$BASELINE" \
+              "$READERS" \
             <<'REMOTE'
           set -euo pipefail
           cd "$1"
           packages/load-test/bin/chaos-s1.sh \
             --writers "$2" \
             --baseline "$3" \
+            --readers "$4" \
             --output /tmp/chaos-s1
           REMOTE
 
@@ -166,18 +174,21 @@ jobs:
           HOST: ${{ secrets.LOADTEST_SSH_HOST }}
           WRITERS: ${{ inputs.writers || 10 }}
           BASELINE: ${{ inputs.baseline || 60 }}
+          READERS: ${{ inputs.readers || 2 }}
         run: |
           ssh "$LOADTEST_USER@$HOST" \
             bash -s -- \
               "$LOADTEST_REPO" \
               "$WRITERS" \
               "$BASELINE" \
+              "$READERS" \
             <<'REMOTE'
           set -euo pipefail
           cd "$1"
           packages/load-test/bin/chaos-s4.sh \
             --writers "$2" \
             --baseline "$3" \
+            --readers "$4" \
             --output /tmp/chaos-s4
           REMOTE
 
