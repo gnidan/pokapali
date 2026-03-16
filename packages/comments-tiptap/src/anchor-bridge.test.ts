@@ -24,7 +24,6 @@ import {
 } from "y-prosemirror";
 
 function mockEditor(from: number, to: number) {
-   
   return {
     state: {
       selection: { from, to },
