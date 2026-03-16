@@ -50,11 +50,9 @@ export function createSubdocManager(
 
   const skipOrigins = _options?.skipOrigins;
 
-  for (const [key, doc] of docs) {
-    const handler = (_update: Uint8Array, origin: unknown) => {
-      if (origin === SNAPSHOT_ORIGIN) {
-        return;
-      }
+  function makeUpdateHandler(): (_update: Uint8Array, origin: unknown) => void {
+    return (_update, origin) => {
+      if (origin === SNAPSHOT_ORIGIN) return;
       if (skipOrigins && skipOrigins.has(origin as object)) {
         return;
       }
@@ -65,8 +63,16 @@ export function createSubdocManager(
         }
       }
     };
+  }
+
+  function registerDoc(key: string, doc: Y.Doc): void {
+    const handler = makeUpdateHandler();
     updateHandlers.set(key, handler);
     doc.on("update", handler);
+  }
+
+  for (const [key, doc] of docs) {
+    registerDoc(key, doc);
   }
 
   // Load all docs and build whenLoaded promise.
@@ -105,10 +111,14 @@ export function createSubdocManager(
 
     applySnapshot(data: Record<string, Uint8Array>): void {
       for (const [key, update] of Object.entries(data)) {
-        const doc = docs.get(key);
-        if (doc) {
-          Y.applyUpdate(doc, update, SNAPSHOT_ORIGIN);
+        let doc = docs.get(key);
+        if (!doc) {
+          const guid = `${ipnsName}:${key}`;
+          doc = new Y.Doc({ guid, gc: true });
+          docs.set(key, doc);
+          registerDoc(key, doc);
         }
+        Y.applyUpdate(doc, update, SNAPSHOT_ORIGIN);
       }
     },
 
