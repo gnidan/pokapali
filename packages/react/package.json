@@ -23,11 +23,11 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@pokapali/core": "0.1.0-alpha.5",
+    "@pokapali/core": "0.1.0-alpha.6",
     "react": ">=18"
   },
   "devDependencies": {
-    "@pokapali/core": "0.1.0-alpha.5",
+    "@pokapali/core": "0.1.0-alpha.6",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.2.3",
