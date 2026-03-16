@@ -34,10 +34,6 @@ npm install @tiptap/extension-collaboration \
 
 For React helpers (optional but recommended):
 
-<!-- DEPENDS ON: #228 (@pokapali/react) — not yet
-     published. The hooks below reference the approved
-     spec. Remove this comment when #228 ships. -->
-
 ```bash
 npm install @pokapali/react
 ```
@@ -236,8 +232,6 @@ read-only peers.
 
 ### Pattern (with `@pokapali/react`)
 
-<!-- DEPENDS ON: #228 -->
-
 ```tsx
 import { useDocReady } from "@pokapali/react";
 
@@ -301,8 +295,6 @@ all peers close their tabs, unsaved edits are lost.
 
 ### React
 
-<!-- DEPENDS ON: #228 -->
-
 ```tsx
 import { useAutoSave } from "@pokapali/react";
 
@@ -330,6 +322,15 @@ A `Feed<DocStatus>` with values:
 | `"synced"`     | In the mesh, actively syncing            |
 | `"offline"`    | No relay connections                     |
 
+Human-readable labels:
+
+```ts
+import { statusLabel } from "@pokapali/core";
+
+statusLabel("synced"); // "Live"
+statusLabel("connecting"); // "Connecting"
+```
+
 ### Persistence: `doc.saveState`
 
 A `Feed<SaveState>` with values:
@@ -342,6 +343,15 @@ A `Feed<SaveState>` with values:
 | `"saved"`       | Latest edits have been published                  |
 | `"save-error"`  | Last `publish()` failed (see `doc.lastSaveError`) |
 
+Human-readable labels:
+
+```ts
+import { saveLabel } from "@pokapali/core";
+
+saveLabel("saved"); // "Published"
+saveLabel("dirty"); // "Publish changes"
+```
+
 **`"unpublished"` is not `"dirty"`.** It means the
 document has never had a snapshot — not that the
 current edits are unsaved. On a brand-new document,
@@ -353,8 +363,6 @@ the state starts as `"unpublished"` until the first
 Feeds implement the `useSyncExternalStore` interface.
 
 With `@pokapali/react` (recommended):
-
-<!-- DEPENDS ON: #228 -->
 
 ```tsx
 import { useFeed } from "@pokapali/react";
@@ -502,8 +510,6 @@ editor instance) must complete first. If they run
 after `destroy()`, they access a destroyed doc.
 
 With `@pokapali/react`:
-
-<!-- DEPENDS ON: #228 -->
 
 ```tsx
 import { useAutoSave, useDocDestroy } from "@pokapali/react";
@@ -714,13 +720,9 @@ const doc = await app.create();
 
 ## Full Example: Tiptap + React
 
-<!-- DEPENDS ON: #228 (@pokapali/react) — written
-     against the approved spec. Update imports if
-     hook signatures change. -->
-
 ```tsx
 import { useState, useEffect } from "react";
-import { pokapali, type Doc } from "@pokapali/core";
+import { pokapali, statusLabel, saveLabel, type Doc } from "@pokapali/core";
 import {
   useFeed,
   useDocReady,
@@ -811,7 +813,7 @@ function Editor({ doc }: { doc: Doc }) {
   return (
     <div>
       <div>
-        Status: {status} | Save: {saveState}
+        {statusLabel(status)} | {saveLabel(saveState)}
       </div>
       <EditorContent editor={editor} />
     </div>
