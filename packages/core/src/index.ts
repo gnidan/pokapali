@@ -12,6 +12,8 @@ import {
   bytesToHex,
 } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
+import * as Y from "yjs";
+import { Awareness } from "y-protocols/awareness";
 import { createSubdocManager } from "@pokapali/subdocs";
 import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
 import type { SyncOptions, PubSubLike } from "@pokapali/sync";
@@ -101,130 +103,144 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   }
 
   /** Shared init path — both create() and open()
-   *  produce a DocInit, then this does the rest. */
+   *  produce a DocInit, then this does the rest.
+   *
+   *  Returns the Doc immediately. Helia bootstrap
+   *  and P2P layer setup run in the background via
+   *  p2pReady. */
   async function initDoc(init: DocInit): Promise<Doc> {
     const { ipnsName, keys, signingKey, identity } = init;
 
-    // Layer B: persistent blockstore for Helia.
-    // Only create when Helia doesn't exist yet —
-    // acquireHelia ignores blockstore on ref-count
-    // increment, so opening one would leak an IDB
-    // connection.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let blockstore: any;
-    if (persistenceEnabled && !isHeliaLive()) {
-      const { IDBBlockstore } = await import("blockstore-idb");
-      const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
-      await bs.open();
-      blockstore = bs;
+    const cap = inferCapability(keys, channels);
+    const chKeys = keys.channelKeys ?? {};
+
+    // Layer A: y-indexeddb persistence per subdoc
+    let docPersistence: DocPersistence | null = null;
+    const skipOrigins = new Set<object>();
+
+    const subdocManager = createSubdocManager(ipnsName, channels, {
+      primaryNamespace: primaryChannel,
+      skipOrigins: persistenceEnabled ? skipOrigins : undefined,
+    });
+
+    if (persistenceEnabled) {
+      docPersistence = createDocPersistence(subdocManager, channels);
+      for (const p of docPersistence.providers) {
+        skipOrigins.add(p);
+      }
     }
-    await acquireHelia({ bootstrapPeers, blockstore });
-    try {
-      const pubsub = getHeliaPubsub() as unknown as PubSubLike;
-      acquireNodeRegistry(pubsub, () => getHelia());
 
-      const userIce = options.rtc?.config?.iceServers;
-      const syncOpts: SyncOptions = {
-        peerOpts: {
-          config: {
-            iceServers: userIce ?? DEFAULT_ICE_SERVERS,
-          },
-        },
-        pubsub,
-      };
+    init.afterSubdocSetup?.(subdocManager.metaDoc);
 
-      const cap = inferCapability(keys, channels);
-      const chKeys = keys.channelKeys ?? {};
+    // Standalone awareness — available immediately
+    // before Helia/WebRTC connects. Passed to the
+    // WebrtcProvider later via setupAwarenessRoom.
+    const awarenessDummyDoc = new Y.Doc();
+    const awareness = new Awareness(awarenessDummyDoc);
 
-      // Layer A: y-indexeddb persistence per subdoc
-      let docPersistence: DocPersistence | null = null;
-      const skipOrigins = new Set<object>();
+    const adminUrl = keys.rotationKey
+      ? await buildUrl(origin, ipnsName, keys)
+      : null;
+    const writeUrl = keys.ipnsKeyBytes
+      ? await buildUrl(
+          origin,
+          ipnsName,
+          narrowCapability(keys, {
+            channels: [...cap.channels],
+            canPushSnapshots: true,
+          }),
+        )
+      : null;
+    const readUrl = await buildUrl(
+      origin,
+      ipnsName,
+      narrowCapability(keys, {
+        channels: [],
+      }),
+    );
 
-      const subdocManager = createSubdocManager(ipnsName, channels, {
-        primaryNamespace: primaryChannel,
-        skipOrigins: persistenceEnabled ? skipOrigins : undefined,
-      });
-
-      if (persistenceEnabled) {
-        docPersistence = createDocPersistence(subdocManager, channels);
-        for (const p of docPersistence.providers) {
-          skipOrigins.add(p);
-        }
-        if (blockstore) {
-          const bs = blockstore;
-          docPersistence.closeBlockstore = () => bs.close();
+    // Layer B: Helia + P2P — runs in background.
+    const p2pReady = (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let blockstore: any;
+      if (persistenceEnabled && !isHeliaLive()) {
+        const { IDBBlockstore } = await import("blockstore-idb");
+        const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
+        await bs.open();
+        blockstore = bs;
+        if (docPersistence) {
+          const bsRef = bs;
+          docPersistence.closeBlockstore = () => bsRef.close();
         }
       }
+      await acquireHelia({ bootstrapPeers, blockstore });
 
-      init.afterSubdocSetup?.(subdocManager.metaDoc);
+      try {
+        const pubsub = getHeliaPubsub() as unknown as PubSubLike;
+        acquireNodeRegistry(pubsub, () => getHelia());
 
-      const syncManager = setupNamespaceRooms(
-        ipnsName,
-        subdocManager,
-        chKeys,
-        signalingUrls,
-        syncOpts,
-      );
+        const userIce = options.rtc?.config?.iceServers;
+        const syncOpts: SyncOptions = {
+          peerOpts: {
+            config: {
+              iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+            },
+          },
+          pubsub,
+        };
 
-      const awarenessRoom = setupAwarenessRoom(
-        ipnsName,
-        keys.awarenessRoomPassword ?? "",
-        signalingUrls,
-        syncOpts,
-      );
+        const syncManager = setupNamespaceRooms(
+          ipnsName,
+          subdocManager,
+          chKeys,
+          signalingUrls,
+          syncOpts,
+        );
 
-      const roomDiscovery = startRoomDiscovery(getHelia(), appId);
+        const awarenessRoom = setupAwarenessRoom(
+          ipnsName,
+          keys.awarenessRoomPassword ?? "",
+          signalingUrls,
+          syncOpts,
+          awareness,
+        );
 
-      const adminUrl = keys.rotationKey
-        ? await buildUrl(origin, ipnsName, keys)
-        : null;
-      const writeUrl = keys.ipnsKeyBytes
-        ? await buildUrl(
-            origin,
-            ipnsName,
-            narrowCapability(keys, {
-              channels: [...cap.channels],
-              canPushSnapshots: true,
-            }),
-          )
-        : null;
-      const readUrl = await buildUrl(
-        origin,
-        ipnsName,
-        narrowCapability(keys, {
-          channels: [],
-        }),
-      );
+        const roomDiscovery = startRoomDiscovery(getHelia(), appId);
 
-      return createDoc({
-        subdocManager,
-        syncManager,
-        awarenessRoom,
-        cap,
-        keys,
-        ipnsName,
-        origin,
-        channels,
-        adminUrl,
-        writeUrl,
-        readUrl,
-        signingKey,
-        readKey: keys.readKey,
-        appId,
-        primaryChannel,
-        signalingUrls,
-        syncOpts,
-        pubsub,
-        roomDiscovery,
-        performInitialResolve: init.performInitialResolve,
-        persistence: docPersistence,
-        hasCachedState: init.hasCachedState,
-        identity,
-      });
-    } catch (err) {
-      await releaseHelia();
-      throw err;
-    }
+        return {
+          pubsub,
+          syncManager,
+          awarenessRoom,
+          roomDiscovery,
+        };
+      } catch (err) {
+        releaseHelia();
+        throw err;
+      }
+    })();
+
+    return createDoc({
+      subdocManager,
+      awareness,
+      p2pReady,
+      cap,
+      keys,
+      ipnsName,
+      origin,
+      channels,
+      adminUrl,
+      writeUrl,
+      readUrl,
+      signingKey,
+      readKey: keys.readKey,
+      appId,
+      primaryChannel,
+      signalingUrls,
+      performInitialResolve: init.performInitialResolve,
+      persistence: docPersistence,
+      hasCachedState: init.hasCachedState,
+      identity,
+    });
   }
 
   return {

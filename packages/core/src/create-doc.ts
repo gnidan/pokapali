@@ -238,10 +238,18 @@ export interface ClientIdentityInfo {
   verified: boolean;
 }
 
-export interface DocParams {
-  subdocManager: SubdocManager;
+/** P2P dependencies resolved after Helia bootstrap. */
+export interface P2PDeps {
+  pubsub: PubSubLike;
   syncManager: SyncManager;
   awarenessRoom: AwarenessRoom;
+  roomDiscovery: RoomDiscovery;
+}
+
+export interface DocParams {
+  subdocManager: SubdocManager;
+  syncManager?: SyncManager;
+  awarenessRoom?: AwarenessRoom;
   cap: Capability;
   keys: CapabilityKeys;
   ipnsName: string;
@@ -270,6 +278,16 @@ export interface DocParams {
    *  for publisher attribution and participant
    *  awareness. */
   identity?: Ed25519KeyPair;
+  /** Standalone awareness for immediate use before
+   *  P2P connects. Used when awarenessRoom is
+   *  deferred via p2pReady. */
+  awareness?: Awareness;
+  /** Promise that resolves with P2P deps after
+   *  Helia bootstrap. When provided, the interpreter
+   *  and sync/gossip layer start when this resolves.
+   *  Rejection is handled gracefully — doc continues
+   *  in local-only mode. */
+  p2pReady?: Promise<P2PDeps>;
 }
 
 // Pure status derivation functions extracted to
@@ -384,9 +402,20 @@ export function createDoc(params: DocParams): Doc {
   let lastSaveError: string | null = null;
   const docCreatedAt = Date.now();
 
+  // Mutable refs — updated when p2pReady resolves.
+  let liveSyncManager: SyncManager | null = syncManager ?? null;
+  let liveAwarenessRoom: AwarenessRoom | null = awarenessRoom ?? null;
+  // Tracks whether p2pReady resolved so teardown
+  // knows to release Helia (avoids ref-count
+  // underflow if Helia was never acquired).
+  let p2pResolved = false;
+  // Standalone awareness: prefer awarenessRoom's if
+  // available, otherwise use the standalone param.
+  const awareness: Awareness = awarenessRoom?.awareness ?? params.awareness!;
+
   let lastStatus = computeStatus(
-    syncManager.status,
-    awarenessRoom.connected,
+    liveSyncManager?.status ?? "disconnected",
+    liveAwarenessRoom?.connected ?? false,
     gossipActivity,
     docCreatedAt,
   );
@@ -394,8 +423,8 @@ export function createDoc(params: DocParams): Doc {
 
   function checkStatus() {
     const next = computeStatus(
-      syncManager.status,
-      awarenessRoom.connected,
+      liveSyncManager?.status ?? "disconnected",
+      liveAwarenessRoom?.connected ?? false,
       gossipActivity,
       docCreatedAt,
     );
@@ -562,7 +591,7 @@ export function createDoc(params: DocParams): Doc {
     lastSaveError = null;
     checkSaveState();
     dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
-    awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
+    awareness?.setLocalStateField("clockSum", computeClockSum());
     factQueue?.push({
       type: "content-dirty",
       ts: Date.now(),
@@ -570,22 +599,31 @@ export function createDoc(params: DocParams): Doc {
     });
   });
 
-  syncManager.onStatusChange(() => {
-    checkStatus();
-    factQueue?.push({
-      type: "sync-status-changed",
-      ts: Date.now(),
-      status: syncManager.status,
+  // Wire sync/awareness status bridges. These are
+  // called immediately if deps are available, or
+  // deferred until p2pReady resolves.
+  function wireSyncBridges(sm: SyncManager, ar: AwarenessRoom): void {
+    sm.onStatusChange(() => {
+      checkStatus();
+      factQueue?.push({
+        type: "sync-status-changed",
+        ts: Date.now(),
+        status: sm.status,
+      });
     });
-  });
-  awarenessRoom.onStatusChange(() => {
-    checkStatus();
-    factQueue?.push({
-      type: "awareness-status-changed",
-      ts: Date.now(),
-      connected: awarenessRoom.connected,
+    ar.onStatusChange(() => {
+      checkStatus();
+      factQueue?.push({
+        type: "awareness-status-changed",
+        ts: Date.now(),
+        connected: ar.connected,
+      });
     });
-  });
+  }
+
+  if (liveSyncManager && liveAwarenessRoom) {
+    wireSyncBridges(liveSyncManager, liveAwarenessRoom);
+  }
 
   // If the subdoc is already dirty (e.g. _meta was
   // populated before we registered), fire the event
@@ -608,9 +646,9 @@ export function createDoc(params: DocParams): Doc {
   let relaySharing: RelaySharing | null = null;
   let topSharing: TopologySharing | null = null;
   let cleanupRelayConnect: (() => void) | null = null;
-  if (params.roomDiscovery) {
+  if (params.roomDiscovery && awareness) {
     relaySharing = createRelaySharing({
-      awareness: awarenessRoom.awareness,
+      awareness,
       roomDiscovery: params.roomDiscovery,
     });
   }
@@ -667,7 +705,7 @@ export function createDoc(params: DocParams): Doc {
     if (registry) {
       const helia = getHelia();
       topSharing = createTopologySharing({
-        awareness: awarenessRoom.awareness,
+        awareness: awareness!,
         registry,
         libp2p: helia.libp2p,
       });
@@ -682,21 +720,29 @@ export function createDoc(params: DocParams): Doc {
     ? bytesToHex(params.identity.publicKey)
     : null;
 
-  const cleanupParticipant = setupParticipantAwareness(
-    params.identity,
-    awarenessRoom.awareness,
-    subdocManager.metaDoc,
-    ipnsName,
-  );
+  const cleanupParticipant = awareness
+    ? setupParticipantAwareness(
+        params.identity,
+        awareness,
+        subdocManager.metaDoc,
+        ipnsName,
+      )
+    : () => {};
 
   // ── Interpreter setup ─────────────────────────
   let stopIPNSWatch: (() => void) | null = null;
   let initialQueryTimer: ReturnType<typeof setTimeout> | null = null;
   let guaranteeQueryInterval: ReturnType<typeof setInterval> | null = null;
 
-  if (readKey && params.pubsub && params.appId) {
+  // Start the P2P + interpreter layer. Called either
+  // immediately (when pubsub is provided inline) or
+  // when p2pReady resolves.
+  function startP2PLayer(
+    pubsub: PubSubLike,
+    roomDiscovery?: RoomDiscovery,
+  ): void {
+    if (!readKey || !params.appId) return;
     const rk = readKey;
-    const pubsub = params.pubsub;
     const appId = params.appId;
     const ipnsPublicKeyBytes = hexToBytes(ipnsName);
 
@@ -1174,8 +1220,8 @@ export function createDoc(params: DocParams): Doc {
     }, GUARANTEE_REQUERY_MS);
 
     // --- Relay connect → push fact ---
-    if (params.roomDiscovery) {
-      const rd = params.roomDiscovery;
+    if (roomDiscovery) {
+      const rd = roomDiscovery;
       const connectHandler = (evt: CustomEvent) => {
         const pid = evt.detail?.toString?.() ?? "";
         if (rd.relayPeerIds.has(pid)) {
@@ -1202,6 +1248,58 @@ export function createDoc(params: DocParams): Doc {
       },
       { once: true },
     );
+  }
+
+  // Start immediately if pubsub already available
+  if (params.pubsub) {
+    startP2PLayer(params.pubsub, params.roomDiscovery);
+  }
+
+  // Deferred P2P: wire up when Helia finishes
+  if (params.p2pReady && !params.pubsub) {
+    params.p2pReady
+      .then((deps) => {
+        if (destroyed) return;
+        p2pResolved = true;
+        liveSyncManager = deps.syncManager;
+        liveAwarenessRoom = deps.awarenessRoom;
+        wireSyncBridges(deps.syncManager, deps.awarenessRoom);
+        checkStatus();
+
+        // Relay sharing (deferred)
+        if (deps.roomDiscovery && awareness) {
+          relaySharing = createRelaySharing({
+            awareness,
+            roomDiscovery: deps.roomDiscovery,
+          });
+        }
+
+        // Topology sharing (deferred)
+        try {
+          const registry = getNodeRegistry();
+          if (registry && awareness) {
+            const helia = getHelia();
+            topSharing = createTopologySharing({
+              awareness,
+              registry,
+              libp2p: helia.libp2p,
+            });
+            registry.on("change", nodeChangeHandler);
+          }
+        } catch (err) {
+          log.warn(
+            "deferred topology sharing failed:",
+            (err as Error)?.message ?? err,
+          );
+        }
+
+        startP2PLayer(deps.pubsub, deps.roomDiscovery);
+      })
+      .catch((err) => {
+        log.warn("p2pReady failed:", err);
+        // Ensure ready() resolves even without P2P
+        markReady();
+      });
   }
 
   function teardown() {
@@ -1242,10 +1340,21 @@ export function createDoc(params: DocParams): Doc {
     }
     params.roomDiscovery?.stop();
     params.persistence?.destroy();
-    syncManager.destroy();
-    awarenessRoom.destroy();
+    liveSyncManager?.destroy();
+    liveAwarenessRoom?.destroy();
+    // Clean up standalone awareness + backing doc
+    // when awarenessRoom never materialized (e.g.
+    // p2pReady rejected or doc destroyed early).
+    if (params.awareness && !liveAwarenessRoom) {
+      params.awareness.destroy();
+      params.awareness.doc.destroy();
+    }
     subdocManager.destroy();
-    releaseHelia();
+    // Only release Helia if p2pReady resolved (we
+    // acquired it) or if inline path (no p2pReady).
+    if (p2pResolved || !params.p2pReady) {
+      releaseHelia();
+    }
   }
 
   function assertNotDestroyed() {
@@ -1260,7 +1369,7 @@ export function createDoc(params: DocParams): Doc {
 
   const providerObj = {
     get awareness(): Awareness {
-      return awarenessRoom.awareness;
+      return awareness!;
     },
   };
 
@@ -1281,7 +1390,7 @@ export function createDoc(params: DocParams): Doc {
     },
 
     get awareness(): Awareness {
-      return awarenessRoom.awareness;
+      return awareness!;
     },
 
     get capability(): Capability {
@@ -1628,7 +1737,7 @@ export function createDoc(params: DocParams): Doc {
         guaranteeUntil: g.guaranteeUntil || null,
         retainUntil: g.retainUntil || null,
         roomDiscovery: params.roomDiscovery,
-        awareness: awarenessRoom.awareness,
+        awareness: awareness!,
         clockSum: computeClockSum(),
         ipnsSeq: snapshotLC.lastIpnsSeq,
       });
@@ -1636,7 +1745,7 @@ export function createDoc(params: DocParams): Doc {
 
     topologyGraph(): TopologyGraph {
       assertNotDestroyed();
-      return buildTopologyGraph(this.diagnostics(), awarenessRoom.awareness);
+      return buildTopologyGraph(this.diagnostics(), awareness!);
     },
 
     async versionHistory(): Promise<VersionEntry[]> {
@@ -1745,7 +1854,7 @@ export function createDoc(params: DocParams): Doc {
 
     get participants(): ReadonlyMap<number, ParticipantInfo> {
       const result = new Map<number, ParticipantInfo>();
-      const states = awarenessRoom.awareness.getStates();
+      const states = awareness!.getStates();
       for (const [clientId, state] of states) {
         const p = state.participant as ParticipantAwareness | undefined;
         if (!p?.pubkey || !p?.sig) continue;
