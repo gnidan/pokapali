@@ -49,6 +49,8 @@ These APIs work but may change shape:
 - `TopologyGraph`, `TopologyNode`, `TopologyEdge`,
   `TopologyGraphEdge`
 - `AwarenessTopology`, `AwarenessKnownNode`
+- `doc.lastPersistenceError` — IDB write failure
+  notifications (added in alpha.7)
 
 ### Internal
 
