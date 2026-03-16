@@ -2,8 +2,10 @@
 
 # Block direct commits to main — use a feature branch
 # and merge-branch.sh instead.
+# Exception: bin/release.sh sets POKAPALI_RELEASE=1
+# so release commits still get lint-staged formatting.
 branch=$(git branch --show-current)
-if [ "$branch" = "main" ]; then
+if [ "$branch" = "main" ] && [ "${POKAPALI_RELEASE:-}" != "1" ]; then
   echo "ERROR: Direct commits to main are blocked."
   echo "Create a feature branch and use merge-branch.sh."
   exit 1

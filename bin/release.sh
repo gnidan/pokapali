@@ -22,9 +22,11 @@ set -euo pipefail
 #   7. Push commit to origin
 #   8. Push tags individually (GHA limitation)
 #
-# Uses --no-verify for the release commit because
-# the pre-commit hook blocks direct main commits.
-# This is an authorized exception for releases.
+# Sets POKAPALI_RELEASE=1 so the pre-commit hook
+# allows commits on main while still running
+# lint-staged formatting.
+
+export POKAPALI_RELEASE=1
 
 VERSION="${1:-}"
 
@@ -100,7 +102,7 @@ if [ "$CHANGELOG_DIRTY" = true ]; then
   echo ""
   echo "=== Committing CHANGELOG.md ==="
   git add CHANGELOG.md
-  git commit --no-verify -m "docs: update changelog for $VERSION"
+  git commit -m "docs: update changelog for $VERSION"
   COMMITS_TO_SQUASH=1
   echo "  committed changelog"
 fi
@@ -135,7 +137,7 @@ if [ "$COMMITS_TO_SQUASH" -eq 2 ]; then
 
   # Squash: soft reset 2 commits, recommit
   git reset --soft HEAD~2
-  git commit --no-verify -m "$(cat <<EOF
+  git commit -m "$(cat <<EOF
 chore: release $VERSION
 
 Updates CHANGELOG.md and bumps all packages to $VERSION.
