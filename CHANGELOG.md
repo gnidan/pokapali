@@ -7,6 +7,41 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Tier 3 chaos test infrastructure — S1 (relay kill)
+  and S4 (peer churn) scenario scripts with fleet
+  orchestration, phase-aware analysis, and weekly GHA
+  workflow (#174)
+- `--tcp-port` and `--ws-port` CLI flags for relay —
+  enables multi-relay fleet testing
+- Typed error subclasses — `PokapaliError`,
+  `PermissionError`, `TimeoutError`, `DestroyedError`,
+  `ValidationError`, `NotFoundError` for programmatic
+  error handling by consumers
+- `useFeed` accepts `null`/`undefined` — returns
+  `undefined` instead of crashing, enabling
+  `useFeed(instance?.feed)` pattern
+
+### Changed
+
+- Lazy WebRTC rooms — channels connect on demand
+  instead of eagerly at init, reducing signaling
+  traffic for unused channels (#199)
+- Helia lifecycle refactored to discriminated union
+  state machine (`idle` → `bootstrapping` → `ready`
+  → `destroying`), fixing a race condition where
+  `acquireHelia()` during `helia.stop()` could create
+  duplicate instances (#186)
+- Pinner lifecycle refactored to explicit phase enum
+  (`starting` → `running` → `stopped`), guarding
+  public methods against post-stop calls (#185)
+- `release.sh` now pushes to both GitHub and Gitea
+  remotes automatically
+- `guide.md` updated for lazy Helia startup,
+  `lastPersistenceError` Feed, and bundle splitting
+  patterns
+
 ## [0.1.0-alpha.7] — 2026-03-16
 
 ### Added
