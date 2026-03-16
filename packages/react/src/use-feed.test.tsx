@@ -57,4 +57,25 @@ describe("useFeed", () => {
     act(() => feed._update(next));
     expect(result.current).toBe(next);
   });
+
+  it("returns undefined for null feed", () => {
+    const { result } = renderHook(() => useFeed(null));
+    expect(result.current).toBeUndefined();
+  });
+
+  it("returns undefined for undefined feed", () => {
+    const { result } = renderHook(() => useFeed(undefined));
+    expect(result.current).toBeUndefined();
+  });
+
+  it("transitions from null to real feed", () => {
+    const feed = createFeed(42);
+    let current: Feed<number> | null = null;
+    const { result, rerender } = renderHook(() => useFeed(current));
+    expect(result.current).toBeUndefined();
+
+    current = feed;
+    rerender();
+    expect(result.current).toBe(42);
+  });
 });
