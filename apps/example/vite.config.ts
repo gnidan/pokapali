@@ -9,9 +9,13 @@ import path from "path";
 // package build).
 const useLocalPkgs = !process.env.POKAPALI_PUBLISHED_DEPS;
 const localPkgs = [
+  "comments",
+  "comments-tiptap",
   "core",
   "crypto",
   "capability",
+  "log",
+  "react",
   "subdocs",
   "snapshot",
   "sync",
