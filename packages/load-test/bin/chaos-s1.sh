@@ -14,7 +14,7 @@ set -euo pipefail
 #     [--degraded S] [--writers N]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 OUTPUT_DIR="/tmp/chaos-s1"
 BASELINE_S=60
 DEGRADED_S=120
