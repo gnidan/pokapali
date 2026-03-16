@@ -340,6 +340,8 @@ export type {
   VersionEntryStatus,
 } from "./facts.js";
 
+export { statusLabel, saveLabel } from "./doc-status.js";
+
 export { fetchVersionHistory } from "./fetch-version-history.js";
 export type { VersionEntry, VersionTier } from "./fetch-version-history.js";
 
