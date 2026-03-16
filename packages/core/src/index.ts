@@ -328,7 +328,7 @@ export type {
   ClientIdentityInfo,
 } from "./create-doc.js";
 
-export type { Feed } from "./sources.js";
+export type { Feed } from "./feed.js";
 
 export type { RotateResult } from "./doc-rotate.js";
 
