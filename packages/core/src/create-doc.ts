@@ -6,10 +6,14 @@ import type {
   CapabilityKeys,
 } from "@pokapali/capability";
 import { narrowCapability, buildUrl } from "@pokapali/capability";
-import { hexToBytes, bytesToHex, verifySignature } from "@pokapali/crypto";
+import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
-import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
+import {
+  createClientIdMapping,
+  setupParticipantAwareness,
+} from "./doc-identity.js";
+import type { IdentityMap } from "./doc-identity.js";
 import type { SubdocManager } from "@pokapali/subdocs";
 import type {
   SyncManager,
@@ -24,12 +28,10 @@ import { publishIPNS, resolveIPNS, watchIPNS } from "./ipns-helpers.js";
 import {
   announceTopic,
   announceSnapshot,
-  parseAnnouncement,
-  parseGuaranteeResponse,
   publishGuaranteeQuery,
-  base64ToUint8,
   MAX_INLINE_BLOCK_BYTES,
 } from "./announce.js";
+import { createGossipHandler } from "./doc-gossip-bridge.js";
 import { uploadBlock } from "./block-upload.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { DocPersistence } from "./persistence.js";
@@ -74,17 +76,19 @@ import type {
   DocStatus,
   SaveState,
   DocRole,
-  SyncStatus,
   LoadingState,
   GossipActivity,
   VersionHistory,
 } from "./facts.js";
-import {
-  runInterpreter,
-  MAX_INTERPRETER_RETRIES,
-  RETRY_BASE_MS,
-} from "./interpreter.js";
+import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
+import {
+  computeStatus,
+  computeSaveState,
+  deriveLoadingState,
+  loadingStateChanged,
+  MESH_GRACE_MS,
+} from "./doc-status.js";
 
 const log = createLogger("core");
 
@@ -281,97 +285,9 @@ export interface DocParams {
   identity?: Ed25519KeyPair;
 }
 
-/** Grace period (ms) during which "offline" is
- *  reported as "connecting" to avoid a false
- *  "offline" flash while the mesh forms. */
-const MESH_GRACE_MS = 5_000;
-
-function computeStatus(
-  syncStatus: SyncStatus,
-  awarenessConnected: boolean,
-  gossipActivity: GossipActivity,
-  createdAt?: number,
-): DocStatus {
-  if (syncStatus === "connected") return "synced";
-  if (syncStatus === "connecting") return "connecting";
-  if (awarenessConnected) return "receiving";
-  if (gossipActivity === "receiving") return "receiving";
-  if (gossipActivity === "subscribed") {
-    return "connecting";
-  }
-  // During startup, mesh peers haven't connected
-  // yet. Show "connecting" instead of "offline"
-  // for a brief grace period.
-  if (createdAt !== undefined && Date.now() - createdAt < MESH_GRACE_MS) {
-    return "connecting";
-  }
-  return "offline";
-}
-
-function computeSaveState(
-  isDirty: boolean,
-  isSaving: boolean,
-  lastSaveError?: string | null,
-): SaveState {
-  if (isSaving) return "saving";
-  if (lastSaveError) return "save-error";
-  if (isDirty) return "dirty";
-  return "saved";
-}
-
-// ── Loading state derivation from DocState ──────
-
-function deriveLoadingState(state: DocState): LoadingState {
-  if (state.ipnsStatus.phase === "resolving") {
-    return {
-      status: "resolving",
-      startedAt: state.ipnsStatus.startedAt,
-    };
-  }
-  for (const entry of state.chain.entries.values()) {
-    if (entry.blockStatus === "fetching" && entry.fetchStartedAt) {
-      return {
-        status: "fetching",
-        cid: entry.cid.toString(),
-        startedAt: entry.fetchStartedAt,
-      };
-    }
-  }
-  for (const entry of state.chain.entries.values()) {
-    if (entry.blockStatus === "failed") {
-      if (entry.fetchAttempt < MAX_INTERPRETER_RETRIES) {
-        return {
-          status: "retrying",
-          cid: entry.cid.toString(),
-          attempt: entry.fetchAttempt,
-          nextRetryAt:
-            Date.now() + RETRY_BASE_MS * 3 ** (entry.fetchAttempt - 1),
-        };
-      }
-      return {
-        status: "failed",
-        cid: entry.cid.toString(),
-        error: entry.lastError ?? "unknown",
-      };
-    }
-  }
-  return { status: "idle" };
-}
-
-function loadingStateChanged(a: LoadingState, b: LoadingState): boolean {
-  if (a.status !== b.status) return true;
-  if ("cid" in a && "cid" in b && a.cid !== b.cid) {
-    return true;
-  }
-  if (
-    a.status === "retrying" &&
-    b.status === "retrying" &&
-    a.attempt !== b.attempt
-  ) {
-    return true;
-  }
-  return false;
-}
+// Pure status derivation functions extracted to
+// doc-status.ts (computeStatus, computeSaveState,
+// deriveLoadingState, loadingStateChanged).
 
 /**
  * Populate the _meta subdoc with initial signing
@@ -581,78 +497,11 @@ export function createDoc(params: DocParams): Doc {
   );
 
   // --- Client identity mapping feed ---
-  // Observes _meta "clientIdentities" Y.Map and
-  // projects into a reactive Feed with async sig
-  // verification.
-  type IdentityMap = ReadonlyMap<number, ClientIdentityInfo>;
-  const EMPTY_IDENTITY_MAP: IdentityMap = new Map();
-  const clientIdMappingFeed: WritableFeed<IdentityMap> =
-    createFeed<IdentityMap>(EMPTY_IDENTITY_MAP);
-
-  // Cache verified results to avoid re-verifying
-  // on every Y.Map change.
-  const verifiedCache = new Map<string, boolean | null>();
-
-  function rebuildClientIdMapping(): void {
-    const identities = subdocManager.metaDoc.getMap("clientIdentities");
-    const result = new Map<number, ClientIdentityInfo>();
-    let pendingVerifications = 0;
-
-    for (const [key, value] of identities.entries()) {
-      const clientId = Number(key);
-      if (Number.isNaN(clientId)) continue;
-      const entry = value as {
-        pubkey?: string;
-        sig?: string;
-      };
-      if (!entry?.pubkey || !entry?.sig) continue;
-
-      const cached = verifiedCache.get(key);
-      if (cached !== undefined && cached !== null) {
-        result.set(clientId, {
-          pubkey: entry.pubkey,
-          verified: cached,
-        });
-      } else {
-        // Optimistic: show as unverified until
-        // async verification completes.
-        result.set(clientId, {
-          pubkey: entry.pubkey,
-          verified: false,
-        });
-        if (cached === undefined) {
-          // null = in-flight
-          verifiedCache.set(key, null);
-          pendingVerifications++;
-          const payload = new TextEncoder().encode(
-            entry.pubkey + ":" + ipnsName,
-          );
-          verifySignature(
-            hexToBytes(entry.pubkey),
-            hexToBytes(entry.sig),
-            payload,
-          )
-            .then((ok) => {
-              verifiedCache.set(key, ok);
-              rebuildClientIdMapping();
-            })
-            .catch(() => {
-              verifiedCache.set(key, false);
-              rebuildClientIdMapping();
-            });
-        }
-      }
-    }
-
-    clientIdMappingFeed._update(result);
-  }
-
-  // Observe _meta clientIdentities for changes.
-  const identitiesMap = subdocManager.metaDoc.getMap("clientIdentities");
-  identitiesMap.observe(rebuildClientIdMapping);
-  // Initial projection (may already have entries
-  // from IDB-persisted _meta).
-  rebuildClientIdMapping();
+  const clientIdMapping = createClientIdMapping(
+    subdocManager.metaDoc,
+    ipnsName,
+  );
+  const clientIdMappingFeed = clientIdMapping.feed;
 
   let versionCacheTimer: ReturnType<typeof setTimeout> | null = null;
   const VERSION_CACHE_DEBOUNCE_MS = 500;
@@ -819,73 +668,16 @@ export function createDoc(params: DocParams): Doc {
   }
 
   // ── Participant awareness (identity) ──────────
-  // Publish once on doc open — identity doesn't
-  // change during a session.
   const identityPubkeyHex = params.identity
     ? bytesToHex(params.identity.publicKey)
     : null;
 
-  if (params.identity) {
-    const kp = params.identity;
-    signParticipant(kp, ipnsName)
-      .then((sig) => {
-        // Include displayName from awareness "user"
-        // field if already set (#191).
-        const userState = awarenessRoom.awareness.getLocalState() as Record<
-          string,
-          unknown
-        > | null;
-        const userName = (userState?.user as { name?: string } | undefined)
-          ?.name;
-
-        const participant: ParticipantAwareness = {
-          pubkey: bytesToHex(kp.publicKey),
-          sig,
-          ...(userName ? { displayName: userName } : {}),
-        };
-        awarenessRoom.awareness.setLocalStateField("participant", participant);
-
-        // Persist clientID→pubkey in _meta so the
-        // mapping survives across snapshots. Used by
-        // comments attribution and edit blame (#73).
-        const clientId = awarenessRoom.awareness.clientID;
-        const identities = subdocManager.metaDoc.getMap("clientIdentities");
-        identities.set(String(clientId), {
-          pubkey: bytesToHex(kp.publicKey),
-          sig,
-        });
-      })
-      .catch((err) => {
-        log.warn(
-          "participant awareness failed:",
-          (err as Error)?.message ?? err,
-        );
-      });
-  }
-
-  // Auto-sync awareness "user".name → "participant"
-  // .displayName so comments/presence can show a
-  // human-readable name instead of raw pubkey (#191).
-  function syncDisplayName() {
-    const local = awarenessRoom.awareness.getLocalState() as Record<
-      string,
-      unknown
-    > | null;
-    if (!local) return;
-    const participant = local.participant as ParticipantAwareness | undefined;
-    if (!participant?.pubkey) return;
-
-    const userName = (local.user as { name?: string } | undefined)?.name;
-    if ((participant.displayName ?? "") === (userName ?? "")) {
-      return;
-    }
-    awarenessRoom.awareness.setLocalStateField("participant", {
-      ...participant,
-      displayName: userName,
-    });
-  }
-
-  awarenessRoom.awareness.on("change", syncDisplayName);
+  const cleanupParticipant = setupParticipantAwareness(
+    params.identity,
+    awarenessRoom.awareness,
+    subdocManager.metaDoc,
+    ipnsName,
+  );
 
   // ── Interpreter setup ─────────────────────────
   let stopIPNSWatch: (() => void) | null = null;
@@ -951,87 +743,12 @@ export function createDoc(params: DocParams): Doc {
       type: "gossip-subscribed",
       ts: Date.now(),
     });
-    const gossipHandler = (evt: CustomEvent) => {
-      const { detail } = evt;
-      if (detail?.topic !== topic) return;
-
-      // Liveness fact for every message
-      fq.push({
-        type: "gossip-message",
-        ts: Date.now(),
-      });
-
-      // Check guarantee response first
-      const gResp = parseGuaranteeResponse(detail.data);
-      if (gResp && gResp.ipnsName === ipnsName) {
-        try {
-          fq.push({
-            type: "guarantee-received",
-            ts: Date.now(),
-            peerId: gResp.peerId,
-            cid: CID.parse(gResp.cid),
-            guaranteeUntil: gResp.guaranteeUntil ?? 0,
-            retainUntil: gResp.retainUntil ?? 0,
-          });
-        } catch {
-          // CID parse failure — skip
-        }
-        return;
-      }
-
-      const ann = parseAnnouncement(detail.data);
-      if (!ann || ann.ipnsName !== ipnsName) return;
-
-      // CID discovery FIRST — the chain entry must
-      // exist before ack/guarantee facts reference it.
-      let cid: CID | undefined;
-      try {
-        cid = CID.parse(ann.cid);
-        let block: Uint8Array | undefined;
-        if (ann.block) {
-          try {
-            block = base64ToUint8(ann.block);
-            resolver.put(cid, block);
-          } catch {
-            // decode failure — skip inline block
-          }
-        }
-        fq.push({
-          type: "cid-discovered",
-          ts: Date.now(),
-          cid,
-          source: "gossipsub",
-          block,
-          seq: ann.seq,
-        });
-      } catch {
-        // CID parse failure — skip
-      }
-
-      // Ack/guarantee facts AFTER discovery so the
-      // reducer's updateEntry finds the chain entry.
-      if (ann.ack && cid) {
-        fq.push({
-          type: "ack-received",
-          ts: Date.now(),
-          cid,
-          peerId: ann.ack.peerId,
-        });
-        if (
-          ann.ack.guaranteeUntil !== undefined ||
-          ann.ack.retainUntil !== undefined
-        ) {
-          fq.push({
-            type: "guarantee-received",
-            ts: Date.now(),
-            peerId: ann.ack.peerId,
-            cid,
-            guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
-            retainUntil: ann.ack.retainUntil ?? 0,
-          });
-        }
-      }
-    };
+    const gossipHandler = createGossipHandler({
+      topic,
+      ipnsName,
+      factQueue: fq,
+      putBlock: (cid, block) => resolver.put(cid, block),
+    });
 
     pubsub.addEventListener("message", gossipHandler as EventListener);
 
@@ -1446,8 +1163,8 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch();
       stopIPNSWatch = null;
     }
-    identitiesMap.unobserve(rebuildClientIdMapping);
-    awarenessRoom.awareness.off("change", syncDisplayName);
+    clientIdMapping.destroy();
+    cleanupParticipant();
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
