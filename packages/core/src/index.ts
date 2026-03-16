@@ -22,6 +22,7 @@ import {
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
+import { ValidationError } from "./errors.js";
 import {
   acquireHelia,
   releaseHelia,
@@ -285,7 +286,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         if (keys.rotationKey) {
           const valid = await verifyForwardingRecord(fwd, keys.rotationKey);
           if (!valid) {
-            throw new Error(
+            throw new ValidationError(
               "Invalid forwarding record signature" +
                 " — the document may have been" +
                 " rotated with a different key," +
@@ -403,3 +404,12 @@ export type {
 } from "./topology-sharing.js";
 
 export type { Capability, CapabilityGrant } from "@pokapali/capability";
+
+export {
+  PokapaliError,
+  PermissionError,
+  TimeoutError,
+  DestroyedError,
+  ValidationError,
+  NotFoundError,
+} from "./errors.js";
