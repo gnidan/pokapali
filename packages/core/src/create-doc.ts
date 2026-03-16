@@ -1185,7 +1185,11 @@ export function createDoc(params: DocParams): Doc {
 
   function assertNotDestroyed() {
     if (destroyed) {
-      throw new Error("Doc destroyed");
+      throw new Error(
+        "Doc has been destroyed and can no longer" +
+          " be used. Create or open a new Doc" +
+          " instance instead",
+      );
     }
   }
 
@@ -1303,7 +1307,17 @@ export function createDoc(params: DocParams): Doc {
         readyPromise,
         new Promise<void>((_, reject) =>
           setTimeout(
-            () => reject(new Error("ready() timed out")),
+            () =>
+              reject(
+                new Error(
+                  "ready() timed out after " +
+                    `${options.timeoutMs}ms` +
+                    " — the document did not finish" +
+                    " initial sync in time. Check" +
+                    " network connectivity or" +
+                    " increase the timeout",
+                ),
+              ),
             options.timeoutMs,
           ),
         ),
@@ -1597,7 +1611,12 @@ export function createDoc(params: DocParams): Doc {
     async loadVersion(cid: CID) {
       assertNotDestroyed();
       if (!readKey) {
-        throw new Error("No readKey available");
+        throw new Error(
+          "loadVersion() requires read capability" +
+            " — the current URL does not include" +
+            " a readKey. Use an admin or read URL" +
+            " to access version history",
+        );
       }
       const result = await snapshotLC.loadVersion(cid, readKey);
       // Integrate fetched block into chain state
@@ -1626,7 +1645,11 @@ export function createDoc(params: DocParams): Doc {
     authorize(pubkey: string): void {
       assertNotDestroyed();
       if (!cap.isAdmin) {
-        throw new Error("authorize() requires admin capability");
+        throw new Error(
+          "authorize() requires admin capability" +
+            " — only the document creator can" +
+            " manage authorized publishers",
+        );
       }
       const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
       map.set(pubkey, true);
@@ -1635,7 +1658,11 @@ export function createDoc(params: DocParams): Doc {
     deauthorize(pubkey: string): void {
       assertNotDestroyed();
       if (!cap.isAdmin) {
-        throw new Error("deauthorize() requires admin" + " capability");
+        throw new Error(
+          "deauthorize() requires admin capability" +
+            " — only the document creator can" +
+            " manage authorized publishers",
+        );
       }
       const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
       map.delete(pubkey);

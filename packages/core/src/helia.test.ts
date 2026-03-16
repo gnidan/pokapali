@@ -166,7 +166,7 @@ describe("helia lifecycle", () => {
       await releaseHelia();
 
       resolveCreate(mockHelia);
-      await expect(p).rejects.toThrow("released during bootstrap");
+      await expect(p).rejects.toThrow("released while still bootstrapping");
       expect(mockStop).toHaveBeenCalledOnce();
     },
   );
@@ -188,8 +188,8 @@ describe("helia lifecycle", () => {
       await releaseHelia();
       resolveCreate(mockHelia);
 
-      await expect(p1).rejects.toThrow("released during bootstrap");
-      await expect(p2).rejects.toThrow("released during bootstrap");
+      await expect(p1).rejects.toThrow("released while still bootstrapping");
+      await expect(p2).rejects.toThrow("released while still bootstrapping");
     },
   );
 
@@ -217,7 +217,7 @@ describe("helia lifecycle", () => {
     const p1 = acquireHelia();
     await releaseHelia(); // deferred
     resolveCreate(mockHelia);
-    await expect(p1).rejects.toThrow("released during bootstrap");
+    await expect(p1).rejects.toThrow("released while still bootstrapping");
 
     // State should be fully reset — new acquire
     // creates a fresh instance
