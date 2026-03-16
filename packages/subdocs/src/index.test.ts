@@ -149,6 +149,113 @@ describe("@pokapali/subdocs", () => {
     mgr2.destroy();
   });
 
+  describe("applySnapshot with unknown channels", () => {
+    it("preserves data for unknown channel keys", () => {
+      const mgr = createSubdocManager(ipns, namespaces);
+      const extra = new Y.Doc();
+      extra.getMap("root").set("x", 42);
+      const update = Y.encodeStateAsUpdate(extra);
+
+      mgr.applySnapshot({
+        doc: Y.encodeStateAsUpdate(mgr.subdoc("doc")),
+        awareness: Y.encodeStateAsUpdate(mgr.subdoc("awareness")),
+        "extra-channel": update,
+      });
+
+      const subdoc = mgr.subdoc("extra-channel");
+      expect(subdoc).toBeInstanceOf(Y.Doc);
+      expect(subdoc.getMap("root").get("x")).toBe(42);
+      mgr.destroy();
+    });
+
+    it("assigns correct GUID to auto-created docs", () => {
+      const mgr = createSubdocManager(ipns, namespaces);
+      const extra = new Y.Doc();
+      extra.getMap("root").set("x", 1);
+
+      mgr.applySnapshot({
+        "new-ns": Y.encodeStateAsUpdate(extra),
+      });
+
+      expect(mgr.subdoc("new-ns").guid).toBe(`${ipns}:new-ns`);
+      mgr.destroy();
+    });
+
+    it("includes auto-created docs in encodeAll()", () => {
+      const mgr = createSubdocManager(ipns, namespaces);
+      const extra = new Y.Doc();
+      extra.getMap("root").set("val", "hello");
+
+      mgr.applySnapshot({
+        dynamic: Y.encodeStateAsUpdate(extra),
+      });
+
+      const encoded = mgr.encodeAll();
+      expect(encoded).toHaveProperty("dynamic");
+
+      // Round-trip: apply to fresh manager with
+      // same dynamic channel
+      const mgr2 = createSubdocManager(ipns, namespaces);
+      mgr2.applySnapshot(encoded);
+      expect(mgr2.subdoc("dynamic").getMap("root").get("val")).toBe("hello");
+
+      mgr.destroy();
+      mgr2.destroy();
+    });
+
+    it("auto-created docs participate in dirty tracking", () => {
+      const mgr = createSubdocManager(ipns, namespaces);
+      const extra = new Y.Doc();
+      extra.getMap("root").set("x", 1);
+
+      mgr.applySnapshot({
+        dyn: Y.encodeStateAsUpdate(extra),
+      });
+      // applySnapshot itself should not mark dirty
+      expect(mgr.isDirty).toBe(false);
+
+      // But a user edit on the dynamic doc should
+      mgr.subdoc("dyn").getMap("root").set("y", 2);
+      expect(mgr.isDirty).toBe(true);
+
+      mgr.destroy();
+    });
+
+    it("auto-created docs fire dirty event", () => {
+      const mgr = createSubdocManager(ipns, namespaces);
+      const extra = new Y.Doc();
+      extra.getMap("root").set("x", 1);
+
+      mgr.applySnapshot({
+        dyn: Y.encodeStateAsUpdate(extra),
+      });
+
+      const cb = vi.fn();
+      mgr.on("dirty", cb);
+      mgr.encodeAll(); // reset dirty
+
+      mgr.subdoc("dyn").getMap("root").set("z", 3);
+      expect(cb).toHaveBeenCalledTimes(1);
+
+      mgr.destroy();
+    });
+
+    it("destroy cleans up auto-created docs", () => {
+      const mgr = createSubdocManager(ipns, namespaces);
+      const extra = new Y.Doc();
+      extra.getMap("root").set("x", 1);
+
+      mgr.applySnapshot({
+        dyn: Y.encodeStateAsUpdate(extra),
+      });
+
+      const dynDoc = mgr.subdoc("dyn");
+      mgr.destroy();
+      // Y.Doc.destroy() sets isDestroyed
+      expect(dynDoc.isDestroyed).toBe(true);
+    });
+  });
+
   it("skipOrigins suppresses dirty for custom origins", () => {
     const providerInstance = { name: "mock-provider" };
     const skip = new Set<object>([providerInstance]);
