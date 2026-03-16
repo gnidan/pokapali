@@ -481,10 +481,13 @@ function reduceIpnsStatus(
 export function deriveStatus(c: Connectivity): DocStatus {
   if (c.syncStatus === "connected") return "synced";
   if (c.syncStatus === "connecting") return "connecting";
-  if (c.awarenessConnected) return "receiving";
   if (c.gossip.activity === "receiving") {
     return "receiving";
   }
+  // Awareness-only = cursors visible but edits may
+  // not sync (#224). Report "connecting" not
+  // "receiving".
+  if (c.awarenessConnected) return "connecting";
   if (c.gossip.activity === "subscribed") {
     return "connecting";
   }

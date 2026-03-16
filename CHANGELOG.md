@@ -7,6 +7,82 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.6] — 2026-03-15
+
+### Added
+
+- **New package: `@pokapali/react`** — React hooks for
+  pokapali integration (#228)
+  - `useFeed<T>(feed)` — reactive Feed subscription
+    via useSyncExternalStore
+  - `useDocReady(doc, timeoutMs?)` — ready gate hook
+  - `useAutoSave(doc, debounceMs?)` — auto-save
+    lifecycle hook
+  - `useDocDestroy(doc)` — cleanup on unmount
+- **New package: `@pokapali/comments-tiptap`** —
+  Tiptap adapter for comments (#82)
+  - `anchorFromSelection(editor)` — one-liner anchor
+    creation (replaces 15 lines of y-prosemirror
+    wiring)
+  - `resolveAnchors(commentsDoc, contentDoc,
+syncState)` — bulk ProseMirror position resolution
+  - `CommentHighlight` — Tiptap extension for
+    highlighting anchored text
+  - `PendingAnchorHighlight` — Tiptap extension for
+    unresolved anchor feedback
+- `statusLabel(DocStatus)` and `saveLabel(SaveState)`
+  — pure functions mapping status enums to
+  human-readable labels
+- `doc.snapshotEvents` Feed — reactive snapshot event
+  notifications
+- `doc.gossipActivity` Feed — reactive GossipSub
+  activity state
+- `doc.backedUp` Feed — true when current tip is
+  acked by at least one pinner (#222)
+- `doc.ready({ timeoutMs })` — optional timeout
+  parameter, rejects on expiry (#227)
+- Integration guide (docs/integration-guide.md)
+- Stale-branch preflight in verify-branch.sh — fails
+  fast before running full suite (#208)
+- Release process guard: bin/release.sh (#201)
+- Relay health-check cron with auto issue creation
+  (#202)
+- Churn module wired into nightly load test (#203)
+
+### Changed
+
+- **Event emitter replaced with Feeds** — `doc.on()`
+  / `doc.off()` deprecated in favor of reactive Feed
+  subscriptions (#189). Deprecated methods still work
+  via Feed wrapper for backward compatibility.
+- **Doc public surface reduced** (#187) — removed:
+  `relays`, `lastSaveError`, `clockSum`, `ipnsSeq`,
+  `latestAnnouncedSeq`, `hasAppliedSnapshot`,
+  `history()`. Deprecated but kept: `provider`,
+  `tipCid`, `ackedBy`, `guaranteeUntil`,
+  `retainUntil`, `loadingState`.
+- **create()/open() unified** — shared `initDoc()`
+  path eliminates duplicated setup logic (#188)
+- **create-doc.ts refactored** — 1942→1659 lines,
+  3 modules extracted (doc-status, doc-identity,
+  doc-gossip-bridge) (#183)
+- Example app migrated to `@pokapali/comments-tiptap`
+  imports (~358 lines removed)
+- Example app: 11 of 17 `doc.on` calls migrated to
+  Feed subscriptions
+
+### Fixed
+
+- `deriveLoadingState` flashes "failed" for transient
+  fetch failures — now returns "retrying" with
+  attempt count (#221)
+- Misleading "offline" status during first 3-5s —
+  `computeStatus` returns "connecting" during mesh
+  grace period (#223)
+- Awareness-only connection misleadingly reports
+  "receiving" — now reports "connecting" until sync
+  is established (#224)
+
 ## [0.1.0-alpha.5] — 2026-03-14
 
 ### Fixed
