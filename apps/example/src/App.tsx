@@ -1,7 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
-import { pokapali } from "@pokapali/core";
-import type { Doc } from "@pokapali/core";
-import { EditorView } from "./Editor";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import type { Doc, PokapaliApp } from "@pokapali/core";
 import { capitalize, formatAge } from "./utils";
 import {
   loadRecent,
@@ -10,38 +8,74 @@ import {
   type RecentDoc,
 } from "./recentDocs";
 
+const LazyEditorView = lazy(() =>
+  import("./Editor").then((m) => ({
+    default: m.EditorView,
+  })),
+);
+
 function abbreviateId(id: string): string {
   if (id.length <= 12) return id;
   return id.slice(0, 4) + "\u2026" + id.slice(-4);
 }
 
-// Persist across Vite HMR to avoid duplicate
-// Helia/WebRTC instances on hot reload
-function getApp() {
-  if (import.meta.hot?.data.app) {
-    return import.meta.hot.data.app as ReturnType<typeof pokapali>;
+// Lightweight URL check that doesn't require
+// loading @pokapali/core. Mirrors the logic in
+// PokapaliApp.isDocUrl() — origin match, /doc/
+// path prefix, and a hash fragment.
+function isDocUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const base =
+      window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, "");
+    const prefix = new URL(base + "/doc/");
+    return (
+      parsed.origin === prefix.origin &&
+      parsed.pathname.startsWith(prefix.pathname) &&
+      parsed.hash.length > 1
+    );
+  } catch {
+    return false;
   }
-  const params = new URLSearchParams(window.location.search);
-  const noCache = params.get("noCache") === "1";
-  const peersParam = params.get("bootstrapPeers");
-  const bootstrapPeers = peersParam
-    ? peersParam.split(",").filter(Boolean)
-    : undefined;
-  const instance = pokapali({
-    appId: "pokapali-example",
-    channels: ["content", "comments"],
-    origin:
-      window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
-    persistence: !noCache,
-    ...(bootstrapPeers ? { bootstrapPeers } : {}),
-  });
-  if (import.meta.hot) {
-    import.meta.hot.data.app = instance;
-  }
-  return instance;
 }
 
-const app = getApp();
+// Lazy-init pokapali: the P2P stack (~1.3MB min)
+// only loads when the user creates or opens a doc.
+let appPromise: Promise<PokapaliApp> | null = null;
+
+function getApp(): Promise<PokapaliApp> {
+  if (appPromise) return appPromise;
+
+  // Persist across Vite HMR to avoid duplicate
+  // Helia/WebRTC instances on hot reload
+  if (import.meta.hot?.data.app) {
+    appPromise = Promise.resolve(import.meta.hot.data.app as PokapaliApp);
+    return appPromise;
+  }
+
+  appPromise = import("@pokapali/core").then(({ pokapali }) => {
+    const params = new URLSearchParams(window.location.search);
+    const noCache = params.get("noCache") === "1";
+    const peersParam = params.get("bootstrapPeers");
+    const bootstrapPeers = peersParam
+      ? peersParam.split(",").filter(Boolean)
+      : undefined;
+    const instance = pokapali({
+      appId: "pokapali-example",
+      channels: ["content", "comments"],
+      origin:
+        window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
+      persistence: !noCache,
+      ...(bootstrapPeers ? { bootstrapPeers } : {}),
+    });
+    if (import.meta.hot) {
+      import.meta.hot.data.app = instance;
+    }
+    return instance;
+  });
+
+  return appPromise;
+}
 
 function recordDoc(doc: Doc) {
   saveRecent(doc.urls.best, capitalize(doc.role));
@@ -122,6 +156,7 @@ function Landing({ onDoc }: { onDoc: (doc: Doc) => void }) {
     setLoading(true);
     setError(null);
     try {
+      const app = await getApp();
       const doc = await app.create();
       onDoc(doc);
     } catch (e) {
@@ -135,6 +170,7 @@ function Landing({ onDoc }: { onDoc: (doc: Doc) => void }) {
       setLoading(true);
       setError(null);
       try {
+        const app = await getApp();
         const doc = await app.open(rawUrl);
         onDoc(doc);
       } catch (e) {
@@ -214,29 +250,32 @@ export function App() {
     setError(null);
   }, []);
 
-  // Auto-open if URL contains a doc path on mount
+  // Auto-open if URL contains a doc path on mount.
+  // Uses inline isDocUrl() — no core import needed.
   useEffect(() => {
     const url = window.location.href;
-    if (!app.isDocUrl(url)) return;
+    if (!isDocUrl(url)) return;
 
     let cancelled = false;
     setAutoOpening(true);
-    app.open(url).then(
-      (d) => {
-        if (!cancelled) {
-          // Replace so back goes to wherever the
-          // user came from, not the bare doc URL
-          openDoc(d, true);
+    getApp().then((app) =>
+      app.open(url).then(
+        (d) => {
+          if (!cancelled) {
+            // Replace so back goes to wherever the
+            // user came from, not the bare doc URL
+            openDoc(d, true);
+            setAutoOpening(false);
+          } else {
+            d.destroy();
+          }
+        },
+        (e) => {
+          if (cancelled) return;
+          setError(e instanceof Error ? e.message : String(e));
           setAutoOpening(false);
-        } else {
-          d.destroy();
-        }
-      },
-      (e) => {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-        setAutoOpening(false);
-      },
+        },
+      ),
     );
     return () => {
       cancelled = true;
@@ -247,7 +286,7 @@ export function App() {
   // if the URL no longer points to a document
   useEffect(() => {
     const onPopState = () => {
-      if (!app.isDocUrl(window.location.href)) {
+      if (!isDocUrl(window.location.href)) {
         goToLanding();
       }
     };
@@ -263,7 +302,18 @@ export function App() {
   }, [goToLanding]);
 
   if (doc) {
-    return <EditorView doc={doc} onBack={handleBack} />;
+    return (
+      <Suspense
+        fallback={
+          <div className="landing">
+            <h1>Pokapali</h1>
+            <p>Loading editor…</p>
+          </div>
+        }
+      >
+        <LazyEditorView doc={doc} onBack={handleBack} />
+      </Suspense>
+    );
   }
 
   if (autoOpening) {
