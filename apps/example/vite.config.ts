@@ -2,7 +2,24 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-const pkgs = ["core", "crypto", "capability", "subdocs", "snapshot", "sync"];
+// Workspace packages aliased to local source for fast
+// dev iteration. Set POKAPALI_PUBLISHED_DEPS=1 to
+// resolve @pokapali/* from node_modules instead (used
+// by bin/verify-published-deps.sh to test the published
+// package build).
+const useLocalPkgs = !process.env.POKAPALI_PUBLISHED_DEPS;
+const localPkgs = [
+  "comments",
+  "comments-tiptap",
+  "core",
+  "crypto",
+  "capability",
+  "log",
+  "react",
+  "subdocs",
+  "snapshot",
+  "sync",
+];
 
 export default defineConfig(({ command }) => ({
   server: {
@@ -56,12 +73,14 @@ export default defineConfig(({ command }) => ({
     },
   },
   plugins: [react()],
-  resolve: {
-    alias: Object.fromEntries(
-      pkgs.map((p) => [
-        `@pokapali/${p}`,
-        path.resolve(__dirname, `../../packages/${p}/src/index.ts`),
-      ]),
-    ),
-  },
+  resolve: useLocalPkgs
+    ? {
+        alias: Object.fromEntries(
+          localPkgs.map((p) => [
+            `@pokapali/${p}`,
+            path.resolve(__dirname, `../../packages/${p}/src/index.ts`),
+          ]),
+        ),
+      }
+    : {},
 }));
