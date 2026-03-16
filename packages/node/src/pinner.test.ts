@@ -1221,4 +1221,95 @@ describe("pinner with mock helia", () => {
       await pinner.stop();
     });
   });
+
+  describe("capacity gate (maxNames)", () => {
+    function makeName(i: number): string {
+      return i.toString(16).padStart(64, "0");
+    }
+
+    it("rejects announcements for new names at capacity", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+        maxNames: 3,
+      });
+      await pinner.start();
+
+      // Fill to capacity
+      for (let i = 0; i < 3; i++) {
+        pinner.onAnnouncement(makeName(i), cid.toString(), "test-app");
+      }
+      await pinner.flush();
+      expect(pinner.metrics().knownNames).toBe(3);
+
+      // 4th name should be rejected
+      pinner.onAnnouncement(makeName(99), cid.toString(), "test-app");
+      await pinner.flush();
+      expect(pinner.metrics().knownNames).toBe(3);
+      expect(pinner.metrics().capacityRejects).toBe(1);
+
+      await pinner.stop();
+    });
+
+    it("allows updates to existing names at capacity", async () => {
+      const block1 = await makeSnapshot({
+        ts: 5000,
+        seq: 1,
+      });
+      const cid1 = await blockToCid(block1);
+      const block2 = await makeSnapshot({
+        ts: 6000,
+        seq: 2,
+      });
+      const cid2 = await blockToCid(block2);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid1.toString(), block1);
+      blocks.set(cid2.toString(), block2);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+        maxNames: 1,
+      });
+      await pinner.start();
+
+      const name = makeName(0);
+      pinner.onAnnouncement(name, cid1.toString(), "test-app");
+      await pinner.flush();
+
+      // Update same name with new CID — should work
+      pinner.onAnnouncement(name, cid2.toString(), "test-app");
+      await pinner.flush();
+      expect(pinner.metrics().knownNames).toBe(1);
+      expect(pinner.metrics().capacityRejects).toBe(0);
+
+      await pinner.stop();
+    });
+
+    it("rejects ingest for new names at capacity", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        maxNames: 0,
+      });
+      await pinner.start();
+
+      const result = await pinner.ingest(makeName(0), block);
+      expect(result).toBe(false);
+      expect(pinner.metrics().capacityRejects).toBe(1);
+
+      await pinner.stop();
+    });
+  });
 });

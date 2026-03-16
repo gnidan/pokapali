@@ -66,6 +66,8 @@ const INITIAL_PER_DOC_MS = 50;
 const EMA_ALPHA = 0.3;
 // Prune metadata when tracking > capacity * 10
 const PRUNE_HEADROOM = 10;
+// Hard cap on tracked names (OOM protection)
+const DEFAULT_MAX_NAMES = 10_000;
 
 export interface PinnerConfig {
   appIds: string[];
@@ -89,6 +91,10 @@ export interface PinnerConfig {
    * successful IPNS resolve after this many days.
    * Default: 3. Set to 0 to disable. */
   staleResolveDays?: number;
+  /** Hard cap on tracked IPNS names. New
+   * announcements for unknown names are dropped when
+   * at capacity. Default: 10 000. */
+  maxNames?: number;
 }
 
 export interface PinnerMetrics {
@@ -97,6 +103,7 @@ export interface PinnerMetrics {
   acksTracked: number;
   snapshotsIngested: number;
   rateLimitRejects: number;
+  capacityRejects: number;
   reannounceCount: number;
   lastReannounceMs: number;
   lastPersistMs: number;
@@ -201,6 +208,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     config.staleResolveDays === 0
       ? 0
       : (config.staleResolveDays ?? 3) * 24 * 60 * 60_000;
+  const maxNames = config.maxNames ?? DEFAULT_MAX_NAMES;
 
   // Self-tuning capacity measurement
   let perDocEma = INITIAL_PER_DOC_MS;
@@ -363,6 +371,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   // Counters for /metrics endpoint
   let snapshotsIngested = 0;
   let rateLimitRejects = 0;
+  let capacityRejects = 0;
   let reannounceCount = 0;
   let lastReannounceMs = 0;
   let lastPersistMs = 0;
@@ -909,6 +918,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       lastAckedCid.delete(name);
       nameToAppId.delete(name);
       lastResolvedAt.delete(name);
+      lastQueryResponse.delete(name);
       persistMutation(() => store.removeName(name));
       guaranteedUntil.delete(name);
       inHeap.delete(name);
@@ -1191,6 +1201,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         acksTracked: lastAckedCid.size,
         snapshotsIngested,
         rateLimitRejects,
+        capacityRejects,
         reannounceCount,
         lastReannounceMs,
         lastPersistMs,
@@ -1313,6 +1324,13 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       fromPinner?: boolean,
     ): void {
       if (phase !== "running") return;
+
+      // Admission gate: reject unknown names at capacity
+      if (!knownNames.has(ipnsName) && knownNames.size >= maxNames) {
+        capacityRejects++;
+        return;
+      }
+
       knownNames.add(ipnsName);
       if (appId) nameToAppId.set(ipnsName, appId);
       persistMutation(async () => {
@@ -1537,6 +1555,13 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
     async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {
       if (phase !== "running") return false;
+
+      // Admission gate: reject unknown names at capacity
+      if (!knownNames.has(ipnsName) && knownNames.size >= maxNames) {
+        capacityRejects++;
+        return false;
+      }
+
       // Rate limit: block size
       const check = rateLimiter.check(ipnsName, block.byteLength);
       if (!check.allowed) {
