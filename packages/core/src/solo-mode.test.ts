@@ -71,6 +71,7 @@ vi.mock("@pokapali/sync", () => ({
   setupNamespaceRooms: vi.fn(() => ({
     status: "disconnected",
     onStatusChange: vi.fn(),
+    connectChannel: vi.fn(),
     destroy: vi.fn(),
   })),
   setupAwarenessRoom: vi.fn(() => ({

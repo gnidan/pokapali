@@ -249,6 +249,112 @@ describe("lazy P2P init (#200)", () => {
       doc.destroy();
     });
 
+    it(
+      "channel access before p2pReady defers" + " connectChannel until resolve",
+      async () => {
+        const awareness = new Awareness(new Y.Doc());
+        let resolveP2P!: (deps: unknown) => void;
+        const p2pReady = new Promise((resolve) => {
+          resolveP2P = resolve;
+        });
+
+        const connectChannel = vi.fn();
+        const doc = createDoc({
+          ...baseParams(),
+          awareness,
+           
+          p2pReady: p2pReady as any,
+        });
+
+        // Access channel before P2P is ready
+        doc.channel("content");
+
+        // connectChannel hasn't been called yet
+        // (syncManager doesn't exist)
+        expect(connectChannel).not.toHaveBeenCalled();
+
+        // Resolve with mock P2P deps
+        resolveP2P({
+          pubsub: mockPubsub(),
+          syncManager: {
+            status: "connected",
+            onStatusChange: vi.fn(),
+            connectChannel,
+            destroy: vi.fn(),
+          },
+          awarenessRoom: {
+            awareness,
+            connected: true,
+            onStatusChange: vi.fn(),
+            destroy: vi.fn(),
+          },
+          roomDiscovery: {
+            stop: vi.fn(),
+            relayPeerIds: new Set(),
+            addExternalRelays: vi.fn(),
+          },
+        });
+
+        // After p2pReady, connectChannel should be
+        // called for the previously-accessed channel
+        await vi.waitFor(() => {
+          expect(connectChannel).toHaveBeenCalledWith("content");
+        });
+
+        doc.destroy();
+      },
+    );
+
+    it(
+      "channel access after p2pReady calls" + " connectChannel immediately",
+      async () => {
+        const awareness = new Awareness(new Y.Doc());
+        const connectChannel = vi.fn();
+
+        const doc = createDoc({
+          ...baseParams(),
+          awareness,
+           
+          p2pReady: Promise.resolve({
+            pubsub: mockPubsub(),
+            syncManager: {
+              status: "connected",
+              onStatusChange: vi.fn(),
+              connectChannel,
+              destroy: vi.fn(),
+            },
+            awarenessRoom: {
+              awareness,
+              connected: true,
+              onStatusChange: vi.fn(),
+              destroy: vi.fn(),
+            },
+            roomDiscovery: {
+              stop: vi.fn(),
+              relayPeerIds: new Set(),
+              addExternalRelays: vi.fn(),
+            },
+          }) as any,
+        });
+
+        // Wait for p2pReady to settle
+        await vi.waitFor(() => {
+          expect(connectChannel).not.toThrow();
+        });
+        await new Promise((r) => setTimeout(r, 0));
+
+        connectChannel.mockClear();
+
+        // Access channel after P2P is ready
+        doc.channel("content");
+
+        // connectChannel called immediately
+        expect(connectChannel).toHaveBeenCalledWith("content");
+
+        doc.destroy();
+      },
+    );
+
     it("doc still works when p2pReady rejects", async () => {
       const awareness = new Awareness(new Y.Doc());
       const p2pReady = Promise.reject(new Error("Helia bootstrap failed"));

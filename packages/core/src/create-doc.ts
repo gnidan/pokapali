@@ -409,6 +409,9 @@ export function createDoc(params: DocParams): Doc {
   // knows to release Helia (avoids ref-count
   // underflow if Helia was never acquired).
   let p2pResolved = false;
+  // Channels accessed before sync was available —
+  // connected when p2pReady resolves (#199).
+  const accessedChannels = new Set<string>();
   // Standalone awareness: prefer awarenessRoom's if
   // available, otherwise use the standalone param.
   const awareness: Awareness = awarenessRoom?.awareness ?? params.awareness!;
@@ -1264,6 +1267,10 @@ export function createDoc(params: DocParams): Doc {
         liveSyncManager = deps.syncManager;
         liveAwarenessRoom = deps.awarenessRoom;
         wireSyncBridges(deps.syncManager, deps.awarenessRoom);
+        // Connect channels accessed before P2P
+        for (const ch of accessedChannels) {
+          deps.syncManager.connectChannel(ch);
+        }
         checkStatus();
 
         // Relay sharing (deferred)
@@ -1377,7 +1384,10 @@ export function createDoc(params: DocParams): Doc {
     channel(name: string): Y.Doc {
       assertNotDestroyed();
       try {
-        return subdocManager.subdoc(name);
+        const doc = subdocManager.subdoc(name);
+        accessedChannels.add(name);
+        liveSyncManager?.connectChannel(name);
+        return doc;
       } catch {
         throw new Error(
           `Unknown channel "${name}". ` + "Configured: " + channels.join(", "),
