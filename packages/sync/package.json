@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/sync",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -26,8 +26,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@pokapali/log": "0.1.0-alpha.5",
-    "@pokapali/subdocs": "0.1.0-alpha.5",
+    "@pokapali/log": "0.1.0-alpha.6",
+    "@pokapali/subdocs": "0.1.0-alpha.6",
     "lib0": "^0.2.117",
     "y-webrtc": "^10.3.0"
   },
