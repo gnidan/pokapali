@@ -102,6 +102,10 @@ function DocumentEditor({ doc }: { doc: Doc }) {
   }, [doc]);
 
   // -- Set up the Tiptap editor --
+  // Do NOT include activeId in deps — that would
+  // destroy and recreate the editor on every click.
+  // Instead, update the highlight extension via
+  // rebuildCommentDecorations() in the effect below.
   const editor = useEditor(
     {
       extensions: [
@@ -109,30 +113,26 @@ function DocumentEditor({ doc }: { doc: Doc }) {
         Collaboration.configure({
           document: doc.channel("content"),
         }),
-        // Highlights anchored comment ranges in the
-        // editor. Updates when activeCommentId changes.
         CommentHighlight.configure({
           commentsDoc: doc.channel("comments"),
           contentDoc: doc.channel("content"),
-          activeCommentId: activeId,
+          activeCommentId: null,
         }),
-        // Shows a preview highlight while the user
-        // is creating a new comment.
         PendingAnchorHighlight,
       ],
       editable: doc.capability.channels.has("content"),
     },
-    [doc, activeId],
+    [doc],
   );
 
-  // -- Rebuild highlights when comments change --
-  const commentList = useFeed(instance?.feed ?? null);
-
+  // Rebuild comment highlights when active comment
+  // changes. The CommentsSidebar handles rebuilds
+  // when the comment list itself changes.
   useEffect(() => {
     if (editor?.view) {
       rebuildCommentDecorations(editor.view);
     }
-  }, [editor?.view, commentList, activeId]);
+  }, [editor?.view, activeId]);
 
   if (!ready) return <div>Connecting...</div>;
 
@@ -182,6 +182,13 @@ function CommentsSidebar({
   const commentList = useFeed(instance.feed);
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
+
+  // Rebuild editor highlights when comments change
+  useEffect(() => {
+    if (editor?.view) {
+      rebuildCommentDecorations(editor.view);
+    }
+  }, [editor?.view, commentList]);
 
   // -- Create a new anchored comment --
   const handleAdd = useCallback(() => {
