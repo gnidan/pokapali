@@ -24,7 +24,7 @@ GossipSub is configured with `floodPublish: false` and
 mesh routing:
 
 - Browsers: D=3, Dlo=2, Dhi=6, Dout=1, Dscore=1
-- Relays: D=3, Dlo=2, Dhi=8
+- Relays: D=3, Dlo=3, Dhi=8
 
 Periodic re-announce (every 15s) ensures late-joining
 peers discover existing rooms.
@@ -93,11 +93,11 @@ via `someguy` if operational independence is required.
 | -------------------------- | -------- | ------------------- |
 | `floodPublish`             | false    | false               |
 | `D`                        | 3        | 3                   |
-| `Dlo`                      | 2        | 2                   |
+| `Dlo`                      | 2        | 3                   |
 | `Dhi`                      | 6        | 8                   |
 | `Dout`                     | 1        | —                   |
 | `Dscore`                   | 1        | —                   |
-| `maxOutboundBufferSize`    | 10MB     | 10MB                |
+| `maxOutboundBufferSize`    | 2MB      | 10MB                |
 | `IPColocationFactorWeight` | 0        | 0                   |
 | `appSpecificScore`         | —        | 100 for relay peers |
 

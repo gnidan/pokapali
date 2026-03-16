@@ -6,10 +6,14 @@ import type {
   CapabilityKeys,
 } from "@pokapali/capability";
 import { narrowCapability, buildUrl } from "@pokapali/capability";
-import { hexToBytes, bytesToHex, verifySignature } from "@pokapali/crypto";
+import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
-import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
+import {
+  createClientIdMapping,
+  setupParticipantAwareness,
+} from "./doc-identity.js";
+import type { IdentityMap } from "./doc-identity.js";
 import type { SubdocManager } from "@pokapali/subdocs";
 import type {
   SyncManager,
@@ -24,12 +28,10 @@ import { publishIPNS, resolveIPNS, watchIPNS } from "./ipns-helpers.js";
 import {
   announceTopic,
   announceSnapshot,
-  parseAnnouncement,
-  parseGuaranteeResponse,
   publishGuaranteeQuery,
-  base64ToUint8,
   MAX_INLINE_BLOCK_BYTES,
 } from "./announce.js";
+import { createGossipHandler } from "./doc-gossip-bridge.js";
 import { uploadBlock } from "./block-upload.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { DocPersistence } from "./persistence.js";
@@ -74,17 +76,19 @@ import type {
   DocStatus,
   SaveState,
   DocRole,
-  SyncStatus,
   LoadingState,
   GossipActivity,
   VersionHistory,
 } from "./facts.js";
-import {
-  runInterpreter,
-  MAX_INTERPRETER_RETRIES,
-  RETRY_BASE_MS,
-} from "./interpreter.js";
+import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
+import {
+  computeStatus,
+  computeSaveState,
+  deriveLoadingState,
+  loadingStateChanged,
+  MESH_GRACE_MS,
+} from "./doc-status.js";
 
 const log = createLogger("core");
 
@@ -170,6 +174,11 @@ export interface Doc {
   /** Reactive version history feed. Updates as
    *  chain walks discover and fetch entries. */
   readonly versions: Feed<VersionHistory>;
+  /** Latest snapshot event (local or remote).
+   *  Fires on every snapshot — never deduplicates. */
+  readonly snapshotEvents: Feed<SnapshotEvent | null>;
+  /** Reactive gossip activity state. */
+  readonly gossipActivity: Feed<GossipActivity>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -183,6 +192,8 @@ export interface Doc {
   ready(options?: { timeoutMs?: number }): Promise<void>;
   publish(): Promise<void>;
   rotate(): Promise<RotateResult>;
+  /** @deprecated Use Feed subscriptions instead:
+   *  doc.status, doc.saveState, doc.loading, etc. */
   on(event: "status", cb: (status: DocStatus) => void): void;
   on(event: "publish-needed", cb: () => void): void;
   on(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
@@ -190,6 +201,7 @@ export interface Doc {
   on(event: "ack", cb: (peerId: string) => void): void;
   on(event: "save", cb: (state: SaveState) => void): void;
   on(event: "node-change", cb: () => void): void;
+  /** @deprecated Use Feed subscriptions instead. */
   off(event: "status", cb: (status: DocStatus) => void): void;
   off(event: "publish-needed", cb: () => void): void;
   off(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
@@ -281,97 +293,9 @@ export interface DocParams {
   identity?: Ed25519KeyPair;
 }
 
-/** Grace period (ms) during which "offline" is
- *  reported as "connecting" to avoid a false
- *  "offline" flash while the mesh forms. */
-const MESH_GRACE_MS = 5_000;
-
-function computeStatus(
-  syncStatus: SyncStatus,
-  awarenessConnected: boolean,
-  gossipActivity: GossipActivity,
-  createdAt?: number,
-): DocStatus {
-  if (syncStatus === "connected") return "synced";
-  if (syncStatus === "connecting") return "connecting";
-  if (awarenessConnected) return "receiving";
-  if (gossipActivity === "receiving") return "receiving";
-  if (gossipActivity === "subscribed") {
-    return "connecting";
-  }
-  // During startup, mesh peers haven't connected
-  // yet. Show "connecting" instead of "offline"
-  // for a brief grace period.
-  if (createdAt !== undefined && Date.now() - createdAt < MESH_GRACE_MS) {
-    return "connecting";
-  }
-  return "offline";
-}
-
-function computeSaveState(
-  isDirty: boolean,
-  isSaving: boolean,
-  lastSaveError?: string | null,
-): SaveState {
-  if (isSaving) return "saving";
-  if (lastSaveError) return "save-error";
-  if (isDirty) return "dirty";
-  return "saved";
-}
-
-// ── Loading state derivation from DocState ──────
-
-function deriveLoadingState(state: DocState): LoadingState {
-  if (state.ipnsStatus.phase === "resolving") {
-    return {
-      status: "resolving",
-      startedAt: state.ipnsStatus.startedAt,
-    };
-  }
-  for (const entry of state.chain.entries.values()) {
-    if (entry.blockStatus === "fetching" && entry.fetchStartedAt) {
-      return {
-        status: "fetching",
-        cid: entry.cid.toString(),
-        startedAt: entry.fetchStartedAt,
-      };
-    }
-  }
-  for (const entry of state.chain.entries.values()) {
-    if (entry.blockStatus === "failed") {
-      if (entry.fetchAttempt < MAX_INTERPRETER_RETRIES) {
-        return {
-          status: "retrying",
-          cid: entry.cid.toString(),
-          attempt: entry.fetchAttempt,
-          nextRetryAt:
-            Date.now() + RETRY_BASE_MS * 3 ** (entry.fetchAttempt - 1),
-        };
-      }
-      return {
-        status: "failed",
-        cid: entry.cid.toString(),
-        error: entry.lastError ?? "unknown",
-      };
-    }
-  }
-  return { status: "idle" };
-}
-
-function loadingStateChanged(a: LoadingState, b: LoadingState): boolean {
-  if (a.status !== b.status) return true;
-  if ("cid" in a && "cid" in b && a.cid !== b.cid) {
-    return true;
-  }
-  if (
-    a.status === "retrying" &&
-    b.status === "retrying" &&
-    a.attempt !== b.attempt
-  ) {
-    return true;
-  }
-  return false;
-}
+// Pure status derivation functions extracted to
+// doc-status.ts (computeStatus, computeSaveState,
+// deriveLoadingState, loadingStateChanged).
 
 /**
  * Populate the _meta subdoc with initial signing
@@ -465,14 +389,11 @@ export function createDoc(params: DocParams): Doc {
   const snapshotLC = createSnapshotCodec({
     resolver,
   });
-  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
-
-  function emit(event: string, ...args: unknown[]) {
-    const cbs = listeners.get(event);
-    if (cbs) {
-      for (const cb of cbs) cb(...args);
-    }
-  }
+  // Event subscriptions — backed by Feeds.
+  // Maps event name → (callback → unsubscribe).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type EventCb = (...args: any[]) => void;
+  const eventSubs = new Map<string, Map<EventCb, () => void>>();
 
   // --- Status tracking (fallback for no-interpreter) --
   let gossipActivity: GossipActivity = "inactive";
@@ -498,7 +419,6 @@ export function createDoc(params: DocParams): Doc {
     if (next !== lastStatus) {
       lastStatus = next;
       statusFeed._update(next);
-      emit("status", next);
     }
   }
 
@@ -516,7 +436,6 @@ export function createDoc(params: DocParams): Doc {
     if (next !== lastSaveState) {
       lastSaveState = next;
       saveStateFeed._update(next);
-      emit("save", next);
     }
   }
 
@@ -580,79 +499,32 @@ export function createDoc(params: DocParams): Doc {
     EMPTY_VERSION_HISTORY,
   );
 
+  // --- Event feeds (replace emit/listeners) ---
+  // For event-like notifications, use a comparator
+  // that never deduplicates so every _update fires.
+  const snapshotEventFeed: WritableFeed<SnapshotEvent | null> =
+    createFeed<SnapshotEvent | null>(null, () => false);
+  const ackEventFeed: WritableFeed<string | null> = createFeed<string | null>(
+    null,
+    () => false,
+  );
+  const nodeChangeFeed: WritableFeed<number> = createFeed<number>(
+    0,
+    () => false,
+  );
+  const dirtyCountFeed: WritableFeed<number> = createFeed<number>(
+    0,
+    () => false,
+  );
+  const gossipActivityFeed: WritableFeed<GossipActivity> =
+    createFeed<GossipActivity>("inactive");
+
   // --- Client identity mapping feed ---
-  // Observes _meta "clientIdentities" Y.Map and
-  // projects into a reactive Feed with async sig
-  // verification.
-  type IdentityMap = ReadonlyMap<number, ClientIdentityInfo>;
-  const EMPTY_IDENTITY_MAP: IdentityMap = new Map();
-  const clientIdMappingFeed: WritableFeed<IdentityMap> =
-    createFeed<IdentityMap>(EMPTY_IDENTITY_MAP);
-
-  // Cache verified results to avoid re-verifying
-  // on every Y.Map change.
-  const verifiedCache = new Map<string, boolean | null>();
-
-  function rebuildClientIdMapping(): void {
-    const identities = subdocManager.metaDoc.getMap("clientIdentities");
-    const result = new Map<number, ClientIdentityInfo>();
-    let pendingVerifications = 0;
-
-    for (const [key, value] of identities.entries()) {
-      const clientId = Number(key);
-      if (Number.isNaN(clientId)) continue;
-      const entry = value as {
-        pubkey?: string;
-        sig?: string;
-      };
-      if (!entry?.pubkey || !entry?.sig) continue;
-
-      const cached = verifiedCache.get(key);
-      if (cached !== undefined && cached !== null) {
-        result.set(clientId, {
-          pubkey: entry.pubkey,
-          verified: cached,
-        });
-      } else {
-        // Optimistic: show as unverified until
-        // async verification completes.
-        result.set(clientId, {
-          pubkey: entry.pubkey,
-          verified: false,
-        });
-        if (cached === undefined) {
-          // null = in-flight
-          verifiedCache.set(key, null);
-          pendingVerifications++;
-          const payload = new TextEncoder().encode(
-            entry.pubkey + ":" + ipnsName,
-          );
-          verifySignature(
-            hexToBytes(entry.pubkey),
-            hexToBytes(entry.sig),
-            payload,
-          )
-            .then((ok) => {
-              verifiedCache.set(key, ok);
-              rebuildClientIdMapping();
-            })
-            .catch(() => {
-              verifiedCache.set(key, false);
-              rebuildClientIdMapping();
-            });
-        }
-      }
-    }
-
-    clientIdMappingFeed._update(result);
-  }
-
-  // Observe _meta clientIdentities for changes.
-  const identitiesMap = subdocManager.metaDoc.getMap("clientIdentities");
-  identitiesMap.observe(rebuildClientIdMapping);
-  // Initial projection (may already have entries
-  // from IDB-persisted _meta).
-  rebuildClientIdMapping();
+  const clientIdMapping = createClientIdMapping(
+    subdocManager.metaDoc,
+    ipnsName,
+  );
+  const clientIdMappingFeed = clientIdMapping.feed;
 
   let versionCacheTimer: ReturnType<typeof setTimeout> | null = null;
   const VERSION_CACHE_DEBOUNCE_MS = 500;
@@ -702,7 +574,7 @@ export function createDoc(params: DocParams): Doc {
     // to "dirty" state, previous error is stale.
     lastSaveError = null;
     checkSaveState();
-    emit("publish-needed");
+    dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
     awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
     factQueue?.push({
       type: "content-dirty",
@@ -736,7 +608,7 @@ export function createDoc(params: DocParams): Doc {
     // event listeners first.
     queueMicrotask(() => {
       checkSaveState();
-      emit("publish-needed");
+      dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
       factQueue?.push({
         type: "content-dirty",
         ts: Date.now(),
@@ -763,7 +635,7 @@ export function createDoc(params: DocParams): Doc {
   let fireGuaranteeQuery: (() => void) | null = null;
   const knownPinnerPids = new Set<string>();
   const nodeChangeHandler = () => {
-    emit("node-change");
+    nodeChangeFeed._update(nodeChangeFeed.getSnapshot() + 1);
     const reg = getNodeRegistry();
     if (reg) {
       let newPinner = false;
@@ -819,73 +691,16 @@ export function createDoc(params: DocParams): Doc {
   }
 
   // ── Participant awareness (identity) ──────────
-  // Publish once on doc open — identity doesn't
-  // change during a session.
   const identityPubkeyHex = params.identity
     ? bytesToHex(params.identity.publicKey)
     : null;
 
-  if (params.identity) {
-    const kp = params.identity;
-    signParticipant(kp, ipnsName)
-      .then((sig) => {
-        // Include displayName from awareness "user"
-        // field if already set (#191).
-        const userState = awarenessRoom.awareness.getLocalState() as Record<
-          string,
-          unknown
-        > | null;
-        const userName = (userState?.user as { name?: string } | undefined)
-          ?.name;
-
-        const participant: ParticipantAwareness = {
-          pubkey: bytesToHex(kp.publicKey),
-          sig,
-          ...(userName ? { displayName: userName } : {}),
-        };
-        awarenessRoom.awareness.setLocalStateField("participant", participant);
-
-        // Persist clientID→pubkey in _meta so the
-        // mapping survives across snapshots. Used by
-        // comments attribution and edit blame (#73).
-        const clientId = awarenessRoom.awareness.clientID;
-        const identities = subdocManager.metaDoc.getMap("clientIdentities");
-        identities.set(String(clientId), {
-          pubkey: bytesToHex(kp.publicKey),
-          sig,
-        });
-      })
-      .catch((err) => {
-        log.warn(
-          "participant awareness failed:",
-          (err as Error)?.message ?? err,
-        );
-      });
-  }
-
-  // Auto-sync awareness "user".name → "participant"
-  // .displayName so comments/presence can show a
-  // human-readable name instead of raw pubkey (#191).
-  function syncDisplayName() {
-    const local = awarenessRoom.awareness.getLocalState() as Record<
-      string,
-      unknown
-    > | null;
-    if (!local) return;
-    const participant = local.participant as ParticipantAwareness | undefined;
-    if (!participant?.pubkey) return;
-
-    const userName = (local.user as { name?: string } | undefined)?.name;
-    if ((participant.displayName ?? "") === (userName ?? "")) {
-      return;
-    }
-    awarenessRoom.awareness.setLocalStateField("participant", {
-      ...participant,
-      displayName: userName,
-    });
-  }
-
-  awarenessRoom.awareness.on("change", syncDisplayName);
+  const cleanupParticipant = setupParticipantAwareness(
+    params.identity,
+    awarenessRoom.awareness,
+    subdocManager.metaDoc,
+    ipnsName,
+  );
 
   // ── Interpreter setup ─────────────────────────
   let stopIPNSWatch: (() => void) | null = null;
@@ -951,87 +766,12 @@ export function createDoc(params: DocParams): Doc {
       type: "gossip-subscribed",
       ts: Date.now(),
     });
-    const gossipHandler = (evt: CustomEvent) => {
-      const { detail } = evt;
-      if (detail?.topic !== topic) return;
-
-      // Liveness fact for every message
-      fq.push({
-        type: "gossip-message",
-        ts: Date.now(),
-      });
-
-      // Check guarantee response first
-      const gResp = parseGuaranteeResponse(detail.data);
-      if (gResp && gResp.ipnsName === ipnsName) {
-        try {
-          fq.push({
-            type: "guarantee-received",
-            ts: Date.now(),
-            peerId: gResp.peerId,
-            cid: CID.parse(gResp.cid),
-            guaranteeUntil: gResp.guaranteeUntil ?? 0,
-            retainUntil: gResp.retainUntil ?? 0,
-          });
-        } catch {
-          // CID parse failure — skip
-        }
-        return;
-      }
-
-      const ann = parseAnnouncement(detail.data);
-      if (!ann || ann.ipnsName !== ipnsName) return;
-
-      // CID discovery FIRST — the chain entry must
-      // exist before ack/guarantee facts reference it.
-      let cid: CID | undefined;
-      try {
-        cid = CID.parse(ann.cid);
-        let block: Uint8Array | undefined;
-        if (ann.block) {
-          try {
-            block = base64ToUint8(ann.block);
-            resolver.put(cid, block);
-          } catch {
-            // decode failure — skip inline block
-          }
-        }
-        fq.push({
-          type: "cid-discovered",
-          ts: Date.now(),
-          cid,
-          source: "gossipsub",
-          block,
-          seq: ann.seq,
-        });
-      } catch {
-        // CID parse failure — skip
-      }
-
-      // Ack/guarantee facts AFTER discovery so the
-      // reducer's updateEntry finds the chain entry.
-      if (ann.ack && cid) {
-        fq.push({
-          type: "ack-received",
-          ts: Date.now(),
-          cid,
-          peerId: ann.ack.peerId,
-        });
-        if (
-          ann.ack.guaranteeUntil !== undefined ||
-          ann.ack.retainUntil !== undefined
-        ) {
-          fq.push({
-            type: "guarantee-received",
-            ts: Date.now(),
-            peerId: ann.ack.peerId,
-            cid,
-            guaranteeUntil: ann.ack.guaranteeUntil ?? 0,
-            retainUntil: ann.ack.retainUntil ?? 0,
-          });
-        }
-      }
-    };
+    const gossipHandler = createGossipHandler({
+      topic,
+      ipnsName,
+      factQueue: fq,
+      putBlock: (cid, block) => resolver.put(cid, block),
+    });
 
     pubsub.addEventListener("message", gossipHandler as EventListener);
 
@@ -1093,7 +833,6 @@ export function createDoc(params: DocParams): Doc {
         const newLoading = deriveLoadingState(item.next);
         loadingFeed._update(newLoading);
         if (loadingStateChanged(prevLoading, newLoading)) {
-          emit("loading", newLoading);
           // Ready check: if loading finished
           // without applying a snapshot, mount
           // the editor anyway.
@@ -1207,18 +946,18 @@ export function createDoc(params: DocParams): Doc {
           lastLocalPublishCid = null;
           return;
         }
-        emit("snapshot", {
+        snapshotEventFeed._update({
           cid,
           seq,
           ts: Date.now(),
           isLocal: false,
-        } satisfies SnapshotEvent);
+        });
       },
 
       emitAck: (_cid, ackedBy) => {
         for (const pid of ackedBy) {
           if (!lastEmittedAcks.has(pid)) {
-            emit("ack", pid);
+            ackEventFeed._update(pid);
           }
         }
         lastEmittedAcks = new Set(ackedBy);
@@ -1227,7 +966,7 @@ export function createDoc(params: DocParams): Doc {
       emitGossipActivity: (activity) => {
         gossipActivity = activity;
         checkStatus();
-        emit("gossip-activity", activity);
+        gossipActivityFeed._update(activity);
       },
 
       emitLoading: () => {
@@ -1243,7 +982,7 @@ export function createDoc(params: DocParams): Doc {
             prev.guaranteeUntil !== g.guaranteeUntil ||
             prev.retainUntil !== g.retainUntil
           ) {
-            emit("ack", pid);
+            ackEventFeed._update(pid);
           }
         }
         lastEmittedGuarantees = new Map(guarantees);
@@ -1446,8 +1185,13 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch();
       stopIPNSWatch = null;
     }
-    identitiesMap.unobserve(rebuildClientIdMapping);
-    awarenessRoom.awareness.off("change", syncDisplayName);
+    // Unsubscribe all event→Feed bridges
+    for (const map of eventSubs.values()) {
+      for (const unsub of map.values()) unsub();
+    }
+    eventSubs.clear();
+    clientIdMapping.destroy();
+    cleanupParticipant();
     cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
@@ -1601,6 +1345,8 @@ export function createDoc(params: DocParams): Doc {
     loading: loadingFeed as Feed<LoadingState>,
     backedUp: backedUpFeed as Feed<boolean>,
     versions: versionsFeed as Feed<VersionHistory>,
+    snapshotEvents: snapshotEventFeed as Feed<SnapshotEvent | null>,
+    gossipActivity: gossipActivityFeed as Feed<GossipActivity>,
     clientIdMapping: clientIdMappingFeed as Feed<IdentityMap>,
 
     ready(options?: { timeoutMs?: number }): Promise<void> {
@@ -1730,12 +1476,12 @@ export function createDoc(params: DocParams): Doc {
         factQueue.push(publishSucceeded);
       }
 
-      emit("snapshot", {
+      snapshotEventFeed._update({
         cid,
         seq: pushResult.seq,
         ts: Date.now(),
         isLocal: true,
-      } satisfies SnapshotEvent);
+      });
 
       // Publish IPNS — fire-and-forget. Block is
       // already persisted via resolver.put() above.
@@ -1777,14 +1523,61 @@ export function createDoc(params: DocParams): Doc {
 
     /* eslint-disable @typescript-eslint/no-explicit-any */
     on(event: string, cb: (...args: any[]) => void) {
-      if (!listeners.has(event)) {
-        listeners.set(event, new Set());
+      if (!eventSubs.has(event)) {
+        eventSubs.set(event, new Map());
       }
-      listeners.get(event)!.add(cb);
+      const map = eventSubs.get(event)!;
+      // Already subscribed with this callback
+      if (map.has(cb)) return;
+
+      let unsub: () => void;
+      switch (event) {
+        case "status":
+          unsub = statusFeed.subscribe(() => cb(statusFeed.getSnapshot()));
+          break;
+        case "save":
+          unsub = saveStateFeed.subscribe(() =>
+            cb(saveStateFeed.getSnapshot()),
+          );
+          break;
+        case "loading":
+          unsub = loadingFeed.subscribe(() => cb(loadingFeed.getSnapshot()));
+          break;
+        case "snapshot":
+          unsub = snapshotEventFeed.subscribe(() => {
+            const v = snapshotEventFeed.getSnapshot();
+            if (v) cb(v);
+          });
+          break;
+        case "ack":
+          unsub = ackEventFeed.subscribe(() => {
+            const v = ackEventFeed.getSnapshot();
+            if (v) cb(v);
+          });
+          break;
+        case "node-change":
+          unsub = nodeChangeFeed.subscribe(() => cb());
+          break;
+        case "publish-needed":
+          unsub = dirtyCountFeed.subscribe(() => cb());
+          break;
+        case "gossip-activity":
+          unsub = gossipActivityFeed.subscribe(() =>
+            cb(gossipActivityFeed.getSnapshot()),
+          );
+          break;
+        default:
+          return;
+      }
+      map.set(cb, unsub);
     },
 
     off(event: string, cb: (...args: any[]) => void) {
-      listeners.get(event)?.delete(cb);
+      const unsub = eventSubs.get(event)?.get(cb);
+      if (unsub) {
+        unsub();
+        eventSubs.get(event)!.delete(cb);
+      }
     },
     /* eslint-enable @typescript-eslint/no-explicit-any */
 
