@@ -7,6 +7,53 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Comments integration example — runnable
+  Vite+React+Tiptap example at
+  `docs/examples/comments/` covering channel setup,
+  anchor creation, highlight extensions, spatial
+  sidebar, threading, resolve/delete (#209)
+- Migration guide for breaking changes across alpha
+  releases (`docs/migration-guide.md`) (#162)
+- `lastPersistenceError` Feed classified as
+  experimental in api-stability.md
+
+### Changed
+
+- Example app bundle split — 2.1MB monolith → 7KB
+  initial load via dynamic core import, React.lazy
+  editor, and manualChunks for P2P/editor deps (#239)
+- Lazy Helia init — editor no longer blocks on Helia
+  bootstrap, eliminating 5-15s blank screen on slow
+  networks. P2P layer starts in background after
+  local content is ready (#200)
+
+### Fixed
+
+- `applySnapshot()` silently dropped data for unknown
+  channels — now auto-creates Y.Doc instances,
+  preserving all channel data through snapshot
+  round-trips (#219)
+- Silent publish drop when no GossipSub mesh peers —
+  announce now retries with backoff until mesh is
+  available (#225)
+- IDB quota errors silently swallowed — persistence
+  failures now surface via `lastPersistenceError`
+  Feed, preventing silent data loss in incognito
+  mode (#226)
+- Error messages across core and capability packages
+  rewritten with actionable consumer guidance (#164)
+- Keyboard selection popover a11y blocker — popover
+  now responds correctly to keyboard-only selection
+  (#211)
+- `release.sh` fails when changelog is pre-committed
+  under version heading — now handles both
+  `[Unreleased]` and version-headed changelog, and
+  `version-bump.mjs` sets `POKAPALI_RELEASE=1` (#236)
+- Stale `namespaces` terminology in architecture.md
+  updated to `channels` (#161)
+
 ## [0.1.0-alpha.6] — 2026-03-15
 
 ### Added
