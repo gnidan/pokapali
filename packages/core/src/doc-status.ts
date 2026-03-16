@@ -29,8 +29,12 @@ export function computeStatus(
 ): DocStatus {
   if (syncStatus === "connected") return "synced";
   if (syncStatus === "connecting") return "connecting";
-  if (awarenessConnected) return "receiving";
   if (gossipActivity === "receiving") return "receiving";
+  // Awareness-only = cursors visible but edits may
+  // not sync (#224). Report "connecting" not
+  // "receiving" so consumers don't show a false
+  // "collaborating" state.
+  if (awarenessConnected) return "connecting";
   if (gossipActivity === "subscribed") {
     return "connecting";
   }
