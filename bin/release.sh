@@ -302,6 +302,25 @@ else
   echo "All ${#TAGS[@]} tags pushed successfully."
 fi
 
+# --- 10. Sync Gitea main ---
+# Push to Gitea so it stays in sync with GitHub.
+# Requires gitea-lead remote and push whitelist on
+# branch protection. Non-fatal if it fails.
+
+echo ""
+GITEA_REMOTE="gitea-lead"
+if git remote get-url "$GITEA_REMOTE" >/dev/null 2>&1; then
+  echo "=== Syncing Gitea main ==="
+  if git push "$GITEA_REMOTE" main 2>/dev/null; then
+    echo "  Gitea main synced"
+  else
+    echo "  WARNING: Gitea sync failed."
+    echo "  Sync manually: git push $GITEA_REMOTE main"
+  fi
+else
+  echo "Skipping Gitea sync (no $GITEA_REMOTE remote)"
+fi
+
 echo ""
 echo "=== Release $VERSION complete ==="
 echo ""
