@@ -2,11 +2,9 @@
  * Hook that wires @pokapali/comments to a Doc and
  * provides reactive comment data + actions.
  *
- * Handles the XmlFragment↔Text adapter gap: creates
- * anchors on XmlFragment (Tiptap) but passes them
- * through the comments package which stores them
- * as raw Uint8Array. Anchor resolution is handled
- * separately by commentHighlight.ts.
+ * Passes the real content doc with an XmlFragment
+ * contentType so anchors resolve correctly against
+ * Tiptap's ProseMirror document structure.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -41,18 +39,12 @@ export function useComments(doc: Doc) {
       // existed — comments are unavailable.
       return;
     }
-    // Pass a dummy Y.Doc as contentDoc to avoid a Yjs
-    // type conflict: @pokapali/comments calls
-    // getText("default") but Tiptap already registered
-    // getXmlFragment("default") on the real content doc.
-    // Anchor resolution is handled by commentHighlight.ts
-    // via y-prosemirror, so the package's Text-based
-    // resolution (which returns "pending") is unused.
-    const contentStub = new Y.Doc();
+    const contentDoc = doc.channel("content");
 
-    const c = comments<CommentData>(commentsDoc, contentStub, {
+    const c = comments<CommentData>(commentsDoc, contentDoc, {
       author: doc.identityPubkey,
       clientIdMapping: doc.clientIdMapping,
+      contentType: contentDoc.getXmlFragment("default"),
     });
 
     setInstance(c);
@@ -60,7 +52,6 @@ export function useComments(doc: Doc) {
 
     return () => {
       c.destroy();
-      contentStub.destroy();
       setCommentsYDoc(null);
     };
   }, [doc]);
