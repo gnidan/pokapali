@@ -103,7 +103,35 @@ export function comments<T>(
   options: CommentsOptions,
 ): Comments<T> {
   const map = commentsMap(commentsDoc);
-  const contentType = options.contentType ?? contentDoc.getText("default");
+  const explicitContentType = options.contentType !== undefined;
+
+  let contentType: Y.AbstractType<unknown>;
+  if (explicitContentType) {
+    contentType = options.contentType!;
+  } else {
+    // Check if "default" is already registered as a
+    // non-Text type (e.g. XmlFragment from Tiptap).
+    const existing = contentDoc.share.get("default");
+    if (existing && !(existing instanceof Y.Text)) {
+      throw new Error(
+        "No contentType provided and the content doc" +
+          ' already has "default" registered as ' +
+          existing.constructor.name +
+          ", not Y.Text. Pass the correct shared" +
+          " type as contentType (e.g.," +
+          ' contentDoc.getXmlFragment("default")' +
+          " for Tiptap/ProseMirror).",
+      );
+    }
+    contentType = contentDoc.getText("default");
+    log.warn(
+      "No contentType provided — defaulting to" +
+        ' getText("default"). Pass contentType' +
+        " explicitly (e.g.," +
+        ' contentDoc.getXmlFragment("default")' +
+        " for Tiptap/ProseMirror).",
+    );
+  }
   const feed = createFeed<Comment<T>[]>(
     [],
     () => false, // always notify — we rebuild arrays
