@@ -27,52 +27,94 @@ type HeliaWithPubsub = Helia<
   }>
 >;
 
-let sharedHelia: HeliaWithPubsub | null = null;
-let refCount = 0;
+// Discriminated union lifecycle state machine (#186).
+// Replaces 5 ad-hoc module-level variables with one
+// state variable that makes impossible states
+// structurally impossible.
+type HeliaState =
+  | { phase: "idle" }
+  | {
+      phase: "bootstrapping";
+      promise: Promise<HeliaWithPubsub>;
+      deferredDestroy: boolean;
+    }
+  | {
+      phase: "ready";
+      instance: HeliaWithPubsub;
+      refCount: number;
+    }
+  | {
+      phase: "destroying";
+      promise: Promise<void>;
+    };
 
-// Guards concurrent acquireHelia() calls (#106).
-// While createHelia() is in-flight, subsequent callers
-// await the same promise instead of spawning a second
-// instance.
-let pendingCreate: Promise<HeliaWithPubsub> | null = null;
+let state: HeliaState = { phase: "idle" };
 
-// True while createHelia() is running (#107). If
-// releaseHelia() is called during bootstrap it sets
-// deferredDestroy so the instance is torn down once
-// creation completes.
-let bootstrapping = false;
-let deferredDestroy = false;
+// Re-read state after an await boundary. TypeScript
+// narrows `state` within an if-block but doesn't
+// account for mutations during await. This helper
+// forces a fresh read.
+function currentState(): HeliaState {
+  return state;
+}
 
 export async function acquireHelia(
   _options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
-  if (sharedHelia) {
-    refCount++;
-    return sharedHelia;
+  if (state.phase === "ready") {
+    state.refCount++;
+    return state.instance;
   }
 
   // Another caller is already creating Helia — piggy-
   // back on that promise (#106).
-  if (pendingCreate) {
-    const helia = await pendingCreate;
-    refCount++;
+  if (state.phase === "bootstrapping") {
+    const helia = await state.promise;
+    // Re-read: state may have changed during await
+    // (deferred destroy, error, etc.)
+    const s = currentState();
+    if (s.phase !== "ready") {
+      throw new Error(
+        "Helia creation aborted: the Helia instance" +
+          " was released while still bootstrapping" +
+          " (all Docs were destroyed before" +
+          " initialization finished)",
+      );
+    }
+    s.refCount++;
     return helia;
   }
 
-  pendingCreate = createHeliaInstance(_options);
+  // Wait for destroy to complete before creating new
+  // instance (prevents race #186).
+  if (state.phase === "destroying") {
+    await state.promise;
+  }
+
+  const promise = createHeliaInstance(_options);
+  state = {
+    phase: "bootstrapping",
+    promise,
+    deferredDestroy: false,
+  };
   try {
-    const helia = await pendingCreate;
+    const helia = await promise;
     return helia;
-  } finally {
-    pendingCreate = null;
+  } catch (err) {
+    // On failure, reset to idle so next acquire can
+    // retry.
+    if (state.phase === "bootstrapping") {
+      state = { phase: "idle" };
+    }
+    throw err;
   }
 }
 
 async function createHeliaInstance(
   _options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
-  bootstrapping = true;
-  deferredDestroy = false;
+  // State is already set to "bootstrapping" by
+  // acquireHelia() before calling this function.
 
   const isSecureContext =
     typeof globalThis.location !== "undefined" &&
@@ -156,38 +198,29 @@ async function createHeliaInstance(
     heliaOpts.blockstore = _options.blockstore;
   }
 
-  let helia: HeliaWithPubsub;
-  try {
-    helia = (await Promise.race([
-      createHelia(heliaOpts),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new TimeoutError(
-                "Helia bootstrap timed out after " +
-                  `${BOOTSTRAP_TIMEOUT_MS / 1000}s` +
-                  " — check network connectivity" +
-                  " and ensure relay addresses" +
-                  " are reachable",
-              ),
+  const helia = (await Promise.race([
+    createHelia(heliaOpts),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new TimeoutError(
+              "Helia bootstrap timed out after " +
+                `${BOOTSTRAP_TIMEOUT_MS / 1000}s` +
+                " — check network connectivity" +
+                " and ensure relay addresses" +
+                " are reachable",
             ),
-          BOOTSTRAP_TIMEOUT_MS,
-        ),
+          ),
+        BOOTSTRAP_TIMEOUT_MS,
       ),
-    ])) as unknown as HeliaWithPubsub;
-  } catch (err) {
-    bootstrapping = false;
-    deferredDestroy = false;
-    throw err;
-  }
-
-  bootstrapping = false;
+    ),
+  ])) as unknown as HeliaWithPubsub;
 
   // releaseHelia() was called while we were creating
   // the instance (#107). Tear down immediately.
-  if (deferredDestroy) {
-    deferredDestroy = false;
+  if (state.phase === "bootstrapping" && state.deferredDestroy) {
+    state = { phase: "idle" };
     await helia.stop();
     throw new Error(
       "Helia creation aborted: the Helia instance" +
@@ -197,50 +230,56 @@ async function createHeliaInstance(
     );
   }
 
-  sharedHelia = helia;
-  refCount = 1;
+  state = { phase: "ready", instance: helia, refCount: 1 };
   return helia;
 }
 
 export async function releaseHelia(): Promise<void> {
   // Released during bootstrap (#107) — defer
   // destruction until createHeliaInstance() finishes.
-  if (bootstrapping) {
-    deferredDestroy = true;
+  if (state.phase === "bootstrapping") {
+    state.deferredDestroy = true;
     return;
   }
 
-  if (!sharedHelia || refCount <= 0) {
+  if (state.phase !== "ready") {
     return;
   }
-  refCount--;
-  if (refCount === 0) {
-    const h = sharedHelia;
-    sharedHelia = null;
-    await h.stop();
+
+  state.refCount--;
+  if (state.refCount === 0) {
+    const h = state.instance;
+    const promise = h.stop();
+    state = { phase: "destroying", promise };
+    await promise;
+    // Only reset to idle if we're still in destroying
+    // (acquireHelia may have already transitioned us).
+    if (state.phase === "destroying") {
+      state = { phase: "idle" };
+    }
   }
 }
 
 export function getHeliaPubsub(): PubSub {
-  if (!sharedHelia) {
+  if (state.phase !== "ready") {
     throw new Error(
       "No Helia instance exists — ensure a Doc has" +
         " been created or opened before accessing" +
         " the P2P network layer",
     );
   }
-  return sharedHelia.libp2p.services.pubsub;
+  return state.instance.libp2p.services.pubsub;
 }
 
 export function getHelia(): Helia {
-  if (!sharedHelia) {
+  if (state.phase !== "ready") {
     throw new Error(
       "No Helia instance exists — ensure a Doc has" +
         " been created or opened before accessing" +
         " the P2P network layer",
     );
   }
-  return sharedHelia;
+  return state.instance;
 }
 
 /**
@@ -250,16 +289,12 @@ export function getHelia(): Helia {
  * blockstore option and just increment the ref count.
  */
 export function isHeliaLive(): boolean {
-  return sharedHelia !== null;
+  return state.phase === "ready";
 }
 
 /**
  * Reset internal state. For testing only.
  */
 export function _resetHeliaState(): void {
-  sharedHelia = null;
-  refCount = 0;
-  pendingCreate = null;
-  bootstrapping = false;
-  deferredDestroy = false;
+  state = { phase: "idle" };
 }
