@@ -244,6 +244,10 @@ if (consumersUpdated > 0) {
 
 // --- sync lockfile, commit, and tag ---
 
+// Allow committing on main — version bumps are release
+// commits. The pre-commit hook checks this env var.
+process.env.POKAPALI_RELEASE = "1";
+
 console.log("\nRunning npm install to sync lockfile...");
 execSync("npm install --ignore-scripts", {
   cwd: rootDir,
@@ -257,7 +261,10 @@ run(
 
 const bumped = [...toBump].map((name) => packages.get(name).dir).join(", ");
 
-run(`git commit -m "chore: bump ${bumped} to ${version}"`);
+run(
+  `git commit -m "chore: bump ${bumped} to ${version}` +
+    `\n\nCo-authored-by: g. nicholas d'andrea <nick@gnidan.org>"`,
+);
 
 // Create per-package tags for publish workflow
 // Format: publish/<dir>/<version> (no @ to avoid GHA issues)
