@@ -79,7 +79,11 @@ import type {
   GossipActivity,
   VersionHistory,
 } from "./facts.js";
-import { runInterpreter } from "./interpreter.js";
+import {
+  runInterpreter,
+  MAX_INTERPRETER_RETRIES,
+  RETRY_BASE_MS,
+} from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
 
 const log = createLogger("core");
@@ -159,6 +163,10 @@ export interface Doc {
   readonly tip: Feed<VersionInfo | null>;
   /** Reactive loading feed (useSyncExternalStore). */
   readonly loading: Feed<LoadingState>;
+  /** True when the current tip is acked by at least
+   *  one pinner. Reactive feed (useSyncExternalStore).
+   *  Resets to false on new publish until re-acked. */
+  readonly backedUp: Feed<boolean>;
   /** Reactive version history feed. Updates as
    *  chain walks discover and fetch entries. */
   readonly versions: Feed<VersionHistory>;
@@ -167,8 +175,12 @@ export interface Doc {
    * either a remote snapshot was applied, initial IPNS
    * resolution found nothing to load, or the document
    * was locally created (resolves immediately).
+   *
+   * @param options.timeoutMs - Optional timeout in ms.
+   *   Rejects with Error("ready() timed out") if
+   *   the document isn't ready within the timeout.
    */
-  ready(): Promise<void>;
+  ready(options?: { timeoutMs?: number }): Promise<void>;
   publish(): Promise<void>;
   rotate(): Promise<RotateResult>;
   on(event: "status", cb: (status: DocStatus) => void): void;
@@ -269,16 +281,28 @@ export interface DocParams {
   identity?: Ed25519KeyPair;
 }
 
+/** Grace period (ms) during which "offline" is
+ *  reported as "connecting" to avoid a false
+ *  "offline" flash while the mesh forms. */
+const MESH_GRACE_MS = 5_000;
+
 function computeStatus(
   syncStatus: SyncStatus,
   awarenessConnected: boolean,
   gossipActivity: GossipActivity,
+  createdAt?: number,
 ): DocStatus {
   if (syncStatus === "connected") return "synced";
   if (syncStatus === "connecting") return "connecting";
   if (awarenessConnected) return "receiving";
   if (gossipActivity === "receiving") return "receiving";
   if (gossipActivity === "subscribed") {
+    return "connecting";
+  }
+  // During startup, mesh peers haven't connected
+  // yet. Show "connecting" instead of "offline"
+  // for a brief grace period.
+  if (createdAt !== undefined && Date.now() - createdAt < MESH_GRACE_MS) {
     return "connecting";
   }
   return "offline";
@@ -315,6 +339,15 @@ function deriveLoadingState(state: DocState): LoadingState {
   }
   for (const entry of state.chain.entries.values()) {
     if (entry.blockStatus === "failed") {
+      if (entry.fetchAttempt < MAX_INTERPRETER_RETRIES) {
+        return {
+          status: "retrying",
+          cid: entry.cid.toString(),
+          attempt: entry.fetchAttempt,
+          nextRetryAt:
+            Date.now() + RETRY_BASE_MS * 3 ** (entry.fetchAttempt - 1),
+        };
+      }
       return {
         status: "failed",
         cid: entry.cid.toString(),
@@ -328,6 +361,13 @@ function deriveLoadingState(state: DocState): LoadingState {
 function loadingStateChanged(a: LoadingState, b: LoadingState): boolean {
   if (a.status !== b.status) return true;
   if ("cid" in a && "cid" in b && a.cid !== b.cid) {
+    return true;
+  }
+  if (
+    a.status === "retrying" &&
+    b.status === "retrying" &&
+    a.attempt !== b.attempt
+  ) {
     return true;
   }
   return false;
@@ -438,11 +478,13 @@ export function createDoc(params: DocParams): Doc {
   let gossipActivity: GossipActivity = "inactive";
   let isSaving = false;
   let lastSaveError: string | null = null;
+  const docCreatedAt = Date.now();
 
   let lastStatus = computeStatus(
     syncManager.status,
     awarenessRoom.connected,
     gossipActivity,
+    docCreatedAt,
   );
   let lastSaveState = computeSaveState(subdocManager.isDirty, isSaving);
 
@@ -451,6 +493,7 @@ export function createDoc(params: DocParams): Doc {
       syncManager.status,
       awarenessRoom.connected,
       gossipActivity,
+      docCreatedAt,
     );
     if (next !== lastStatus) {
       lastStatus = next;
@@ -458,6 +501,11 @@ export function createDoc(params: DocParams): Doc {
       emit("status", next);
     }
   }
+
+  // After grace period expires, re-check status so
+  // it transitions from "connecting" to "offline"
+  // if nothing has connected.
+  const graceTimer = setTimeout(() => checkStatus(), MESH_GRACE_MS + 50);
 
   function checkSaveState() {
     const next = computeSaveState(
@@ -522,6 +570,7 @@ export function createDoc(params: DocParams): Doc {
     { status: "idle" },
     (a, b) => !loadingStateChanged(a, b),
   );
+  const backedUpFeed: WritableFeed<boolean> = createFeed<boolean>(false);
 
   const EMPTY_VERSION_HISTORY: VersionHistory = {
     entries: [],
@@ -1035,6 +1084,10 @@ export function createDoc(params: DocParams): Doc {
           tipFeed._update(null);
         }
 
+        // Derived backedUp — true when current tip
+        // has at least one pinner ack.
+        backedUpFeed._update((lastTipInfo?.ackedBy.size ?? 0) > 0);
+
         // Derived loading state — feed handles dedup
         const prevLoading = loadingFeed.getSnapshot();
         const newLoading = deriveLoadingState(item.next);
@@ -1378,6 +1431,7 @@ export function createDoc(params: DocParams): Doc {
 
   function teardown() {
     destroyed = true;
+    clearTimeout(graceTimer);
     // Flush version cache before cleanup
     flushVersionCache();
     // Interpreter cleanup
@@ -1545,11 +1599,21 @@ export function createDoc(params: DocParams): Doc {
 
     tip: tipFeed as Feed<VersionInfo | null>,
     loading: loadingFeed as Feed<LoadingState>,
+    backedUp: backedUpFeed as Feed<boolean>,
     versions: versionsFeed as Feed<VersionHistory>,
     clientIdMapping: clientIdMappingFeed as Feed<IdentityMap>,
 
-    ready(): Promise<void> {
-      return readyPromise;
+    ready(options?: { timeoutMs?: number }): Promise<void> {
+      if (!options?.timeoutMs) return readyPromise;
+      return Promise.race([
+        readyPromise,
+        new Promise<void>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("ready() timed out")),
+            options.timeoutMs,
+          ),
+        ),
+      ]);
     },
 
     async publish(): Promise<void> {

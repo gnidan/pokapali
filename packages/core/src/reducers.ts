@@ -219,6 +219,15 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
     );
   }
 
+  if (fact.type === "block-retry-reset") {
+    const entry = state.entries.get(fact.cid.toString());
+    if (!entry || entry.blockStatus !== "failed") return state;
+    return updateEntry(state, fact.cid, (e) => ({
+      ...e,
+      blockStatus: "unknown",
+    }));
+  }
+
   if (fact.type === "tip-advanced") {
     const tipEntry = state.entries.get(fact.cid.toString());
     const tipSeq = tipEntry?.seq ?? fact.seq;

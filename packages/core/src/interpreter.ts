@@ -147,22 +147,33 @@ function dispatchFetch(
 const GOSSIP_DECAY_MS = 60_000;
 const GUARANTEE_REQUERY_MS = 5 * 60_000;
 
+/** Max interpreter-level retry attempts before
+ *  reporting "failed" to consumers. Each attempt
+ *  already includes fetchBlock's internal retries. */
+export const MAX_INTERPRETER_RETRIES = 3;
+
+/** Base delay between interpreter retry attempts.
+ *  Exponential: BASE * 3^(attempt-1). */
+export const RETRY_BASE_MS = 10_000;
+
 // Track scheduled wake-ups to avoid duplicates
 const scheduledWakeups = new WeakMap<
   AsyncQueue<Fact>,
   {
     gossipDecay?: ReturnType<typeof setTimeout>;
     guaranteeRequery?: ReturnType<typeof setTimeout>;
+    blockRetries: Map<string, ReturnType<typeof setTimeout>>;
   }
 >();
 
 function getTimers(feedback: AsyncQueue<Fact>): {
   gossipDecay?: ReturnType<typeof setTimeout>;
   guaranteeRequery?: ReturnType<typeof setTimeout>;
+  blockRetries: Map<string, ReturnType<typeof setTimeout>>;
 } {
   let timers = scheduledWakeups.get(feedback);
   if (!timers) {
-    timers = {};
+    timers = { blockRetries: new Map() };
     scheduledWakeups.set(feedback, timers);
   }
   return timers;
@@ -203,7 +214,12 @@ function clearAllWakeups(feedback: AsyncQueue<Fact>): void {
   const timers = scheduledWakeups.get(feedback);
   if (!timers) return;
   if (timers.gossipDecay) clearTimeout(timers.gossipDecay);
-  if (timers.guaranteeRequery) clearTimeout(timers.guaranteeRequery);
+  if (timers.guaranteeRequery) {
+    clearTimeout(timers.guaranteeRequery);
+  }
+  for (const t of timers.blockRetries.values()) {
+    clearTimeout(t);
+  }
   scheduledWakeups.delete(feedback);
 }
 
@@ -272,6 +288,40 @@ export async function runInterpreter(
       }
 
       dispatchFetch(entry.cid, entry, effects, feedback);
+    }
+
+    // --- Schedule retries for failed blocks ---
+    if (fact.type === "block-fetch-failed") {
+      const entry = next.chain.entries.get(fact.cid.toString());
+      if (entry && entry.fetchAttempt < MAX_INTERPRETER_RETRIES) {
+        const timers = getTimers(feedback);
+        const key = fact.cid.toString();
+        if (!timers.blockRetries.has(key)) {
+          const delay = RETRY_BASE_MS * 3 ** (entry.fetchAttempt - 1);
+          timers.blockRetries.set(
+            key,
+            setTimeout(() => {
+              timers.blockRetries.delete(key);
+              feedback.push({
+                type: "block-retry-reset",
+                ts: Date.now(),
+                cid: fact.cid,
+              });
+            }, delay),
+          );
+        }
+      }
+    }
+
+    // --- Cancel retry timer if block was fetched ---
+    if (fact.type === "block-fetched" || fact.type === "tip-advanced") {
+      const timers = getTimers(feedback);
+      const key = fact.cid.toString();
+      const timer = timers.blockRetries.get(key);
+      if (timer) {
+        clearTimeout(timer);
+        timers.blockRetries.delete(key);
+      }
     }
 
     // --- Decode inline blocks for chain discovery ---

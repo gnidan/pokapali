@@ -144,6 +144,8 @@ export type Fact =
       ts: number;
       cid: CID | null;
     }
+  // --- Retry ---
+  | { type: "block-retry-reset"; ts: number; cid: CID }
   // --- Timers ---
   | { type: "reannounce-tick"; ts: number }
   | { type: "tick"; ts: number };

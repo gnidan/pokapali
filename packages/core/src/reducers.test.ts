@@ -564,6 +564,63 @@ describe("reduceChain", () => {
     },
   );
 
+  it("block-retry-reset resets failed to unknown", async () => {
+    const cid = await fakeCid(1);
+    let state = reduceChain(INITIAL_CHAIN, {
+      type: "cid-discovered",
+      ts: 1,
+      cid,
+      source: "gossipsub",
+    });
+    state = reduceChain(state, {
+      type: "block-fetch-failed",
+      ts: 2,
+      cid,
+      attempt: 1,
+      error: "timeout",
+    });
+    expect(state.entries.get(cid.toString())!.blockStatus).toBe("failed");
+    expect(state.entries.get(cid.toString())!.fetchAttempt).toBe(1);
+
+    state = reduceChain(state, {
+      type: "block-retry-reset",
+      ts: 3,
+      cid,
+    });
+    const entry = state.entries.get(cid.toString());
+    expect(entry!.blockStatus).toBe("unknown");
+    // fetchAttempt preserved for tracking
+    expect(entry!.fetchAttempt).toBe(1);
+  });
+
+  it("block-retry-reset is no-op for non-failed " + "entries", async () => {
+    const cid = await fakeCid(1);
+    let state = reduceChain(INITIAL_CHAIN, {
+      type: "cid-discovered",
+      ts: 1,
+      cid,
+      source: "gossipsub",
+    });
+    // Entry is "unknown", not "failed"
+    const before = state;
+    state = reduceChain(state, {
+      type: "block-retry-reset",
+      ts: 2,
+      cid,
+    });
+    expect(state).toBe(before);
+  });
+
+  it("block-retry-reset is no-op for unknown CID", async () => {
+    const cid = await fakeCid(99);
+    const state = reduceChain(INITIAL_CHAIN, {
+      type: "block-retry-reset",
+      ts: 1,
+      cid,
+    });
+    expect(state).toBe(INITIAL_CHAIN);
+  });
+
   it("ignores unrelated facts", () => {
     const state = reduceChain(INITIAL_CHAIN, {
       type: "gossip-message",

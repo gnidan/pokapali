@@ -198,4 +198,223 @@ describe("ready() after interpreter crash (#39)", () => {
     expect(result).toBe("resolved");
     doc.destroy();
   });
+
+  it("ready({ timeoutMs }) rejects on timeout", async () => {
+    // Mock interpreter that never resolves ready
+    const { runInterpreter } = await import("./interpreter.js");
+    vi.mocked(runInterpreter).mockImplementation(
+      () => new Promise(() => {}), // hangs forever
+    );
+
+    const doc = createDoc({
+      subdocManager: mockSubdocManager() as any,
+      syncManager: {
+        status: "connecting",
+        onStatusChange: vi.fn(),
+        destroy: vi.fn(),
+      } as any,
+      awarenessRoom: {
+        awareness: {
+          on: vi.fn(),
+          off: vi.fn(),
+          setLocalStateField: vi.fn(),
+          getStates: () => new Map(),
+        },
+        connected: false,
+        onStatusChange: vi.fn(),
+        destroy: vi.fn(),
+      } as any,
+      cap: {
+        isAdmin: false,
+        canPushSnapshots: false,
+        channels: new Set(["content"]),
+      },
+      keys: {
+        readKey: {} as CryptoKey,
+        awarenessRoomPassword: "p",
+        channelKeys: {},
+      },
+      ipnsName: "test-ipns-2",
+      origin: "https://example.com",
+      channels: ["content"],
+      adminUrl: null,
+      writeUrl: null,
+      readUrl: "https://example.com/doc/test#r",
+      signingKey: null,
+      readKey: {} as CryptoKey,
+      appId: "test",
+      primaryChannel: "content",
+      signalingUrls: [],
+      syncOpts: {
+        peerOpts: {},
+        pubsub: {
+          subscribe: vi.fn(),
+          unsubscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          getSubscribers: vi.fn(() => []),
+          getTopics: vi.fn(() => []),
+        } as any,
+      },
+      pubsub: {
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        getSubscribers: vi.fn(() => []),
+        getTopics: vi.fn(() => []),
+      } as any,
+      performInitialResolve: true,
+    });
+
+    await expect(doc.ready({ timeoutMs: 50 })).rejects.toThrow(
+      "ready() timed out",
+    );
+
+    doc.destroy();
+  });
+
+  it("ready({ timeoutMs }) resolves if ready " + "before timeout", async () => {
+    // Interpreter crashes → markReady fires
+    const { runInterpreter } = await import("./interpreter.js");
+    vi.mocked(runInterpreter).mockRejectedValue(new Error("interpreter boom"));
+
+    const doc = createDoc({
+      subdocManager: mockSubdocManager() as any,
+      syncManager: {
+        status: "connecting",
+        onStatusChange: vi.fn(),
+        destroy: vi.fn(),
+      } as any,
+      awarenessRoom: {
+        awareness: {
+          on: vi.fn(),
+          off: vi.fn(),
+          setLocalStateField: vi.fn(),
+          getStates: () => new Map(),
+        },
+        connected: false,
+        onStatusChange: vi.fn(),
+        destroy: vi.fn(),
+      } as any,
+      cap: {
+        isAdmin: false,
+        canPushSnapshots: false,
+        channels: new Set(["content"]),
+      },
+      keys: {
+        readKey: {} as CryptoKey,
+        awarenessRoomPassword: "p",
+        channelKeys: {},
+      },
+      ipnsName: "test-ipns-3",
+      origin: "https://example.com",
+      channels: ["content"],
+      adminUrl: null,
+      writeUrl: null,
+      readUrl: "https://example.com/doc/test#r",
+      signingKey: null,
+      readKey: {} as CryptoKey,
+      appId: "test",
+      primaryChannel: "content",
+      signalingUrls: [],
+      syncOpts: {
+        peerOpts: {},
+        pubsub: {
+          subscribe: vi.fn(),
+          unsubscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          getSubscribers: vi.fn(() => []),
+          getTopics: vi.fn(() => []),
+        } as any,
+      },
+      pubsub: {
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        getSubscribers: vi.fn(() => []),
+        getTopics: vi.fn(() => []),
+      } as any,
+      performInitialResolve: true,
+    });
+
+    // Should resolve well before 5s timeout
+    await expect(doc.ready({ timeoutMs: 5000 })).resolves.toBeUndefined();
+
+    doc.destroy();
+  });
+
+  it("ready() without options still works", async () => {
+    const doc = createDoc({
+      subdocManager: mockSubdocManager() as any,
+      syncManager: {
+        status: "connecting",
+        onStatusChange: vi.fn(),
+        destroy: vi.fn(),
+      } as any,
+      awarenessRoom: {
+        awareness: {
+          on: vi.fn(),
+          off: vi.fn(),
+          setLocalStateField: vi.fn(),
+          getStates: () => new Map(),
+        },
+        connected: false,
+        onStatusChange: vi.fn(),
+        destroy: vi.fn(),
+      } as any,
+      cap: {
+        isAdmin: false,
+        canPushSnapshots: false,
+        channels: new Set(["content"]),
+      },
+      keys: {
+        readKey: {} as CryptoKey,
+        awarenessRoomPassword: "p",
+        channelKeys: {},
+      },
+      ipnsName: "test-ipns-4",
+      origin: "https://example.com",
+      channels: ["content"],
+      adminUrl: null,
+      writeUrl: null,
+      readUrl: "https://example.com/doc/test#r",
+      signingKey: null,
+      readKey: {} as CryptoKey,
+      appId: "test",
+      primaryChannel: "content",
+      signalingUrls: [],
+      syncOpts: {
+        peerOpts: {},
+        pubsub: {
+          subscribe: vi.fn(),
+          unsubscribe: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          getSubscribers: vi.fn(() => []),
+          getTopics: vi.fn(() => []),
+        } as any,
+      },
+      pubsub: {
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        getSubscribers: vi.fn(() => []),
+        getTopics: vi.fn(() => []),
+      } as any,
+      performInitialResolve: true,
+    });
+
+    // Without options, still resolves (interpreter
+    // crash triggers markReady)
+    const result = await Promise.race([
+      doc.ready().then(() => "resolved"),
+      new Promise<string>((r) => setTimeout(() => r("timeout"), 500)),
+    ]);
+    expect(result).toBe("resolved");
+    doc.destroy();
+  });
 });

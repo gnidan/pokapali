@@ -185,12 +185,17 @@ describe("solo mode (no relay)", () => {
     doc.destroy();
   });
 
-  it("status reflects offline when solo", async () => {
-    const lib = pokapali(SOLO_OPTS);
-    const doc = await lib.create();
-    expect(doc.status.getSnapshot()).toBe("offline");
-    doc.destroy();
-  });
+  it(
+    "status is connecting during mesh grace " + "period when solo",
+    async () => {
+      const lib = pokapali(SOLO_OPTS);
+      const doc = await lib.create();
+      // During mesh formation grace period,
+      // status is "connecting" not "offline"
+      expect(doc.status.getSnapshot()).toBe("connecting");
+      doc.destroy();
+    },
+  );
 
   it("save state transitions work solo", async () => {
     const lib = pokapali(SOLO_OPTS);
@@ -259,6 +264,18 @@ describe("solo mode (no relay)", () => {
     expect(doc.urls.admin).toContain("https://example.com/doc/");
     expect(doc.urls.write).toContain("https://example.com/doc/");
     expect(doc.urls.read).toContain("https://example.com/doc/");
+    doc.destroy();
+  });
+
+  it("backedUp feed starts false in solo mode", async () => {
+    const lib = pokapali(SOLO_OPTS);
+    const doc = await lib.create();
+
+    expect(doc.backedUp.getSnapshot()).toBe(false);
+
+    // Publish — still no pinners, so stays false
+    await doc.publish();
+    expect(doc.backedUp.getSnapshot()).toBe(false);
     doc.destroy();
   });
 });

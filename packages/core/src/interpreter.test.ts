@@ -5,10 +5,15 @@
  * Level 3 tests: async, mock EffectHandlers, verify
  * correct effects dispatched for each fact sequence.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
-import { runInterpreter, shouldAutoFetch } from "./interpreter.js";
+import {
+  runInterpreter,
+  shouldAutoFetch,
+  MAX_INTERPRETER_RETRIES,
+  RETRY_BASE_MS,
+} from "./interpreter.js";
 import type { EffectHandlers, ScanOutput } from "./interpreter.js";
 import {
   initialDocState,
@@ -1253,5 +1258,123 @@ describe("interpreter abort", () => {
 
     // Should complete without error
     expect(true).toBe(true);
+  });
+});
+
+// --- Block retry scheduling tests ---
+
+describe("interpreter block retry scheduling", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("schedules block-retry-reset after fetch " + "failure", async () => {
+    vi.useFakeTimers();
+    const cid = await fakeCid(80);
+
+    const effects = mockEffects({
+      fetchBlock: vi.fn().mockResolvedValue(null),
+    });
+    const ac = new AbortController();
+    const feedbackQueue = createAsyncQueue<Fact>(ac.signal);
+    const collected: Fact[] = [];
+    const collector = (async () => {
+      for await (const f of feedbackQueue) {
+        collected.push(f);
+      }
+    })();
+
+    // Stream: discover a CID, then feed the
+    // block-fetch-failed fact that dispatchFetch
+    // would produce
+    const stream = factsToStream([
+      {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "gossipsub",
+        seq: 1,
+      },
+      {
+        type: "block-fetch-failed",
+        ts: 2,
+        cid,
+        attempt: 1,
+        error: "not found",
+      },
+    ]);
+
+    await runInterpreter(stream, effects, feedbackQueue, ac.signal);
+
+    // Advance past retry delay
+    vi.advanceTimersByTime(RETRY_BASE_MS + 100);
+
+    // Allow microtasks to flush
+    await vi.advanceTimersByTimeAsync(0);
+
+    ac.abort();
+    await collector;
+
+    const retry = collected.find((f) => f.type === "block-retry-reset");
+    expect(retry).toBeDefined();
+    expect((retry as any).cid).toEqual(cid);
+  });
+
+  it(
+    "does not schedule retry beyond " + "MAX_INTERPRETER_RETRIES",
+    async () => {
+      vi.useFakeTimers();
+      const cid = await fakeCid(81);
+
+      const effects = mockEffects({
+        fetchBlock: vi.fn().mockResolvedValue(null),
+      });
+      const ac = new AbortController();
+      const feedbackQueue = createAsyncQueue<Fact>(ac.signal);
+      const collected: Fact[] = [];
+      const collector = (async () => {
+        for await (const f of feedbackQueue) {
+          collected.push(f);
+        }
+      })();
+
+      // Simulate attempt that exceeds max retries
+      const stream = factsToStream([
+        {
+          type: "cid-discovered",
+          ts: 1,
+          cid,
+          source: "gossipsub",
+          seq: 1,
+        },
+        {
+          type: "block-fetch-failed",
+          ts: 2,
+          cid,
+          attempt: MAX_INTERPRETER_RETRIES,
+          error: "not found",
+        },
+      ]);
+
+      await runInterpreter(stream, effects, feedbackQueue, ac.signal);
+
+      // Advance well past any possible delay
+      vi.advanceTimersByTime(300_000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      ac.abort();
+      await collector;
+
+      const retry = collected.find((f) => f.type === "block-retry-reset");
+      expect(retry).toBeUndefined();
+    },
+  );
+
+  it("exports MAX_INTERPRETER_RETRIES", () => {
+    expect(MAX_INTERPRETER_RETRIES).toBe(3);
+  });
+
+  it("exports RETRY_BASE_MS", () => {
+    expect(RETRY_BASE_MS).toBe(10_000);
   });
 });
