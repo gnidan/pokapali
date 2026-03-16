@@ -7,7 +7,7 @@
  * Tiptap's ProseMirror document structure.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import * as Y from "yjs";
 import type { Doc } from "@pokapali/core";
 import {
@@ -26,20 +26,26 @@ export interface CommentData {
 
 // ── Main hook ────────────────────────────────────
 
+function tryChannel(doc: Doc, name: string): Y.Doc | null {
+  try {
+    return doc.channel(name);
+  } catch {
+    // Old docs created before this channel existed.
+    return null;
+  }
+}
+
 export function useComments(doc: Doc) {
+  // Resolve channels synchronously so commentsDoc is
+  // available on the first render — avoids a useEditor
+  // recreation that can race with IDB persistence.
+  const commentsDoc = useMemo(() => tryChannel(doc, "comments"), [doc]);
+  const contentDoc = useMemo(() => doc.channel("content"), [doc]);
+
   const [instance, setInstance] = useState<Comments<CommentData> | null>(null);
-  const [commentsYDoc, setCommentsYDoc] = useState<Y.Doc | null>(null);
 
   useEffect(() => {
-    let commentsDoc: Y.Doc;
-    try {
-      commentsDoc = doc.channel("comments");
-    } catch {
-      // Old docs created before comments channel
-      // existed — comments are unavailable.
-      return;
-    }
-    const contentDoc = doc.channel("content");
+    if (!commentsDoc || !contentDoc) return;
 
     const c = comments<CommentData>(commentsDoc, contentDoc, {
       author: doc.identityPubkey,
@@ -48,13 +54,12 @@ export function useComments(doc: Doc) {
     });
 
     setInstance(c);
-    setCommentsYDoc(commentsDoc);
 
     return () => {
       c.destroy();
-      setCommentsYDoc(null);
+      setInstance(null);
     };
-  }, [doc]);
+  }, [doc, commentsDoc, contentDoc]);
 
   const emptyFeed = {
     getSnapshot: (): Comment<CommentData>[] => [],
@@ -133,6 +138,6 @@ export function useComments(doc: Doc) {
     reopenComment,
     deleteComment,
     /** Raw comments doc for anchor resolution. */
-    commentsDoc: commentsYDoc,
+    commentsDoc,
   };
 }
