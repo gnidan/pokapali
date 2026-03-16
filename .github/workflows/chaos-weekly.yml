@@ -1,0 +1,235 @@
+name: Weekly Chaos Tests (Tier 3)
+
+on:
+  schedule:
+    - cron: "0 4 * * 0" # Sundays at 4am UTC
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: >-
+          Scenario to run (s1, s4, or both)
+        required: false
+        type: string
+        default: "both"
+      writers:
+        description: "Number of writers"
+        required: false
+        type: number
+        default: 20
+      baseline:
+        description: "Baseline duration (seconds)"
+        required: false
+        type: number
+        default: 60
+
+concurrency:
+  group: chaos-weekly
+  cancel-in-progress: false
+
+env:
+  LOADTEST_USER: root
+  LOADTEST_REPO: /opt/pokapali
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Pull and build
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+        run: |
+          ssh -n "$LOADTEST_USER@$HOST" \
+            bash -s -- "$LOADTEST_REPO" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          git fetch origin main
+          git checkout origin/main
+          npm ci
+          npm run build
+          echo "Ready at $(git rev-parse --short HEAD)"
+          REMOTE
+
+  s1-relay-kill:
+    name: "S1: Relay Kill"
+    needs: setup
+    if: >-
+      github.event_name == 'schedule' ||
+      inputs.scenario == 'both' ||
+      inputs.scenario == 's1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Run S1
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+          WRITERS: ${{ inputs.writers || 20 }}
+          BASELINE: ${{ inputs.baseline || 60 }}
+        run: |
+          ssh "$LOADTEST_USER@$HOST" \
+            bash -s -- \
+              "$LOADTEST_REPO" \
+              "$WRITERS" \
+              "$BASELINE" \
+            <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          packages/load-test/bin/chaos-s1.sh \
+            --writers "$2" \
+            --baseline "$3" \
+            --output /tmp/chaos-s1
+          REMOTE
+
+      - name: Download results
+        if: always()
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+        run: |
+          mkdir -p /tmp/results
+          scp "$LOADTEST_USER@$HOST:/tmp/chaos-s1/*" \
+            /tmp/results/ || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-s1-${{ github.run_number }}
+          path: /tmp/results/
+          retention-days: 90
+
+  s4-peer-churn:
+    name: "S4: Peer Churn"
+    needs: [setup, s1-relay-kill]
+    if: >-
+      always() && (
+        github.event_name == 'schedule' ||
+        inputs.scenario == 'both' ||
+        inputs.scenario == 's4'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Run S4
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+          WRITERS: ${{ inputs.writers || 10 }}
+          BASELINE: ${{ inputs.baseline || 60 }}
+        run: |
+          ssh "$LOADTEST_USER@$HOST" \
+            bash -s -- \
+              "$LOADTEST_REPO" \
+              "$WRITERS" \
+              "$BASELINE" \
+            <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          packages/load-test/bin/chaos-s4.sh \
+            --writers "$2" \
+            --baseline "$3" \
+            --output /tmp/chaos-s4
+          REMOTE
+
+      - name: Download results
+        if: always()
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+        run: |
+          mkdir -p /tmp/results
+          scp "$LOADTEST_USER@$HOST:/tmp/chaos-s4/*" \
+            /tmp/results/ || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-s4-${{ github.run_number }}
+          path: /tmp/results/
+          retention-days: 90
+
+  cleanup:
+    name: Cleanup
+    needs: [s1-relay-kill, s4-peer-churn]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Stop fleet
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+        run: |
+          ssh "$LOADTEST_USER@$HOST" \
+            bash -s -- "$LOADTEST_REPO" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          packages/load-test/bin/chaos-fleet.sh \
+            stop || true
+          REMOTE
