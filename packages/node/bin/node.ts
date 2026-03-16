@@ -48,6 +48,9 @@ Options:
   --stale-resolve-days <n>    Drop names with no activity
                               and no resolve for N days
                               (default: 3, 0 = disable)
+  --tcp-port <number>         libp2p TCP port (default: 4001)
+  --ws-port <number>          libp2p WebSocket port
+                              (default: 4003)
   --no-tls                     Skip autoTLS cert provisioning
   --log-level <level>         debug, info, warn, error
   --help                      Show this help message
@@ -78,6 +81,8 @@ interface ParsedArgs {
   ipnsRateLimit: number;
   staleResolveDays: number;
   noTls: boolean;
+  tcpPort: number | undefined;
+  wsPort: number | undefined;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -98,6 +103,8 @@ function parseArgs(argv: string[]): ParsedArgs {
   let ipnsRateLimit = 10;
   let staleResolveDays = 3;
   let noTls = false;
+  let tcpPort: number | undefined = undefined;
+  let wsPort: number | undefined = undefined;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -176,6 +183,18 @@ function parseArgs(argv: string[]): ParsedArgs {
         log.error(`invalid --stale-resolve-days:` + ` "${argv[i]}"`);
         process.exit(1);
       }
+    } else if (arg === "--tcp-port" && argv[i + 1]) {
+      tcpPort = parseInt(argv[++i], 10);
+      if (Number.isNaN(tcpPort)) {
+        log.error(`invalid --tcp-port value: "${argv[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === "--ws-port" && argv[i + 1]) {
+      wsPort = parseInt(argv[++i], 10);
+      if (Number.isNaN(wsPort)) {
+        log.error(`invalid --ws-port value: "${argv[i]}"`);
+        process.exit(1);
+      }
     } else if (arg === "--no-tls") {
       noTls = true;
     }
@@ -208,6 +227,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     ipnsRateLimit,
     staleResolveDays,
     noTls,
+    tcpPort,
+    wsPort,
   };
 }
 
@@ -237,6 +258,8 @@ async function main() {
     ipnsRateLimit,
     staleResolveDays,
     noTls,
+    tcpPort,
+    wsPort,
   } = parseArgs(process.argv);
 
   // CLI --log-level overrides POKAPALI_LOG_LEVEL env
@@ -256,6 +279,8 @@ async function main() {
   if (relay) {
     relayHandle = await startRelay({
       storagePath,
+      tcpPort: tcpPort ?? undefined,
+      wsPort: wsPort ?? undefined,
       announceAddrs,
       pinAppIds: pinApps.length > 0 ? pinApps : undefined,
       delegatedRoutingUrl: delegatedRoutingUrl ?? undefined,
