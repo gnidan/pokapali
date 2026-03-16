@@ -98,11 +98,15 @@ fi
 
 # Fall back to [<version>] heading
 if [ -z "$CHANGELOG_MODE" ]; then
-  VERSION_ESCAPED=$(echo "$VERSION" \
-    | sed 's/[.[\*^$()+?{|\\]/\\&/g')
   VERSION_CONTENT=$(
-    sed -n "/^## \\[$VERSION_ESCAPED\\]/,/^## \\[/{/^## \\[/d;p;}" \
-      CHANGELOG.md | grep -cE '^### ' || true
+    awk -v ver="$VERSION" '
+      $0 == "## [" ver "]" || index($0, "## [" ver "] ") == 1 {
+        found = 1; next
+      }
+      found && /^## \[/ { exit }
+      found && /^### / { count++ }
+      END { print count+0 }
+    ' CHANGELOG.md
   )
   if [ "$VERSION_CONTENT" -gt 0 ]; then
     CHANGELOG_MODE="versioned"
