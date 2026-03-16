@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+# Require Co-authored-by trailer on every commit.
+# This ensures human co-authorship is always recorded.
+
+if ! grep -q "^Co-authored-by: g\. nicholas" "$1"; then
+  echo "ERROR: Missing Co-authored-by trailer."
+  echo "Add to your commit message:"
+  echo "  Co-authored-by: g. nicholas d'andrea" \
+    "<nick@gnidan.org>"
+  exit 1
+fi
