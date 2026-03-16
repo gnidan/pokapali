@@ -13,6 +13,7 @@
   "exclude": ["src/**/*.e2e.ts", "src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/comments" },
+    { "path": "../../packages/comments-tiptap" },
     { "path": "../../packages/core" },
     { "path": "../../packages/test-utils" }
   ]
