@@ -18,6 +18,7 @@ const mockGsPeers = vi.fn().mockReturnValue([]);
 const mockGetMeshPeers = vi.fn().mockReturnValue([]);
 
 vi.mock("./helia.js", () => ({
+  isHeliaLive: vi.fn(() => true),
   getHelia: vi.fn(() => ({
     libp2p: {
       getPeers: mockGetPeers,
