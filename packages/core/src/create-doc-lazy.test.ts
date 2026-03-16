@@ -123,7 +123,6 @@ function mockPubsub() {
     removeEventListener: vi.fn(),
     getSubscribers: vi.fn(() => []),
     getTopics: vi.fn(() => []),
-     
   } as any;
 }
 
@@ -214,7 +213,7 @@ describe("lazy P2P init (#200)", () => {
       const doc = createDoc({
         ...baseParams(),
         awareness,
-         
+
         p2pReady: p2pReady as any,
       });
 
@@ -259,7 +258,7 @@ describe("lazy P2P init (#200)", () => {
       const doc = createDoc({
         ...baseParams(),
         awareness,
-         
+
         p2pReady: p2pReady as any,
         performInitialResolve: false,
       });

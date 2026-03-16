@@ -767,7 +767,7 @@ describe("@pokapali/core", () => {
     it("create() resolves before Helia finishes", async () => {
       const { acquireHelia } = await import("./helia.js");
       // Make acquireHelia hang (never resolve)
-       
+
       let resolveHelia!: (v?: any) => void;
       vi.mocked(acquireHelia).mockReturnValue(
         new Promise((r) => {
@@ -800,7 +800,7 @@ describe("@pokapali/core", () => {
       admin.destroy();
 
       // Now make Helia hang
-       
+
       let resolveHelia!: (v?: any) => void;
       vi.mocked(acquireHelia).mockReturnValue(
         new Promise((r) => {
