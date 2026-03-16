@@ -11,6 +11,8 @@ import {
   useAutoSave,
   useDocReady,
   useDocDestroy,
+  useParticipants,
+  useSnapshotFlash,
 } from "@pokapali/react";
 import {
   anchorFromSelection,
@@ -62,12 +64,8 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   } | null>(null);
   const [showEncryption, setShowEncryption] = useState(false);
   const [lastPublished, setLastPublished] = useState(Date.now());
-  const [updateFlash, setUpdateFlash] = useState(false);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const updateFlash = useSnapshotFlash(doc);
   const [user, setUser] = useState<StoredUser>(loadUser);
-  const [displayNames, setDisplayNames] = useState<Map<string, string>>(
-    () => new Map(),
-  );
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const nameBtnRef = useRef<HTMLButtonElement>(null);
@@ -97,22 +95,16 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   } = useComments(doc);
 
   // Build pubkey → displayName lookup from awareness
-  useEffect(() => {
-    const update = () => {
-      const names = new Map<string, string>();
-      for (const [, info] of doc.participants) {
-        if (info.displayName) {
-          names.set(info.pubkey, info.displayName);
-        }
+  const participantMap = useParticipants(doc);
+  const displayNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const [, info] of participantMap) {
+      if (info.displayName) {
+        names.set(info.pubkey, info.displayName);
       }
-      setDisplayNames(names);
-    };
-    update();
-    doc.awareness.on("change", update);
-    return () => {
-      doc.awareness.off("change", update);
-    };
-  }, [doc]);
+    }
+    return names;
+  }, [participantMap]);
 
   const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
@@ -141,25 +133,11 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   useAutoSave(doc);
 
   useEffect(() => {
-    const onSnapshotApplied = () => {
-      setLastPublished(Date.now());
-      setUpdateFlash(true);
-      if (flashTimer.current) {
-        clearTimeout(flashTimer.current);
-      }
-      flashTimer.current = setTimeout(() => setUpdateFlash(false), 2_000);
-    };
     const unsub = doc.snapshotEvents.subscribe(() => {
       const event = doc.snapshotEvents.getSnapshot();
-      if (event) onSnapshotApplied();
+      if (event) setLastPublished(Date.now());
     });
-
-    return () => {
-      unsub();
-      if (flashTimer.current) {
-        clearTimeout(flashTimer.current);
-      }
-    };
+    return unsub;
   }, [doc]);
 
   const contentDoc = doc.channel("content");
