@@ -95,6 +95,11 @@ export function setupAwarenessRoom(
   awarenessPassword: string,
   signalingUrls: string[],
   options?: SyncOptions,
+  /** Pre-created Awareness instance. Passed to the
+   *  WebrtcProvider so the same awareness is shared
+   *  with callers that need it before the room
+   *  connects. */
+  existingAwareness?: Awareness,
 ): AwarenessRoom {
   if (options?.pubsub) {
     createGossipSubSignaling(options.pubsub);
@@ -104,11 +109,14 @@ export function setupAwarenessRoom(
     ? [...signalingUrls, "libp2p:gossipsub"]
     : signalingUrls;
 
-  const dummyDoc = new Y.Doc();
+  const dummyDoc = existingAwareness?.doc ?? new Y.Doc();
   const roomName = `${ipnsName}:awareness`;
   const provider = new WebrtcProvider(roomName, dummyDoc, {
     signaling,
     password: awarenessPassword,
+    ...(existingAwareness && {
+      awareness: existingAwareness,
+    }),
     ...(options?.peerOpts && {
       peerOpts: options.peerOpts,
     }),

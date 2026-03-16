@@ -100,7 +100,7 @@ vi.mock("./identity.js", () => ({
     publicKey: new Uint8Array(32),
     privateKey: new Uint8Array(32),
   })),
-  signParticipant: vi.fn(async () => "mocksig"),
+  signParticipant: vi.fn(async () => "aa".repeat(32)),
 }));
 
 vi.mock("@pokapali/snapshot", async () => {
@@ -283,13 +283,13 @@ describe("@pokapali/core", () => {
     reader.destroy();
   });
 
-  it("status reflects sync state", async () => {
+  it("status starts as 'connecting' before P2P", async () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
 
-    // With mock sync status "connected",
-    // status should be "synced".
-    expect(doc.status.getSnapshot()).toBe("synced");
+    // Before p2pReady resolves, status is
+    // "connecting" (sync layer not wired yet).
+    expect(doc.status.getSnapshot()).toBe("connecting");
     doc.destroy();
   });
 
@@ -629,6 +629,11 @@ describe("@pokapali/core", () => {
         const lib = pokapali(OPTS);
         const doc = await lib.create();
 
+        // Flush all microtasks from the p2pReady
+        // .then() chain so startP2PLayer has run
+        // and fireGuaranteeQuery is set.
+        await new Promise((r) => setTimeout(r, 0));
+
         // nodeChangeHandler should have been
         // registered
         expect(nodeChangeCb).not.toBeNull();
@@ -755,6 +760,60 @@ describe("@pokapali/core", () => {
       expect(snap2.size).toBe(2);
 
       doc.destroy();
+    });
+  });
+
+  describe("lazy Helia init (#200)", () => {
+    it("create() resolves before Helia finishes", async () => {
+      const { acquireHelia } = await import("./helia.js");
+      // Make acquireHelia hang (never resolve)
+       
+      let resolveHelia!: (v?: any) => void;
+      vi.mocked(acquireHelia).mockReturnValue(
+        new Promise((r) => {
+          resolveHelia = r;
+        }),
+      );
+
+      const lib = pokapali(OPTS);
+      const doc = await lib.create();
+
+      // Doc should be returned even though Helia
+      // hasn't bootstrapped yet
+      expect(doc.channel).toBeTypeOf("function");
+      expect(doc.channel("content")).toBeInstanceOf(Y.Doc);
+
+      // Clean up: resolve Helia to avoid leaks
+      resolveHelia();
+      doc.destroy();
+    });
+
+    it("open() resolves before Helia finishes", async () => {
+      const { acquireHelia } = await import("./helia.js");
+
+      // First create a doc to get a URL (with
+      // normal Helia mock)
+      vi.mocked(acquireHelia).mockResolvedValue({} as never);
+      const lib = pokapali(OPTS);
+      const admin = await lib.create();
+      const readUrl = admin.urls.read;
+      admin.destroy();
+
+      // Now make Helia hang
+       
+      let resolveHelia!: (v?: any) => void;
+      vi.mocked(acquireHelia).mockReturnValue(
+        new Promise((r) => {
+          resolveHelia = r;
+        }),
+      );
+
+      const reader = await lib.open(readUrl);
+
+      expect(reader.channel).toBeTypeOf("function");
+
+      resolveHelia();
+      reader.destroy();
     });
   });
 });
