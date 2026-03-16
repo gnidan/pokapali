@@ -1140,4 +1140,85 @@ describe("pinner with mock helia", () => {
       await pinner.stop();
     });
   });
+
+  describe("lifecycle guards", () => {
+    it("ignores onAnnouncement after stop", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+
+      await pinner.stop();
+
+      // Should silently return, not throw or
+      // mutate state on closed store
+      pinner.onAnnouncement(name, cid.toString(), "test-app");
+      expect(pinner.metrics().knownNames).toBe(0);
+    });
+
+    it("ignores ingest after stop", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+      await pinner.stop();
+
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      const block = await makeSnapshot({ ts: 5000 });
+      const result = await pinner.ingest(name, block);
+      expect(result).toBe(false);
+    });
+
+    it("ignores recordActivity after stop", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+
+      const name =
+        "aa11bb22cc33dd44ee55ff66" +
+        "00112233aa11bb22cc33dd44" +
+        "ee55ff6600112233";
+      const block = await makeSnapshot({ ts: 5000 });
+      await pinner.ingest(name, block);
+      await pinner.stop();
+
+      // Should silently return
+      pinner.recordActivity(name);
+    });
+
+    it("double stop is safe", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+      await pinner.stop();
+      // Second stop should not throw
+      await pinner.stop();
+    });
+
+    it("throws on double start", async () => {
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+      await expect(pinner.start()).rejects.toThrow(/called in phase "running"/);
+      await pinner.stop();
+    });
+  });
 });
