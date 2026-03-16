@@ -64,6 +64,7 @@ were removed entirely.
 - `doc.latestAnnouncedSeq`
 - `doc.hasAppliedSnapshot`
 - `doc.history()` — use `doc.versions` Feed
+  (deprecated since pre-release, now removed)
 
 **Deprecated** (will be removed in a future release):
 
@@ -121,7 +122,11 @@ is needed.
 
 ---
 
-## 0.1.0-alpha.0
+## Pre-release changes
+
+These changes happened before the first npm publish
+(0.1.0-alpha.2). They only affect consumers who were
+using the library from source.
 
 ### `namespace` renamed to `channel`
 
@@ -155,7 +160,9 @@ doc.invite({ channels: ["comments"] });
 
 ### `doc.history()` deprecated
 
-Use the `doc.versions` Feed instead:
+Replaced by the `doc.versions` Feed. Fully removed
+in alpha.6 (see [Doc surface reduced](#doc-surface-reduced-187)
+above).
 
 ```ts
 // Before
