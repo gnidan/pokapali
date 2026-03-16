@@ -34,7 +34,7 @@ The format is based on
   `acquireHelia()` during `helia.stop()` could create
   duplicate instances (#186)
 - Pinner lifecycle refactored to explicit phase enum
-  (`starting` → `running` → `stopped`), guarding
+  (`created` → `running` → `stopped`), guarding
   public methods against post-stop calls (#185)
 - `release.sh` now pushes to both GitHub and Gitea
   remotes automatically
