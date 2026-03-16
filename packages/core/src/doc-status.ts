@@ -93,6 +93,38 @@ export function deriveLoadingState(state: DocState): LoadingState {
   return { status: "idle" };
 }
 
+// ── Human-readable labels ───────────────────────
+
+/** Human-readable label for DocStatus. */
+export function statusLabel(status: DocStatus): string {
+  switch (status) {
+    case "synced":
+      return "Live";
+    case "receiving":
+      return "Subscribed";
+    case "connecting":
+      return "Connecting";
+    case "offline":
+      return "Offline";
+  }
+}
+
+/** Human-readable label for SaveState. */
+export function saveLabel(state: SaveState): string {
+  switch (state) {
+    case "saved":
+      return "Published";
+    case "unpublished":
+      return "Publish now";
+    case "saving":
+      return "Saving\u2026";
+    case "dirty":
+      return "Publish changes";
+    case "save-error":
+      return "Save failed";
+  }
+}
+
 export function loadingStateChanged(a: LoadingState, b: LoadingState): boolean {
   if (a.status !== b.status) return true;
   if ("cid" in a && "cid" in b && a.cid !== b.cid) {

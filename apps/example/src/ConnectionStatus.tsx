@@ -483,11 +483,13 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
     };
     refresh();
 
-    doc.on("status", refresh);
-    doc.on("publish-needed", refresh);
-    doc.on("snapshot", refresh);
-    doc.on("ack", refresh);
-    doc.on("loading", refresh);
+    const unsubs = [
+      doc.status.subscribe(refresh),
+      doc.saveState.subscribe(refresh),
+      doc.snapshotEvents.subscribe(refresh),
+      doc.tip.subscribe(refresh),
+      doc.loading.subscribe(refresh),
+    ];
     doc.on("node-change", refresh);
     const awareness = doc.awareness;
     awareness.on("change", refresh);
@@ -498,11 +500,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
 
     return () => {
       active = false;
-      doc.off("status", refresh);
-      doc.off("publish-needed", refresh);
-      doc.off("snapshot", refresh);
-      doc.off("ack", refresh);
-      doc.off("loading", refresh);
+      unsubs.forEach((u) => u());
       doc.off("node-change", refresh);
       awareness.off("change", refresh);
       clearInterval(poll);

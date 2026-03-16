@@ -13,6 +13,11 @@ import type {
   TopologyGraphEdge,
   TopologyGraph,
   Diagnostics,
+  Feed,
+  SnapshotEvent,
+  GossipActivity,
+  LoadingState,
+  VersionInfo,
 } from "@pokapali/core";
 import { formatRelativeTime } from "./ConnectionStatus";
 
@@ -864,6 +869,10 @@ export function TopologyMap({
     topologyGraph(): TopologyGraph;
     diagnostics(): Diagnostics;
     capability: { canPushSnapshots: boolean };
+    snapshotEvents: Feed<SnapshotEvent | null>;
+    tip: Feed<VersionInfo | null>;
+    loading: Feed<LoadingState>;
+    gossipActivity: Feed<GossipActivity>;
     on(event: string, cb: (...args: unknown[]) => void): void;
     off(event: string, cb: (...args: unknown[]) => void): void;
     awareness: {
@@ -940,9 +949,11 @@ export function TopologyMap({
   useEffect(() => {
     refreshGraph();
 
+    const unsubs = [
+      doc.snapshotEvents.subscribe(refreshGraph),
+      doc.tip.subscribe(refreshGraph),
+    ];
     doc.on("node-change", refreshGraph);
-    doc.on("snapshot", refreshGraph);
-    doc.on("ack", refreshGraph);
     doc.awareness.on("change", refreshGraph);
 
     // Periodic refresh to animate departing node
@@ -954,9 +965,8 @@ export function TopologyMap({
     }, 2_000);
 
     return () => {
+      unsubs.forEach((u) => u());
       doc.off("node-change", refreshGraph);
-      doc.off("snapshot", refreshGraph);
-      doc.off("ack", refreshGraph);
       doc.awareness.off("change", refreshGraph);
       clearInterval(fadeTimer);
       if (debounceRef.current) {
@@ -1063,8 +1073,8 @@ export function TopologyMap({
     // Loading: inbound particles during block
     // fetches (resolving/fetching).
     // Blue particles from infra → self.
-    const onLoading = (...args: unknown[]) => {
-      const state = args[0] as { status: string } | undefined;
+    const onLoading = () => {
+      const state = doc.loading.getSnapshot();
       if (!state) return;
       const active =
         state.status === "resolving" || state.status === "fetching";
@@ -1088,8 +1098,8 @@ export function TopologyMap({
 
     // Gossip activity: ambient particle when
     // receiving GossipSub messages.
-    const onGossip = (...args: unknown[]) => {
-      const activity = args[0];
+    const onGossip = () => {
+      const activity = doc.gossipActivity.getSnapshot();
       if (activity !== "receiving") return;
       const infra = selfInfraEdges();
       if (infra.length === 0) return;
@@ -1129,17 +1139,17 @@ export function TopologyMap({
       );
     };
 
-    doc.on("snapshot", onSnapshot);
+    const unsubs = [
+      doc.snapshotEvents.subscribe(onSnapshot),
+      doc.loading.subscribe(onLoading),
+      doc.gossipActivity.subscribe(onGossip),
+    ];
     doc.on("ack", onAck);
-    doc.on("loading", onLoading);
-    doc.on("gossip-activity", onGossip);
     doc.on("guarantee-query", onGuaranteeQuery);
 
     return () => {
-      doc.off("snapshot", onSnapshot);
+      unsubs.forEach((u) => u());
       doc.off("ack", onAck);
-      doc.off("loading", onLoading);
-      doc.off("gossip-activity", onGossip);
       doc.off("guarantee-query", onGuaranteeQuery);
       destroyPool(pool);
     };
