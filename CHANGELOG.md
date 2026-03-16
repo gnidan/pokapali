@@ -7,6 +7,17 @@ The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Diagnostics warning spam before P2P ready — guard
+  `buildDiagnostics()` with `isHeliaLive()` to avoid
+  throwing during bootstrap (#245)
+- Tiptap/comments-tiptap crash on editor init —
+  `Cannot read 'nodeSize' of undefined` caused by
+  comment anchor resolution racing editor creation;
+  fixed IDB persistence recreation race and editor
+  init ordering (#246)
+
 ## [0.1.0-alpha.8] — 2026-03-16
 
 ### Added
