@@ -60,7 +60,7 @@ import {
 describe("helia lifecycle", () => {
   beforeEach(() => {
     _resetHeliaState();
-    mockStop.mockClear();
+    mockStop.mockReset().mockResolvedValue(undefined);
     mockCreateHelia.mockClear();
     mockCreateHelia.mockResolvedValue(mockHelia);
   });
@@ -271,6 +271,40 @@ describe("helia lifecycle", () => {
     await releaseHelia();
     expect(mockStop).not.toHaveBeenCalled();
   });
+
+  it(
+    "acquire during destroy waits for stop " + "before creating new instance",
+    async () => {
+      await acquireHelia();
+
+      // Make stop() slow so acquire overlaps.
+      let resolveStop!: () => void;
+      mockStop.mockReturnValue(
+        new Promise<void>((r) => {
+          resolveStop = r;
+        }),
+      );
+
+      // Start releasing (triggers stop)
+      const releaseP = releaseHelia();
+
+      // Acquire while stop() is in-flight
+      const acquireP = acquireHelia();
+
+      // stop() hasn't finished — createHelia should
+      // NOT have been called again yet
+      expect(mockCreateHelia).toHaveBeenCalledTimes(1);
+
+      // Finish stop()
+      resolveStop();
+      await releaseP;
+
+      // Now acquireHelia should create a fresh instance
+      const h = await acquireP;
+      expect(h).toBe(mockHelia);
+      expect(mockCreateHelia).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it(
     "concurrent acquire during bootstrap shares " + "refcount correctly",
