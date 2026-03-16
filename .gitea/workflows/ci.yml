@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-lint:
+    name: Build + Test + Lint
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+        env:
+          POKAPALI_LOG_LEVEL: silent
+      - run: npm run lint
+
+  format:
+    name: Format
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm run format:check
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck
+        run: shellcheck bin/*.sh
+
+  actionlint:
+    name: ActionLint
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        run: |
+          if command -v actionlint >/dev/null 2>&1
+          then
+            actionlint
+          else
+            echo "actionlint not installed, skipping"
+          fi
+
+  policy:
+    name: Policy Checks
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No hardcoded IPs
+        run: |
+          hits=$(grep -rEn \
+            "\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b" \
+            packages/ .github/workflows/ \
+            .gitea/workflows/ \
+            --include="*.ts" --include="*.yml" \
+            --include="*.yaml" \
+            2>/dev/null \
+            | grep -v "node_modules\|/dist/" \
+            | grep -v "\.test\.ts:" \
+            | grep -v "127\.0\.0\.1\|0\.0\.0\.0" \
+            || true)
+          if [ -n "$hits" ]; then
+            echo "Found hardcoded IP addresses:"
+            echo "$hits"
+            echo ""
+            echo "Use secrets or config, not" \
+              "hardcoded IPs."
+            exit 1
+          fi
+
+      - name: No ignored files tracked
+        run: |
+          tracked=$(git ls-files -- docs/plans/ \
+            2>/dev/null || true)
+          if [ -n "$tracked" ]; then
+            echo "Files under docs/plans/ are" \
+              "tracked but should not be:"
+            echo "$tracked"
+            exit 1
+          fi
+
+  co-author-check:
+    name: Co-authored-by Check
+    if: github.event_name == 'pull_request'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Co-authored-by on all commits
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          FAILS=0
+          for sha in $(git rev-list "$BASE"..HEAD); do
+            MSG=$(git log -1 --format=%B "$sha")
+            if ! echo "$MSG" \
+              | grep -q "^Co-authored-by:"; then
+              echo "FAIL: $(git log -1 \
+                --format='%h %s' "$sha")"
+              FAILS=$((FAILS + 1))
+            fi
+          done
+          if [ "$FAILS" -gt 0 ]; then
+            echo ""
+            echo "$FAILS commit(s) missing" \
+              "Co-authored-by trailer."
+            echo "Add to each commit:"
+            echo "  Co-authored-by: g. nicholas" \
+              "d'andrea <nick@gnidan.org>"
+            exit 1
+          fi
+          echo "All commits have Co-authored-by"
