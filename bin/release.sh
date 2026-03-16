@@ -73,26 +73,73 @@ fi
 echo "  branch: main"
 echo "  tree: clean"
 
-# --- 2. Check CHANGELOG.md has unreleased content ---
+# --- 2. Check CHANGELOG.md has release content ---
+#
+# Accepts two workflows:
+#   a) Content under [Unreleased] — renames heading
+#      to [<version>] with date, adds fresh [Unreleased]
+#   b) Content already under [<version>] — uses as-is
+#
+# This accommodates PM committing changelog under the
+# version heading before release.sh runs (#236).
 
-if ! grep -q '## \[Unreleased\]' CHANGELOG.md; then
-  echo ""
-  echo "ERROR: CHANGELOG.md has no [Unreleased] section"
-  exit 1
+CHANGELOG_MODE=""
+
+# Check [Unreleased] first
+if grep -q '## \[Unreleased\]' CHANGELOG.md; then
+  UNRELEASED_CONTENT=$(
+    sed -n '/^## \[Unreleased\]/,/^## \[/{/^## \[/d;p;}' \
+      CHANGELOG.md | grep -cE '^### ' || true
+  )
+  if [ "$UNRELEASED_CONTENT" -gt 0 ]; then
+    CHANGELOG_MODE="unreleased"
+  fi
 fi
 
-# Extract content between [Unreleased] and next ## heading
-UNRELEASED=$(sed -n '/^## \[Unreleased\]/,/^## \[/{/^## \[/d;p;}' \
-  CHANGELOG.md | grep -cE '^### ' || true)
+# Fall back to [<version>] heading
+if [ -z "$CHANGELOG_MODE" ]; then
+  VERSION_CONTENT=$(
+    awk -v ver="$VERSION" '
+      $0 == "## [" ver "]" || index($0, "## [" ver "] ") == 1 {
+        found = 1; next
+      }
+      found && /^## \[/ { exit }
+      found && /^### / { count++ }
+      END { print count+0 }
+    ' CHANGELOG.md
+  )
+  if [ "$VERSION_CONTENT" -gt 0 ]; then
+    CHANGELOG_MODE="versioned"
+  fi
+fi
 
-if [ "$UNRELEASED" -eq 0 ]; then
+if [ -z "$CHANGELOG_MODE" ]; then
   echo ""
-  echo "ERROR: CHANGELOG.md [Unreleased] section is empty"
+  echo "ERROR: CHANGELOG.md has no content under"
+  echo "  [Unreleased] or [$VERSION]."
   echo "Add release notes before running release.sh."
   exit 1
 fi
 
-echo "  changelog: has unreleased content"
+echo "  changelog: $CHANGELOG_MODE (has content)"
+
+# If content is under [Unreleased], rename to [version]
+# and add a fresh empty [Unreleased] above it.
+if [ "$CHANGELOG_MODE" = "unreleased" ]; then
+  DATE=$(date +%Y-%m-%d)
+  awk -v ver="$VERSION" -v date="$DATE" '
+    /^## \[Unreleased\]/ {
+      print "## [Unreleased]"
+      print ""
+      print "## [" ver "] — " date
+      next
+    }
+    { print }
+  ' CHANGELOG.md > CHANGELOG.md.tmp \
+    && mv CHANGELOG.md.tmp CHANGELOG.md
+  CHANGELOG_DIRTY=true
+  echo "  renamed [Unreleased] → [$VERSION] — $DATE"
+fi
 
 # --- 3. Commit CHANGELOG.md if modified ---
 
@@ -102,7 +149,12 @@ if [ "$CHANGELOG_DIRTY" = true ]; then
   echo ""
   echo "=== Committing CHANGELOG.md ==="
   git add CHANGELOG.md
-  git commit -m "docs: update changelog for $VERSION"
+  git commit -m "$(cat <<EOF
+docs: update changelog for $VERSION
+
+Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>
+EOF
+  )"
   COMMITS_TO_SQUASH=1
   echo "  committed changelog"
 fi
@@ -141,6 +193,8 @@ if [ "$COMMITS_TO_SQUASH" -eq 2 ]; then
 chore: release $VERSION
 
 Updates CHANGELOG.md and bumps all packages to $VERSION.
+
+Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>
 EOF
   )"
 
