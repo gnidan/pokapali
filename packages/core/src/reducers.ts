@@ -151,29 +151,35 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
   }
 
   if (fact.type === "block-fetch-started") {
-    return updateEntry(state, fact.cid, (e) => ({
-      ...e,
-      blockStatus: "fetching",
-      fetchStartedAt: fact.ts,
-    }));
+    return updateEntry(state, fact.cid, (e) =>
+      e.blockStatus === "fetched" || e.blockStatus === "applied"
+        ? e
+        : {
+            ...e,
+            blockStatus: "fetching",
+            fetchStartedAt: fact.ts,
+          },
+    );
   }
 
   if (fact.type === "block-fetched") {
     const existing = state.entries.get(fact.cid.toString());
-    const resolvedSeq = existing?.seq ?? fact.seq;
+    // No-op if CID was never discovered.
+    if (!existing) return state;
+    const resolvedSeq = existing.seq ?? fact.seq;
     const fetchMaxSeq =
       resolvedSeq != null ? Math.max(state.maxSeq, resolvedSeq) : state.maxSeq;
-    let next = updateEntry(
-      { ...state, maxSeq: fetchMaxSeq },
-      fact.cid,
-      (e) => ({
-        ...e,
+    let next: ChainState = {
+      ...state,
+      maxSeq: fetchMaxSeq,
+      entries: mapSet(state.entries, fact.cid.toString(), {
+        ...existing,
         blockStatus: "fetched" as const,
         prev: fact.prev,
-        seq: e.seq ?? fact.seq,
-        ts: e.ts ?? fact.snapshotTs,
+        seq: existing.seq ?? fact.seq,
+        ts: existing.ts ?? fact.snapshotTs,
       }),
-    );
+    };
     // Chain walk: discover prev CID.
     // Infer seq from parent: if parent has seq=N,
     // prev must be seq=N-1 (sequential, single-
@@ -185,7 +191,8 @@ export function reduceChain(state: ChainState, fact: Fact): ChainState {
       const prevKey = fact.prev.toString();
       if (!next.entries.has(prevKey)) {
         const parentSeq = resolvedSeq;
-        const inferredSeq = parentSeq != null ? parentSeq - 1 : undefined;
+        const inferredSeq =
+          parentSeq != null && parentSeq > 0 ? parentSeq - 1 : undefined;
         const walkMaxSeq =
           inferredSeq != null
             ? Math.max(next.maxSeq, inferredSeq)

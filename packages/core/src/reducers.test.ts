@@ -263,6 +263,86 @@ describe("reduceChain", () => {
     expect(entry!.seq).toBe(5);
   });
 
+  it("chain walk: inferred seq never goes " + "negative (#243)", async () => {
+    const cidA = await fakeCid(1);
+    const cidB = await fakeCid(2);
+    // Parent has seq=0 — prev should get
+    // seq=undefined (not -1)
+    let state = reduceChain(INITIAL_CHAIN, {
+      type: "cid-discovered",
+      ts: 1,
+      cid: cidA,
+      source: "gossipsub",
+      seq: 0,
+    });
+    state = reduceChain(state, {
+      type: "block-fetched",
+      ts: 2,
+      cid: cidA,
+      block: new Uint8Array([1]),
+      prev: cidB,
+      seq: 0,
+    });
+    const prevEntry = state.entries.get(cidB.toString());
+    expect(prevEntry).toBeDefined();
+    // Seq should be undefined (unknown), not -1
+    expect(prevEntry!.seq).toBeUndefined();
+  });
+
+  it(
+    "chain walk skipped when block-fetched " + "CID not in entries (#243)",
+    async () => {
+      // block-fetched for a CID not in entries is
+      // a no-op. Chain walk should NOT create the
+      // prev entry either — we don't know the
+      // parent is real.
+      const cidA = await fakeCid(1);
+      const cidB = await fakeCid(2);
+      const state = reduceChain(INITIAL_CHAIN, {
+        type: "block-fetched",
+        ts: 1,
+        cid: cidA,
+        block: new Uint8Array([1]),
+        prev: cidB,
+        seq: 0,
+      });
+      // cidA was never discovered, so block-fetched
+      // is no-op
+      expect(state.entries.has(cidA.toString())).toBe(false);
+      // Chain walk should not have created cidB
+      expect(state.entries.has(cidB.toString())).toBe(false);
+    },
+  );
+
+  it(
+    "block-fetch-started does not regress " + "fetched to fetching (#243)",
+    async () => {
+      const cid = await fakeCid(1);
+      let state = reduceChain(INITIAL_CHAIN, {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "gossipsub",
+      });
+      state = reduceChain(state, {
+        type: "block-fetched",
+        ts: 2,
+        cid,
+        block: new Uint8Array([1]),
+      });
+      expect(state.entries.get(cid.toString())!.blockStatus).toBe("fetched");
+
+      // Re-fetching a fetched block should not
+      // regress to "fetching"
+      state = reduceChain(state, {
+        type: "block-fetch-started",
+        ts: 3,
+        cid,
+      });
+      expect(state.entries.get(cid.toString())!.blockStatus).toBe("fetched");
+    },
+  );
+
   it("tip-advanced sets tip and marks applied", async () => {
     const cid = await fakeCid(1);
     let state = reduceChain(INITIAL_CHAIN, {
@@ -1428,7 +1508,13 @@ describe("reducer invariants (fast-check)", () => {
   });
 
   it("saveState is always a valid SaveState", () => {
-    const validStates = ["saving", "dirty", "saved", "unpublished"];
+    const validStates = [
+      "saving",
+      "dirty",
+      "saved",
+      "unpublished",
+      "save-error",
+    ];
     fc.assert(
       fc.property(fc.array(arbFact, { maxLength: 30 }), (facts) => {
         let state = initial();
