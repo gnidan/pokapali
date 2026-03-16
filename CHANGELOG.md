@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.8] — 2026-03-16
+
 ### Added
 
 - Tier 3 chaos test infrastructure — S1 (relay kill)
