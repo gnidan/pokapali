@@ -56,24 +56,29 @@ export function resolveAnchors(
       return;
     }
 
-    const startRelPos = Y.decodeRelativePosition(anchorStart);
-    const endRelPos = Y.decodeRelativePosition(anchorEnd);
+    try {
+      const startRelPos = Y.decodeRelativePosition(anchorStart);
+      const endRelPos = Y.decodeRelativePosition(anchorEnd);
 
-    const from = relativePositionToAbsolutePosition(
-      contentDoc,
-      xmlFragment,
-      startRelPos,
-      mapping,
-    );
-    const to = relativePositionToAbsolutePosition(
-      contentDoc,
-      xmlFragment,
-      endRelPos,
-      mapping,
-    );
+      const from = relativePositionToAbsolutePosition(
+        contentDoc,
+        xmlFragment,
+        startRelPos,
+        mapping,
+      );
+      const to = relativePositionToAbsolutePosition(
+        contentDoc,
+        xmlFragment,
+        endRelPos,
+        mapping,
+      );
 
-    if (from != null && to != null && from < to) {
-      results.push({ id, from, to });
+      if (from != null && to != null && from < to) {
+        results.push({ id, from, to });
+      }
+    } catch {
+      // Mapping may be incomplete during editor init
+      // or after schema changes — skip this anchor.
     }
   });
 
