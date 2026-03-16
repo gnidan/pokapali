@@ -174,6 +174,11 @@ export interface Doc {
   /** Reactive version history feed. Updates as
    *  chain walks discover and fetch entries. */
   readonly versions: Feed<VersionHistory>;
+  /** Latest snapshot event (local or remote).
+   *  Fires on every snapshot — never deduplicates. */
+  readonly snapshotEvents: Feed<SnapshotEvent | null>;
+  /** Reactive gossip activity state. */
+  readonly gossipActivity: Feed<GossipActivity>;
   /**
    * Resolves when the document has meaningful state:
    * either a remote snapshot was applied, initial IPNS
@@ -187,6 +192,8 @@ export interface Doc {
   ready(options?: { timeoutMs?: number }): Promise<void>;
   publish(): Promise<void>;
   rotate(): Promise<RotateResult>;
+  /** @deprecated Use Feed subscriptions instead:
+   *  doc.status, doc.saveState, doc.loading, etc. */
   on(event: "status", cb: (status: DocStatus) => void): void;
   on(event: "publish-needed", cb: () => void): void;
   on(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
@@ -194,6 +201,7 @@ export interface Doc {
   on(event: "ack", cb: (peerId: string) => void): void;
   on(event: "save", cb: (state: SaveState) => void): void;
   on(event: "node-change", cb: () => void): void;
+  /** @deprecated Use Feed subscriptions instead. */
   off(event: "status", cb: (status: DocStatus) => void): void;
   off(event: "publish-needed", cb: () => void): void;
   off(event: "snapshot", cb: (e: SnapshotEvent) => void): void;
@@ -381,14 +389,11 @@ export function createDoc(params: DocParams): Doc {
   const snapshotLC = createSnapshotCodec({
     resolver,
   });
-  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
-
-  function emit(event: string, ...args: unknown[]) {
-    const cbs = listeners.get(event);
-    if (cbs) {
-      for (const cb of cbs) cb(...args);
-    }
-  }
+  // Event subscriptions — backed by Feeds.
+  // Maps event name → (callback → unsubscribe).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type EventCb = (...args: any[]) => void;
+  const eventSubs = new Map<string, Map<EventCb, () => void>>();
 
   // --- Status tracking (fallback for no-interpreter) --
   let gossipActivity: GossipActivity = "inactive";
@@ -414,7 +419,6 @@ export function createDoc(params: DocParams): Doc {
     if (next !== lastStatus) {
       lastStatus = next;
       statusFeed._update(next);
-      emit("status", next);
     }
   }
 
@@ -432,7 +436,6 @@ export function createDoc(params: DocParams): Doc {
     if (next !== lastSaveState) {
       lastSaveState = next;
       saveStateFeed._update(next);
-      emit("save", next);
     }
   }
 
@@ -496,6 +499,26 @@ export function createDoc(params: DocParams): Doc {
     EMPTY_VERSION_HISTORY,
   );
 
+  // --- Event feeds (replace emit/listeners) ---
+  // For event-like notifications, use a comparator
+  // that never deduplicates so every _update fires.
+  const snapshotEventFeed: WritableFeed<SnapshotEvent | null> =
+    createFeed<SnapshotEvent | null>(null, () => false);
+  const ackEventFeed: WritableFeed<string | null> = createFeed<string | null>(
+    null,
+    () => false,
+  );
+  const nodeChangeFeed: WritableFeed<number> = createFeed<number>(
+    0,
+    () => false,
+  );
+  const dirtyCountFeed: WritableFeed<number> = createFeed<number>(
+    0,
+    () => false,
+  );
+  const gossipActivityFeed: WritableFeed<GossipActivity> =
+    createFeed<GossipActivity>("inactive");
+
   // --- Client identity mapping feed ---
   const clientIdMapping = createClientIdMapping(
     subdocManager.metaDoc,
@@ -551,7 +574,7 @@ export function createDoc(params: DocParams): Doc {
     // to "dirty" state, previous error is stale.
     lastSaveError = null;
     checkSaveState();
-    emit("publish-needed");
+    dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
     awarenessRoom.awareness.setLocalStateField("clockSum", computeClockSum());
     factQueue?.push({
       type: "content-dirty",
@@ -585,7 +608,7 @@ export function createDoc(params: DocParams): Doc {
     // event listeners first.
     queueMicrotask(() => {
       checkSaveState();
-      emit("publish-needed");
+      dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
       factQueue?.push({
         type: "content-dirty",
         ts: Date.now(),
@@ -612,7 +635,7 @@ export function createDoc(params: DocParams): Doc {
   let fireGuaranteeQuery: (() => void) | null = null;
   const knownPinnerPids = new Set<string>();
   const nodeChangeHandler = () => {
-    emit("node-change");
+    nodeChangeFeed._update(nodeChangeFeed.getSnapshot() + 1);
     const reg = getNodeRegistry();
     if (reg) {
       let newPinner = false;
@@ -810,7 +833,6 @@ export function createDoc(params: DocParams): Doc {
         const newLoading = deriveLoadingState(item.next);
         loadingFeed._update(newLoading);
         if (loadingStateChanged(prevLoading, newLoading)) {
-          emit("loading", newLoading);
           // Ready check: if loading finished
           // without applying a snapshot, mount
           // the editor anyway.
@@ -924,18 +946,18 @@ export function createDoc(params: DocParams): Doc {
           lastLocalPublishCid = null;
           return;
         }
-        emit("snapshot", {
+        snapshotEventFeed._update({
           cid,
           seq,
           ts: Date.now(),
           isLocal: false,
-        } satisfies SnapshotEvent);
+        });
       },
 
       emitAck: (_cid, ackedBy) => {
         for (const pid of ackedBy) {
           if (!lastEmittedAcks.has(pid)) {
-            emit("ack", pid);
+            ackEventFeed._update(pid);
           }
         }
         lastEmittedAcks = new Set(ackedBy);
@@ -944,7 +966,7 @@ export function createDoc(params: DocParams): Doc {
       emitGossipActivity: (activity) => {
         gossipActivity = activity;
         checkStatus();
-        emit("gossip-activity", activity);
+        gossipActivityFeed._update(activity);
       },
 
       emitLoading: () => {
@@ -960,7 +982,7 @@ export function createDoc(params: DocParams): Doc {
             prev.guaranteeUntil !== g.guaranteeUntil ||
             prev.retainUntil !== g.retainUntil
           ) {
-            emit("ack", pid);
+            ackEventFeed._update(pid);
           }
         }
         lastEmittedGuarantees = new Map(guarantees);
@@ -1163,6 +1185,11 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch();
       stopIPNSWatch = null;
     }
+    // Unsubscribe all event→Feed bridges
+    for (const map of eventSubs.values()) {
+      for (const unsub of map.values()) unsub();
+    }
+    eventSubs.clear();
     clientIdMapping.destroy();
     cleanupParticipant();
     cleanupRelayConnect?.();
@@ -1318,6 +1345,8 @@ export function createDoc(params: DocParams): Doc {
     loading: loadingFeed as Feed<LoadingState>,
     backedUp: backedUpFeed as Feed<boolean>,
     versions: versionsFeed as Feed<VersionHistory>,
+    snapshotEvents: snapshotEventFeed as Feed<SnapshotEvent | null>,
+    gossipActivity: gossipActivityFeed as Feed<GossipActivity>,
     clientIdMapping: clientIdMappingFeed as Feed<IdentityMap>,
 
     ready(options?: { timeoutMs?: number }): Promise<void> {
@@ -1447,12 +1476,12 @@ export function createDoc(params: DocParams): Doc {
         factQueue.push(publishSucceeded);
       }
 
-      emit("snapshot", {
+      snapshotEventFeed._update({
         cid,
         seq: pushResult.seq,
         ts: Date.now(),
         isLocal: true,
-      } satisfies SnapshotEvent);
+      });
 
       // Publish IPNS — fire-and-forget. Block is
       // already persisted via resolver.put() above.
@@ -1494,14 +1523,61 @@ export function createDoc(params: DocParams): Doc {
 
     /* eslint-disable @typescript-eslint/no-explicit-any */
     on(event: string, cb: (...args: any[]) => void) {
-      if (!listeners.has(event)) {
-        listeners.set(event, new Set());
+      if (!eventSubs.has(event)) {
+        eventSubs.set(event, new Map());
       }
-      listeners.get(event)!.add(cb);
+      const map = eventSubs.get(event)!;
+      // Already subscribed with this callback
+      if (map.has(cb)) return;
+
+      let unsub: () => void;
+      switch (event) {
+        case "status":
+          unsub = statusFeed.subscribe(() => cb(statusFeed.getSnapshot()));
+          break;
+        case "save":
+          unsub = saveStateFeed.subscribe(() =>
+            cb(saveStateFeed.getSnapshot()),
+          );
+          break;
+        case "loading":
+          unsub = loadingFeed.subscribe(() => cb(loadingFeed.getSnapshot()));
+          break;
+        case "snapshot":
+          unsub = snapshotEventFeed.subscribe(() => {
+            const v = snapshotEventFeed.getSnapshot();
+            if (v) cb(v);
+          });
+          break;
+        case "ack":
+          unsub = ackEventFeed.subscribe(() => {
+            const v = ackEventFeed.getSnapshot();
+            if (v) cb(v);
+          });
+          break;
+        case "node-change":
+          unsub = nodeChangeFeed.subscribe(() => cb());
+          break;
+        case "publish-needed":
+          unsub = dirtyCountFeed.subscribe(() => cb());
+          break;
+        case "gossip-activity":
+          unsub = gossipActivityFeed.subscribe(() =>
+            cb(gossipActivityFeed.getSnapshot()),
+          );
+          break;
+        default:
+          return;
+      }
+      map.set(cb, unsub);
     },
 
     off(event: string, cb: (...args: any[]) => void) {
-      listeners.get(event)?.delete(cb);
+      const unsub = eventSubs.get(event)?.get(cb);
+      if (unsub) {
+        unsub();
+        eventSubs.get(event)!.delete(cb);
+      }
     },
     /* eslint-enable @typescript-eslint/no-explicit-any */
 
