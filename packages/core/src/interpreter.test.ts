@@ -1377,4 +1377,585 @@ describe("interpreter block retry scheduling", () => {
   it("exports RETRY_BASE_MS", () => {
     expect(RETRY_BASE_MS).toBe(10_000);
   });
+
+  it(
+    "cancels retry timer when block-fetched " + "arrives for same CID",
+    async () => {
+      vi.useFakeTimers();
+      const cid = await fakeCid(82);
+      const block = fakeBlock(1);
+
+      const effects = mockEffects({
+        fetchBlock: vi.fn().mockResolvedValue(null),
+      });
+      const ac = new AbortController();
+      const feedbackQueue = createAsyncQueue<Fact>(ac.signal);
+      const collected: Fact[] = [];
+      const collector = (async () => {
+        for await (const f of feedbackQueue) {
+          collected.push(f);
+        }
+      })();
+
+      // Discover → fail → then fetch succeeds
+      const stream = factsToStream([
+        {
+          type: "cid-discovered",
+          ts: 1,
+          cid,
+          source: "gossipsub",
+          seq: 1,
+        },
+        {
+          type: "block-fetch-failed",
+          ts: 2,
+          cid,
+          attempt: 1,
+          error: "not found",
+        },
+        {
+          type: "block-fetched",
+          ts: 3,
+          cid,
+          block,
+          seq: 1,
+        },
+      ]);
+
+      await runInterpreter(stream, effects, feedbackQueue, ac.signal);
+
+      // Advance well past retry delay — timer
+      // should have been cancelled
+      vi.advanceTimersByTime(RETRY_BASE_MS * 10);
+      await vi.advanceTimersByTimeAsync(0);
+
+      ac.abort();
+      await collector;
+
+      const retry = collected.find((f) => f.type === "block-retry-reset");
+      expect(retry).toBeUndefined();
+    },
+  );
+
+  it(
+    "cancels retry timer when tip-advanced " + "arrives for same CID",
+    async () => {
+      vi.useFakeTimers();
+      const cid = await fakeCid(83);
+
+      const effects = mockEffects({
+        fetchBlock: vi.fn().mockResolvedValue(null),
+      });
+      const ac = new AbortController();
+      const feedbackQueue = createAsyncQueue<Fact>(ac.signal);
+      const collected: Fact[] = [];
+      const collector = (async () => {
+        for await (const f of feedbackQueue) {
+          collected.push(f);
+        }
+      })();
+
+      const stream = factsToStream([
+        {
+          type: "cid-discovered",
+          ts: 1,
+          cid,
+          source: "gossipsub",
+          seq: 1,
+        },
+        {
+          type: "block-fetch-failed",
+          ts: 2,
+          cid,
+          attempt: 1,
+          error: "not found",
+        },
+        {
+          type: "tip-advanced",
+          ts: 3,
+          cid,
+          seq: 1,
+        },
+      ]);
+
+      await runInterpreter(stream, effects, feedbackQueue, ac.signal);
+
+      vi.advanceTimersByTime(RETRY_BASE_MS * 10);
+      await vi.advanceTimersByTimeAsync(0);
+
+      ac.abort();
+      await collector;
+
+      const retry = collected.find((f) => f.type === "block-retry-reset");
+      expect(retry).toBeUndefined();
+    },
+  );
+});
+
+// --- Fast-path cached block tests ---
+
+describe("interpreter cached block fast path", () => {
+  it(
+    "emits block-fetched immediately when block " + "is already cached",
+    async () => {
+      const cid = await fakeCid(90);
+      const block = fakeBlock(90);
+
+      const { effects, feedback } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid,
+            source: "gossipsub",
+            seq: 1,
+          },
+        ],
+        {
+          getBlock: vi.fn().mockReturnValue(block),
+          decodeBlock: vi.fn().mockReturnValue({
+            seq: 1,
+            prev: undefined,
+          }),
+        },
+      );
+
+      // fetchBlock should NOT be called — fast path
+      expect(effects.fetchBlock).not.toHaveBeenCalled();
+      // block-fetched should be in feedback
+      const fetched = feedback.find((f) => f.type === "block-fetched");
+      expect(fetched).toBeDefined();
+      expect((fetched as any).cid).toEqual(cid);
+      expect((fetched as any).seq).toBe(1);
+    },
+  );
+
+  it(
+    "fast path calls decodeBlock to extract " + "prev and metadata",
+    async () => {
+      const cid = await fakeCid(91);
+      const prevCid = await fakeCid(92);
+      const block = fakeBlock(91);
+
+      const { feedback } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid,
+            source: "gossipsub",
+            seq: 2,
+          },
+        ],
+        {
+          getBlock: vi.fn().mockReturnValue(block),
+          decodeBlock: vi.fn().mockReturnValue({
+            seq: 2,
+            prev: prevCid,
+            snapshotTs: 12345,
+          }),
+        },
+      );
+
+      const fetched = feedback.find(
+        (f) => f.type === "block-fetched" && f.cid.equals(cid),
+      );
+      expect(fetched).toBeDefined();
+      expect((fetched as any).prev).toEqual(prevCid);
+      expect((fetched as any).snapshotTs).toBe(12345);
+    },
+  );
+});
+
+// --- Inline block decode tests ---
+
+describe("interpreter inline block chain discovery", () => {
+  it(
+    "emits synthetic block-fetched for " +
+      "cid-discovered with inline block and prev",
+    async () => {
+      const cid = await fakeCid(100);
+      const prevCid = await fakeCid(101);
+      const block = fakeBlock(100);
+
+      const { feedback } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid,
+            source: "gossipsub",
+            block,
+            seq: 2,
+          },
+        ],
+        {
+          decodeBlock: vi.fn().mockReturnValue({
+            prev: prevCid,
+            seq: 2,
+          }),
+          // Return the block for the getBlock
+          // check in tip-apply, but null from the
+          // fast-path (entry is already "fetched"
+          // by reducer for inline blocks)
+          getBlock: vi
+            .fn()
+            .mockReturnValueOnce(null) // fast path
+            .mockReturnValue(block), // tip apply
+        },
+      );
+
+      // Should have a synthetic block-fetched
+      // in feedback with prev link
+      const fetched = feedback.find(
+        (f) => f.type === "block-fetched" && f.cid.equals(cid),
+      );
+      expect(fetched).toBeDefined();
+      expect((fetched as any).prev).toEqual(prevCid);
+    },
+  );
+
+  it(
+    "emits synthetic block-fetched for " + "cid-discovered with snapshotTs",
+    async () => {
+      const cid = await fakeCid(102);
+      const block = fakeBlock(102);
+
+      const { feedback } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid,
+            source: "gossipsub",
+            block,
+            seq: 1,
+          },
+        ],
+        {
+          decodeBlock: vi.fn().mockReturnValue({
+            snapshotTs: 99999,
+            seq: 1,
+          }),
+          getBlock: vi.fn().mockReturnValueOnce(null).mockReturnValue(block),
+        },
+      );
+
+      const fetched = feedback.find(
+        (f) => f.type === "block-fetched" && f.cid.equals(cid),
+      );
+      expect(fetched).toBeDefined();
+      expect((fetched as any).snapshotTs).toBe(99999);
+    },
+  );
+
+  it(
+    "does not emit synthetic block-fetched " +
+      "when decode returns no prev or snapshotTs",
+    async () => {
+      const cid = await fakeCid(103);
+      const block = fakeBlock(103);
+
+      const { feedback } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid,
+            source: "gossipsub",
+            block,
+            seq: 1,
+          },
+        ],
+        {
+          decodeBlock: vi.fn().mockReturnValue({}),
+          getBlock: vi.fn().mockReturnValueOnce(null).mockReturnValue(block),
+        },
+      );
+
+      // No synthetic block-fetched should appear
+      const fetched = feedback.filter((f) => f.type === "block-fetched");
+      expect(fetched).toHaveLength(0);
+    },
+  );
+});
+
+// --- Authorization tests ---
+
+describe("interpreter publisher authorization", () => {
+  it("skips tip apply when publisher is " + "unauthorized", async () => {
+    const cid = await fakeCid(110);
+    const block = fakeBlock(110);
+
+    const { effects, feedback } = await runWithFacts(
+      [
+        {
+          type: "cid-discovered",
+          ts: 1,
+          cid,
+          source: "gossipsub",
+          block,
+          seq: 1,
+        },
+      ],
+      {
+        getBlock: vi.fn().mockReturnValue(block),
+        decodeBlock: vi.fn().mockReturnValue({
+          seq: 1,
+          publisher: "bad-pubkey",
+        }),
+        isPublisherAuthorized: vi.fn().mockReturnValue(false),
+        applySnapshot: vi.fn().mockResolvedValue({ seq: 1 }),
+      },
+    );
+
+    // applySnapshot should NOT be called
+    expect(effects.applySnapshot).not.toHaveBeenCalled();
+    // No tip-advanced in feedback
+    const advanced = feedback.find((f) => f.type === "tip-advanced");
+    expect(advanced).toBeUndefined();
+  });
+
+  it("applies tip when publisher is authorized", async () => {
+    const cid = await fakeCid(111);
+    const block = fakeBlock(111);
+
+    const { effects, feedback } = await runWithFacts(
+      [
+        {
+          type: "cid-discovered",
+          ts: 1,
+          cid,
+          source: "gossipsub",
+          block,
+          seq: 1,
+        },
+      ],
+      {
+        getBlock: vi.fn().mockReturnValue(block),
+        decodeBlock: vi.fn().mockReturnValue({
+          seq: 1,
+          publisher: "good-pubkey",
+        }),
+        isPublisherAuthorized: vi.fn().mockReturnValue(true),
+        applySnapshot: vi.fn().mockResolvedValue({ seq: 1 }),
+      },
+    );
+
+    expect(effects.applySnapshot).toHaveBeenCalledWith(cid, block);
+    const advanced = feedback.find((f) => f.type === "tip-advanced");
+    expect(advanced).toBeDefined();
+  });
+});
+
+// --- Cache-sourced newest seq tests ---
+
+describe("interpreter cache-sourced newest seq fetch", () => {
+  it(
+    "fetches cache-sourced entry when it has " + "the highest seq",
+    async () => {
+      const cid = await fakeCid(120);
+
+      // Build state with a cache-sourced entry
+      // at maxSeq
+      const state = initial();
+      const entry: ChainEntry = {
+        cid,
+        discoveredVia: new Set(["cache" as const]),
+        blockStatus: "unknown",
+        fetchAttempt: 0,
+        guarantees: new Map(),
+        ackedBy: new Set(),
+        seq: 5,
+      };
+      const withEntry: DocState = {
+        ...state,
+        chain: {
+          ...state.chain,
+          entries: new Map([[cid.toString(), entry]]),
+          maxSeq: 5,
+        },
+      };
+
+      // Use a tick fact so entry stays unknown
+      // from prev→next transition perspective.
+      // We need prev without entry and next with
+      // entry, so use cid-discovered with cache
+      // source.
+      const { effects } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid,
+            source: "cache",
+            seq: 5,
+          },
+        ],
+        {
+          fetchBlock: vi.fn().mockResolvedValue(null),
+        },
+      );
+
+      expect(effects.fetchBlock).toHaveBeenCalledWith(cid);
+    },
+  );
+
+  it(
+    "does not fetch cache-sourced entry when " + "it is not the highest seq",
+    async () => {
+      const cidOld = await fakeCid(121);
+      const cidNew = await fakeCid(122);
+
+      // State already has a higher-seq entry
+      const state = initial();
+      const oldEntry: ChainEntry = {
+        cid: cidOld,
+        discoveredVia: new Set(["cache" as const]),
+        blockStatus: "fetched",
+        fetchAttempt: 0,
+        guarantees: new Map(),
+        ackedBy: new Set(),
+        seq: 10,
+      };
+      const withOld: DocState = {
+        ...state,
+        chain: {
+          ...state.chain,
+          entries: new Map([[cidOld.toString(), oldEntry]]),
+          maxSeq: 10,
+        },
+      };
+
+      const { effects } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid: cidNew,
+            source: "cache",
+            seq: 3,
+          },
+        ],
+        {
+          fetchBlock: vi.fn().mockResolvedValue(null),
+        },
+        withOld,
+      );
+
+      // cidNew has seq 3 < maxSeq 10 so should
+      // NOT be fetched
+      expect(effects.fetchBlock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+// --- Reannounce/relay with missing block tests ---
+
+describe("interpreter reannounce with missing block", () => {
+  it(
+    "does not announce on reannounce-tick when " + "block is not cached",
+    async () => {
+      const cid = await fakeCid(130);
+
+      let state = initial();
+      state = reduce(state, {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "gossipsub",
+        seq: 1,
+      });
+      state = {
+        ...state,
+        announce: {
+          lastAnnouncedCid: cid,
+          lastAnnounceAt: 100,
+          lastGuaranteeQueryAt: 0,
+        },
+      };
+
+      const { effects, feedback } = await runWithFacts(
+        [{ type: "reannounce-tick", ts: 200 }],
+        {
+          getBlock: vi.fn().mockReturnValue(null),
+        },
+        state,
+      );
+
+      expect(effects.announce).not.toHaveBeenCalled();
+      // No "announced" fact in feedback
+      expect(feedback.some((f) => f.type === "announced")).toBe(false);
+    },
+  );
+
+  it(
+    "does not announce on relay-connected when " + "block is not cached",
+    async () => {
+      const cid = await fakeCid(131);
+
+      let state = initial();
+      state = reduce(state, {
+        type: "cid-discovered",
+        ts: 1,
+        cid,
+        source: "gossipsub",
+        seq: 1,
+      });
+      state = {
+        ...state,
+        announce: {
+          lastAnnouncedCid: cid,
+          lastAnnounceAt: 100,
+          lastGuaranteeQueryAt: 0,
+        },
+      };
+
+      const { effects } = await runWithFacts(
+        [
+          {
+            type: "relay-connected",
+            ts: 200,
+            peerId: "relay1",
+          },
+        ],
+        {
+          getBlock: vi.fn().mockReturnValue(null),
+        },
+        state,
+      );
+
+      expect(effects.announce).not.toHaveBeenCalled();
+    },
+  );
+});
+
+// --- shouldAutoFetch: http-tip source ---
+
+describe("shouldAutoFetch http-tip source", () => {
+  it("returns true for http-tip source", async () => {
+    const cid = await fakeCid(140);
+    const entry: ChainEntry = {
+      cid,
+      discoveredVia: new Set(["http-tip"]),
+      blockStatus: "unknown",
+      fetchAttempt: 0,
+      guarantees: new Map(),
+      ackedBy: new Set(),
+    };
+    expect(shouldAutoFetch(entry)).toBe(true);
+  });
+
+  it("returns false for cache-only source", async () => {
+    const cid = await fakeCid(141);
+    const entry: ChainEntry = {
+      cid,
+      discoveredVia: new Set(["cache"]),
+      blockStatus: "unknown",
+      fetchAttempt: 0,
+      guarantees: new Map(),
+      ackedBy: new Set(),
+    };
+    expect(shouldAutoFetch(entry)).toBe(false);
+  });
 });
