@@ -20,7 +20,7 @@ set -euo pipefail
 # PID files: /tmp/chaos-relay-{0,1,...}.pid
 # Logs: /tmp/chaos-relay-{0,1,...}.log
 
-REPO="${CHAOS_REPO:-$(cd "$(dirname "$0")/../.." \
+REPO="${CHAOS_REPO:-$(cd "$(dirname "$0")/../../.." \
   && pwd)}"
 BASE_PORT=3000
 BASE_TCP_PORT=4001

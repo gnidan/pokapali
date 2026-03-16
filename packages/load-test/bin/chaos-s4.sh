@@ -18,7 +18,7 @@ set -euo pipefail
 #     [--churn S] [--recovery S] [--writers N]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 OUTPUT_DIR="/tmp/chaos-s4"
 BASELINE_S=60
 CHURN_S=180
