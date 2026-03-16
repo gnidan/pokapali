@@ -293,6 +293,15 @@ handle it automatically.
 
 Pokapali separates connectivity from persistence:
 
+**Startup behavior:** `create()` and `open()` return
+immediately with a Doc in `"connecting"` status. The
+P2P layer (Helia, WebRTC, GossipSub) bootstraps in
+the background. Local content from IndexedDB is
+available right away — the editor can mount and accept
+input before any network connection is established.
+Use `doc.ready()` to wait for the first remote state
+if you need it.
+
 **Connectivity** — `doc.status` tells you whether the
 document is connected to peers:
 
@@ -369,13 +378,14 @@ function SaveIndicator({ doc }) {
 
 Available Feeds:
 
-| Feed            | Type                        | Changes when                              |
-| --------------- | --------------------------- | ----------------------------------------- |
-| `doc.status`    | `Feed<DocStatus>`           | Connectivity changes                      |
-| `doc.saveState` | `Feed<SaveState>`           | Publish starts/completes, content dirtied |
-| `doc.tip`       | `Feed<VersionInfo \| null>` | New snapshot applied                      |
-| `doc.loading`   | `Feed<LoadingState>`        | IPNS resolving, block fetching            |
-| `doc.versions`  | `Feed<VersionHistory>`      | Chain walk progress, new snapshots        |
+| Feed                       | Type                        | Changes when                              |
+| -------------------------- | --------------------------- | ----------------------------------------- |
+| `doc.status`               | `Feed<DocStatus>`           | Connectivity changes                      |
+| `doc.saveState`            | `Feed<SaveState>`           | Publish starts/completes, content dirtied |
+| `doc.tip`                  | `Feed<VersionInfo \| null>` | New snapshot applied                      |
+| `doc.loading`              | `Feed<LoadingState>`        | IPNS resolving, block fetching            |
+| `doc.versions`             | `Feed<VersionHistory>`      | Chain walk progress, new snapshots        |
+| `doc.lastPersistenceError` | `Feed<string \| null>`      | IDB write fails or recovers               |
 
 Each Feed has an equality gate that prevents spurious
 notifications — high-frequency events like GossipSub
@@ -393,6 +403,31 @@ interface Feed<T> {
 
 No wrapper hook needed. The interface is designed to
 match `useSyncExternalStore` exactly.
+
+**Persistence errors:**
+
+`doc.lastPersistenceError` reports IndexedDB write
+failures — typically quota exceeded in incognito mode
+or private browsing. It's `null` when healthy and
+resets to `null` when writes recover:
+
+```ts
+function PersistenceWarning({ doc }) {
+  const err = useSyncExternalStore(
+    doc.lastPersistenceError.subscribe,
+    doc.lastPersistenceError.getSnapshot,
+  );
+  if (!err) return null;
+  return (
+    <div className="warning">
+      Local storage error: {err}. Changes sync to
+      peers but won't survive a page reload.
+    </div>
+  );
+}
+```
+
+This Feed is experimental — see `api-stability.md`.
 
 **Version history Feed:**
 
@@ -508,6 +543,70 @@ awareness rooms, and the shared Helia instance:
 ```ts
 doc.destroy();
 ```
+
+### 13. Bundle optimization
+
+`@pokapali/core` includes libp2p, Helia, and crypto
+libraries (~2 MB). Use dynamic imports to keep your
+initial bundle small:
+
+```ts
+// Lazy-load core — only fetched when needed
+const { pokapali } = await import("@pokapali/core");
+const app = pokapali({ ... });
+```
+
+For React apps, combine with `React.lazy` to split
+the editor into a separate chunk:
+
+```tsx
+import { lazy, Suspense } from "react";
+
+const Editor = lazy(() => import("./Editor"));
+
+function App() {
+  const [doc, setDoc] = useState(null);
+
+  // Load core + create doc on demand
+  useEffect(() => {
+    import("@pokapali/core").then(({ pokapali }) => {
+      const app = pokapali({ ... });
+      app.create().then(setDoc);
+    });
+  }, []);
+
+  if (!doc) return <div>Loading...</div>;
+  return (
+    <Suspense fallback={<div>Loading editor...</div>}>
+      <Editor doc={doc} />
+    </Suspense>
+  );
+}
+```
+
+**Vite manual chunks:** Split P2P and editor vendor
+dependencies into separate chunks so they cache
+independently:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          p2p: ["@pokapali/core", "libp2p", "@helia/interface"],
+          editor: ["@tiptap/react", "@tiptap/starter-kit", "prosemirror-state"],
+        },
+      },
+    },
+  },
+});
+```
+
+This reduces initial page load to a few KB — the P2P
+and editor chunks load in parallel when the user
+navigates to a document.
 
 ## Example: Tiptap Integration
 
