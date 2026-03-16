@@ -55,6 +55,21 @@ echo "verify-branch: starting pre-merge checks..."
 echo "  branch: $(git branch --show-current)"
 echo "  commit: $(git rev-parse --short HEAD)"
 
+# Preflight: fail fast if branch is behind main
+git fetch origin main --quiet 2>/dev/null || true
+MAIN_SHA=$(git rev-parse origin/main 2>/dev/null || true)
+if [ -n "$MAIN_SHA" ]; then
+  if ! git merge-base --is-ancestor \
+    "$MAIN_SHA" HEAD 2>/dev/null; then
+    echo ""
+    echo "STALE BRANCH: not up to date with" \
+      "origin/main (${MAIN_SHA:0:7})"
+    echo "Run: git merge origin/main"
+    exit 1
+  fi
+  echo "  main:   ${MAIN_SHA:0:7} (merged)"
+fi
+
 # Policy checks (always run, even with --quick)
 # shellcheck disable=SC2016
 step "No hardcoded IPs" bash -c '
@@ -98,9 +113,10 @@ if [ "$QUICK" = false ]; then
   step "Lint" npm run lint
 
   optional_step "Shell lint" shellcheck \
-    bin/deploy-node.sh bin/deploy-setup.sh \
-    bin/health-check.sh bin/verify-branch.sh \
-    bin/release.sh
+    bin/deploy-node.sh bin/deploy-single-node.sh \
+    bin/deploy-setup.sh bin/health-check.sh \
+    bin/verify-branch.sh bin/release.sh \
+    bin/loadtest-setup.sh
 
   optional_step "Workflow lint" actionlint
 fi
