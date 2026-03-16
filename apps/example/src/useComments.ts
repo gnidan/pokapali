@@ -16,7 +16,7 @@ import {
   type Comment,
   type Anchor,
 } from "@pokapali/comments";
-import { useFeed } from "./useFeed";
+import { useFeed } from "@pokapali/react";
 
 // ── App-defined comment data ─────────────────────
 

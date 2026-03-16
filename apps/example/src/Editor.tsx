@@ -5,7 +5,13 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import type { Doc as YDoc } from "yjs";
 import type { Doc, VersionEntry } from "@pokapali/core";
-import { createAutoSaver, docIdFromUrl } from "@pokapali/core";
+import { docIdFromUrl } from "@pokapali/core";
+import {
+  useFeed,
+  useAutoSave,
+  useDocReady,
+  useDocDestroy,
+} from "@pokapali/react";
 import {
   anchorFromSelection,
   CommentHighlight,
@@ -36,7 +42,6 @@ import {
   type StoredUser,
 } from "./UserIdentity";
 import { capitalize } from "./utils";
-import { useFeed } from "./useFeed";
 
 export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const status = useFeed(doc.status);
@@ -75,7 +80,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const titleBtnRef = useRef<HTMLButtonElement>(null);
-  const [ready, setReady] = useState(false);
+  const ready = useDocReady(doc, 60_000);
 
   // Preload version history on doc open so the
   // drawer opens instantly when the user clicks History.
@@ -133,9 +138,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
   // Auto-save: beforeunload, visibilitychange,
   // debounced snapshot-recommended
-  useEffect(() => {
-    return createAutoSaver(doc);
-  }, [doc]);
+  useAutoSave(doc);
 
   useEffect(() => {
     const onSnapshotApplied = () => {
@@ -156,24 +159,6 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
       if (flashTimer.current) {
         clearTimeout(flashTimer.current);
       }
-    };
-  }, [doc]);
-
-  // Wait for doc to be ready (snapshot loaded or
-  // confirmed empty) before mounting Collaboration.
-  // Fallback after 60s so readers aren't stuck on
-  // "Loading…" forever if fetch never completes.
-  useEffect(() => {
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      if (!cancelled) setReady(true);
-    }, 60_000);
-    doc.ready().then(() => {
-      if (!cancelled) setReady(true);
-    });
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
     };
   }, [doc]);
 
@@ -367,15 +352,11 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     }
   }, [showShare]);
 
-  // Must be last-declared effect: React runs
-  // cleanups in declaration order, so all other
-  // effect cleanups (listeners, observers, timers)
-  // run while doc is still alive.
-  useEffect(() => {
-    return () => {
-      doc.destroy();
-    };
-  }, [doc]);
+  // Must be last-declared hook: React runs cleanups
+  // in declaration order, so all other effect cleanups
+  // (listeners, observers, timers) run while doc is
+  // still alive.
+  useDocDestroy(doc);
 
   return (
     <div className="app">

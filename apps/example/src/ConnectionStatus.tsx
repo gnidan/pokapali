@@ -6,7 +6,7 @@ import type {
   VersionHistory,
 } from "@pokapali/core";
 import { TopologyMap } from "./TopologyMap";
-import { useFeed } from "./useFeed";
+import { useFeed } from "@pokapali/react";
 
 // --- Time formatting ---
 
