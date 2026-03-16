@@ -79,6 +79,9 @@ The format is based on
 - Misleading "offline" status during first 3-5s —
   `computeStatus` returns "connecting" during mesh
   grace period (#223)
+- Awareness-only connection misleadingly reports
+  "receiving" — now reports "connecting" until sync
+  is established (#224)
 
 ## [0.1.0-alpha.5] — 2026-03-14
 
