@@ -3,16 +3,20 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
-import * as Y from "yjs";
 import type { Doc as YDoc } from "yjs";
 import type { Doc, VersionEntry } from "@pokapali/core";
 import { createAutoSaver, docIdFromUrl } from "@pokapali/core";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — y-prosemirror has no type declarations
 import {
-  absolutePositionToRelativePosition,
-  ySyncPluginKey,
-} from "y-prosemirror";
+  anchorFromSelection,
+  CommentHighlight,
+  PendingAnchorHighlight,
+  rebuildCommentDecorations,
+  resolveAnchors,
+  setPendingAnchorDecoration,
+  clearPendingAnchorDecoration,
+  getSyncState,
+  type Anchor,
+} from "@pokapali/comments-tiptap";
 import { StatusIndicator } from "./StatusIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
 import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
@@ -23,17 +27,6 @@ import { useVersionHistory } from "./useVersionHistory";
 import { CommentSidebar } from "./CommentSidebar";
 import { CommentPopover } from "./CommentPopover";
 import { useComments } from "./useComments";
-import type { Anchor } from "./pendingAnchorHighlight";
-import {
-  PendingAnchorHighlight,
-  setPendingAnchorDecoration,
-  clearPendingAnchorDecoration,
-} from "./pendingAnchorHighlight";
-import {
-  CommentHighlight,
-  rebuildCommentDecorations,
-  resolveAnchors,
-} from "./commentHighlight";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -223,22 +216,8 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
   const handlePopoverComment = useCallback(() => {
     if (!editor) return;
-    const { from, to } = editor.state.selection;
-    if (from === to) return;
-
-    const syncState = ySyncPluginKey.getState(editor.state);
-    if (!syncState?.binding?.mapping) return;
-
-    const { type, binding } = syncState;
-    const mapping = binding.mapping;
-    const startRel = absolutePositionToRelativePosition(from, type, mapping);
-    const endRel = absolutePositionToRelativePosition(to, type, mapping);
-    if (!startRel || !endRel) return;
-
-    const anchor: Anchor = {
-      start: Y.encodeRelativePosition(startRel),
-      end: Y.encodeRelativePosition(endRel),
-    };
+    const anchor = anchorFromSelection(editor);
+    if (!anchor) return;
 
     setPendingAnchor(anchor);
     setPendingAnchorDecoration(editor.view, anchor);
@@ -275,7 +254,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     if (!editor?.state || !commentsDoc || !contentDoc) {
       return new Map<string, number>();
     }
-    const syncState = ySyncPluginKey.getState(editor.state);
+    const syncState = getSyncState(editor);
     const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
     return new Map(anchors.map((a) => [a.id, a.from]));
   }, [editor?.state, commentsDoc, contentDoc, commentList]);

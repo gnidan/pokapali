@@ -1,12 +1,12 @@
 /**
- * Tiptap extension that highlights a pending comment
- * anchor stored as Y.RelativePositions.
+ * Tiptap extension for pending comment anchor
+ * highlighting.
  *
- * Unlike selectionPreserver.ts (which stores fragile
- * PM positions that go stale during concurrent edits),
- * this plugin uses Y.RelativePositions that survive
- * document changes by re-resolving on every
- * docChanged transaction.
+ * Shows a highlight for the anchor being created
+ * (before the comment is submitted). Re-resolves
+ * on docChanged to track concurrent edits.
+ *
+ * CSS class: .pending-anchor
  */
 
 import { Extension } from "@tiptap/core";
@@ -14,17 +14,13 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import * as Y from "yjs";
+import type { Anchor } from "@pokapali/comments";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
 import {
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
 } from "y-prosemirror";
-
-export interface Anchor {
-  start: Uint8Array;
-  end: Uint8Array;
-}
 
 interface PluginState {
   anchor: Anchor | null;
@@ -41,7 +37,7 @@ export function setPendingAnchorDecoration(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   view: any,
   anchor: Anchor,
-) {
+): void {
   if (!view) return;
   const tr = view.state.tr.setMeta(SET_META, anchor);
   view.dispatch(tr);
@@ -51,7 +47,7 @@ export function setPendingAnchorDecoration(
 export function clearPendingAnchorDecoration(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   view: any,
-) {
+): void {
   if (!view) return;
   const state = key.getState(view.state) as PluginState | undefined;
   if (!state?.anchor) return;
@@ -59,10 +55,6 @@ export function clearPendingAnchorDecoration(
   view.dispatch(tr);
 }
 
-/**
- * Resolve an Anchor to PM positions using the
- * y-prosemirror sync state.
- */
 function resolveAnchor(
   anchor: Anchor,
   editorState: EditorState,
@@ -143,8 +135,6 @@ export const PendingAnchorHighlight = Extension.create({
               };
             }
 
-            // Re-resolve on doc changes so the
-            // decoration tracks concurrent edits.
             if (tr.docChanged && old.anchor) {
               const resolved = resolveAnchor(old.anchor, newState);
               if (!resolved) return EMPTY_STATE;

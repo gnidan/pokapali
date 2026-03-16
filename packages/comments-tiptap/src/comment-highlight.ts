@@ -1,35 +1,26 @@
 /**
  * Tiptap extension for comment anchor highlighting.
  *
- * Creates ProseMirror Decorations for resolved
- * comment anchors. Reads raw anchor bytes from the
- * comments Y.Map and resolves against the
- * XmlFragment using y-prosemirror (bypassing the
- * comments package's Text-based resolution which
- * returns "pending" for XmlFragment content).
+ * Creates ProseMirror Decorations for resolved comment
+ * anchors. CSS classes: .comment-anchor, .active.
+ * Attribute: data-comment-id.
  */
 
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
-import {
-  relativePositionToAbsolutePosition,
-  ySyncPluginKey,
-} from "y-prosemirror";
+import { ySyncPluginKey } from "y-prosemirror";
+import { resolveAnchors, type ResolvedCommentAnchor } from "./resolve.js";
 
-export interface ResolvedCommentAnchor {
-  id: string;
-  from: number;
-  to: number;
-}
+export { type ResolvedCommentAnchor };
 
 export const commentHighlightKey = new PluginKey("commentHighlight");
 
-/** Meta key used to signal comment data changed. */
+/** Meta key to signal comment data changed. */
 const REBUILD_META = "commentHighlight:rebuild";
 
 /**
@@ -39,64 +30,10 @@ const REBUILD_META = "commentHighlight:rebuild";
 export function rebuildCommentDecorations(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   view: any,
-) {
+): void {
   if (!view) return;
   const tr = view.state.tr.setMeta(REBUILD_META, true);
   view.dispatch(tr);
-}
-
-/**
- * Resolve all comment anchors from the comments
- * Y.Map against the current editor state.
- *
- * Returns PM positions (not Yjs indices).
- */
-export function resolveAnchors(
-  commentsDoc: Y.Doc,
-  contentDoc: Y.Doc,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  syncState: any,
-): ResolvedCommentAnchor[] {
-  if (!syncState?.binding?.mapping) return [];
-
-  const { type: xmlFragment, binding } = syncState;
-  const mapping = binding.mapping;
-  const commentsMap = commentsDoc.getMap("comments");
-  const results: ResolvedCommentAnchor[] = [];
-
-  commentsMap.forEach((entry: unknown, id: string) => {
-    if (!(entry instanceof Y.Map)) return;
-    const anchorStart = entry.get("anchorStart");
-    const anchorEnd = entry.get("anchorEnd");
-    if (
-      !(anchorStart instanceof Uint8Array) ||
-      !(anchorEnd instanceof Uint8Array)
-    ) {
-      return;
-    }
-
-    const startRelPos = Y.decodeRelativePosition(anchorStart);
-    const endRelPos = Y.decodeRelativePosition(anchorEnd);
-
-    const from = relativePositionToAbsolutePosition(
-      contentDoc,
-      xmlFragment,
-      startRelPos,
-      mapping,
-    );
-    const to = relativePositionToAbsolutePosition(
-      contentDoc,
-      xmlFragment,
-      endRelPos,
-      mapping,
-    );
-
-    if (from != null && to != null && from < to) {
-      results.push({ id, from, to });
-    }
-  });
-
-  return results;
 }
 
 function buildDecorations(
@@ -164,8 +101,6 @@ export const CommentHighlight = Extension.create<CommentHighlightOptions>({
             if (!commentsDoc || !contentDoc) {
               return DecorationSet.empty;
             }
-            // Rebuild on doc changes or explicit
-            // rebuild signal (comment data changed).
             const needsRebuild = tr.docChanged || tr.getMeta(REBUILD_META);
             if (!needsRebuild) return old;
 
