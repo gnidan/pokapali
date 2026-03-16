@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.7] — 2026-03-16
+
 ### Added
 
 - Comments integration example — runnable
