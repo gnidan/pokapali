@@ -1,0 +1,40 @@
+{
+  "name": "@pokapali/react",
+  "version": "0.1.0-alpha.5",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "!dist/src/**/*.test.*"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@pokapali/core": "0.1.0-alpha.5",
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@pokapali/core": "0.1.0-alpha.5",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^29.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
