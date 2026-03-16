@@ -262,7 +262,7 @@ describe("lazy P2P init (#200)", () => {
         const doc = createDoc({
           ...baseParams(),
           awareness,
-           
+
           p2pReady: p2pReady as any,
         });
 
@@ -314,7 +314,7 @@ describe("lazy P2P init (#200)", () => {
         const doc = createDoc({
           ...baseParams(),
           awareness,
-           
+
           p2pReady: Promise.resolve({
             pubsub: mockPubsub(),
             syncManager: {
