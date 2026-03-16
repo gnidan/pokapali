@@ -39,7 +39,8 @@ export function resolveAnchors(
 ): ResolvedCommentAnchor[] {
   if (!syncState?.binding?.mapping) return [];
 
-  const { type: xmlFragment, binding } = syncState;
+  const { type, binding } = syncState;
+  const xmlFragment = type as Y.XmlFragment;
   const mapping = binding.mapping;
   const commentsMap = commentsDoc.getMap("comments");
   const results: ResolvedCommentAnchor[] = [];

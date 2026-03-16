@@ -62,8 +62,16 @@ export function anchorFromSelection(editor: Editor): Anchor | null {
   const { type, binding } = syncState;
   const mapping = binding.mapping;
 
-  const startRel = absolutePositionToRelativePosition(from, type, mapping);
-  const endRel = absolutePositionToRelativePosition(to, type, mapping);
+  const startRel = absolutePositionToRelativePosition(
+    from,
+    type as Y.XmlFragment,
+    mapping,
+  );
+  const endRel = absolutePositionToRelativePosition(
+    to,
+    type as Y.XmlFragment,
+    mapping,
+  );
   if (!startRel || !endRel) return null;
 
   return anchorFromRelativePositions(startRel, endRel);
