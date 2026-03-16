@@ -149,12 +149,11 @@ if [ "$CHANGELOG_DIRTY" = true ]; then
   echo ""
   echo "=== Committing CHANGELOG.md ==="
   git add CHANGELOG.md
-  git commit -m "$(cat <<EOF
-docs: update changelog for $VERSION
+  COMMIT_MSG="docs: update changelog for $VERSION"
+  COMMIT_MSG="$COMMIT_MSG
 
-Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>
-EOF
-  )"
+Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>"
+  git commit -m "$COMMIT_MSG"
   COMMITS_TO_SQUASH=1
   echo "  committed changelog"
 fi
@@ -189,14 +188,12 @@ if [ "$COMMITS_TO_SQUASH" -eq 2 ]; then
 
   # Squash: soft reset 2 commits, recommit
   git reset --soft HEAD~2
-  git commit -m "$(cat <<EOF
-chore: release $VERSION
+  SQUASH_MSG="chore: release $VERSION
 
 Updates CHANGELOG.md and bumps all packages to $VERSION.
 
-Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>
-EOF
-  )"
+Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>"
+  git commit -m "$SQUASH_MSG"
 
   # Recreate tags on squashed commit
   for tag in "${TAGS[@]}"; do
@@ -216,7 +213,7 @@ while IFS= read -r tag; do
   TAGS+=("$tag")
 done < <(git tag --points-at HEAD)
 
-if [ ${#TAGS[@]} -eq 0 ]; then
+if [ "${#TAGS[@]}" -eq 0 ]; then
   echo "ERROR: no tags on HEAD — version-bump.mjs"
   echo "may have failed silently"
   exit 1
