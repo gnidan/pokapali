@@ -174,6 +174,7 @@ export function decodeNodeCaps(data: Uint8Array): NodeCapabilities | null {
 export interface RelayConfig {
   storagePath: string;
   wsPort?: number;
+  tcpPort?: number;
   // Public multiaddrs to announce (e.g. for autoTLS).
   // Needed so autoTLS knows our public IP before any
   // peers connect and report observed addresses.
@@ -209,6 +210,7 @@ export interface Relay {
 
 export async function startRelay(config: RelayConfig): Promise<Relay> {
   const wsPort = config.wsPort ?? DEFAULT_WS_PORT;
+  const tcpPort = config.tcpPort ?? 4001;
   const privateKey = await loadOrCreateKey(config.storagePath);
   const datastore = new LevelDatastore(join(config.storagePath, "datastore"));
   await datastore.open();
@@ -253,8 +255,8 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
 
   // Use fixed ports so firewall rules are predictable.
   const listen = [
-    "/ip4/0.0.0.0/tcp/4001",
-    "/ip6/::/tcp/4001",
+    `/ip4/0.0.0.0/tcp/${tcpPort}`,
+    `/ip6/::/tcp/${tcpPort}`,
     `/ip4/0.0.0.0/tcp/${wsPort}/ws`,
     `/ip6/::/tcp/${wsPort}/ws`,
     "/p2p-circuit",

@@ -22,6 +22,12 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 
+interface PhaseConfig {
+  name: string;
+  startS: number;
+  endS: number;
+}
+
 interface Config {
   file: string;
   minAckRate: number;
@@ -29,6 +35,8 @@ interface Config {
   maxErrors: number;
   maxRssMB: number;
   maxRecoveryMs: number;
+  phases: PhaseConfig[];
+  phaseMinAckRates: Map<string, number>;
 }
 
 interface Event {
@@ -52,6 +60,8 @@ function parseArgs(argv: string[]): Config {
     maxErrors: 0,
     maxRssMB: 200,
     maxRecoveryMs: 30_000,
+    phases: [],
+    phaseMinAckRates: new Map(),
   };
 
   const args = argv.slice(2);
@@ -78,6 +88,20 @@ function parseArgs(argv: string[]): Config {
       config.maxRecoveryMs = parseInt(args[++i], 10);
     } else if (arg === "--cross-region") {
       config.maxLatencyP95 = 10_000;
+    } else if (arg === "--phase" && args[i + 1]) {
+      const parts = args[++i].split(":");
+      if (parts.length !== 3) {
+        console.error("Invalid --phase format." + " Use name:startS:endS");
+        process.exit(2);
+      }
+      config.phases.push({
+        name: parts[0],
+        startS: parseInt(parts[1], 10),
+        endS: parseInt(parts[2], 10),
+      });
+    } else if (arg === "--phase-ack-rate" && args[i + 1]) {
+      const [name, pct] = args[++i].split(":");
+      config.phaseMinAckRates.set(name, parseFloat(pct));
     } else {
       console.error(`Unknown option: ${arg}`);
       process.exit(2);
@@ -118,6 +142,10 @@ async function analyze(config: Config) {
   let nodesJoined = 0;
   let nodesLeft = 0;
 
+  // Phase analysis tracking
+  const allEvents: Array<{ ts: number; type: string }> = [];
+  let firstTs: number | null = null;
+
   const rl = createInterface({
     input: createReadStream(config.file),
     crlfDelay: Infinity,
@@ -132,6 +160,9 @@ async function analyze(config: Config) {
     } catch {
       continue; // skip malformed lines
     }
+
+    if (firstTs === null) firstTs = event.ts;
+    allEvents.push({ ts: event.ts, type: event.type });
 
     switch (event.type) {
       case "doc-created":
@@ -312,6 +343,48 @@ async function analyze(config: Config) {
       pass: maxRecoveryMs <= config.maxRecoveryMs,
       detail: `${maxRecoveryMs}ms` + ` (threshold: ${config.maxRecoveryMs}ms)`,
     });
+  }
+
+  // Phase analysis
+  const phaseResults = new Map<string, number>();
+
+  if (config.phases.length > 0 && firstTs !== null) {
+    console.log("\n=== Phase Analysis ===");
+    for (const phase of config.phases) {
+      const startMs = firstTs + phase.startS * 1000;
+      const endMs = firstTs + phase.endS * 1000;
+      const phaseEvents = allEvents.filter(
+        (e) => e.ts >= startMs && e.ts < endMs,
+      );
+      const phaseSnaps = phaseEvents.filter(
+        (e) => e.type === "snapshot-pushed",
+      ).length;
+      const phaseAcks = phaseEvents.filter(
+        (e) => e.type === "ack-received",
+      ).length;
+      const phaseErrors = phaseEvents.filter((e) => e.type === "error").length;
+      const phaseAckRate = phaseSnaps > 0 ? (phaseAcks / phaseSnaps) * 100 : 0;
+      phaseResults.set(phase.name, phaseAckRate);
+      console.log(
+        `  ${phase.name}:` +
+          ` ${phaseAckRate.toFixed(1)}% ack rate` +
+          ` (${phaseAcks}/${phaseSnaps} snaps,` +
+          ` ${phaseErrors} errors)`,
+      );
+    }
+  }
+
+  // Phase pass/fail checks
+  for (const phase of config.phases) {
+    const minRate = config.phaseMinAckRates.get(phase.name);
+    if (minRate != null) {
+      const phaseAckRate = phaseResults.get(phase.name) ?? 0;
+      checks.push({
+        name: `Phase '${phase.name}' ack rate`,
+        pass: phaseAckRate >= minRate,
+        detail: `${phaseAckRate.toFixed(1)}%` + ` (threshold: ${minRate}%)`,
+      });
+    }
   }
 
   // Print checks
