@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
+import { setLogLevel, getLogLevel } from "@pokapali/log";
 import { comments } from "./index.js";
 import type { ClientIdMapping } from "./index.js";
 import { createFeed } from "./feed.js";
@@ -561,6 +562,8 @@ describe("comments()", () => {
     });
 
     it("warns when contentType is not provided", () => {
+      const prev = getLogLevel();
+      setLogLevel("warn");
       const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const { c } = setup();
       expect(spy).toHaveBeenCalledWith(
@@ -569,6 +572,7 @@ describe("comments()", () => {
       );
       c.destroy();
       spy.mockRestore();
+      setLogLevel(prev);
     });
 
     it("no warning when contentType is explicit", () => {

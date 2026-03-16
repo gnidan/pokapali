@@ -111,9 +111,16 @@ export function comments<T>(
     contentType = options.contentType!;
   } else {
     // Check if "default" is already registered as a
-    // non-Text type (e.g. XmlFragment from Tiptap).
+    // specific non-Text type (e.g. XmlFragment from
+    // Tiptap). Synced docs may have untyped entries
+    // (constructor === AbstractType) which getText()
+    // will upgrade — only reject known conflicts.
     const existing = contentDoc.share.get("default");
-    if (existing && !(existing instanceof Y.Text)) {
+    if (
+      existing &&
+      existing.constructor !== Y.AbstractType &&
+      !(existing instanceof Y.Text)
+    ) {
       throw new Error(
         "No contentType provided and the content doc" +
           ' already has "default" registered as ' +
