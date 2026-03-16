@@ -80,17 +80,14 @@ export const CommentHighlight = Extension.create<CommentHighlightOptions>({
       new Plugin({
         key: commentHighlightKey,
         state: {
-          init(_: unknown, state: EditorState): DecorationSet {
-            if (!commentsDoc || !contentDoc) {
-              return DecorationSet.empty;
-            }
-            const syncState = ySyncPluginKey.getState(state);
-            const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
-            return buildDecorations(
-              state.doc,
-              anchors,
-              ext.options.activeCommentId,
-            );
+          init(): DecorationSet {
+            // The ySyncPlugin mapping is empty during
+            // init — it only populates in the view
+            // callback via _forceRerender(). Resolving
+            // anchors here would crash. Decorations are
+            // built on the first apply after the mapping
+            // is ready.
+            return DecorationSet.empty;
           },
           apply(
             tr: Transaction,
