@@ -15,6 +15,11 @@ export type { SubdocManager } from "@pokapali/subdocs";
 export interface SyncManager {
   readonly status: SyncStatus;
   onStatusChange(cb: (s: SyncStatus) => void): void;
+  /** Create the WebRTC room for a channel on demand.
+   *  Idempotent — second call for the same namespace
+   *  is a no-op. Ignored if no key exists for the
+   *  namespace. */
+  connectChannel(ns: string): void;
   destroy(): void;
 }
 
@@ -43,15 +48,21 @@ export function setupNamespaceRooms(
     : signalingUrls;
 
   const statusListeners: Array<(s: SyncStatus) => void> = [];
+  const connectedChannels = new Set<string>();
 
   function notifyStatus() {
     const s = aggregateStatus(providers);
     for (const cb of statusListeners) cb(s);
   }
 
-  for (const ns of Object.keys(keys)) {
+  function connectChannel(ns: string): void {
+    if (connectedChannels.has(ns)) return;
+    const key = keys[ns];
+    if (!key) return;
+    connectedChannels.add(ns);
+
     const roomName = `${ipnsName}:${ns}`;
-    const password = bytesToHex(keys[ns]);
+    const password = bytesToHex(key);
     const doc = subdocManager.subdoc(ns);
     const provider = new WebrtcProvider(roomName, doc, {
       signaling,
@@ -71,6 +82,7 @@ export function setupNamespaceRooms(
     onStatusChange(cb: (s: SyncStatus) => void) {
       statusListeners.push(cb);
     },
+    connectChannel,
     destroy() {
       statusListeners.length = 0;
       for (const p of providers) {
@@ -79,6 +91,7 @@ export function setupNamespaceRooms(
         p.destroy();
       }
       providers.length = 0;
+      connectedChannels.clear();
     },
   };
 }
