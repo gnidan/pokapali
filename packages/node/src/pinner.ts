@@ -149,6 +149,10 @@ export interface Pinner {
   history: HistoryTracker;
 }
 
+/** Pinner lifecycle phases. Transitions are
+ * one-way: created → running → stopped. */
+type PinnerPhase = "created" | "running" | "stopped";
+
 export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   const DEFAULT_IPNS_RATE_LIMIT = 10;
   const ipnsThrottle = createIpnsThrottle(
@@ -345,7 +349,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     pending.add(p);
     p.finally(() => pending.delete(p));
   }
-  let stopped = false;
+  let phase: PinnerPhase = "created";
   const shutdownCtrl = new AbortController();
   let resolveInterval: ReturnType<typeof setInterval> | null = null;
   let republishInterval: ReturnType<typeof setInterval> | null = null;
@@ -384,7 +388,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     }
     persistDebounceTimer = setTimeout(() => {
       persistDebounceTimer = null;
-      if (dirty && !stopped) {
+      if (dirty && phase === "running") {
         dirty = false;
         persistHistoryIndex().catch((err) => {
           log.warn("debounced history persist failed:", err);
@@ -535,7 +539,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     // Batch to avoid OOM from unbounded concurrency
     const BATCH_SIZE = 10;
     for (let i = 0; i < names.length; i += BATCH_SIZE) {
-      if (stopped) break;
+      if (phase === "stopped") break;
       const batch = names.slice(i, i + BATCH_SIZE);
       await Promise.allSettled(batch.map((n) => resolveAndFetch(n)));
     }
@@ -670,7 +674,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     let abortCycle = false;
 
     async function worker(): Promise<void> {
-      while (!stopped && !abortCycle) {
+      while (phase === "running" && !abortCycle) {
         const i = idx++;
         if (i >= candidates.length) return;
         const result = await republishOne(candidates[i]);
@@ -723,7 +727,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     const start = Date.now();
     let count = 0;
 
-    while (heap.length > 0 && !stopped) {
+    while (heap.length > 0 && phase === "running") {
       const top = heapPeek()!;
       if (top.nextAt > start) break;
 
@@ -1078,7 +1082,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
           // Walk backwards through the chain
           while (current !== null) {
-            if (stopped) return;
+            if (phase === "stopped") return;
             try {
               const has = await helia!.blockstore.has(current);
               if (!has) break; // block not in store
@@ -1154,7 +1158,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   async function thinSweep(): Promise<void> {
     let totalRemoved = 0;
     for (const name of knownNames) {
-      if (stopped) break;
+      if (phase === "stopped") break;
       totalRemoved += await thinVersionHistory(name);
     }
     if (totalRemoved > 0) {
@@ -1202,6 +1206,11 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     },
 
     async start(): Promise<void> {
+      if (phase !== "created") {
+        throw new Error(
+          `pinner.start() called in phase "${phase}"` + ` (expected "created")`,
+        );
+      }
       try {
         await restoreState();
       } catch (err) {
@@ -1223,6 +1232,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         track(resolveAll());
       }
 
+      phase = "running";
+
       // Periodic re-resolve
       if (helia) {
         resolveInterval = setInterval(resolveAll, RESOLVE_INTERVAL_MS);
@@ -1240,7 +1251,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
       // Periodic history index persistence
       persistInterval = setInterval(() => {
-        if (dirty && !stopped) {
+        if (dirty && phase === "running") {
           dirty = false;
           persistHistoryIndex().catch((err) => {
             log.warn("periodic history persist failed:", err);
@@ -1262,7 +1273,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     },
 
     async stop(): Promise<void> {
-      stopped = true;
+      if (phase === "stopped") return;
+      phase = "stopped";
       shutdownCtrl.abort();
       if (resolveInterval) {
         clearInterval(resolveInterval);
@@ -1300,6 +1312,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       blockData?: Uint8Array,
       fromPinner?: boolean,
     ): void {
+      if (phase !== "running") return;
       knownNames.add(ipnsName);
       if (appId) nameToAppId.set(ipnsName, appId);
       persistMutation(async () => {
@@ -1407,6 +1420,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     },
 
     onGuaranteeQuery(ipnsName: string, appId: string): void {
+      if (phase !== "running") return;
       if (!knownNames.has(ipnsName)) return;
       if (!config.pubsub || !config.peerId) return;
 
@@ -1512,6 +1526,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     },
 
     recordActivity(ipnsName: string): void {
+      if (phase !== "running") return;
       if (!knownNames.has(ipnsName)) return;
       const now = Date.now();
       lastSeenAt.set(ipnsName, now);
@@ -1521,6 +1536,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     },
 
     async ingest(ipnsName: string, block: Uint8Array): Promise<boolean> {
+      if (phase !== "running") return false;
       // Rate limit: block size
       const check = rateLimiter.check(ipnsName, block.byteLength);
       if (!check.allowed) {
