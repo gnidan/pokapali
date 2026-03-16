@@ -36,6 +36,10 @@ export interface BlockResolver {
 export interface BlockResolverOptions {
   getHelia: () => BlockGetter;
   httpUrls: () => string[];
+  /** Called when an IDB blockstore.put() fails.
+   *  Lets callers surface persistence errors to
+   *  consumers instead of silently swallowing. */
+  onWriteError?: (err: unknown) => void;
 }
 
 export function createBlockResolver(opts: BlockResolverOptions): BlockResolver {
@@ -83,11 +87,15 @@ export function createBlockResolver(opts: BlockResolverOptions): BlockResolver {
         const helia = opts.getHelia();
         if (helia.blockstore.put) {
           Promise.resolve(helia.blockstore.put(cid, block)).catch(
-            (err: unknown) => log.warn("blockstore.put failed:", err),
+            (err: unknown) => {
+              log.warn("blockstore.put failed:", err);
+              opts.onWriteError?.(err);
+            },
           );
         }
       } catch (err) {
         log.debug("IDB put skipped:", err);
+        opts.onWriteError?.(err);
       }
     },
   };

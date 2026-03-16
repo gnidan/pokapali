@@ -157,6 +157,10 @@ export interface Doc {
   /** Persistent clientID→pubkey mapping from _meta.
    *  Updates reactively as peers register. */
   readonly clientIdMapping: Feed<ReadonlyMap<number, ClientIdentityInfo>>;
+  /** Last IDB persistence error, or null. Fires
+   *  when block/doc writes to IndexedDB fail
+   *  (e.g. quota exceeded in incognito). */
+  readonly lastPersistenceError: Feed<string | null>;
 
   // ── Derived getters (from tip Feed) ────────
   /** @deprecated Use `tip.getSnapshot()?.cid`. */
@@ -360,6 +364,10 @@ export function createDoc(params: DocParams): Doc {
   const resolver = createBlockResolver({
     getHelia: () => getHelia(),
     httpUrls: getHttpUrls,
+    onWriteError: (err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      persistenceErrorFeed._update(msg);
+    },
   });
   const snapshotLC = createSnapshotCodec({
     resolver,
@@ -493,6 +501,9 @@ export function createDoc(params: DocParams): Doc {
   );
   const gossipActivityFeed: WritableFeed<GossipActivity> =
     createFeed<GossipActivity>("inactive");
+  const persistenceErrorFeed: WritableFeed<string | null> = createFeed<
+    string | null
+  >(null);
 
   // --- Client identity mapping feed ---
   const clientIdMapping = createClientIdMapping(
@@ -1296,6 +1307,7 @@ export function createDoc(params: DocParams): Doc {
     snapshotEvents: snapshotEventFeed as Feed<SnapshotEvent | null>,
     gossipActivity: gossipActivityFeed as Feed<GossipActivity>,
     clientIdMapping: clientIdMappingFeed as Feed<IdentityMap>,
+    lastPersistenceError: persistenceErrorFeed as Feed<string | null>,
 
     ready(options?: { timeoutMs?: number }): Promise<void> {
       if (!options?.timeoutMs) return readyPromise;
