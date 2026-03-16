@@ -32,7 +32,15 @@ npm install @tiptap/extension-collaboration \
   @tiptap/extension-collaboration-cursor
 ```
 
-<!-- TODO: once @pokapali/react ships (#228), add it -->
+For React helpers (optional but recommended):
+
+<!-- DEPENDS ON: #228 (@pokapali/react) — not yet
+     published. The hooks below reference the approved
+     spec. Remove this comment when #228 ships. -->
+
+```bash
+npm install @pokapali/react
+```
 
 ---
 
@@ -113,13 +121,6 @@ pokapali({
 ---
 
 ## Create or Open a Document
-
-<!-- DEPENDS ON: #188 (unify create/open). The current
-     API has separate create() and open() methods. If
-     #188 lands, this section needs rewriting to show
-     the unified path. Draft both patterns. -->
-
-### Current API
 
 ```ts
 // Create a new document
@@ -208,11 +209,6 @@ integration. Getting it wrong causes either a blank
 editor (for readers) or content overwrite (for late
 joiners).
 
-<!-- DEPENDS ON: #227 (ready timeout). If #227 lands
-     with a built-in configurable timeout, simplify
-     this section. Currently consumers must implement
-     the 60s fallback themselves. -->
-
 ### The Problem
 
 When a document opens, there may be existing content
@@ -235,35 +231,45 @@ read-only peers.
   waiting, they see blank content.
 - **Fallback timeout:** If no pinner is reachable and
   no peers are online, `ready()` never resolves. Add
-  a timeout (60 seconds is reasonable) so readers
-  aren't stuck indefinitely.
+  a timeout so readers aren't stuck indefinitely.
+  60 seconds is a reasonable default.
 
-### Pattern
+### Pattern (with `@pokapali/react`)
+
+<!-- DEPENDS ON: #228 -->
+
+```tsx
+import { useDocReady } from "@pokapali/react";
+
+const ready = useDocReady(doc, 60_000);
+const shouldMount = ready || !isReadOnly;
+```
+
+### Pattern (without `@pokapali/react`)
+
+`doc.ready()` accepts an optional `timeoutMs`:
 
 ```ts
 const [ready, setReady] = useState(false);
 
 useEffect(() => {
   let cancelled = false;
-  const timer = setTimeout(() => {
-    if (!cancelled) setReady(true);
-  }, 60_000);
-
-  doc.ready().then(() => {
-    if (!cancelled) setReady(true);
-  });
-
+  doc.ready({ timeoutMs: 60_000 }).then(
+    () => {
+      if (!cancelled) setReady(true);
+    },
+    () => {
+      // Timed out — mount anyway
+      if (!cancelled) setReady(true);
+    },
+  );
   return () => {
     cancelled = true;
-    clearTimeout(timer);
   };
 }, [doc]);
 
 const shouldMount = ready || !isReadOnly;
 ```
-
-<!-- TODO: if #228 ships useDocReady(), replace the
-     above with a one-liner -->
 
 ---
 
@@ -278,8 +284,9 @@ const cleanup = createAutoSaver(doc);
 
 `createAutoSaver` handles:
 
-- Debounced `publish()` on `"publish-needed"` events
-  (5 second default)
+- Debounced `publish()` on content changes
+  (5 second default, configurable via
+  `{ debounceMs }`)
 - `beforeunload` handler — prompts "leave page?" if
   unsaved
 - `visibilitychange` handler — fire-and-forget
@@ -294,19 +301,23 @@ all peers close their tabs, unsaved edits are lost.
 
 ### React
 
-```ts
-useEffect(() => {
-  return createAutoSaver(doc);
-}, [doc]);
+<!-- DEPENDS ON: #228 -->
+
+```tsx
+import { useAutoSave } from "@pokapali/react";
+
+useAutoSave(doc);
+```
+
+Or without `@pokapali/react`:
+
+```tsx
+useEffect(() => createAutoSaver(doc), [doc]);
 ```
 
 ---
 
 ## Status and Save State
-
-<!-- DEPENDS ON: #221/#222/#223 (status fixes). The
-     DocStatus and SaveState values may change. Draft
-     with current values, update after Track A. -->
 
 ### Connectivity: `doc.status`
 
@@ -318,9 +329,6 @@ A `Feed<DocStatus>` with values:
 | `"receiving"`  | Subscribed to GossipSub, not yet in mesh |
 | `"synced"`     | In the mesh, actively syncing            |
 | `"offline"`    | No relay connections                     |
-
-<!-- TODO: if #221 adds "degraded" or changes these
-     values, update -->
 
 ### Persistence: `doc.saveState`
 
@@ -342,23 +350,30 @@ the state starts as `"unpublished"` until the first
 
 ### Subscribing to Feeds
 
-<!-- DEPENDS ON: #228 (React helpers). If useFeed()
-     ships, replace this with the import. -->
+Feeds implement the `useSyncExternalStore` interface.
 
-Feeds implement the `useSyncExternalStore` interface:
+With `@pokapali/react` (recommended):
 
-```ts
-import { useSyncExternalStore } from "react";
+<!-- DEPENDS ON: #228 -->
 
-function useFeed<T>(feed: Feed<T>): T {
-  return useSyncExternalStore(feed.subscribe, feed.getSnapshot);
-}
+```tsx
+import { useFeed } from "@pokapali/react";
 
-// Usage
 function StatusBar({ doc }: { doc: Doc }) {
   const status = useFeed(doc.status);
   const saveState = useFeed(doc.saveState);
   // ...
+}
+```
+
+Without `@pokapali/react`:
+
+```ts
+import { useSyncExternalStore } from "react";
+import type { Feed } from "@pokapali/core";
+
+function useFeed<T>(feed: Feed<T>): T {
+  return useSyncExternalStore(feed.subscribe, feed.getSnapshot);
 }
 ```
 
@@ -379,30 +394,36 @@ const tip = useFeed(doc.tip);
 const ackCount = tip?.ackedBy.size ?? 0;
 ```
 
+### Backup Status
+
+To show whether the current version is backed up:
+
+```ts
+const backedUp = useFeed(doc.backedUp);
+// true when current tip has at least one pinner ack
+// resets to false on new publish until re-acked
+```
+
 ---
 
 ## Snapshot Events
 
-<!-- DEPENDS ON: #189 (events→Feeds). doc.on("snapshot")
-     may become a Feed. Update when #189 lands. -->
-
-When a remote snapshot is applied:
+When a remote snapshot is applied, the
+`doc.snapshotEvents` Feed fires:
 
 ```ts
-doc.on("snapshot", (info) => {
-  // info: { cid, seq, ts, isLocal }
+const snapshot = useFeed(doc.snapshotEvents);
+
+useEffect(() => {
+  if (!snapshot || snapshot.isLocal) return;
   // Flash a "new version received" indicator
-});
+}, [snapshot]);
 ```
 
-When the library detects a publish would be timely:
-
-```ts
-doc.on("publish-needed", () => {
-  // createAutoSaver handles this automatically
-  // Only listen if you need custom publish timing
-});
-```
+Note: `snapshotEvents` fires on every snapshot
+(including local publishes with `isLocal: true`).
+It never deduplicates — each snapshot is a distinct
+event.
 
 ---
 
@@ -480,14 +501,27 @@ All other cleanups (awareness listeners, auto-save,
 editor instance) must complete first. If they run
 after `destroy()`, they access a destroyed doc.
 
-In React, effect cleanup runs in declaration order.
-Declare `doc.destroy()` in the **last** `useEffect`:
+With `@pokapali/react`:
 
-```ts
+<!-- DEPENDS ON: #228 -->
+
+```tsx
+import { useAutoSave, useDocDestroy } from "@pokapali/react";
+
+// Other hooks first
+useAutoSave(doc);
+
+// This MUST be last
+useDocDestroy(doc);
+```
+
+Without `@pokapali/react`, in React, effect cleanup
+runs in declaration order. Declare `doc.destroy()` in
+the **last** `useEffect`:
+
+```tsx
 // Other effects first
-useEffect(() => {
-  return createAutoSaver(doc);
-}, [doc]);
+useEffect(() => createAutoSaver(doc), [doc]);
 
 useEffect(() => {
   // awareness listeners, etc.
@@ -497,11 +531,12 @@ useEffect(() => {
 }, [doc]);
 
 // This MUST be last
-useEffect(() => {
-  return () => {
+useEffect(
+  () => () => {
     doc.destroy();
-  };
-}, [doc]);
+  },
+  [doc],
+);
 ```
 
 ### Cancelled Opens
@@ -534,36 +569,36 @@ useEffect(() => {
 
 ## Comments Integration
 
-<!-- DEPENDS ON: #82 (comments-tiptap adapter). This
-     section is a placeholder. The current integration
-     requires ~400 lines of workaround code due to an
-     XmlFragment/Text incompatibility. #82 will ship
-     @pokapali/comments-tiptap to handle this. -->
-
-> **Status:** The `@pokapali/comments` package works
-> today, but wiring it to Tiptap requires significant
-> boilerplate due to a Yjs type incompatibility
-> (XmlFragment vs Text). The `@pokapali/comments-tiptap`
-> adapter (#82) will reduce this to a clean API.
-> This section will be written when #82 ships.
-
-### What Works Today
+### Install
 
 ```bash
-npm install @pokapali/comments
+npm install @pokapali/comments @pokapali/comments-tiptap
 ```
+
+### Setup
 
 ```ts
 import { comments } from "@pokapali/comments";
+import {
+  anchorFromSelection,
+  CommentHighlight,
+  PendingAnchorHighlight,
+  resolveAnchors,
+  getSyncState,
+} from "@pokapali/comments-tiptap";
+```
 
-const c = comments<MyCommentData>(
-  doc.channel("comments"),
-  doc.channel("content"),
-  {
-    author: doc.identityPubkey,
-    clientIdMapping: doc.clientIdMapping,
-  },
-);
+### Create a Comments Instance
+
+```ts
+const commentsDoc = doc.channel("comments");
+const contentDoc = doc.channel("content");
+
+const c = comments<MyCommentData>(commentsDoc, contentDoc, {
+  author: doc.identityPubkey,
+  clientIdMapping: doc.clientIdMapping,
+  contentType: contentDoc.getXmlFragment("default"),
+});
 
 c.feed; // Feed<Comment<T>[]>
 c.add({ content, anchor, data });
@@ -572,18 +607,56 @@ c.delete(id);
 c.destroy();
 ```
 
-### What's Missing (until #82)
+Note the `contentType` option — Tiptap uses
+`XmlFragment`, not `Text`. Passing the fragment
+ensures anchors resolve against the correct Yjs
+type.
 
-- Anchor creation from ProseMirror selection requires
-  reaching into untyped y-prosemirror internals
-- Anchor resolution requires a custom ProseMirror
-  plugin (~189 lines)
-- A stub Y.Doc workaround is needed because
-  `@pokapali/comments` resolves against Y.Text but
-  Tiptap uses Y.XmlFragment
+### Tiptap Extensions
 
-See the example app source (`apps/example/src/`) for
-the current workaround patterns.
+Add the comment highlight extensions to your editor:
+
+```ts
+const editor = useEditor({
+  extensions: [
+    // ...other extensions
+    CommentHighlight.configure({
+      commentsDoc,
+      contentDoc,
+      activeCommentId: selectedCommentId,
+    }),
+    PendingAnchorHighlight,
+  ],
+});
+```
+
+### Creating Anchors
+
+Create an anchor from the current editor selection:
+
+```ts
+import { anchorFromSelection } from "@pokapali/comments-tiptap";
+
+const anchor = anchorFromSelection(editor);
+if (anchor) {
+  c.add({
+    content: "My comment",
+    anchor,
+    data: { status: "open" },
+  });
+}
+```
+
+### Resolving Anchor Positions
+
+Map comment anchors to editor positions (e.g. for
+sidebar ordering):
+
+```ts
+const syncState = getSyncState(editor);
+const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
+// anchors: Array<{ id, from, to }>
+```
 
 ---
 
@@ -592,7 +665,8 @@ the current workaround patterns.
 ### Save Errors
 
 ```ts
-if (doc.saveState.getSnapshot() === "save-error") {
+const saveState = useFeed(doc.saveState);
+if (saveState === "save-error") {
   console.error(doc.lastSaveError);
 }
 ```
@@ -600,7 +674,7 @@ if (doc.saveState.getSnapshot() === "save-error") {
 Common causes: no reachable relays (blocks can't be
 uploaded), Helia not yet initialized, or transient
 network failures. Auto-save retries on the next
-`"publish-needed"` event.
+content change.
 
 ### Channel Access Errors
 
@@ -640,12 +714,19 @@ const doc = await app.create();
 
 ## Full Example: Tiptap + React
 
-<!-- DEPENDS ON: #228 (React helpers), #189 (events),
-     #187 (reduced surface). This example will use
-     the final API shape. Placeholder for now. -->
+<!-- DEPENDS ON: #228 (@pokapali/react) — written
+     against the approved spec. Update imports if
+     hook signatures change. -->
 
 ```tsx
-import { pokapali, createAutoSaver } from "@pokapali/core";
+import { useState, useEffect } from "react";
+import { pokapali, type Doc } from "@pokapali/core";
+import {
+  useFeed,
+  useDocReady,
+  useAutoSave,
+  useDocDestroy,
+} from "@pokapali/react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -657,39 +738,62 @@ const app = pokapali({
   origin: window.location.origin,
 });
 
-function Editor({ doc }: { doc: Doc }) {
-  const isReadOnly = !doc.capability.channels.has("content");
+function App() {
+  const [doc, setDoc] = useState<Doc | null>(null);
 
-  // Ready gate (see section above)
-  const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    const timer = setTimeout(() => {
-      if (!cancelled) setReady(true);
-    }, 60_000);
-    doc.ready().then(() => {
-      if (!cancelled) setReady(true);
+    let d: Doc | null = null;
+
+    const url = window.location.href;
+    const promise = app.isDocUrl(url) ? app.open(url) : app.create();
+
+    promise.then((newDoc) => {
+      if (cancelled) {
+        newDoc.destroy();
+        return;
+      }
+      d = newDoc;
+      history.replaceState(null, "", newDoc.urls.best);
+      setDoc(newDoc);
     });
+
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      d?.destroy();
     };
-  }, [doc]);
+  }, []);
 
+  if (!doc) return <div>Connecting...</div>;
+  return <Editor doc={doc} />;
+}
+
+function Editor({ doc }: { doc: Doc }) {
+  const isReadOnly = !doc.capability.channels.has("content");
+  const ready = useDocReady(doc, 60_000);
+  const status = useFeed(doc.status);
+  const saveState = useFeed(doc.saveState);
   const shouldMount = ready || !isReadOnly;
+
+  useAutoSave(doc);
 
   const editor = useEditor(
     {
       editable: !isReadOnly,
       extensions: shouldMount
         ? [
-            StarterKit.configure({ history: false }),
+            StarterKit.configure({
+              history: false,
+            }),
             Collaboration.configure({
               document: doc.channel("content"),
             }),
             CollaborationCursor.configure({
               provider: doc.provider,
-              user: { name: "Alice", color: "#2196f3" },
+              user: {
+                name: "Alice",
+                color: "#2196f3",
+              },
             }),
           ]
         : [StarterKit],
@@ -697,40 +801,39 @@ function Editor({ doc }: { doc: Doc }) {
     [shouldMount],
   );
 
-  // Auto-save
-  useEffect(() => createAutoSaver(doc), [doc]);
+  // Must be the last hook
+  useDocDestroy(doc);
 
-  // Destroy last
-  useEffect(
-    () => () => {
-      doc.destroy();
-    },
-    [doc],
+  if (!shouldMount) {
+    return <div>Loading...</div>;
+  }
+
+  return (
+    <div>
+      <div>
+        Status: {status} | Save: {saveState}
+      </div>
+      <EditorContent editor={editor} />
+    </div>
   );
-
-  if (!shouldMount) return <div>Loading...</div>;
-  return <EditorContent editor={editor} />;
 }
 ```
 
 ---
 
-## Dependency Checklist
+## Reactive Feeds Reference
 
-| Section          | Stable today? | Blocked by                                 |
-| ---------------- | ------------- | ------------------------------------------ |
-| Install          | Yes           | #228 adds `@pokapali/react`                |
-| Initialize       | Yes           | —                                          |
-| Create/Open      | Mostly        | #188 may unify                             |
-| Wire to Tiptap   | Yes           | —                                          |
-| ready() gate     | Yes (verbose) | #227 adds built-in timeout, #228 adds hook |
-| Auto-save        | Yes           | —                                          |
-| Status/SaveState | Mostly        | #221-#223 may change values                |
-| Snapshot events  | Yes           | #189 may convert to Feeds                  |
-| Awareness        | Yes           | —                                          |
-| Sharing          | Yes           | —                                          |
-| Cleanup          | Yes           | —                                          |
-| Comments         | Blocked       | #82 required                               |
-| Error handling   | Yes           | —                                          |
-| Bundle size      | Yes           | —                                          |
-| Full example     | Blocked       | #228, #189, #187                           |
+All Feeds on `Doc` support `useSyncExternalStore`
+(or `useFeed` from `@pokapali/react`):
+
+| Feed                  | Type                                            | Description                       |
+| --------------------- | ----------------------------------------------- | --------------------------------- |
+| `doc.status`          | `Feed<DocStatus>`                               | Connectivity state                |
+| `doc.saveState`       | `Feed<SaveState>`                               | Persistence state                 |
+| `doc.tip`             | `Feed<VersionInfo \| null>`                     | Current chain tip + ack/guarantee |
+| `doc.loading`         | `Feed<LoadingState>`                            | IPNS/block fetch lifecycle        |
+| `doc.backedUp`        | `Feed<boolean>`                                 | True when tip has pinner ack      |
+| `doc.versions`        | `Feed<VersionHistory>`                          | Version chain as it's discovered  |
+| `doc.snapshotEvents`  | `Feed<SnapshotEvent \| null>`                   | Every snapshot (local and remote) |
+| `doc.gossipActivity`  | `Feed<GossipActivity>`                          | GossipSub message flow state      |
+| `doc.clientIdMapping` | `Feed<ReadonlyMap<number, ClientIdentityInfo>>` | Verified client→pubkey mapping    |
