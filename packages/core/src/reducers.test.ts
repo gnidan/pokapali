@@ -935,13 +935,13 @@ describe("deriveStatus", () => {
     ).toBe("connecting");
   });
 
-  it("receiving when awareness connected", () => {
+  it("connecting when only awareness connected (#224)", () => {
     expect(
       deriveStatus({
         ...INITIAL_CONNECTIVITY,
         awarenessConnected: true,
       }),
-    ).toBe("receiving");
+    ).toBe("connecting");
   });
 
   it("receiving when gossip receiving", () => {
