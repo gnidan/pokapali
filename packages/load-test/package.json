@@ -23,16 +23,16 @@
     "@ipld/dag-cbor": "^9.2.0",
     "@libp2p/crypto": "^5.0.0",
     "@libp2p/kad-dht": "^15.1.11",
-    "@pokapali/core": "0.1.0-alpha.8",
-    "@pokapali/crypto": "0.1.0-alpha.8",
-    "@pokapali/log": "0.1.0-alpha.8",
-    "@pokapali/snapshot": "0.1.0-alpha.8",
-    "@pokapali/subdocs": "0.1.0-alpha.8",
+    "@pokapali/core": "0.1.0-alpha.9",
+    "@pokapali/crypto": "0.1.0-alpha.9",
+    "@pokapali/log": "0.1.0-alpha.9",
+    "@pokapali/snapshot": "0.1.0-alpha.9",
+    "@pokapali/subdocs": "0.1.0-alpha.9",
     "helia": "^5.5.1",
     "ipns": "^10.0.0",
     "multiformats": "^13.3.0",
     "yjs": "^13.6.0",
-    "@pokapali/test-utils": "0.1.0-alpha.8"
+    "@pokapali/test-utils": "0.1.0-alpha.9"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

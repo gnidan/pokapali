@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.9] — 2026-03-16
+
 ### Fixed
 
 - Diagnostics warning spam before P2P ready — guard
