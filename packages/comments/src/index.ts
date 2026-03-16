@@ -105,7 +105,8 @@ export function comments<T>(
   const map = commentsMap(commentsDoc);
   const explicitContentType = options.contentType !== undefined;
 
-  let contentType: Y.AbstractType<unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let contentType: Y.AbstractType<any>;
   if (explicitContentType) {
     contentType = options.contentType!;
   } else {
