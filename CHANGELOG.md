@@ -7,6 +7,41 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `useParticipants` React hook — subscribes to `clientIdMapping` Feed, returns
+  live participant list without manual Feed wiring (#233)
+- `useSnapshotFlash` React hook — triggers a brief visual flash on snapshot
+  receipt for consumer UX feedback (#234)
+- Reader convergence verification in chaos test infrastructure — `--readers N`
+  flag threads through S1, S4, and weekly workflows; analyzer checks
+  zero-tolerance convergence drift (#217)
+- Lazy-init smoke E2E tests — Playwright tests verifying editor loads and
+  accepts input after lazy Helia/WebRTC startup (#200)
+- Security design spike — architecture docs for announcement authentication
+  (Tier 1) and publisher binding (Tier 2), scoping implementation for
+  Sprint 7 (#75, #76)
+
+### Fixed
+
+- Chain reducer property test bugs — three root causes: negative inferred seq
+  from chain walk at genesis (parentSeq=0), orphan entries from block-fetched
+  for undiscovered CIDs, and blockStatus regression from fetched to fetching on
+  redundant fetch starts; also added missing save-error to valid states (#243)
+- Pinner state maps unbounded growth — admission gate rejects unknown IPNS
+  names at configurable `maxNames` cap (default 10,000), `lastQueryResponse`
+  map cleaned up in `pruneIfNeeded`, new `capacityRejects` metric counter (#53)
+- `contentType` silent mismatch in comments factory — throws on `XmlFragment`
+  mismatch, warns when falling back to default content type (#213)
+- Comment anchors break on paragraph splits — detect inverted anchors
+  (start > end) from splits or deletions, surface `status: "inverted"` on
+  `ResolvedAnchor` instead of silently dropping the comment (#229)
+- Example app uses workspace deps instead of published packages — switched to
+  published `@pokapali/*` dependencies with local alias overrides for
+  development (#163)
+- Flaky pinner guarantee query test — timing race between synchronous
+  `nodeChangeHandler` registration and async `fireGuaranteeQuery` setup (#244)
+
 ## [0.1.0-alpha.9] — 2026-03-16
 
 ### Fixed
