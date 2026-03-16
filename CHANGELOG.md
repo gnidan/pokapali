@@ -25,7 +25,7 @@ The format is based on
     creation (replaces 15 lines of y-prosemirror
     wiring)
   - `resolveAnchors(commentsDoc, contentDoc,
-    syncState)` — bulk ProseMirror position resolution
+syncState)` — bulk ProseMirror position resolution
   - `CommentHighlight` — Tiptap extension for
     highlighting anchored text
   - `PendingAnchorHighlight` — Tiptap extension for
