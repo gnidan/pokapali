@@ -404,6 +404,7 @@ export type {
 } from "./topology-sharing.js";
 
 export type { Capability, CapabilityGrant } from "@pokapali/capability";
+export type { Awareness } from "y-protocols/awareness";
 
 export {
   PokapaliError,
