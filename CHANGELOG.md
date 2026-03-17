@@ -7,11 +7,35 @@ The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove unsafe `as any` casts in example app — replaced with proper d3
+  generics and CID typing across TopologyMap, VersionHistory, and
+  useVersionHistory (#152)
+- Remove stale TODO referencing closed issue #20 in helia.ts (#155)
+
+### Docs
+
+- JSDoc blocks on exported public interfaces — VersionInfo, SnapshotEvent,
+  DocUrls now have documentation visible in editor tooltips (#123)
+- `@internal` JSDoc markers on node package internal exports — clarifies
+  public vs internal API boundary (#122)
+- README for packages/load-test — covers purpose, setup, CLI flags, source
+  layout, and nightly workflow (#168)
+
+### Chore
+
+- Package.json metadata — added description, keywords, homepage, repository,
+  and author fields to all 14 packages (#165, #166)
+
 ### Tests
 
 - Interpreter unit tests — 15 new tests covering cached block fast path, retry
   timer cancellation, publisher authorization, inline block chain discovery,
   cache-sourced newest-seq exception, and missing block guards (#214)
+- IPNS helpers test coverage — 5 new tests for clockSum seq priority,
+  missing delegated routing skip, publish queue coalescing, DHT fallback,
+  and watchIPNS options object (8 → 13 total) (#137)
 
 ## [0.1.0-alpha.10] — 2026-03-16
 
