@@ -7,6 +7,72 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Signed announcement proof verification — pinners
+  validate that snapshot announcers hold the doc
+  signing key before ingesting
+  ([#75](https://github.com/gnidan/pokapali/issues/75))
+- PublicKey-ipnsName binding — pinners verify the
+  cryptographic link between publisher identity and
+  IPNS name, rejecting mismatched announcements
+  ([#76](https://github.com/gnidan/pokapali/issues/76))
+
+### Fixed
+
+- Click+drag text selection — CommentPopover no longer
+  intercepts mousemove during drag operations
+  ([#250](https://github.com/gnidan/pokapali/issues/250))
+- Header responsive layout — mobile header no longer
+  wraps, encryption tooltip no longer clips at edge
+  ([#22](https://github.com/gnidan/pokapali/issues/22))
+- `pinner-store.ts` Key function properly typed with
+  `interface-datastore@^9` direct dependency
+  ([#151](https://github.com/gnidan/pokapali/issues/151))
+- TimeoutNaN warning on relay startup suppressed
+  ([#56](https://github.com/gnidan/pokapali/issues/56))
+- `Promise.withResolvers` polyfill for Node <22
+  compatibility in test-utils
+  ([#248](https://github.com/gnidan/pokapali/issues/248))
+- Flaky pinner discovery test hardened with retry
+  and increased timeout
+  ([#249](https://github.com/gnidan/pokapali/issues/249))
+- Unsafe `as any` casts on awareness state fields
+  replaced with proper types (5 locations)
+  ([#143](https://github.com/gnidan/pokapali/issues/143))
+
+### Changed
+
+- Interpreter decoupled from `create-doc.ts` —
+  `SnapshotOps` interface extracted from
+  `EffectHandlers` for testability
+  ([#141](https://github.com/gnidan/pokapali/issues/141))
+- `_reset*` test helpers removed from production
+  bundles — moved behind `vitest` import guard
+  ([#147](https://github.com/gnidan/pokapali/issues/147))
+
+### Tests
+
+- `forwarding.ts` coverage expanded from 4 to 18
+  tests — per-field tamper, encode/decode errors,
+  CRUD operations
+  ([#128](https://github.com/gnidan/pokapali/issues/128))
+- `persistence.ts` coverage expanded from 4 to 14
+  tests — empty namespace, slow provider, double
+  destroy, handle shape verification
+  ([#129](https://github.com/gnidan/pokapali/issues/129))
+
+### Docs
+
+- Consumer-facing docs refreshed — guide.md deprecated
+  APIs replaced with Feed patterns, api-stability.md
+  Feed tiers and deprecation catalogue added,
+  architecture.md updated for relay split and node
+  modules, deps.md internal packages documented,
+  principles.md expanded, examples version pinning
+  updated
+  ([#251](https://github.com/gnidan/pokapali/issues/251))
+
 ## [0.1.0-alpha.12] — 2026-03-17
 
 ### Added
