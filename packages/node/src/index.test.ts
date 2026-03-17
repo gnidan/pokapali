@@ -6,6 +6,7 @@ import {
   generateAdminSecret,
   deriveDocKeys,
   ed25519KeyPairFromSeed,
+  bytesToHex,
 } from "@pokapali/crypto";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import { createPinner } from "./pinner.js";
@@ -18,11 +19,11 @@ async function makeSnapshot(opts?: {
   seq?: number;
   ts?: number;
   prev?: null;
-}): Promise<Uint8Array> {
+}): Promise<{ block: Uint8Array; ipnsName: string }> {
   const secret = generateAdminSecret();
   const keys = await deriveDocKeys(secret, "test-app", ["content"]);
   const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
-  return encodeSnapshot(
+  const block = await encodeSnapshot(
     { content: new Uint8Array([1, 2, 3]) },
     keys.readKey,
     opts?.prev ?? null,
@@ -30,16 +31,20 @@ async function makeSnapshot(opts?: {
     opts?.ts ?? Date.now(),
     signingKey,
   );
+  return {
+    block,
+    ipnsName: bytesToHex(signingKey.publicKey),
+  };
 }
 
 // Reusable keys for multi-snapshot tests
 async function makeKeysAndSnapshot(
   secret: string,
   opts?: { seq?: number; ts?: number },
-): Promise<Uint8Array> {
+): Promise<{ block: Uint8Array; ipnsName: string }> {
   const keys = await deriveDocKeys(secret, "test-app", ["content"]);
   const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
-  return encodeSnapshot(
+  const block = await encodeSnapshot(
     { content: new Uint8Array([1, 2, 3]) },
     keys.readKey,
     null,
@@ -47,6 +52,10 @@ async function makeKeysAndSnapshot(
     opts?.ts ?? Date.now(),
     signingKey,
   );
+  return {
+    block,
+    ipnsName: bytesToHex(signingKey.publicKey),
+  };
 }
 
 describe("@pokapali/node", () => {
@@ -65,15 +74,17 @@ describe("@pokapali/node", () => {
   });
 
   it("accepts a valid snapshot", async () => {
-    const block = await makeSnapshot();
-    const accepted = await pinner.ingest("name1", block);
+    const { block, ipnsName } = await makeSnapshot();
+    const accepted = await pinner.ingest(ipnsName, block);
     expect(accepted).toBe(true);
   });
 
   it("rejects invalid snapshot (random bytes)", async () => {
     const garbage = new Uint8Array(256);
     crypto.getRandomValues(garbage);
-    const accepted = await pinner.ingest("name1", garbage);
+    // Use a valid-looking hex ipnsName (64 hex chars)
+    const fakeHex = "aa".repeat(32);
+    const accepted = await pinner.ingest(fakeHex, garbage);
     expect(accepted).toBe(false);
   });
 
@@ -86,19 +97,32 @@ describe("@pokapali/node", () => {
     });
     await p.start();
 
+    const secret = generateAdminSecret();
+    const keys = await deriveDocKeys(secret, "test-app", ["content"]);
+    const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+    const ipnsName = bytesToHex(signingKey.publicKey);
+
     for (let i = 0; i < 3; i++) {
-      const block = await makeSnapshot({
-        seq: i + 1,
-        ts: Date.now() + i,
-      });
-      expect(await p.ingest("name1", block)).toBe(true);
+      const block = await encodeSnapshot(
+        { content: new Uint8Array([1, 2, 3]) },
+        keys.readKey,
+        null,
+        i + 1,
+        Date.now() + i,
+        signingKey,
+      );
+      expect(await p.ingest(ipnsName, block)).toBe(true);
     }
 
-    const block4 = await makeSnapshot({
-      seq: 4,
-      ts: Date.now() + 10,
-    });
-    expect(await p.ingest("name1", block4)).toBe(false);
+    const block4 = await encodeSnapshot(
+      { content: new Uint8Array([1, 2, 3]) },
+      keys.readKey,
+      null,
+      4,
+      Date.now() + 10,
+      signingKey,
+    );
+    expect(await p.ingest(ipnsName, block4)).toBe(false);
 
     await p.stop();
   });
@@ -112,9 +136,9 @@ describe("@pokapali/node", () => {
     });
     await p.start();
 
-    const block = await makeSnapshot();
+    const { block, ipnsName } = await makeSnapshot();
     // Real snapshot is > 10 bytes
-    expect(await p.ingest("name1", block)).toBe(false);
+    expect(await p.ingest(ipnsName, block)).toBe(false);
 
     await p.stop();
   });
@@ -122,16 +146,18 @@ describe("@pokapali/node", () => {
   it("tracks history for ingested snapshots", async () => {
     const secret = generateAdminSecret();
     const now = Date.now();
+    let ipnsName = "";
 
     for (let i = 1; i <= 3; i++) {
-      const block = await makeKeysAndSnapshot(secret, {
+      const result = await makeKeysAndSnapshot(secret, {
         seq: i,
         ts: now - (3 - i) * 1000,
       });
-      await pinner.ingest("name1", block);
+      ipnsName = result.ipnsName;
+      await pinner.ingest(ipnsName, result.block);
     }
 
-    const history = pinner.history.getHistory("name1");
+    const history = pinner.history.getHistory(ipnsName);
     expect(history).toHaveLength(3);
   });
 
@@ -141,22 +167,23 @@ describe("@pokapali/node", () => {
     // 15 days ago — past 14-day retention
     const old = now - 15 * 24 * 60 * 60 * 1000;
 
-    const block1 = await makeKeysAndSnapshot(secret, {
+    const s1 = await makeKeysAndSnapshot(secret, {
       seq: 1,
       ts: old,
     });
-    const block2 = await makeKeysAndSnapshot(secret, {
+    const s2 = await makeKeysAndSnapshot(secret, {
       seq: 2,
       ts: old + 1000,
     });
-    const block3 = await makeKeysAndSnapshot(secret, {
+    const s3 = await makeKeysAndSnapshot(secret, {
       seq: 3,
       ts: now,
     });
+    const ipnsName = s1.ipnsName;
 
-    await pinner.ingest("name1", block1);
-    await pinner.ingest("name1", block2);
-    await pinner.ingest("name1", block3);
+    await pinner.ingest(ipnsName, s1.block);
+    await pinner.ingest(ipnsName, s2.block);
+    await pinner.ingest(ipnsName, s3.block);
 
     // block1 already thinned during ingest (same
     // daily bucket as block2, block2 is newer).
@@ -164,11 +191,11 @@ describe("@pokapali/node", () => {
     const removed = pinner.history.prune(now);
     expect(removed).toHaveLength(1);
 
-    const remaining = pinner.history.getHistory("name1");
+    const remaining = pinner.history.getHistory(ipnsName);
     expect(remaining).toHaveLength(1);
 
     // Tip is still present
-    const tip = pinner.history.getTip("name1");
+    const tip = pinner.history.getTip(ipnsName);
     expect(tip).not.toBeNull();
   });
 
@@ -179,33 +206,36 @@ describe("@pokapali/node", () => {
 
     // Ingest 3 snapshots: two from 10 days ago
     // (same hour bucket), one recent (tip)
-    const block1 = await makeKeysAndSnapshot(secret, {
+    const s1 = await makeKeysAndSnapshot(secret, {
       seq: 1,
       ts: now - 10 * DAY,
     });
-    const block2 = await makeKeysAndSnapshot(secret, {
+    const s2 = await makeKeysAndSnapshot(secret, {
       seq: 2,
       ts: now - 10 * DAY + 1000,
     });
-    const block3 = await makeKeysAndSnapshot(secret, {
+    const s3 = await makeKeysAndSnapshot(secret, {
       seq: 3,
       ts: now,
     });
+    const ipnsName = s1.ipnsName;
 
-    await pinner.ingest("name1", block1);
-    await pinner.ingest("name1", block2);
-    await pinner.ingest("name1", block3);
+    await pinner.ingest(ipnsName, s1.block);
+    await pinner.ingest(ipnsName, s2.block);
+    await pinner.ingest(ipnsName, s3.block);
 
     // Thinning during ingest should keep only the
     // latest per hour bucket. block1 and block2 are
     // in the same hour, so block1 is removed.
-    const history = pinner.history.getHistory("name1");
+    const history = pinner.history.getHistory(ipnsName);
     expect(history).toHaveLength(2); // block2 + block3
   });
 
   it("persists and restores state", async () => {
-    const block = await makeSnapshot({ ts: 5000 });
-    await pinner.ingest("name1", block);
+    const { block, ipnsName } = await makeSnapshot({
+      ts: 5000,
+    });
+    await pinner.ingest(ipnsName, block);
     await pinner.stop();
 
     // Create new pinner with same storagePath
@@ -233,24 +263,24 @@ describe("@pokapali/node", () => {
     });
     await p.start();
 
-    const block1 = await makeSnapshot({
+    const r1 = await makeSnapshot({
       seq: 1,
       ts: Date.now(),
     });
-    const block2 = await makeSnapshot({
+    const r2 = await makeSnapshot({
       seq: 2,
       ts: Date.now() + 1,
     });
-    const block3 = await makeSnapshot({
+    const r3 = await makeSnapshot({
       seq: 3,
       ts: Date.now() + 2,
     });
 
-    expect(await p.ingest("name1", block1)).toBe(true);
-    // name1 is now rate-limited
-    expect(await p.ingest("name1", block2)).toBe(false);
-    // name2 is independent
-    expect(await p.ingest("name2", block3)).toBe(true);
+    expect(await p.ingest(r1.ipnsName, r1.block)).toBe(true);
+    // r1.ipnsName is now rate-limited
+    expect(await p.ingest(r1.ipnsName, r2.block)).toBe(false);
+    // r3 has a different ipnsName — independent
+    expect(await p.ingest(r3.ipnsName, r3.block)).toBe(true);
 
     await p.stop();
   });
