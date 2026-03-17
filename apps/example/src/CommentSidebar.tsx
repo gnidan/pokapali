@@ -14,6 +14,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { EditorView } from "@tiptap/pm/view";
 import type { Comment } from "@pokapali/comments";
+import type { DocStatus } from "@pokapali/core";
 import type { CommentData } from "./useComments";
 import { spatialLayout, type LayoutItem } from "./spatialLayout";
 
@@ -376,6 +377,7 @@ export function CommentSidebar({
   myPubkey,
   displayNames,
   hasPendingAnchor,
+  status,
   onAddComment,
   onAddReply,
   onResolve,
@@ -392,6 +394,7 @@ export function CommentSidebar({
   displayNames: Map<string, string>;
   /** True if a pending anchor is captured. */
   hasPendingAnchor: boolean;
+  status: DocStatus;
   onAddComment: (content: string) => void;
   onAddReply: (parentId: string, content: string) => void;
   onResolve: (id: string) => void;
@@ -495,6 +498,14 @@ export function CommentSidebar({
           &times;
         </button>
       </div>
+
+      {(status === "offline" || status === "connecting") && (
+        <div className={`cs-sync-warning ${status}`} role="alert">
+          {status === "offline"
+            ? "Offline — comments won't sync"
+            : "Connecting — comments may not sync yet"}
+        </div>
+      )}
 
       <div
         className="cs-sidebar-body"

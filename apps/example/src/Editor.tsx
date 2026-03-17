@@ -512,6 +512,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             myPubkey={doc.identityPubkey}
             displayNames={displayNames}
             hasPendingAnchor={pendingAnchor != null}
+            status={status}
             onAddComment={handleAddComment}
             onAddReply={handleAddReply}
             onResolve={resolveComment}
