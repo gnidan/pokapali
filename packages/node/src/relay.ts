@@ -464,32 +464,6 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   log.info("subscribed to", DISCOVERY_TOPIC);
   log.info("subscribed to", SIGNALING_TOPIC);
 
-  // Dynamic app-topic subscription: when peers
-  // subscribe to announcement topics, the relay
-  // auto-subscribes so it joins the mesh and can
-  // forward messages. This makes the relay fully
-  // app-agnostic — no pinAppIds config needed.
-  const ANNOUNCE_PREFIX = "/pokapali/app/";
-  const ANNOUNCE_SUFFIX = "/announce";
-  const autoSubscribedTopics = new Set<string>();
-
-  function isAnnounceTopic(topic: string): boolean {
-    return topic.startsWith(ANNOUNCE_PREFIX) && topic.endsWith(ANNOUNCE_SUFFIX);
-  }
-
-  pubsub.addEventListener("subscription-change", (evt: any) => {
-    const subs: { topic: string; subscribe: boolean }[] =
-      evt.detail?.subscriptions ?? [];
-    for (const sub of subs) {
-      if (!isAnnounceTopic(sub.topic)) continue;
-      if (!sub.subscribe) continue;
-      if (autoSubscribedTopics.has(sub.topic)) continue;
-      pubsub.subscribe(sub.topic);
-      autoSubscribedTopics.add(sub.topic);
-      log.info("auto-subscribed to", sub.topic);
-    }
-  });
-
   // Capability advertisement
   pubsub.subscribe(NODE_CAPS_TOPIC);
   const roles = config.roles ?? ["relay"];
@@ -507,6 +481,71 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     knownPeerRoles.set(caps.peerId, caps.roles);
   });
 
+  // Dynamic app-topic subscription: when peers
+  // subscribe to announcement topics, the relay
+  // auto-subscribes so it joins the mesh and can
+  // forward messages. This makes the relay fully
+  // app-agnostic — no pinAppIds config needed.
+  //
+  // Originator refcounting prevents relay-to-relay
+  // keep-alive deadlock: only non-relay peers
+  // (browsers) count as originators. When the last
+  // originator leaves, the relay unsubscribes —
+  // other relays see the change and cascade.
+  const ANNOUNCE_PREFIX = "/pokapali/app/";
+  const ANNOUNCE_SUFFIX = "/announce";
+  // topic → set of non-relay peer IDs that triggered
+  // the subscription
+  const autoSubOriginators = new Map<string, Set<string>>();
+
+  function isAnnounceTopic(topic: string): boolean {
+    return topic.startsWith(ANNOUNCE_PREFIX) && topic.endsWith(ANNOUNCE_SUFFIX);
+  }
+
+  function isRelayPeer(peerId: string): boolean {
+    const peerRoles = knownPeerRoles.get(peerId);
+    // Peers without known roles are assumed to be
+    // browsers (they don't send caps messages).
+    return (
+      !!peerRoles &&
+      (peerRoles.includes("relay") || peerRoles.includes("pinner"))
+    );
+  }
+
+  pubsub.addEventListener("subscription-change", (evt: any) => {
+    const peer = evt.detail?.peerId?.toString();
+    if (!peer) return;
+    const subs: {
+      topic: string;
+      subscribe: boolean;
+    }[] = evt.detail?.subscriptions ?? [];
+    for (const sub of subs) {
+      if (!isAnnounceTopic(sub.topic)) continue;
+
+      // Only non-relay peers (browsers) count as
+      // originators. Relay peers are ignored — they
+      // have their own originators driving their
+      // subscriptions, preventing keep-alive deadlock.
+      if (isRelayPeer(peer)) continue;
+
+      if (sub.subscribe) {
+        let originators = autoSubOriginators.get(sub.topic);
+        if (!originators) {
+          originators = new Set();
+          autoSubOriginators.set(sub.topic, originators);
+          pubsub.subscribe(sub.topic);
+          log.info("auto-subscribed to", sub.topic);
+        }
+        originators.add(peer);
+      } else {
+        const originators = autoSubOriginators.get(sub.topic);
+        if (originators) {
+          originators.delete(peer);
+        }
+      }
+    }
+  });
+
   // Mutable — set by bin/node.ts once the HTTPS
   // block server is listening. Referenced by
   // publishCaps() for caps advertisements.
@@ -514,12 +553,23 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
 
   function publishCaps() {
     // Clean up auto-subscribed topics with no
-    // remaining subscribers (besides ourselves).
-    for (const topic of autoSubscribedTopics) {
-      const subs = pubsub.getSubscribers(topic);
-      if (subs.length === 0) {
+    // remaining non-relay originators. This prevents
+    // relay-to-relay keep-alive deadlock: when the
+    // last browser leaves, both relays unsubscribe
+    // in cascade.
+    for (const [topic, originators] of autoSubOriginators) {
+      // Prune disconnected originators
+      const connPids = new Set(
+        helia.libp2p.getConnections().map((c: any) => c.remotePeer.toString()),
+      );
+      for (const pid of originators) {
+        if (!connPids.has(pid)) {
+          originators.delete(pid);
+        }
+      }
+      if (originators.size === 0) {
         pubsub.unsubscribe(topic);
-        autoSubscribedTopics.delete(topic);
+        autoSubOriginators.delete(topic);
         log.info("auto-unsubscribed from", topic);
       }
     }
