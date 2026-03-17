@@ -1771,6 +1771,7 @@ body {
   position: relative;
   display: inline;
   border-left: 2px solid;
+  pointer-events: none;
 }
 
 .collab-cursor-label {
@@ -1946,7 +1947,7 @@ body {
 .comment-anchor {
   background: rgba(255, 213, 79, 0.25);
   border-bottom: 2px solid rgba(255, 213, 79, 0.6);
-  cursor: pointer;
+  cursor: text;
   transition: background 0.15s;
   -webkit-user-drag: none;
   user-select: text;
@@ -1954,6 +1955,7 @@ body {
 
 .comment-anchor:hover {
   background: rgba(255, 213, 79, 0.4);
+  cursor: pointer;
 }
 
 .comment-anchor.active {
