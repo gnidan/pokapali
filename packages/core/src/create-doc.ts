@@ -99,24 +99,55 @@ const GUARANTEE_REQUERY_MS = 5 * 60_000;
 
 export type { DocStatus, SaveState, DocRole };
 
+/**
+ * Information about a single version in the document
+ * chain. Returned by the {@link Doc.versions} feed.
+ */
 export interface VersionInfo {
+  /** Content identifier for this version's snapshot. */
   cid: CID;
+  /** Monotonically increasing sequence number. */
   seq: number;
+  /** Peer IDs of pinners that acknowledged this CID. */
   ackedBy: ReadonlySet<string>;
+  /**
+   * Timestamp (ms) until which pinners guarantee
+   * availability of this version. Monotonic per CID.
+   */
   guaranteeUntil: number;
+  /**
+   * Timestamp (ms) until which pinners will retain the
+   * block, even after re-announce stops. Always >=
+   * {@link guaranteeUntil}.
+   */
   retainUntil: number;
 }
 
+/**
+ * Emitted when a snapshot is created or received.
+ * Subscribe via {@link Doc.snapshotEvents}.
+ */
 export interface SnapshotEvent {
+  /** Content identifier for the snapshot block. */
   cid: CID;
+  /** Sequence number in the document chain. */
   seq: number;
+  /** Unix timestamp (ms) when the snapshot was taken. */
   ts: number;
+  /** True if this snapshot was created locally. */
   isLocal: boolean;
 }
 
+/**
+ * Capability URLs for sharing document access.
+ * Available via {@link Doc.urls}.
+ */
 export interface DocUrls {
+  /** Admin URL (full control), or null if read/write. */
   readonly admin: string | null;
+  /** Write URL (edit access), or null if read-only. */
   readonly write: string | null;
+  /** Read-only URL. Always available. */
   readonly read: string;
   /** Best available URL (admin > write > read). */
   readonly best: string;
