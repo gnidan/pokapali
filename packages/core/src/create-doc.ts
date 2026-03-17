@@ -28,6 +28,7 @@ import { publishIPNS, resolveIPNS, watchIPNS } from "./ipns-helpers.js";
 import {
   announceTopic,
   announceSnapshot,
+  signAnnouncementProof,
   publishGuaranteeQuery,
   MAX_INLINE_BLOCK_BYTES,
 } from "./announce.js";
@@ -959,7 +960,9 @@ export function createDoc(params: DocParams): Doc {
           pendingAnnounceRetry = null;
         }
 
-        const doAnnounce = () => {
+        const cidStr = cid.toString();
+
+        const doAnnounce = (proof?: string) => {
           if (block.length > MAX_INLINE_BLOCK_BYTES) {
             const urls = getHttpUrls();
             if (urls.length > 0) {
@@ -973,8 +976,12 @@ export function createDoc(params: DocParams): Doc {
               pubsub,
               appId,
               ipnsName,
-              cid.toString(),
+              cidStr,
               seq,
+              undefined,
+              undefined,
+              undefined,
+              proof,
             ).catch((err) => {
               log.warn("announce failed:", err);
             });
@@ -983,50 +990,74 @@ export function createDoc(params: DocParams): Doc {
               pubsub,
               appId,
               ipnsName,
-              cid.toString(),
+              cidStr,
               seq,
               block,
+              undefined,
+              undefined,
+              proof,
             ).catch((err) => {
               log.warn("announce failed:", err);
             });
           }
         };
 
-        // Always attempt the announce immediately
-        // (may reach fanout peers even without mesh).
-        doAnnounce();
+        // Compute proof if we have the signing key,
+        // then announce. Proof is async so we fire
+        // immediately and let it resolve.
+        const proofP = signingKey
+          ? signAnnouncementProof(signingKey, ipnsName, cidStr)
+          : Promise.resolve(undefined);
 
-        // Check mesh peers — if none, retry with
-        // short interval until mesh forms. Prevents
-        // silent publish drop when floodPublish is
-        // false and the mesh hasn't formed yet.
-        const topic = announceTopic(appId);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const gs = pubsub as any;
-        const hasMesh = () => (gs.getMeshPeers?.(topic)?.length ?? 0) > 0;
+        const announceWithRetries = (proof: string | undefined) => {
+          if (signal.aborted) return;
 
-        if (!hasMesh()) {
-          log.info("no mesh peers for announce topic," + " scheduling retries");
-          let retries = 0;
-          const ANNOUNCE_RETRY_MAX = 14;
-          const ANNOUNCE_RETRY_MS = 1_000;
-          const scheduleRetry = () => {
-            if (signal.aborted) return;
-            if (retries >= ANNOUNCE_RETRY_MAX) return;
-            retries++;
-            pendingAnnounceRetry = setTimeout(() => {
-              pendingAnnounceRetry = null;
+          // Announce immediately (may reach fanout
+          // peers even without mesh).
+          doAnnounce(proof);
+
+          // Check mesh peers — if none, retry with
+          // short interval until mesh forms. Prevents
+          // silent publish drop when floodPublish is
+          // false and the mesh hasn't formed yet.
+          const topic = announceTopic(appId);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const gs = pubsub as any;
+          const hasMesh = () => (gs.getMeshPeers?.(topic)?.length ?? 0) > 0;
+
+          if (!hasMesh()) {
+            log.info(
+              "no mesh peers for announce topic," + " scheduling retries",
+            );
+            let retries = 0;
+            const ANNOUNCE_RETRY_MAX = 14;
+            const ANNOUNCE_RETRY_MS = 1_000;
+            const scheduleRetry = () => {
               if (signal.aborted) return;
-              if (hasMesh()) {
-                log.info("mesh peers available," + " re-announcing");
-                doAnnounce();
-              } else {
-                scheduleRetry();
-              }
-            }, ANNOUNCE_RETRY_MS);
-          };
-          scheduleRetry();
-        }
+              if (retries >= ANNOUNCE_RETRY_MAX) return;
+              retries++;
+              pendingAnnounceRetry = setTimeout(() => {
+                pendingAnnounceRetry = null;
+                if (signal.aborted) return;
+                if (hasMesh()) {
+                  log.info("mesh peers available," + " re-announcing");
+                  doAnnounce(proof);
+                } else {
+                  scheduleRetry();
+                }
+              }, ANNOUNCE_RETRY_MS);
+            };
+            scheduleRetry();
+          }
+        };
+
+        proofP.then(
+          (proof) => announceWithRetries(proof),
+          (err) => {
+            log.warn("proof signing failed:", err);
+            announceWithRetries(undefined);
+          },
+        );
       },
 
       markReady: () => markReady(),
