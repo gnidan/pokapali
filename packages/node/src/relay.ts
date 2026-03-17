@@ -18,7 +18,6 @@ import type { Helia } from "helia";
 import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
-import { announceTopic } from "@pokapali/core/announce";
 import { createDelegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
 import { delegatedHTTPRoutingDefaults } from "@helia/routers";
 import { createLogger } from "@pokapali/log";
@@ -179,15 +178,8 @@ export interface RelayConfig {
   // Needed so autoTLS knows our public IP before any
   // peers connect and report observed addresses.
   announceAddrs?: string[];
-  // App IDs to subscribe to announcement topics for.
-  // Subscribes to /pokapali/app/{appId}/announce for
-  // each ID, so the relay joins the GossipSub mesh
-  // and can forward announcements to the pinner.
-  pinAppIds?: string[];
   // Node roles to advertise (e.g. ["relay"],
-  // ["pinner"], or ["relay", "pinner"]).
-  // If omitted, inferred: "pinner" if pinAppIds
-  // is non-empty, otherwise empty.
+  // ["relay", "pinner"]). Defaults to ["relay"].
   roles?: string[];
   // Custom delegated routing endpoint URL. When set,
   // overrides the default (delegated-ipfs.dev) for
@@ -472,24 +464,35 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   log.info("subscribed to", DISCOVERY_TOPIC);
   log.info("subscribed to", SIGNALING_TOPIC);
 
-  // Subscribe to announcement topics for pinned apps
-  for (const appId of config.pinAppIds ?? []) {
-    const topic = announceTopic(appId);
-    pubsub.subscribe(topic);
-    log.info("subscribed to", topic);
+  // Dynamic app-topic subscription: when peers
+  // subscribe to announcement topics, the relay
+  // auto-subscribes so it joins the mesh and can
+  // forward messages. This makes the relay fully
+  // app-agnostic — no pinAppIds config needed.
+  const ANNOUNCE_PREFIX = "/pokapali/app/";
+  const ANNOUNCE_SUFFIX = "/announce";
+  const autoSubscribedTopics = new Set<string>();
+
+  function isAnnounceTopic(topic: string): boolean {
+    return topic.startsWith(ANNOUNCE_PREFIX) && topic.endsWith(ANNOUNCE_SUFFIX);
   }
+
+  pubsub.addEventListener("subscription-change", (evt: any) => {
+    const subs: { topic: string; subscribe: boolean }[] =
+      evt.detail?.subscriptions ?? [];
+    for (const sub of subs) {
+      if (!isAnnounceTopic(sub.topic)) continue;
+      if (!sub.subscribe) continue;
+      if (autoSubscribedTopics.has(sub.topic)) continue;
+      pubsub.subscribe(sub.topic);
+      autoSubscribedTopics.add(sub.topic);
+      log.info("auto-subscribed to", sub.topic);
+    }
+  });
 
   // Capability advertisement
   pubsub.subscribe(NODE_CAPS_TOPIC);
-  const roles =
-    config.roles ??
-    (() => {
-      const inferred = ["relay"];
-      if ((config.pinAppIds ?? []).length > 0) {
-        inferred.push("pinner");
-      }
-      return inferred;
-    })();
+  const roles = config.roles ?? ["relay"];
   const selfPeerId = helia.libp2p.peerId.toString();
 
   // Track peer roles from incoming caps messages
@@ -510,6 +513,17 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   let httpUrl: string | undefined;
 
   function publishCaps() {
+    // Clean up auto-subscribed topics with no
+    // remaining subscribers (besides ourselves).
+    for (const topic of autoSubscribedTopics) {
+      const subs = pubsub.getSubscribers(topic);
+      if (subs.length === 0) {
+        pubsub.unsubscribe(topic);
+        autoSubscribedTopics.delete(topic);
+        log.info("auto-unsubscribed from", topic);
+      }
+    }
+
     // Build neighbor list from connected peers
     // with known roles (relays/pinners).
     const conns = helia.libp2p.getConnections();

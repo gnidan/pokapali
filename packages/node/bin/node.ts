@@ -27,7 +27,8 @@ Usage: pokapali-node [options]
 
 Options:
   --storage-path <path>       Storage directory (required)
-  --relay                     Run as relay node
+  --relay                     Run as relay node (generic,
+                              auto-forwards for any app)
   --pin <app1,app2,...>       Pin snapshots for app IDs
   --port <number>             HTTP admin port (default: 3000)
   --https-port <number>       HTTPS block server port (default: 4443)
@@ -277,12 +278,14 @@ async function main() {
   let pinner: Awaited<ReturnType<typeof createPinner>> | null = null;
 
   if (relay) {
+    const roles = ["relay"];
+    if (pinApps.length > 0) roles.push("pinner");
     relayHandle = await startRelay({
       storagePath,
       tcpPort: tcpPort ?? undefined,
       wsPort: wsPort ?? undefined,
       announceAddrs,
-      pinAppIds: pinApps.length > 0 ? pinApps : undefined,
+      roles,
       delegatedRoutingUrl: delegatedRoutingUrl ?? undefined,
       noTls,
     });
@@ -458,11 +461,18 @@ async function main() {
     await pinner.start();
     log.info(`pinner started for: ${pinApps.join(", ")}`);
 
-    // Wire GossipSub announcements to pinner
+    // Subscribe to announcement topics for pinned
+    // apps and wire GossipSub messages to pinner.
+    // The relay auto-subscribes to topics its peers
+    // need, but the pinner must subscribe explicitly
+    // so it joins the mesh immediately on startup.
     if (relayHandle) {
       const topicToApp = new Map<string, string>();
       for (const app of pinApps) {
-        topicToApp.set(announceTopic(app), app);
+        const topic = announceTopic(app);
+        topicToApp.set(topic, app);
+        pubsub.subscribe(topic);
+        log.info("pinner subscribed to", topic);
       }
       pubsub.addEventListener(
         "message",
