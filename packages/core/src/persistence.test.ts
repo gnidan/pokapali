@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-let resolvers: Array<() => void> = [];
-
 const mockWhenSynced = Promise.resolve({} as any);
 const MockProvider = vi.fn(() => ({
   whenSynced: mockWhenSynced,
@@ -25,7 +23,6 @@ function mockSubdocManager() {
 describe("createDocPersistence", () => {
   beforeEach(() => {
     MockProvider.mockClear();
-    resolvers = [];
     MockProvider.mockImplementation(() => ({
       whenSynced: mockWhenSynced,
       destroy: vi.fn(),
