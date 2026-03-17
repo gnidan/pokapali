@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/comments-tiptap",
-  "version": "0.1.0-alpha.11",
+  "version": "0.1.0-alpha.12",
   "description": "Tiptap integration for @pokapali/comments",
   "keywords": [
     "pokapali",

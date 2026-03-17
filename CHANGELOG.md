@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.12] — 2026-03-17
+
 ### Added
 
 - Sync status indicator — `doc.status` and `doc.saveState` wired
