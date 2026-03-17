@@ -11,13 +11,14 @@
  */
 
 import type { AwarenessTopology } from "./topology-sharing.js";
+import type { RelayEntry } from "./peer-discovery.js";
 
 /**
  * Custom fields stored in each peer's awareness
  * state via setLocalStateField().
  */
 export interface AwarenessFields {
-  relays?: string[];
+  relays?: RelayEntry[];
   clockSum?: number;
   topology?: AwarenessTopology;
   participant?: {
