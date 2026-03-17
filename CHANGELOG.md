@@ -7,6 +7,26 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Browser-side announcement signing — browsers now
+  sign snapshot announcements before publishing,
+  completing Phase 1 auth end-to-end
+  ([#253](https://github.com/gnidan/pokapali/issues/253))
+
+### Fixed
+
+- Click+drag text selection — comment anchor cursor
+  and collab cursor pointer-events no longer intercept
+  drag; DragSafeCursors extension suppresses awareness
+  cursor transaction rebuilds during drag operations
+  ([#250](https://github.com/gnidan/pokapali/issues/250))
+
+### Internal
+
+- `gitea-api.sh` — fixed missing leading-slash
+  normalization for API paths
+
 ## [0.1.0-alpha.13] — 2026-03-17
 
 ### Added
