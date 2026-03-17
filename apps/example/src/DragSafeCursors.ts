@@ -13,12 +13,13 @@
  * while a mouse button is held. On mouseup, a single
  * rebuild is triggered so remote cursors snap to their
  * final positions.
+ *
+ * Drag state is scoped per plugin instance (via closure)
+ * so multiple editors on the same page don't interfere.
  */
 import { Extension } from "@tiptap/core";
 import { Plugin } from "prosemirror-state";
 import { yCursorPluginKey } from "y-prosemirror";
-
-let dragging = false;
 
 export const DragSafeCursors = Extension.create({
   name: "dragSafeCursors",
@@ -28,6 +29,8 @@ export const DragSafeCursors = Extension.create({
   priority: 1000,
 
   addProseMirrorPlugins() {
+    let dragging = false;
+
     return [
       new Plugin({
         props: {
@@ -37,7 +40,6 @@ export const DragSafeCursors = Extension.create({
 
               const onUp = () => {
                 dragging = false;
-                document.removeEventListener("mouseup", onUp);
 
                 // Trigger one final cursor decoration
                 // rebuild now that the drag is done.
