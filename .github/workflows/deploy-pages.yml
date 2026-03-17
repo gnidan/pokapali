@@ -35,6 +35,7 @@ jobs:
         run: |
           npm run build \
             --workspace @pokapali/example
+          touch apps/example/dist/.nojekyll
 
       - name: Generate badge JSON
         env:
