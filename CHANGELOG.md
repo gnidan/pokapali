@@ -47,7 +47,7 @@ The format is based on
 
 ### Changed
 
-- Relay split — `relay.ts` (816 lines) decomposed into focused
+- Relay split — `relay.ts` (895 lines) decomposed into focused
   modules: connection management, topic handling, HTTP routes,
   and orchestration
   ([#160](https://github.com/gnidan/pokapali/issues/160))
