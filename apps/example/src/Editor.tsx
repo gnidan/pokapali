@@ -43,6 +43,7 @@ import {
   renderCursor,
   type StoredUser,
 } from "./UserIdentity";
+import { DragSafeCursors } from "./DragSafeCursors";
 import { capitalize } from "./utils";
 
 export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
@@ -156,6 +157,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             Collaboration.configure({
               document: contentDoc,
             }),
+            DragSafeCursors,
             CollaborationCursor.configure({
               provider: doc.provider,
               user: {
