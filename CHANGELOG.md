@@ -7,6 +7,12 @@ The format is based on
 
 ## [Unreleased]
 
+### Tests
+
+- Interpreter unit tests — 15 new tests covering cached block fast path, retry
+  timer cancellation, publisher authorization, inline block chain discovery,
+  cache-sourced newest-seq exception, and missing block guards (#214)
+
 ## [0.1.0-alpha.10] — 2026-03-16
 
 ### Added
