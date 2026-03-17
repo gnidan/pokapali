@@ -189,3 +189,55 @@ without requiring a full-repo lint pass.
 
 React 19 for the example app. v19.x is the current stable release.
 App-side dependency only.
+
+---
+
+# Internal Packages
+
+## @pokapali/capability (internal)
+
+Encodes and decodes capability URLs (admin, write, read).
+Uses a TLV (type-length-value) binary format with
+forward-compatible handling of unknown labels — decoders
+skip unrecognized TLV fields instead of failing, so older
+code can read capabilities produced by newer versions.
+Derives per-channel keys from the admin secret via HKDF,
+producing the write and read keys deterministically.
+
+## @pokapali/crypto (internal)
+
+Ed25519 key generation, signing, and verification via
+`@noble/ed25519`. HKDF key derivation for channel key
+hierarchy (admin -> write -> read). AES-GCM
+encryption/decryption for snapshot payloads. Includes
+hex/bytes conversion utilities. Pure JS, no native
+dependencies.
+
+## @pokapali/snapshot (internal)
+
+Snapshot codec: encrypts and decrypts subdoc state using
+channel keys. Channel-agnostic — encodes whatever the
+subdoc manager produces, without knowing the document
+structure. Uses CBOR encoding via `@ipld/dag-cbor` for
+IPLD compatibility, so snapshot blocks can be addressed
+by CID and stored in any IPLD-aware blockstore.
+
+## @pokapali/subdocs (internal)
+
+SubdocManager: manages named Y.Doc channels with dirty
+tracking, snapshot apply/encode, and namespace isolation.
+Each channel gets its own `Y.Doc` with a deterministic
+GUID derived from the channel name, ensuring consistent
+identity across peers. Tracks which channels have
+unsaved mutations (dirty flag) so the persistence layer
+can selectively snapshot only changed channels.
+
+## @pokapali/sync (internal)
+
+WebRTC sync layer: creates per-channel `WebrtcProvider`
+rooms with encrypted signaling via GossipSub. Handles
+room lifecycle (join/leave), key distribution, and
+awareness multiplexing across channels. Does not depend
+on `@pokapali/core` — peers only need a channel key and
+a libp2p node to sync, keeping the sync layer usable
+independently of the full Pokapali stack.

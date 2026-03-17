@@ -6,6 +6,18 @@ before contributing code.
 
 ---
 
+## Subtraction over Addition
+
+When reviewing a design or feature request, first ask:
+"Can the existing model already do this, or can we
+reconceive the model so it can?" Only add new concepts,
+APIs, or protocol messages after confirming the existing
+abstractions cannot serve the need.
+
+Complexity is a one-way door — every addition must justify
+itself against the cost of a larger API surface, more
+documentation, more edge cases, and more testing.
+
 ## URLs are capabilities
 
 A Pokapali URL encodes everything needed to access a
@@ -90,6 +102,19 @@ This shapes API design: `doc.channel("content")` returns a
 `Y.Doc` synchronously. The editor mounts immediately.
 Network state is observable (`status`, `loadingState`) but
 never blocks the user.
+
+## Network Patience
+
+Take what you can get, accept that things take time,
+always passively retry. Never eagerly say "unavailable" —
+a block might be slow, a pinner might be restarting, the
+mesh might be recovering. Show "loading"/"resolving", not
+"unavailable". Keep retrying in the background with
+backoff. Only mark "unavailable" with definitive proof.
+
+Accept partial results — show what you have, keep trying
+for the rest. The network is slow and unreliable by
+nature — the library should be patient and optimistic.
 
 ## Writers sync in real-time, readers sync via snapshots
 

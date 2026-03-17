@@ -266,14 +266,17 @@ be loaded even when the original author is offline.
 // Publish current state
 await doc.publish();
 
-// Listen for when publishing is recommended
-// (fires after significant local changes)
-doc.on("publish-needed", () => {
-  doc.publish();
-});
+// Auto-save handles publishing on visibility change,
+// beforeunload, and debounced dirty state:
+import { createAutoSaver } from "@pokapali/core";
+const cleanup = createAutoSaver(doc);
 
 // Listen for snapshots (local publishes + remote)
-doc.on("snapshot", ({ cid, seq, ts, isLocal }) => {
+// via the snapshotEvents Feed:
+doc.snapshotEvents.subscribe(() => {
+  const evt = doc.snapshotEvents.getSnapshot();
+  if (!evt) return;
+  const { cid, seq, ts, isLocal } = evt;
   if (isLocal) {
     console.log("Published snapshot:", cid.toString());
   } else {
@@ -306,10 +309,13 @@ if you need it.
 document is connected to peers:
 
 ```ts
-doc.status;
+// Current value
+doc.status.getSnapshot();
 // "connecting" | "synced" | "receiving" | "offline"
 
-doc.on("status", (status) => {
+// Subscribe to changes
+doc.status.subscribe(() => {
+  const status = doc.status.getSnapshot();
   // "synced"     — connected, can send and receive
   // "receiving"  — connected read-only (no write cap)
   // "connecting" — establishing peer connections
@@ -321,10 +327,13 @@ doc.on("status", (status) => {
 local changes have been published to IPFS:
 
 ```ts
-doc.saveState;
+// Current value
+doc.saveState.getSnapshot();
 // "saved" | "dirty" | "saving" | "unpublished"
 
-doc.on("save", (state) => {
+// Subscribe to changes
+doc.saveState.subscribe(() => {
+  const state = doc.saveState.getSnapshot();
   // "saved"       — snapshot published and acked
   // "dirty"       — local changes not yet published
   // "saving"      — snapshot push in progress
@@ -332,20 +341,24 @@ doc.on("save", (state) => {
 });
 ```
 
-Other events:
+**Backup status** — `doc.backedUp` tells you whether
+at least one pinner has acknowledged the current tip:
 
 ```ts
-// Block fetch progress (IPNS resolve, block fetch)
-doc.on("loading", (state) => {
+doc.backedUp.subscribe(() => {
+  const safe = doc.backedUp.getSnapshot();
+  if (!safe) console.warn("No pinner ack yet");
+});
+```
+
+**Loading progress:**
+
+```ts
+doc.loading.subscribe(() => {
+  const state = doc.loading.getSnapshot();
   // state.status: "idle" | "resolving" |
   //   "fetching" | "retrying" | "failed"
 });
-
-// Pinner acknowledged current snapshot
-doc.on("ack", (peerId) => {});
-
-// Infrastructure node discovered or changed
-doc.on("node-change", () => {});
 ```
 
 ### 9. Reactive Feeds
@@ -378,14 +391,18 @@ function SaveIndicator({ doc }) {
 
 Available Feeds:
 
-| Feed                       | Type                        | Changes when                              |
-| -------------------------- | --------------------------- | ----------------------------------------- |
-| `doc.status`               | `Feed<DocStatus>`           | Connectivity changes                      |
-| `doc.saveState`            | `Feed<SaveState>`           | Publish starts/completes, content dirtied |
-| `doc.tip`                  | `Feed<VersionInfo \| null>` | New snapshot applied                      |
-| `doc.loading`              | `Feed<LoadingState>`        | IPNS resolving, block fetching            |
-| `doc.versions`             | `Feed<VersionHistory>`      | Chain walk progress, new snapshots        |
-| `doc.lastPersistenceError` | `Feed<string \| null>`      | IDB write fails or recovers               |
+| Feed                       | Type                                            | Changes when                              |
+| -------------------------- | ----------------------------------------------- | ----------------------------------------- |
+| `doc.status`               | `Feed<DocStatus>`                               | Connectivity changes                      |
+| `doc.saveState`            | `Feed<SaveState>`                               | Publish starts/completes, content dirtied |
+| `doc.tip`                  | `Feed<VersionInfo \| null>`                     | New snapshot applied                      |
+| `doc.loading`              | `Feed<LoadingState>`                            | IPNS resolving, block fetching            |
+| `doc.backedUp`             | `Feed<boolean>`                                 | Pinner ack received or tip changes        |
+| `doc.versions`             | `Feed<VersionHistory>`                          | Chain walk progress, new snapshots        |
+| `doc.snapshotEvents`       | `Feed<SnapshotEvent \| null>`                   | Every local publish or remote snapshot    |
+| `doc.gossipActivity`       | `Feed<GossipActivity>`                          | GossipSub message received                |
+| `doc.clientIdMapping`      | `Feed<ReadonlyMap<number, ClientIdentityInfo>>` | Peer registers identity in \_meta         |
+| `doc.lastPersistenceError` | `Feed<string \| null>`                          | IDB write fails or recovers               |
 
 Each Feed has an equality gate that prevents spurious
 notifications — high-frequency events like GossipSub
@@ -633,7 +650,7 @@ function Editor({ doc }) {
       StarterKit.configure({ history: false }),
       Collaboration.configure({ document: ydoc }),
       CollaborationCursor.configure({
-        provider: doc.provider,
+        provider: { awareness: doc.awareness },
         user: {
           name: "Alice",
           color: "#f44336",
@@ -672,10 +689,9 @@ ytext.observe((event) => {
   console.log("Text changed:", ytext.toString());
 });
 
-// Persist
-doc.on("publish-needed", () => {
-  doc.publish();
-});
+// Auto-persist on changes, visibility, beforeunload
+import { createAutoSaver } from "@pokapali/core";
+createAutoSaver(doc);
 
 // Share the admin URL
 console.log("Share this link:", doc.urls.admin);
@@ -748,7 +764,7 @@ a new identity, it doesn't delete the old one.
 
 ## Loading State Machine
 
-`doc.loading` (or `doc.on("loading", ...)`) reports
+`doc.loading` Feed reports
 the snapshot fetch lifecycle as a discriminated union:
 
 ```
@@ -796,12 +812,16 @@ independent set of `Y.Doc`s.
 ### Current tip
 
 ```ts
-doc.tipCid; // CID | null
+const tip = doc.tip.getSnapshot();
+tip?.cid; // CID | null
+tip?.seq; // sequence number
+tip?.ackedBy; // ReadonlySet<string> — pinner peer IDs
 ```
 
-The CID of the most recently published snapshot, or
-`null` if the document has never been published. Useful
-for highlighting "you are here" in a version list.
+The tip Feed reflects the most recently published
+snapshot. `null` if the document has never been
+published. Useful for highlighting "you are here" in
+a version list and for checking pinner acknowledgment.
 
 ### Listing versions
 
@@ -823,26 +843,21 @@ Returns versions **newest-first**. Queries connected
 pinners' HTTP history endpoints, falling back to a
 local chain walk if no pinners are reachable.
 
-**`history()` (deprecated):**
+### Snapshot events
 
-Use `doc.versions` or `versionHistory()` instead.
-`history()` walks the local chain only and does not
-benefit from HTTP block resolution. It will be removed
-in a future release.
-
-### Snapshot event
+The `doc.snapshotEvents` Feed fires on every local
+publish and remote snapshot application:
 
 ```ts
-doc.on("snapshot", (info) => {
-  // info.cid     — CID of the snapshot
-  // info.seq     — Yjs clock sum
-  // info.ts      — Unix timestamp (ms)
-  // info.isLocal — true if published by this client
+doc.snapshotEvents.subscribe(() => {
+  const evt = doc.snapshotEvents.getSnapshot();
+  if (!evt) return;
+  // evt.cid     — CID of the snapshot
+  // evt.seq     — Yjs clock sum
+  // evt.ts      — Unix timestamp (ms)
+  // evt.isLocal — true if published by this client
 });
 ```
-
-Fires on both local publishes and remote snapshot
-application.
 
 ### Loading a version
 
@@ -911,9 +926,9 @@ operations.
 - **Multiple channels** let you separate concerns
   (e.g. `["text", "metadata"]`) with independent
   write permissions per channel.
-- **`publish-needed`** fires when local changes
-  are significant enough to warrant persisting. Hook
-  it up to `publish()` with a debounce.
+- **`createAutoSaver(doc)`** handles publishing on
+  dirty state, visibility change, and beforeunload.
+  Prefer this over manual `publish()` calls.
 - **Capability URLs are secrets** — treat them like
   passwords. The hash fragment is never sent to
   servers, but anyone with the full URL has access.
@@ -931,7 +946,7 @@ operations.
   exceed the 1 MB GossipSub inline limit are uploaded
   via HTTP POST and fetched via HTTP GET.
 - **Topology visualization** — use `doc.topologyGraph()`
-  combined with the network events (`snapshot`, `ack`,
-  `loading`, `node-change`) to build a live network
-  map showing data flow between your app and
-  infrastructure nodes.
+  combined with Feed subscriptions (`snapshotEvents`,
+  `backedUp`, `loading`, `gossipActivity`) to build a
+  live network map showing data flow between your app
+  and infrastructure nodes.
