@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFileSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { compareBaseline } from "./analyze.js";
 import type { Baseline } from "./analyze.js";
+
+const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // --- Unit tests for compareBaseline ---
 
@@ -257,7 +260,7 @@ describe("analyze --baseline (CLI)", () => {
         ` --max-errors 999` +
         ` --ack-rate 50` +
         ` --baseline ${baselineFile}`,
-      { encoding: "utf-8", timeout: 10000 },
+      { encoding: "utf-8", timeout: 10000, cwd: pkgRoot },
     );
 
     expect(result).toContain("Regression Analysis");
@@ -305,7 +308,7 @@ describe("analyze --baseline (CLI)", () => {
           ` --max-errors 999` +
           ` --ack-rate 50` +
           ` --baseline ${baselineFile}`,
-        { encoding: "utf-8", timeout: 10000 },
+        { encoding: "utf-8", timeout: 10000, cwd: pkgRoot },
       );
       expect.fail("should have exited with code 1");
     } catch (err: unknown) {
@@ -331,7 +334,7 @@ describe("analyze --baseline (CLI)", () => {
         ` --max-errors 999` +
         ` --ack-rate 50` +
         ` --save-baseline ${outBaseline}`,
-      { encoding: "utf-8", timeout: 10000 },
+      { encoding: "utf-8", timeout: 10000, cwd: pkgRoot },
     );
 
     const saved = JSON.parse(readFileSync(outBaseline, "utf-8"));
