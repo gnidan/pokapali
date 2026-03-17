@@ -109,6 +109,111 @@ describe("publishIPNS", () => {
     );
   });
 
+  it("keeps clockSum seq when it exceeds existing", async () => {
+    const seed = new Uint8Array(32).fill(1);
+    const cid = await fakeCID("ahead");
+    const fakeRecord = { value: "/ipfs/ahead" };
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(new Uint8Array([0, 1, 2])),
+    };
+    const fakePrivKey = {
+      type: "Ed25519",
+      publicKey: fakePubKey,
+    };
+    mockGenerateKeyPairFromSeed.mockResolvedValue(fakePrivKey);
+    mockCreateIPNSRecord.mockResolvedValue(fakeRecord);
+    // Existing record has seq=10, clock sum is 500
+    mockGetIPNS.mockResolvedValue({
+      sequence: 10n,
+      value: "/ipfs/old",
+    });
+
+    await publishIPNS(fakeHelia, seed, cid, 500);
+
+    // Should use 500n (clockSum), not 11n
+    expect(mockCreateIPNSRecord).toHaveBeenCalledWith(
+      fakePrivKey,
+      cid,
+      500n,
+      expect.any(Number),
+    );
+  });
+
+  it("skips publish when no delegatedRouting.putIPNS", async () => {
+    const seed = new Uint8Array(32).fill(1);
+    const cid = await fakeCID("no-delegated");
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(new Uint8Array([0, 1, 2])),
+    };
+    const fakePrivKey = {
+      type: "Ed25519",
+      publicKey: fakePubKey,
+    };
+    mockGenerateKeyPairFromSeed.mockResolvedValue(fakePrivKey);
+
+    const noDelegatedHelia = {
+      fake: "helia",
+      libp2p: { services: {} },
+    } as any;
+
+    await publishIPNS(noDelegatedHelia, seed, cid, 1);
+
+    // Should not attempt to create or put a record
+    expect(mockCreateIPNSRecord).not.toHaveBeenCalled();
+    expect(mockPutIPNS).not.toHaveBeenCalled();
+  });
+
+  it("coalesces queued publishes, skipping stale CIDs", async () => {
+    const seed = new Uint8Array(32).fill(1);
+    const cid1 = await fakeCID("stale");
+    const cid2 = await fakeCID("latest");
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(new Uint8Array([0, 1, 2])),
+    };
+    const fakePrivKey = {
+      type: "Ed25519",
+      publicKey: fakePubKey,
+    };
+    mockGenerateKeyPairFromSeed.mockResolvedValue(fakePrivKey);
+    mockGetIPNS.mockRejectedValue(new Error("not found"));
+
+    // Make the first publish hang until we resolve it
+    let resolveFirst!: () => void;
+    const firstBlock = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+    const fakeRecord = { value: "/ipfs/test" };
+    let callCount = 0;
+    mockCreateIPNSRecord.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        await firstBlock;
+      }
+      return fakeRecord;
+    });
+
+    // Fire first publish (will block)
+    const p1 = publishIPNS(fakeHelia, seed, cid1, 10);
+    // Queue two more while first is in flight —
+    // only the last should actually publish
+    const p2 = publishIPNS(fakeHelia, seed, cid2, 20);
+
+    // Unblock the first publish
+    resolveFirst();
+    await Promise.all([p1, p2]);
+
+    // createIPNSRecord called twice: once for cid1
+    // (the in-flight), once for cid2 (the coalesced
+    // pending). cid2 replaces any earlier pending.
+    expect(mockCreateIPNSRecord).toHaveBeenCalledTimes(2);
+    const secondCall = mockCreateIPNSRecord.mock.calls[1];
+    expect(secondCall[1].toString()).toBe(cid2.toString());
+    expect(secondCall[2]).toBe(20n);
+  });
+
   it("uses existing seq + 1 when clock sum is lower", async () => {
     const seed = new Uint8Array(32).fill(1);
     const cid = await fakeCID("bump");
@@ -184,6 +289,29 @@ describe("resolveIPNS", () => {
     const result = await resolveIPNS(fakeHelia, pubBytes);
 
     expect(mockGetIPNS).toHaveBeenCalled();
+    expect(mockIpns).toHaveBeenCalled();
+    expect(result).toBe(cid);
+  });
+
+  it("falls back to DHT when no delegated routing", async () => {
+    const pubBytes = new Uint8Array(32).fill(8);
+    const cid = await fakeCID("dht-only");
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(new Uint8Array([0, 1, 2])),
+    };
+    mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
+    mockResolve.mockResolvedValue({ cid, path: "" });
+
+    const noDelegatedHelia = {
+      fake: "helia",
+      libp2p: { services: {} },
+    } as any;
+
+    const result = await resolveIPNS(noDelegatedHelia, pubBytes);
+
+    // Should skip delegated and go straight to DHT
+    expect(mockGetIPNS).not.toHaveBeenCalled();
     expect(mockIpns).toHaveBeenCalled();
     expect(result).toBe(cid);
   });
@@ -276,6 +404,39 @@ describe("watchIPNS", () => {
 
     await vi.advanceTimersByTimeAsync(500);
     expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts options object and calls onPollStart", async () => {
+    const pubBytes = new Uint8Array(32).fill(9);
+    const cid = await fakeCID("poll-start");
+    const fakePubKey = {
+      type: "Ed25519",
+      toMultihash: () => identity.digest(new Uint8Array([0, 1, 2])),
+    };
+    mockPublicKeyFromRaw.mockReturnValue(fakePubKey);
+    mockGetIPNS.mockResolvedValue({
+      value: `/ipfs/${cid.toString()}`,
+    });
+
+    const onUpdate = vi.fn();
+    const onPollStart = vi.fn();
+    const stop = watchIPNS(fakeHelia, pubBytes, onUpdate, {
+      intervalMs: 200,
+      onPollStart,
+    });
+
+    // First poll fires immediately
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onPollStart).toHaveBeenCalledTimes(1);
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+
+    // Second poll at 200ms
+    await vi.advanceTimersByTimeAsync(200);
+    expect(onPollStart).toHaveBeenCalledTimes(2);
+    // Same CID, no new onUpdate
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+
+    stop();
   });
 
   it("ignores poll errors gracefully", async () => {
