@@ -30,12 +30,16 @@ export type {
 } from "./http.js";
 export { startHttpServer, startBlockServer } from "./http.js";
 
+/** @internal */
 export type { RateLimiterConfig, RateLimiter } from "./rate-limiter.js";
+/** @internal */
 export { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
 
+/** @internal */
 export type {
   SnapshotRecord,
   HistoryEntry,
   HistoryTracker,
 } from "./history.js";
+/** @internal */
 export { createHistoryTracker } from "./history.js";
