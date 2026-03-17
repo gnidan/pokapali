@@ -48,7 +48,7 @@ The format is based on
   `EffectHandlers` for testability
   ([#141](https://github.com/gnidan/pokapali/issues/141))
 - `_reset*` test helpers removed from production
-  bundles — moved behind `vitest` import guard
+  bundles
   ([#147](https://github.com/gnidan/pokapali/issues/147))
 
 ### Tests
