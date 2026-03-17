@@ -81,6 +81,43 @@ test.describe("smoke tests", () => {
     await expect(editor).toContainText("Hello, Playwright!");
   });
 
+  test("click+drag selects text (#250)", async ({ page }) => {
+    await page.goto("/");
+    await page
+      .getByRole("button", {
+        name: "Create new document",
+      })
+      .click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    const editor = page.locator(".tiptap");
+    await editor.click();
+    await page.keyboard.type("Hello drag selection");
+
+    // Get the bounding box of the editor content
+    const box = await editor.boundingBox();
+    expect(box).not.toBeNull();
+
+    // Click+drag from start to middle of text
+    const startX = box!.x + 10;
+    const y = box!.y + 20;
+    const endX = box!.x + 120;
+
+    await page.mouse.move(startX, y);
+    await page.mouse.down();
+    await page.mouse.move(endX, y, { steps: 10 });
+    await page.mouse.up();
+
+    // Verify that a non-collapsed selection exists
+    const selectionText = await page.evaluate(() => {
+      const sel = window.getSelection();
+      return sel?.toString() ?? "";
+    });
+    expect(selectionText.length).toBeGreaterThan(0);
+  });
+
   test("content channel works without error", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (err) => errors.push(err.message));

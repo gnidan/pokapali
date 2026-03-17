@@ -82,8 +82,16 @@ function getSelectionPosition(): Position | null {
 export function CommentPopover({ onComment }: CommentPopoverProps) {
   const [position, setPosition] = useState<Position | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
 
   const update = useCallback(() => {
+    // Suppress popover repositioning while a mouse
+    // button is held down (drag in progress). The
+    // popover appears at the selection endpoint which
+    // is right under the cursor — rendering it during
+    // drag intercepts mousemove events and breaks
+    // text selection.
+    if (draggingRef.current) return;
     setPosition(getSelectionPosition());
   }, []);
 
@@ -105,22 +113,26 @@ export function CommentPopover({ onComment }: CommentPopoverProps) {
     }
   }, []);
 
-  const handleClickOutside = useCallback((e: MouseEvent) => {
+  const handleMouseDown = useCallback((e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
     if (!target) return;
-
-    // Don't dismiss for clicks inside ProseMirror
-    // or the comment sidebar
-    if (target.closest(".ProseMirror") || target.closest(".cs-sidebar")) {
-      return;
-    }
 
     // Don't dismiss for clicks on the popover itself
     if (popoverRef.current?.contains(target)) {
       return;
     }
 
+    // Track drag state — hide popover during drag
+    // so it doesn't intercept mouse events.
+    draggingRef.current = true;
     setPosition(null);
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    // Show popover now that the drag is complete
+    setPosition(getSelectionPosition());
   }, []);
 
   useEffect(() => {
@@ -129,7 +141,8 @@ export function CommentPopover({ onComment }: CommentPopoverProps) {
     window.addEventListener("scroll", update, true);
     window.addEventListener("resize", update);
     document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
       document.removeEventListener("selectionchange", update);
@@ -137,9 +150,10 @@ export function CommentPopover({ onComment }: CommentPopoverProps) {
       window.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
       document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [update, handleKeyUp, handleKeyDown, handleClickOutside]);
+  }, [update, handleKeyUp, handleKeyDown, handleMouseDown, handleMouseUp]);
 
   if (!position) return null;
 
