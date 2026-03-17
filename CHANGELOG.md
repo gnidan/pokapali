@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.11] — 2026-03-16
+
 ### Fixed
 
 - Remove unsafe `as any` casts in example app — replaced with proper d3
