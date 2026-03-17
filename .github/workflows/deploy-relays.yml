@@ -262,7 +262,7 @@ jobs:
             "${{ needs.setup.outputs.commit }}" \
             "${{ inputs.dry_run }}"
 
-  # --- Batch 3: atl + bay (after batch 2) ---
+  # --- Batch 3: atl + bay + yto (after batch 2) ---
 
   atl:
     name: "atl"
@@ -340,11 +340,11 @@ jobs:
             "${{ needs.setup.outputs.commit }}" \
             "${{ inputs.dry_run }}"
 
-  # --- Batch 4: yto (after batch 3) ---
+  # --- Batch 3 also: yto (parallel with atl + bay) ---
 
   yto:
     name: "yto"
-    needs: [setup, atl, bay]
+    needs: [setup, nyc, ams]
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
