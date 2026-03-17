@@ -19,8 +19,8 @@ set -euo pipefail
 #   4. Run version-bump.mjs --all <version>
 #   5. Squash changelog + bump into one commit
 #   6. Validate tag format against publish.yml
-#   7. Push commit to origin
-#   8. Push tags individually (GHA limitation)
+#   7. Push commit to origin (Gitea) and github
+#   8. Push tags to github (GHA limitation)
 #
 # Sets POKAPALI_RELEASE=1 so the pre-commit hook
 # allows commits on main while still running
@@ -256,8 +256,8 @@ echo "  commit: $(git rev-parse --short HEAD)"
 echo "  tags:   ${#TAGS[@]}"
 echo ""
 echo "This will:"
-echo "  1. Push commit to origin/main"
-echo "  2. Push ${#TAGS[@]} tags individually"
+echo "  1. Push commit to origin (Gitea) and github"
+echo "  2. Push ${#TAGS[@]} tags to github"
 echo "     (each triggers a publish workflow)"
 echo ""
 read -r -p "Proceed? [y/N] " CONFIRM
@@ -271,22 +271,29 @@ if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
 fi
 
 # --- 8. Push commit ---
+# Push to origin (Gitea, via push whitelist) and
+# github (GitHub, for GHA workflows).
 
 echo ""
-echo "=== Pushing commit ==="
+echo "=== Pushing commit to origin (Gitea) ==="
 git push origin main
+
+echo ""
+echo "=== Pushing commit to github ==="
+git push github main
 
 # --- 9. Push tags individually ---
 # GHA limitation: multiple tags in one push only
-# triggers one workflow run.
+# triggers one workflow run. Tags go to github
+# (where publish.yml runs).
 
 echo ""
-echo "=== Pushing tags (one at a time) ==="
+echo "=== Pushing tags to github (one at a time) ==="
 
 PUSH_ERRORS=0
 for tag in "${TAGS[@]}"; do
   echo -n "  $tag ... "
-  if git push origin "$tag" 2>/dev/null; then
+  if git push github "$tag" 2>/dev/null; then
     echo "done"
   else
     echo "FAILED"
@@ -300,25 +307,6 @@ if [ "$PUSH_ERRORS" -gt 0 ]; then
   echo "Push remaining manually or use workflow_dispatch."
 else
   echo "All ${#TAGS[@]} tags pushed successfully."
-fi
-
-# --- 10. Sync Gitea main ---
-# Push to Gitea so it stays in sync with GitHub.
-# Requires gitea-lead remote and push whitelist on
-# branch protection. Non-fatal if it fails.
-
-echo ""
-GITEA_REMOTE="gitea-lead"
-if git remote get-url "$GITEA_REMOTE" >/dev/null 2>&1; then
-  echo "=== Syncing Gitea main ==="
-  if git push "$GITEA_REMOTE" main 2>/dev/null; then
-    echo "  Gitea main synced"
-  else
-    echo "  WARNING: Gitea sync failed."
-    echo "  Sync manually: git push $GITEA_REMOTE main"
-  fi
-else
-  echo "Skipping Gitea sync (no $GITEA_REMOTE remote)"
 fi
 
 echo ""
