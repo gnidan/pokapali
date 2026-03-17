@@ -291,6 +291,62 @@ describe("pinner with mock helia", () => {
 
       await pinner.stop();
     });
+
+    it("rejects snapshot signed by wrong key (#76)", async () => {
+      // Create a snapshot signed by one key but
+      // announce it under a different ipnsName.
+      // The publicKey in the snapshot won't match
+      // the ipnsName, so the pinner must reject it.
+      const doc = await generateTestDoc();
+      const block = await makeSnapshotWith(doc, {
+        seq: 1,
+        ts: 5000,
+      });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      // Announce under testIpnsName, but the block
+      // was signed by doc.signingKey (different key).
+      pinner.onAnnouncement(testIpnsName, cid.toString());
+      await pinner.flush();
+
+      // Block was fetched but rejected — no tip
+      const tip = pinner.history.getTip(testIpnsName);
+      expect(tip).toBeNull();
+
+      await pinner.stop();
+    });
+
+    it("rejects ingest with mismatched key (#76)", async () => {
+      // Same test but via the ingest path
+      const doc = await generateTestDoc();
+      const block = await makeSnapshotWith(doc, {
+        seq: 1,
+        ts: 5000,
+      });
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+
+      // Ingest under testIpnsName but block was
+      // signed by a different key
+      const result = await pinner.ingest(testIpnsName, block);
+      expect(result).toBe(false);
+
+      await pinner.stop();
+    });
   });
 
   describe("resolveAndFetch", () => {
