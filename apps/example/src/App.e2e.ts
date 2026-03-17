@@ -118,6 +118,66 @@ test.describe("smoke tests", () => {
     expect(selectionText.length).toBeGreaterThan(0);
   });
 
+  test("two-pass click+drag selects text (#250)", async ({ page }) => {
+    await page.goto("/");
+    await page
+      .getByRole("button", {
+        name: "Create new document",
+      })
+      .click();
+    await expect(page.locator(".tiptap")).toBeVisible({
+      timeout: EDITOR_TIMEOUT,
+    });
+
+    const editor = page.locator(".tiptap");
+    await editor.click();
+    await page.keyboard.type("First line of text for two-pass drag test");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Second line of text for selection");
+
+    const box = await editor.boundingBox();
+    expect(box).not.toBeNull();
+
+    // First drag — select on the first line
+    const startX1 = box!.x + 10;
+    const y1 = box!.y + 12;
+    const endX1 = box!.x + 180;
+
+    await page.mouse.move(startX1, y1);
+    await page.mouse.down();
+    await page.mouse.move(endX1, y1, { steps: 10 });
+    await page.mouse.up();
+
+    const sel1 = await page.evaluate(() => {
+      const sel = window.getSelection();
+      return sel?.toString() ?? "";
+    });
+    expect(sel1.length).toBeGreaterThan(0);
+
+    // Brief pause — let CommentPopover appear
+    await page.waitForTimeout(200);
+
+    // Second drag — select on the second line.
+    // This must work even if the popover from the
+    // first selection is visible.
+    const y2 = box!.y + 38;
+    const startX2 = box!.x + 10;
+    const endX2 = box!.x + 200;
+
+    await page.mouse.move(startX2, y2);
+    await page.mouse.down();
+    await page.mouse.move(endX2, y2, { steps: 10 });
+    await page.mouse.up();
+
+    const sel2 = await page.evaluate(() => {
+      const sel = window.getSelection();
+      return sel?.toString() ?? "";
+    });
+    expect(sel2.length).toBeGreaterThan(0);
+    // Second selection should differ from first
+    expect(sel2).not.toEqual(sel1);
+  });
+
   test("content channel works without error", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (err) => errors.push(err.message));
