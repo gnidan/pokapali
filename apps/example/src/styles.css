@@ -1948,6 +1948,8 @@ body {
   border-bottom: 2px solid rgba(255, 213, 79, 0.6);
   cursor: pointer;
   transition: background 0.15s;
+  -webkit-user-drag: none;
+  user-select: text;
 }
 
 .comment-anchor:hover {
