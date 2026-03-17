@@ -6,6 +6,15 @@
  * resolve the IPNS name to fetch blocks.
  */
 
+import {
+  hexToBytes,
+  bytesToHex,
+  signBytes,
+  verifySignature,
+} from "@pokapali/crypto";
+
+import type { Ed25519KeyPair } from "@pokapali/crypto";
+
 /**
  * Minimal pubsub interface — only publish is needed by
  * the announcer. Kept compatible with PubSubLike from
@@ -34,6 +43,11 @@ export interface Announcement {
   block?: string;
   /** True when sent by a pinner re-announce. */
   fromPinner?: boolean;
+  /** Hex-encoded Ed25519 signature proving write
+   *  access: sign(docSigningKey, ipnsName+":"+cid).
+   *  Absent for reader re-announces and legacy
+   *  clients (migration period). */
+  proof?: string;
 }
 
 /**
@@ -80,6 +94,7 @@ export async function announceSnapshot(
   block?: Uint8Array,
   fromPinner?: boolean,
   ack?: AnnouncementAck,
+  proof?: string,
 ): Promise<void> {
   const topic = announceTopic(appId);
   const msg: Announcement = { ipnsName, cid };
@@ -89,6 +104,7 @@ export async function announceSnapshot(
   }
   if (fromPinner) msg.fromPinner = true;
   if (ack) msg.ack = ack;
+  if (proof) msg.proof = proof;
   const data = new TextEncoder().encode(JSON.stringify(msg));
   await pubsub.publish(topic, data);
 }
@@ -159,6 +175,43 @@ export function parseAnnouncement(data: Uint8Array): Announcement | null {
     return obj as Announcement;
   } catch {
     return null;
+  }
+}
+
+// --- Announcement proof (Tier 1 auth, #75) ---
+
+/**
+ * Sign an announcement proof using the doc signing key.
+ * proof = hex(sign(signingKey, utf8(ipnsName + ":" + cid)))
+ */
+export async function signAnnouncementProof(
+  signingKey: Ed25519KeyPair,
+  ipnsName: string,
+  cid: string,
+): Promise<string> {
+  const payload = new TextEncoder().encode(ipnsName + ":" + cid);
+  const sig = await signBytes(signingKey, payload);
+  return bytesToHex(sig);
+}
+
+/**
+ * Verify an announcement proof. The ipnsName IS the
+ * hex-encoded Ed25519 public key, so no key distribution
+ * is needed — the verifier derives the public key from
+ * the ipnsName itself.
+ */
+export async function verifyAnnouncementProof(
+  ipnsName: string,
+  cid: string,
+  proof: string,
+): Promise<boolean> {
+  try {
+    const publicKey = hexToBytes(ipnsName);
+    const sig = hexToBytes(proof);
+    const payload = new TextEncoder().encode(ipnsName + ":" + cid);
+    return await verifySignature(publicKey, sig, payload);
+  } catch {
+    return false;
   }
 }
 
