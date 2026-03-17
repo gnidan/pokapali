@@ -35,21 +35,66 @@ import { encodeSnapshot } from "@pokapali/snapshot";
 import { signAnnouncementProof } from "@pokapali/core/announce";
 import { createPinner } from "./pinner.js";
 
+// Shared test keys: derive once, reuse everywhere.
+// The ipnsName must match the snapshot's publicKey
+// for the publicKey↔ipnsName binding check (#76).
+let testIpnsName: string;
+let testKeys: Awaited<ReturnType<typeof deriveDocKeys>>;
+let testSigningKey: Awaited<ReturnType<typeof ed25519KeyPairFromSeed>>;
+
+const testKeysReady = (async () => {
+  const secret = generateAdminSecret();
+  testKeys = await deriveDocKeys(secret, "test-app", ["content"]);
+  testSigningKey = await ed25519KeyPairFromSeed(testKeys.ipnsKeyBytes);
+  testIpnsName = bytesToHex(testSigningKey.publicKey);
+})();
+
 async function makeSnapshot(opts?: {
   seq?: number;
   ts?: number;
   prev?: CID | null;
 }): Promise<Uint8Array> {
-  const secret = generateAdminSecret();
-  const keys = await deriveDocKeys(secret, "test-app", ["content"]);
-  const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+  await testKeysReady;
   return encodeSnapshot(
     { content: new Uint8Array([1, 2, 3]) },
-    keys.readKey,
+    testKeys.readKey,
     opts?.prev ?? null,
     opts?.seq ?? 1,
     opts?.ts ?? Date.now(),
+    testSigningKey,
+  );
+}
+
+async function generateTestDoc(): Promise<{
+  ipnsName: string;
+  signingKey: Awaited<ReturnType<typeof ed25519KeyPairFromSeed>>;
+  readKey: CryptoKey;
+}> {
+  const secret = generateAdminSecret();
+  const keys = await deriveDocKeys(secret, "test-app", ["content"]);
+  const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+  return {
+    ipnsName: bytesToHex(signingKey.publicKey),
     signingKey,
+    readKey: keys.readKey,
+  };
+}
+
+async function makeSnapshotWith(
+  doc: Awaited<ReturnType<typeof generateTestDoc>>,
+  opts?: {
+    seq?: number;
+    ts?: number;
+    prev?: CID | null;
+  },
+): Promise<Uint8Array> {
+  return encodeSnapshot(
+    { content: new Uint8Array([1, 2, 3]) },
+    doc.readKey,
+    opts?.prev ?? null,
+    opts?.seq ?? 1,
+    opts?.ts ?? Date.now(),
+    doc.signingKey,
   );
 }
 
@@ -85,6 +130,7 @@ describe("pinner with mock helia", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
+    await testKeysReady;
     tmpDir = await mkdtemp(join(tmpdir(), "pinner-test-"));
     mockResolve.mockReset();
     mockRepublish.mockReset();
@@ -116,15 +162,10 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      pinner.onAnnouncement(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        cid.toString(),
-      );
+      pinner.onAnnouncement(testIpnsName, cid.toString());
       await pinner.flush();
 
-      const tip = pinner.history.getTip(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-      );
+      const tip = pinner.history.getTip(testIpnsName);
       expect(tip).toBe(cid.toString());
 
       expect(mockHelia.blockstore.get).toHaveBeenCalledWith(
@@ -152,18 +193,12 @@ describe("pinner with mock helia", () => {
       await pinner.start();
 
       // First announcement — should fetch
-      pinner.onAnnouncement(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        cid.toString(),
-      );
+      pinner.onAnnouncement(testIpnsName, cid.toString());
       await pinner.flush();
       expect(mockHelia.blockstore.get).toHaveBeenCalledTimes(1);
 
       // Same CID again — should skip (dedup)
-      pinner.onAnnouncement(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        cid.toString(),
-      );
+      pinner.onAnnouncement(testIpnsName, cid.toString());
       await pinner.flush();
       // Still only 1 call — second was skipped
       expect(mockHelia.blockstore.get).toHaveBeenCalledTimes(1);
@@ -187,16 +222,11 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      pinner.onAnnouncement(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        cid.toString(),
-      );
+      pinner.onAnnouncement(testIpnsName, cid.toString());
       await pinner.flush();
 
       // Should not be tracked — invalid block
-      const tip = pinner.history.getTip(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-      );
+      const tip = pinner.history.getTip(testIpnsName);
       expect(tip).toBeNull();
 
       await pinner.stop();
@@ -220,15 +250,10 @@ describe("pinner with mock helia", () => {
       );
 
       // Should not throw — errors are caught
-      pinner.onAnnouncement(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        fakeCid.toString(),
-      );
+      pinner.onAnnouncement(testIpnsName, fakeCid.toString());
       await pinner.flush();
 
-      const tip = pinner.history.getTip(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-      );
+      const tip = pinner.history.getTip(testIpnsName);
       expect(tip).toBeNull();
 
       await pinner.stop();
@@ -257,27 +282,69 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      pinner.onAnnouncement(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        cid1.toString(),
-      );
+      pinner.onAnnouncement(testIpnsName, cid1.toString());
       await pinner.flush();
-      expect(
-        pinner.history.getTip(
-          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        ),
-      ).toBe(cid1.toString());
+      expect(pinner.history.getTip(testIpnsName)).toBe(cid1.toString());
 
-      pinner.onAnnouncement(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        cid2.toString(),
-      );
+      pinner.onAnnouncement(testIpnsName, cid2.toString());
       await pinner.flush();
-      expect(
-        pinner.history.getTip(
-          "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        ),
-      ).toBe(cid2.toString());
+      expect(pinner.history.getTip(testIpnsName)).toBe(cid2.toString());
+
+      await pinner.stop();
+    });
+
+    it("rejects snapshot signed by wrong key (#76)", async () => {
+      // Create a snapshot signed by one key but
+      // announce it under a different ipnsName.
+      // The publicKey in the snapshot won't match
+      // the ipnsName, so the pinner must reject it.
+      const doc = await generateTestDoc();
+      const block = await makeSnapshotWith(doc, {
+        seq: 1,
+        ts: 5000,
+      });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      // Announce under testIpnsName, but the block
+      // was signed by doc.signingKey (different key).
+      pinner.onAnnouncement(testIpnsName, cid.toString());
+      await pinner.flush();
+
+      // Block was fetched but rejected — no tip
+      const tip = pinner.history.getTip(testIpnsName);
+      expect(tip).toBeNull();
+
+      await pinner.stop();
+    });
+
+    it("rejects ingest with mismatched key (#76)", async () => {
+      // Same test but via the ingest path
+      const doc = await generateTestDoc();
+      const block = await makeSnapshotWith(doc, {
+        seq: 1,
+        ts: 5000,
+      });
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+      });
+      await pinner.start();
+
+      // Ingest under testIpnsName but block was
+      // signed by a different key
+      const result = await pinner.ingest(testIpnsName, block);
+      expect(result).toBe(false);
 
       await pinner.stop();
     });
@@ -295,10 +362,7 @@ describe("pinner with mock helia", () => {
         storagePath: tmpDir,
       });
       await pinner1.start();
-      await pinner1.ingest(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        block,
-      );
+      await pinner1.ingest(testIpnsName, block);
       await pinner1.stop();
 
       // Step 2: create new pinner with mock helia.
@@ -342,10 +406,7 @@ describe("pinner with mock helia", () => {
         storagePath: tmpDir,
       });
       await pinner1.start();
-      await pinner1.ingest(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        block,
-      );
+      await pinner1.ingest(testIpnsName, block);
       await pinner1.stop();
 
       const mockHelia = createMockHelia();
@@ -374,11 +435,6 @@ describe("pinner with mock helia", () => {
   });
 
   describe("onGuaranteeQuery", () => {
-    const IPNS_NAME =
-      "aa11bb22cc33dd44ee55ff66" +
-      "00112233aa11bb22cc33dd44" +
-      "ee55ff6600112233";
-
     it("ignores unknown ipnsNames", async () => {
       const mockPubsub = {
         publish: vi.fn().mockResolvedValue(undefined),
@@ -391,7 +447,7 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
 
       expect(mockPubsub.publish).not.toHaveBeenCalled();
@@ -406,10 +462,10 @@ describe("pinner with mock helia", () => {
         // no pubsub, no peerId
       });
       await pinner.start();
-      await pinner.ingest(IPNS_NAME, block);
+      await pinner.ingest(testIpnsName, block);
 
       // Should silently return — no pubsub configured
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
 
       // No throw = pass
@@ -429,9 +485,9 @@ describe("pinner with mock helia", () => {
         peerId: "pinner-peer-id",
       });
       await pinner.start();
-      await pinner.ingest(IPNS_NAME, block);
+      await pinner.ingest(testIpnsName, block);
 
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
 
       expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
@@ -440,7 +496,7 @@ describe("pinner with mock helia", () => {
 
       const response = JSON.parse(new TextDecoder().decode(data));
       expect(response.type).toBe("guarantee-response");
-      expect(response.ipnsName).toBe(IPNS_NAME);
+      expect(response.ipnsName).toBe(testIpnsName);
       expect(response.peerId).toBe("pinner-peer-id");
       expect(response.cid).toBe(cid.toString());
       expect(response.guaranteeUntil).toBeGreaterThan(Date.now());
@@ -460,15 +516,15 @@ describe("pinner with mock helia", () => {
         peerId: "pinner-peer-id",
       });
       await pinner.start();
-      await pinner.ingest(IPNS_NAME, block);
+      await pinner.ingest(testIpnsName, block);
 
       // First query — should respond
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
       expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
 
       // Immediate second query — rate-limited
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
       expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
 
@@ -488,10 +544,10 @@ describe("pinner with mock helia", () => {
         peerId: "pinner-peer-id",
       });
       await pinner.start();
-      await pinner.ingest(IPNS_NAME, block);
+      await pinner.ingest(testIpnsName, block);
 
       // First query
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
       expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
 
@@ -499,7 +555,7 @@ describe("pinner with mock helia", () => {
       await vi.advanceTimersByTimeAsync(3_001);
 
       // Second query — should respond now
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
       expect(mockPubsub.publish).toHaveBeenCalledTimes(2);
 
@@ -531,11 +587,11 @@ describe("pinner with mock helia", () => {
         dagCborCode,
         await sha256.digest(new TextEncoder().encode("fake")),
       );
-      pinner.onAnnouncement(IPNS_NAME, fakeCid.toString());
+      pinner.onAnnouncement(testIpnsName, fakeCid.toString());
       await pinner.flush();
 
       // Now query — name is known but no tip
-      pinner.onGuaranteeQuery(IPNS_NAME, "test-app");
+      pinner.onGuaranteeQuery(testIpnsName, "test-app");
       await pinner.flush();
 
       expect(mockPubsub.publish).not.toHaveBeenCalled();
@@ -713,10 +769,7 @@ describe("pinner with mock helia", () => {
       await pinner.start();
 
       // Add a known name via ingest
-      await pinner.ingest(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        block,
-      );
+      await pinner.ingest(testIpnsName, block);
 
       // Advance past the 5-minute initial republish
       // delay and flush all pending async work.
@@ -759,10 +812,7 @@ describe("pinner with mock helia", () => {
         helia: mockHelia as any,
       });
       await pinner.start();
-      await pinner.ingest(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-        block,
-      );
+      await pinner.ingest(testIpnsName, block);
 
       // Advance past the 5-minute initial republish
       // delay and flush all pending async work.
@@ -771,9 +821,7 @@ describe("pinner with mock helia", () => {
 
       // Should not throw — errors are caught
       // Pinner should still be functional
-      const tip = pinner.history.getTip(
-        "aa11bb22cc33dd44ee55ff6600112233aa11bb22cc33dd44ee55ff6600112233",
-      );
+      const tip = pinner.history.getTip(testIpnsName);
       expect(tip).toBe(cid.toString());
 
       await pinner.stop();
@@ -802,10 +850,7 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      const name =
-        "aa11bb22cc33dd44ee55ff66" +
-        "00112233aa11bb22cc33dd44" +
-        "ee55ff6600112233";
+      const name = testIpnsName;
       await pinner.ingest(name, block);
 
       // Trigger initial republish (5 min)
@@ -853,16 +898,15 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      // Ingest 30 names
+      // Ingest 30 names (each with valid key binding)
       for (let i = 0; i < 30; i++) {
-        const hex = i.toString(16).padStart(2, "0");
-        const name = hex.padEnd(64, "0");
-        const b = await makeSnapshot({
+        const doc = await generateTestDoc();
+        const b = await makeSnapshotWith(doc, {
           ts: 5000 + i,
         });
         const c = await blockToCid(b);
         blocks.set(c.toString(), b);
-        await pinner.ingest(name, b);
+        await pinner.ingest(doc.ipnsName, b);
       }
 
       // Let startup resolveAll complete
@@ -923,10 +967,7 @@ describe("pinner with mock helia", () => {
         storagePath: tmpDir,
       });
       await pinner1.start();
-      const name =
-        "aa11bb22cc33dd44ee55ff66" +
-        "00112233aa11bb22cc33dd44" +
-        "ee55ff6600112233";
+      const name = testIpnsName;
       await pinner1.ingest(name, tip);
       await pinner1.stop();
 
@@ -985,10 +1026,7 @@ describe("pinner with mock helia", () => {
       });
       const tipCid = await blockToCid(tip);
 
-      const name =
-        "bb22cc33dd44ee55ff660011" +
-        "2233aa11bb22cc33dd44ee55" +
-        "ff6600112233bb22";
+      const name = testIpnsName;
 
       // First pinner: ingest tip + genesis via
       // history.add so persistState saves the index
@@ -1047,10 +1085,7 @@ describe("pinner with mock helia", () => {
 
         // Ingest a block — sets lastSeenAt to now
         const block = await makeSnapshot({ ts: now });
-        const name =
-          "aa11bb22cc33dd44ee55ff66" +
-          "00112233aa11bb22cc33dd44" +
-          "ee55ff6600112233";
+        const name = testIpnsName;
         await pinner.ingest(name, block);
 
         // Verify it's tracked
@@ -1093,10 +1128,7 @@ describe("pinner with mock helia", () => {
         const block = await makeSnapshot({
           ts: Date.now(),
         });
-        const name =
-          "aa11bb22cc33dd44ee55ff66" +
-          "00112233aa11bb22cc33dd44" +
-          "ee55ff6600112233";
+        const name = testIpnsName;
         await pinner.ingest(name, block);
 
         // Name should NOT be pruned (recent activity)
@@ -1121,10 +1153,7 @@ describe("pinner with mock helia", () => {
       const block = await makeSnapshot({
         ts: Date.now(),
       });
-      const name =
-        "aa11bb22cc33dd44ee55ff66" +
-        "00112233aa11bb22cc33dd44" +
-        "ee55ff6600112233";
+      const name = testIpnsName;
       await pinner.ingest(name, block);
 
       // Advance 13 hours — past 12h grace
@@ -1161,10 +1190,7 @@ describe("pinner with mock helia", () => {
       const block = await makeSnapshot({
         ts: Date.now(),
       });
-      const name =
-        "aa11bb22cc33dd44ee55ff66" +
-        "00112233aa11bb22cc33dd44" +
-        "ee55ff6600112233";
+      const name = testIpnsName;
       await pinner.ingest(name, block);
 
       // Advance 10 days — past any stale threshold
@@ -1232,14 +1258,13 @@ describe("pinner with mock helia", () => {
       await pinner.start();
 
       for (let i = 0; i < 5; i++) {
-        const hex = (i + 0xa0).toString(16).padStart(2, "0");
-        const name = hex.padEnd(64, "0");
-        const b = await makeSnapshot({
+        const doc = await generateTestDoc();
+        const b = await makeSnapshotWith(doc, {
           ts: 5000 + i,
         });
         const c = await blockToCid(b);
         blocks.set(c.toString(), b);
-        await pinner.ingest(name, b);
+        await pinner.ingest(doc.ipnsName, b);
       }
 
       // Trigger initial republish (5 min)
@@ -1294,10 +1319,7 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      const name =
-        "aa11bb22cc33dd44ee55ff66" +
-        "00112233aa11bb22cc33dd44" +
-        "ee55ff6600112233";
+      const name = testIpnsName;
       const block = await makeSnapshot({ ts: 5000 });
       const cid = await blockToCid(block);
 
@@ -1317,10 +1339,7 @@ describe("pinner with mock helia", () => {
       await pinner.start();
       await pinner.stop();
 
-      const name =
-        "aa11bb22cc33dd44ee55ff66" +
-        "00112233aa11bb22cc33dd44" +
-        "ee55ff6600112233";
+      const name = testIpnsName;
       const block = await makeSnapshot({ ts: 5000 });
       const result = await pinner.ingest(name, block);
       expect(result).toBe(false);
@@ -1333,10 +1352,7 @@ describe("pinner with mock helia", () => {
       });
       await pinner.start();
 
-      const name =
-        "aa11bb22cc33dd44ee55ff66" +
-        "00112233aa11bb22cc33dd44" +
-        "ee55ff6600112233";
+      const name = testIpnsName;
       const block = await makeSnapshot({ ts: 5000 });
       await pinner.ingest(name, block);
       await pinner.stop();

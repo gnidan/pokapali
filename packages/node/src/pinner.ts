@@ -2,7 +2,7 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
 import { validateStructure, decodeSnapshot } from "@pokapali/snapshot";
-import { hexToBytes } from "@pokapali/crypto";
+import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";
 import { resolveIPNS } from "@pokapali/core/ipns-helpers";
@@ -470,6 +470,25 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       }
 
       const node = decodeSnapshot(block);
+
+      // Verify publicKey↔ipnsName binding (#76):
+      // ipnsName is the hex-encoded Ed25519 public key
+      // of the document. Reject snapshots signed by a
+      // different key to prevent overwrite attacks.
+      const expectedKey = hexToBytes(ipnsName);
+      if (
+        node.publicKey.length !== expectedKey.length ||
+        !node.publicKey.every((b, i) => b === expectedKey[i])
+      ) {
+        log.warn(
+          `publicKey mismatch for` +
+            ` ${ipnsName.slice(0, 12)}...:` +
+            ` expected=${ipnsName.slice(0, 16)}` +
+            ` got=${bytesToHex(node.publicKey).slice(0, 16)}`,
+        );
+        return false;
+      }
+
       knownNames.add(ipnsName);
       history.add(ipnsName, cid, node.ts);
       persistMutation(async () => {
@@ -1634,6 +1653,18 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
       // Decode to get timestamp
       const node = decodeSnapshot(block);
+
+      // Verify publicKey↔ipnsName binding (#76)
+      const expectedKey = hexToBytes(ipnsName);
+      if (
+        node.publicKey.length !== expectedKey.length ||
+        !node.publicKey.every((b, i) => b === expectedKey[i])
+      ) {
+        log.warn(
+          `ingest: publicKey mismatch for` + ` ${ipnsName.slice(0, 12)}...`,
+        );
+        return false;
+      }
 
       // Store block
       await storeBlock(cid, block);
