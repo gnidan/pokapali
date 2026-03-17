@@ -999,8 +999,10 @@ export function createDoc(params: DocParams): Doc {
           if (block.length > MAX_INLINE_BLOCK_BYTES) {
             const urls = getHttpUrls();
             if (urls.length > 0) {
-              uploadBlock(cid, block, urls).catch((err) => {
-                log.warn("announce upload failed:", err);
+              uploadBlock(cid, block, urls, { signal }).catch((err) => {
+                if (!signal.aborted) {
+                  log.warn("announce upload failed:", err);
+                }
               });
             }
             announceSnapshot(
