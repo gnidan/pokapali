@@ -1,12 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import {
-  loadCachedRelays,
-  upsertCachedRelay,
-  migrateOldCache,
-  _resetMigrated,
-  CACHE_KEY,
-  RELAY_CACHE_MAX_AGE_MS,
-} from "./relay-cache.js";
 
 function makeStorage(): Storage {
   const store = new Map<string, string>();
@@ -30,23 +22,25 @@ function makeStorage(): Storage {
 
 describe("relay-cache", () => {
   let storage: Storage;
+  let mod: typeof import("./relay-cache.js");
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     storage = makeStorage();
     vi.stubGlobal("localStorage", storage);
-    _resetMigrated();
+    mod = await import("./relay-cache.js");
   });
 
   describe("loadCachedRelays", () => {
     it("returns [] with no localStorage data", () => {
-      expect(loadCachedRelays()).toEqual([]);
+      expect(mod.loadCachedRelays()).toEqual([]);
     });
 
     it("filters entries older than 48h", () => {
-      const old = Date.now() - RELAY_CACHE_MAX_AGE_MS - 1000;
+      const old = Date.now() - mod.RELAY_CACHE_MAX_AGE_MS - 1000;
       const fresh = Date.now() - 1000;
       storage.setItem(
-        CACHE_KEY,
+        mod.CACHE_KEY,
         JSON.stringify([
           {
             peerId: "old-peer",
@@ -60,14 +54,14 @@ describe("relay-cache", () => {
           },
         ]),
       );
-      const result = loadCachedRelays();
+      const result = mod.loadCachedRelays();
       expect(result).toHaveLength(1);
       expect(result[0].peerId).toBe("fresh-peer");
     });
 
     it("handles corrupted JSON", () => {
-      storage.setItem(CACHE_KEY, "not json{{{");
-      expect(loadCachedRelays()).toEqual([]);
+      storage.setItem(mod.CACHE_KEY, "not json{{{");
+      expect(mod.loadCachedRelays()).toEqual([]);
     });
   });
 
@@ -83,8 +77,8 @@ describe("relay-cache", () => {
           },
         ]),
       );
-      migrateOldCache();
-      const data = storage.getItem(CACHE_KEY);
+      mod.migrateOldCache();
+      const data = storage.getItem(mod.CACHE_KEY);
       expect(data).not.toBeNull();
       expect(JSON.parse(data!)[0].peerId).toBe("p1");
       // Old key removed
@@ -93,7 +87,7 @@ describe("relay-cache", () => {
 
     it("skips if new key already exists", () => {
       storage.setItem(
-        CACHE_KEY,
+        mod.CACHE_KEY,
         JSON.stringify([
           {
             peerId: "existing",
@@ -112,8 +106,8 @@ describe("relay-cache", () => {
           },
         ]),
       );
-      migrateOldCache();
-      const data = JSON.parse(storage.getItem(CACHE_KEY)!);
+      mod.migrateOldCache();
+      const data = JSON.parse(storage.getItem(mod.CACHE_KEY)!);
       expect(data[0].peerId).toBe("existing");
     });
 
@@ -126,7 +120,7 @@ describe("relay-cache", () => {
       };
       vi.stubGlobal("localStorage", broken);
       // Should not throw
-      expect(() => migrateOldCache()).not.toThrow();
+      expect(() => mod.migrateOldCache()).not.toThrow();
     });
   });
 
@@ -134,7 +128,7 @@ describe("relay-cache", () => {
     it("updates existing entry's lastSeen", () => {
       const oldTime = Date.now() - 60_000;
       storage.setItem(
-        CACHE_KEY,
+        mod.CACHE_KEY,
         JSON.stringify([
           {
             peerId: "p1",
@@ -143,8 +137,8 @@ describe("relay-cache", () => {
           },
         ]),
       );
-      upsertCachedRelay("p1", ["/new"]);
-      const data = JSON.parse(storage.getItem(CACHE_KEY)!);
+      mod.upsertCachedRelay("p1", ["/new"]);
+      const data = JSON.parse(storage.getItem(mod.CACHE_KEY)!);
       expect(data).toHaveLength(1);
       expect(data[0].addrs).toEqual(["/new"]);
       expect(data[0].lastSeen).toBeGreaterThan(oldTime);

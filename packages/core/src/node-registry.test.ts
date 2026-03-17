@@ -3,7 +3,6 @@ import {
   createNodeRegistry,
   acquireNodeRegistry,
   getNodeRegistry,
-  _resetNodeRegistry,
   NODE_CAPS_TOPIC,
 } from "./node-registry.js";
 
@@ -753,34 +752,29 @@ describe("createNodeRegistry", () => {
 });
 
 describe("singleton management", () => {
-  afterEach(() => {
-    _resetNodeRegistry();
+  let mod: typeof import("./node-registry.js");
+
+  beforeEach(async () => {
+    vi.resetModules();
+    mod = await import("./node-registry.js");
   });
 
   it("acquireNodeRegistry returns same" + " instance", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    const r1 = acquireNodeRegistry(pubsub as any, () => helia as any);
-    const r2 = acquireNodeRegistry(pubsub as any, () => helia as any);
+    const r1 = mod.acquireNodeRegistry(pubsub as any, () => helia as any);
+    const r2 = mod.acquireNodeRegistry(pubsub as any, () => helia as any);
     expect(r1).toBe(r2);
   });
 
   it("getNodeRegistry returns null before" + " acquire", () => {
-    expect(getNodeRegistry()).toBeNull();
+    expect(mod.getNodeRegistry()).toBeNull();
   });
 
   it("getNodeRegistry returns instance after" + " acquire", () => {
     const pubsub = makePubsub();
     const helia = makeHelia();
-    acquireNodeRegistry(pubsub as any, () => helia as any);
-    expect(getNodeRegistry()).not.toBeNull();
-  });
-
-  it("_resetNodeRegistry clears singleton", () => {
-    const pubsub = makePubsub();
-    const helia = makeHelia();
-    acquireNodeRegistry(pubsub as any, () => helia as any);
-    _resetNodeRegistry();
-    expect(getNodeRegistry()).toBeNull();
+    mod.acquireNodeRegistry(pubsub as any, () => helia as any);
+    expect(mod.getNodeRegistry()).not.toBeNull();
   });
 });

@@ -321,10 +321,3 @@ export function acquireNodeRegistry(
 export function getNodeRegistry(): NodeRegistry | null {
   return sharedRegistry;
 }
-
-export function _resetNodeRegistry(): void {
-  if (sharedRegistry) {
-    sharedRegistry.destroy();
-    sharedRegistry = null;
-  }
-}

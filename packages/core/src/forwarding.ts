@@ -77,8 +77,3 @@ export function lookupForwardingRecord(
 ): Uint8Array | undefined {
   return forwardingStore.get(ipnsName);
 }
-
-/** @internal Test-only reset. */
-export function _resetForwardingStore(): void {
-  forwardingStore.clear();
-}
