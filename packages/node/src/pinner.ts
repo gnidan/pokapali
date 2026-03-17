@@ -10,6 +10,7 @@ import {
   announceAck,
   announceSnapshot,
   announceTopic,
+  verifyAnnouncementProof,
 } from "@pokapali/core/announce";
 import type { AnnouncePubSub, AnnouncementAck } from "@pokapali/core/announce";
 import { createRateLimiter, DEFAULT_RATE_LIMITS } from "./rate-limiter.js";
@@ -144,6 +145,7 @@ export interface Pinner {
     appId?: string,
     blockData?: Uint8Array,
     fromPinner?: boolean,
+    proof?: string,
   ): void;
   onGuaranteeQuery(ipnsName: string, appId: string): void;
   /** Get tip block + guarantee for HTTP endpoint. */
@@ -1189,6 +1191,125 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     stateWriteCount++;
   }
 
+  function processAnnouncement(
+    ipnsName: string,
+    cidStr: string,
+    appId?: string,
+    blockData?: Uint8Array,
+    fromPinner?: boolean,
+  ): void {
+    // Admission gate: reject unknown names at capacity
+    if (!knownNames.has(ipnsName) && knownNames.size >= maxNames) {
+      capacityRejects++;
+      return;
+    }
+
+    knownNames.add(ipnsName);
+    if (appId) nameToAppId.set(ipnsName, appId);
+    persistMutation(async () => {
+      await store.addName(ipnsName);
+      if (appId) await store.setAppId(ipnsName, appId);
+    });
+
+    // Only refresh lastSeenAt for non-pinner
+    // announcements (writer/reader activity).
+    // Pinner re-announces are supply signals and
+    // must NOT keep docs alive indefinitely.
+    if (!fromPinner) {
+      const now = Date.now();
+      lastSeenAt.set(ipnsName, now);
+      persistMutation(() => store.setLastSeen(ipnsName, now));
+      // Reset monotonic guarantee on new activity
+      // so it recalculates from fresh lastSeenAt.
+      guaranteedUntil.delete(ipnsName);
+    }
+
+    // Dedup: if we already fetched+acked this CID,
+    // just re-ack (cheap) so new browsers see it.
+    if (lastAckedCid.get(ipnsName) === cidStr) {
+      log.debug(`duplicate: ${cidStr.slice(0, 12)}...` + ` re-acking`);
+      if (appId && config.pubsub && config.peerId) {
+        const g = issueGuarantee(ipnsName);
+        track(
+          announceAck(
+            config.pubsub,
+            appId,
+            ipnsName,
+            cidStr,
+            config.peerId,
+            g.guaranteeUntil,
+            g.retainUntil,
+          ).catch((err) => {
+            log.warn("re-ack failed:", err);
+          }),
+        );
+      }
+      return;
+    }
+
+    log.debug(
+      `announcement: name=${ipnsName.slice(0, 12)}...` +
+        ` cid=${cidStr.slice(0, 12)}...`,
+    );
+    // New CID supersedes old guarantee
+    guaranteedUntil.delete(ipnsName);
+
+    // Fetch the announced CID directly (don't
+    // re-resolve IPNS — the announcement has the
+    // latest CID, IPNS may lag behind).
+    if (helia) {
+      track(
+        fetchByCid(ipnsName, cidStr, blockData)
+          .then(async (ok) => {
+            if (ok && appId && config.pubsub && config.peerId) {
+              const g = issueGuarantee(ipnsName);
+              await announceAck(
+                config.pubsub,
+                appId,
+                ipnsName,
+                cidStr,
+                config.peerId,
+                g.guaranteeUntil,
+                g.retainUntil,
+              );
+              lastAckedCid.set(ipnsName, cidStr);
+              // Thin old versions after new ingest
+              await thinVersionHistory(ipnsName);
+              markDirty();
+              log.debug(
+                `acked` +
+                  ` ${ipnsName.slice(0, 12)}...` +
+                  ` cid=${cidStr.slice(0, 12)}...`,
+              );
+            } else {
+              log.debug(
+                `ack skipped:` +
+                  ` ok=${ok}` +
+                  ` appId=${appId}` +
+                  ` pubsub=${!!config.pubsub}` +
+                  ` peerId=${!!config.peerId}`,
+              );
+            }
+          })
+          .catch((err) => {
+            log.warn(
+              `ack failed:` +
+                ` ${ipnsName.slice(0, 12)}...` +
+                ` cid=${cidStr.slice(0, 12)}...:`,
+              err,
+            );
+          }),
+      );
+    }
+
+    // Schedule for re-announce
+    const now = Date.now();
+    const interval = reannounceInterval(ipnsName, now);
+    if (interval < MAX_INTERVAL_MS) {
+      scheduleDoc(ipnsName, now + interval);
+    }
+  }
+
   return {
     history,
 
@@ -1326,119 +1447,47 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       appId?: string,
       blockData?: Uint8Array,
       fromPinner?: boolean,
+      proof?: string,
     ): void {
       if (phase !== "running") return;
 
-      // Admission gate: reject unknown names at capacity
-      if (!knownNames.has(ipnsName) && knownNames.size >= maxNames) {
-        capacityRejects++;
-        return;
-      }
-
-      knownNames.add(ipnsName);
-      if (appId) nameToAppId.set(ipnsName, appId);
-      persistMutation(async () => {
-        await store.addName(ipnsName);
-        if (appId) await store.setAppId(ipnsName, appId);
-      });
-
-      // Only refresh lastSeenAt for non-pinner
-      // announcements (writer/reader activity).
-      // Pinner re-announces are supply signals and
-      // must NOT keep docs alive indefinitely.
-      if (!fromPinner) {
-        const now = Date.now();
-        lastSeenAt.set(ipnsName, now);
-        persistMutation(() => store.setLastSeen(ipnsName, now));
-        // Reset monotonic guarantee on new activity
-        // so it recalculates from fresh lastSeenAt.
-        guaranteedUntil.delete(ipnsName);
-      }
-
-      // Dedup: if we already fetched+acked this CID,
-      // just re-ack (cheap) so new browsers see it.
-      if (lastAckedCid.get(ipnsName) === cidStr) {
-        log.debug(`duplicate: ${cidStr.slice(0, 12)}...` + ` re-acking`);
-        if (appId && config.pubsub && config.peerId) {
-          const g = issueGuarantee(ipnsName);
-          track(
-            announceAck(
-              config.pubsub,
-              appId,
+      // Proof verification (#75): pinner re-announces
+      // skip verification (already verified the original).
+      // For others: reject if proof is present but invalid.
+      // Accept unproven announcements during migration.
+      if (!fromPinner && proof) {
+        // Async verify — reject before fetch if invalid
+        track(
+          (async () => {
+            const valid = await verifyAnnouncementProof(
               ipnsName,
               cidStr,
-              config.peerId,
-              g.guaranteeUntil,
-              g.retainUntil,
-            ).catch((err) => {
-              log.warn("re-ack failed:", err);
-            }),
-          );
-        }
+              proof,
+            );
+            if (!valid) {
+              log.warn(
+                `invalid proof for` +
+                  ` ${ipnsName.slice(0, 12)}...` +
+                  ` cid=${cidStr.slice(0, 12)}...`,
+              );
+              return;
+            }
+            // Proof valid — proceed with normal flow
+            processAnnouncement(ipnsName, cidStr, appId, blockData, fromPinner);
+          })(),
+        );
         return;
       }
 
-      log.debug(
-        `announcement: name=${ipnsName.slice(0, 12)}...` +
-          ` cid=${cidStr.slice(0, 12)}...`,
-      );
-      // New CID supersedes old guarantee
-      guaranteedUntil.delete(ipnsName);
-
-      // Fetch the announced CID directly (don't
-      // re-resolve IPNS — the announcement has the
-      // latest CID, IPNS may lag behind).
-      if (helia) {
-        track(
-          fetchByCid(ipnsName, cidStr, blockData)
-            .then(async (ok) => {
-              if (ok && appId && config.pubsub && config.peerId) {
-                const g = issueGuarantee(ipnsName);
-                await announceAck(
-                  config.pubsub,
-                  appId,
-                  ipnsName,
-                  cidStr,
-                  config.peerId,
-                  g.guaranteeUntil,
-                  g.retainUntil,
-                );
-                lastAckedCid.set(ipnsName, cidStr);
-                // Thin old versions after new ingest
-                await thinVersionHistory(ipnsName);
-                markDirty();
-                log.debug(
-                  `acked` +
-                    ` ${ipnsName.slice(0, 12)}...` +
-                    ` cid=${cidStr.slice(0, 12)}...`,
-                );
-              } else {
-                log.debug(
-                  `ack skipped:` +
-                    ` ok=${ok}` +
-                    ` appId=${appId}` +
-                    ` pubsub=${!!config.pubsub}` +
-                    ` peerId=${!!config.peerId}`,
-                );
-              }
-            })
-            .catch((err) => {
-              log.warn(
-                `ack failed:` +
-                  ` ${ipnsName.slice(0, 12)}...` +
-                  ` cid=${cidStr.slice(0, 12)}...:`,
-                err,
-              );
-            }),
+      if (!fromPinner && !proof) {
+        log.debug(
+          `no proof for` +
+            ` ${ipnsName.slice(0, 12)}...` +
+            ` (migration period)`,
         );
       }
 
-      // Schedule for re-announce
-      const now = Date.now();
-      const interval = reannounceInterval(ipnsName, now);
-      if (interval < MAX_INTERVAL_MS) {
-        scheduleDoc(ipnsName, now + interval);
-      }
+      processAnnouncement(ipnsName, cidStr, appId, blockData, fromPinner);
     },
 
     onGuaranteeQuery(ipnsName: string, appId: string): void {

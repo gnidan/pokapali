@@ -29,8 +29,10 @@ import {
   generateAdminSecret,
   deriveDocKeys,
   ed25519KeyPairFromSeed,
+  bytesToHex,
 } from "@pokapali/crypto";
 import { encodeSnapshot } from "@pokapali/snapshot";
+import { signAnnouncementProof } from "@pokapali/core/announce";
 import { createPinner } from "./pinner.js";
 
 async function makeSnapshot(opts?: {
@@ -537,6 +539,149 @@ describe("pinner with mock helia", () => {
       await pinner.flush();
 
       expect(mockPubsub.publish).not.toHaveBeenCalled();
+      await pinner.stop();
+    });
+  });
+
+  describe("proof verification (#75)", () => {
+    it("accepts announcement with valid proof", async () => {
+      const secret = generateAdminSecret();
+      const keys = await deriveDocKeys(secret, "test-app", ["content"]);
+      const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+      const ipnsName = bytesToHex(signingKey.publicKey);
+      const block = await encodeSnapshot(
+        { content: new Uint8Array([1, 2, 3]) },
+        keys.readKey,
+        null,
+        1,
+        Date.now(),
+        signingKey,
+      );
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      const proof = await signAnnouncementProof(
+        signingKey,
+        ipnsName,
+        cid.toString(),
+      );
+      pinner.onAnnouncement(
+        ipnsName,
+        cid.toString(),
+        "test-app",
+        undefined,
+        false,
+        proof,
+      );
+      // Double flush: first drains the proof verification
+      // IIFE, second drains the fetch queued by
+      // processAnnouncement inside it.
+      await pinner.flush();
+      await pinner.flush();
+
+      const tip = pinner.history.getTip(ipnsName);
+      expect(tip).toBe(cid.toString());
+
+      await pinner.stop();
+    });
+
+    it("rejects announcement with invalid proof", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      pinner.onAnnouncement(
+        "aa11bb22cc33dd44ee55ff6600112233" + "aa11bb22cc33dd44ee55ff6600112233",
+        cid.toString(),
+        "test-app",
+        undefined,
+        false,
+        "deadbeefdeadbeefdeadbeef", // bad proof
+      );
+      await pinner.flush();
+
+      // Should NOT have fetched — proof was invalid
+      expect(mockHelia.blockstore.get).not.toHaveBeenCalled();
+
+      await pinner.stop();
+    });
+
+    it(
+      "accepts announcement without proof " + "(migration period)",
+      async () => {
+        const block = await makeSnapshot({ ts: 5000 });
+        const cid = await blockToCid(block);
+        const blocks = new Map<string, Uint8Array>();
+        blocks.set(cid.toString(), block);
+        const mockHelia = createMockHelia(blocks);
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          helia: mockHelia as any,
+        });
+        await pinner.start();
+
+        // No proof — migration period allows it
+        pinner.onAnnouncement(
+          "aa11bb22cc33dd44ee55ff6600112233" +
+            "aa11bb22cc33dd44ee55ff6600112233",
+          cid.toString(),
+          "test-app",
+        );
+        await pinner.flush();
+
+        // Should have fetched — no proof = migration accept
+        expect(mockHelia.blockstore.get).toHaveBeenCalled();
+
+        await pinner.stop();
+      },
+    );
+
+    it("skips proof check for pinner re-announces", async () => {
+      const block = await makeSnapshot({ ts: 5000 });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      // fromPinner=true, no proof — should proceed
+      pinner.onAnnouncement(
+        "aa11bb22cc33dd44ee55ff6600112233" + "aa11bb22cc33dd44ee55ff6600112233",
+        cid.toString(),
+        "test-app",
+        undefined,
+        true, // fromPinner
+      );
+      await pinner.flush();
+
+      expect(mockHelia.blockstore.get).toHaveBeenCalled();
+
       await pinner.stop();
     });
   });

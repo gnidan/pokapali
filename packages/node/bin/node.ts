@@ -489,6 +489,7 @@ async function main() {
               appId,
               blockData,
               msg.fromPinner,
+              msg.proof,
             );
             return;
           }
