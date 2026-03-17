@@ -2,6 +2,20 @@
   "name": "@pokapali/load-test",
   "version": "0.0.0",
   "private": true,
+  "description": "Load testing harness for pokapali networks",
+  "keywords": [
+    "pokapali",
+    "load-test",
+    "performance",
+    "benchmarking"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/load-test",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/load-test"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

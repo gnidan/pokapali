@@ -1,6 +1,23 @@
 {
   "name": "@pokapali/node",
   "version": "0.1.0-alpha.10",
+  "description": "Node.js relay and pinner for pokapali networks",
+  "keywords": [
+    "pokapali",
+    "node",
+    "relay",
+    "pinner",
+    "libp2p",
+    "ipfs",
+    "server"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/node",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/node"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

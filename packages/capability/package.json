@@ -1,6 +1,21 @@
 {
   "name": "@pokapali/capability",
   "version": "0.1.0-alpha.10",
+  "description": "Capability-based access control for pokapali documents",
+  "keywords": [
+    "pokapali",
+    "capability",
+    "access-control",
+    "encryption",
+    "authorization"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/capability",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/capability"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

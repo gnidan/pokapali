@@ -1,6 +1,21 @@
 {
   "name": "@pokapali/snapshot",
   "version": "0.1.0-alpha.10",
+  "description": "Encrypted snapshot encoding and versioning for pokapali documents",
+  "keywords": [
+    "pokapali",
+    "snapshot",
+    "ipfs",
+    "dag-cbor",
+    "versioning"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/snapshot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/snapshot"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

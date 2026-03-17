@@ -1,6 +1,24 @@
 {
   "name": "@pokapali/core",
   "version": "0.1.0-alpha.10",
+  "description": "P2P collaborative document sync using Yjs, WebRTC, and IPFS",
+  "keywords": [
+    "pokapali",
+    "crdt",
+    "yjs",
+    "p2p",
+    "collaboration",
+    "webrtc",
+    "ipfs",
+    "sync"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/core",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/core"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

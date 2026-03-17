@@ -1,6 +1,22 @@
 {
   "name": "@pokapali/comments",
   "version": "0.1.0-alpha.10",
+  "description": "Anchored, attributed, threaded comments for Yjs documents",
+  "keywords": [
+    "pokapali",
+    "comments",
+    "yjs",
+    "crdt",
+    "collaboration",
+    "annotations"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/comments",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/comments"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

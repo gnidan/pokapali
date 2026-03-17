@@ -1,6 +1,19 @@
 {
   "name": "@pokapali/log",
   "version": "0.1.0-alpha.10",
+  "description": "Structured logging for pokapali packages",
+  "keywords": [
+    "pokapali",
+    "logging",
+    "debug"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/log",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/log"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
