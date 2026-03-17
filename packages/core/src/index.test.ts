@@ -284,6 +284,82 @@ describe("@pokapali/core", () => {
     reader.destroy();
   });
 
+  it("configuredChannels lists all channels", async () => {
+    const lib = pokapali(OPTS);
+    const doc = await lib.create();
+    expect(doc.configuredChannels).toEqual(["content", "comments"]);
+    doc.destroy();
+  });
+
+  it(
+    "writer with subset of channels warns on" + " missing channel access",
+    async () => {
+      const lib = pokapali(OPTS);
+      const admin = await lib.create();
+      // Invite writer with only "content" channel
+      const url = await admin.invite({
+        channels: ["content"],
+        canPushSnapshots: true,
+      });
+      admin.destroy();
+
+      const writer = await lib.open(url);
+      expect(writer.capability.channels).toEqual(new Set(["content"]));
+      expect(writer.configuredChannels).toEqual(["content", "comments"]);
+
+      // Accessing "content" (has key) should not warn
+      const warnSpy = vi.spyOn(console, "warn");
+      writer.channel("content");
+      const contentWarns = warnSpy.mock.calls.filter((args) =>
+        args.some(
+          (a) => typeof a === "string" && a.includes('Channel "content"'),
+        ),
+      );
+      expect(contentWarns).toHaveLength(0);
+
+      // Accessing "comments" (no key) should warn
+      writer.channel("comments");
+      const commentsWarns = warnSpy.mock.calls.filter((args) =>
+        args.some(
+          (a) => typeof a === "string" && a.includes('Channel "comments"'),
+        ),
+      );
+      expect(commentsWarns).toHaveLength(1);
+      warnSpy.mockRestore();
+      writer.destroy();
+    },
+  );
+
+  it("admin accessing all channels does not warn", async () => {
+    const lib = pokapali(OPTS);
+    const doc = await lib.create();
+    const warnSpy = vi.spyOn(console, "warn");
+    doc.channel("content");
+    doc.channel("comments");
+    const channelWarns = warnSpy.mock.calls.filter((args) =>
+      args.some((a) => typeof a === "string" && a.includes("write key")),
+    );
+    expect(channelWarns).toHaveLength(0);
+    warnSpy.mockRestore();
+    doc.destroy();
+  });
+
+  it("admin write URL includes all channels" + " for re-invite", async () => {
+    const lib = pokapali(OPTS);
+    const admin = await lib.create();
+    const writeUrl = admin.urls.write!;
+    admin.destroy();
+
+    // Writer opening the admin's write URL should
+    // have all channels
+    const writer = await lib.open(writeUrl);
+    expect(writer.capability.channels).toEqual(
+      new Set(["content", "comments"]),
+    );
+    expect(writer.capability.canPushSnapshots).toBe(true);
+    writer.destroy();
+  });
+
   it("status starts as 'connecting' before P2P", async () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();

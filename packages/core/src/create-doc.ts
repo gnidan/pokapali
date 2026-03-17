@@ -161,6 +161,11 @@ export interface Doc {
   };
   readonly awareness: Awareness;
   readonly capability: Capability;
+  /** All channels configured for this app. Compare
+   *  with `capability.channels` to find channels
+   *  the current user cannot write (needs re-invite
+   *  from an admin). */
+  readonly configuredChannels: readonly string[];
   readonly urls: DocUrls;
   /** Role derived from capability. */
   readonly role: DocRole;
@@ -1419,6 +1424,15 @@ export function createDoc(params: DocParams): Doc {
         const doc = subdocManager.subdoc(name);
         accessedChannels.add(name);
         liveSyncManager?.connectChannel(name);
+        if (!cap.isAdmin && cap.channels.size > 0 && !cap.channels.has(name)) {
+          log.warn(
+            `Channel "${name}" accessed without` +
+              " write key — sync disabled for this" +
+              " channel. Ask the document admin for" +
+              " a re-invite that includes this" +
+              " channel.",
+          );
+        }
         return doc;
       } catch {
         throw new Error(
@@ -1437,6 +1451,10 @@ export function createDoc(params: DocParams): Doc {
 
     get capability(): Capability {
       return cap;
+    },
+
+    get configuredChannels(): readonly string[] {
+      return channels;
     },
 
     get urls(): DocUrls {
