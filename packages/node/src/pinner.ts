@@ -583,8 +583,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       // delegated-ipfs.dev at scale.
       await ipnsThrottle.acquire(signal);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const name = ipns(helia as any);
+      const name = ipns(helia);
       const keyBytes = hexToBytes(ipnsName);
       const pubKey = publicKeyFromRaw(keyBytes);
 

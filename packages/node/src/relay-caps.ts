@@ -1,5 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Helia } from "helia";
+import type {
+  PubSub,
+  Message,
+  SubscriptionChangeData,
+} from "@libp2p/interface";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("relay");
@@ -48,14 +52,14 @@ export function decodeNodeCaps(data: Uint8Array): NodeCapabilities | null {
  * track peer roles. Returns a cleanup function.
  */
 export function setupCapsListener(
-  pubsub: any,
+  pubsub: PubSub,
   selfPeerId: string,
   knownPeerRoles: Map<string, string[]>,
 ): () => void {
-  const handler = (evt: any) => {
-    const { detail } = evt;
-    if (detail?.topic !== NODE_CAPS_TOPIC) return;
-    const caps = decodeNodeCaps(detail.data);
+  const handler = (evt: CustomEvent<Message>) => {
+    const msg = evt.detail;
+    if (msg.topic !== NODE_CAPS_TOPIC) return;
+    const caps = decodeNodeCaps(msg.data);
     if (!caps || caps.peerId === selfPeerId) return;
     knownPeerRoles.set(caps.peerId, caps.roles);
   };
@@ -77,7 +81,7 @@ export function setupCapsListener(
  * other relays see the change and cascade.
  */
 export function setupDynamicSubscription(
-  pubsub: any,
+  pubsub: PubSub,
   knownPeerRoles: Map<string, string[]>,
 ): {
   autoSubOriginators: Map<string, Set<string>>;
@@ -99,13 +103,9 @@ export function setupDynamicSubscription(
     );
   }
 
-  const handler = (evt: any) => {
-    const peer = evt.detail?.peerId?.toString();
-    if (!peer) return;
-    const subs: {
-      topic: string;
-      subscribe: boolean;
-    }[] = evt.detail?.subscriptions ?? [];
+  const handler = (evt: CustomEvent<SubscriptionChangeData>) => {
+    const peer = evt.detail.peerId.toString();
+    const subs = evt.detail.subscriptions;
     for (const sub of subs) {
       if (!isAnnounceTopic(sub.topic)) continue;
       if (isRelayPeer(peer)) continue;
@@ -142,7 +142,7 @@ export function setupDynamicSubscription(
  */
 export function publishCaps(
   helia: Helia,
-  pubsub: any,
+  pubsub: PubSub,
   selfPeerId: string,
   roles: string[],
   knownPeerRoles: Map<string, string[]>,
@@ -153,7 +153,7 @@ export function publishCaps(
   // remaining non-relay originators.
   for (const [topic, originators] of autoSubOriginators) {
     const connPids = new Set(
-      helia.libp2p.getConnections().map((c: any) => c.remotePeer.toString()),
+      helia.libp2p.getConnections().map((c) => c.remotePeer.toString()),
     );
     for (const pid of originators) {
       if (!connPids.has(pid)) {
@@ -172,7 +172,7 @@ export function publishCaps(
   const conns = helia.libp2p.getConnections();
   const connectedPids = new Set<string>();
   for (const conn of conns) {
-    connectedPids.add((conn as any).remotePeer.toString());
+    connectedPids.add(conn.remotePeer.toString());
   }
 
   // Prune stale entries from knownPeerRoles
