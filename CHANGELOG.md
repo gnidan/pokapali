@@ -80,14 +80,11 @@ The format is based on
 
 ### Fixed
 
-- Diagnostics warning spam before P2P ready — guard
-  `buildDiagnostics()` with `isHeliaLive()` to avoid
-  throwing during bootstrap (#245)
-- Tiptap/comments-tiptap crash on editor init —
-  `Cannot read 'nodeSize' of undefined` caused by
-  comment anchor resolution racing editor creation;
-  fixed IDB persistence recreation race and editor
-  init ordering (#246)
+- Diagnostics warning spam before P2P ready — guard `buildDiagnostics()` with
+  `isHeliaLive()` to avoid throwing during bootstrap (#245)
+- Tiptap/comments-tiptap crash on editor init — `Cannot read 'nodeSize' of
+undefined` caused by comment anchor resolution racing editor creation; fixed
+  IDB persistence recreation race and editor init ordering (#246)
 
 ## [0.1.0-alpha.8] — 2026-03-16
 
@@ -172,8 +169,9 @@ The format is based on
   under version heading — now handles both
   `[Unreleased]` and version-headed changelog, and
   `version-bump.mjs` sets `POKAPALI_RELEASE=1` (#236)
-- Stale `namespaces` terminology in architecture.md
-  updated to `channels` (#161)
+- Stale `namespaces` terminology in architecture.md updated to `channels`
+  (#161)
+- npm audit vulnerabilities resolved — updated transitive dependencies (#237)
 
 ## [0.1.0-alpha.6] — 2026-03-15
 
@@ -234,6 +232,9 @@ syncState)` — bulk ProseMirror position resolution
 - **create-doc.ts refactored** — 1942→1659 lines,
   3 modules extracted (doc-status, doc-identity,
   doc-gossip-bridge) (#183)
+- **sources.ts refactored** — split into `feed.ts` (Feed public API),
+  `async-utils.ts` (AsyncQueue, merge, scan), and `fact-sources.ts`
+  (fact-stream iteration) (#184)
 - Example app migrated to `@pokapali/comments-tiptap`
   imports (~358 lines removed)
 - Example app: 11 of 17 `doc.on` calls migrated to
@@ -297,6 +298,7 @@ syncState)` — bulk ProseMirror position resolution
   #127)
 - helia singleton race condition tests (#132)
 - comments feed.ts and storage.ts tests (#134)
+- Tier 1 CI smoke load test — fast GHA smoke check before nightly suite (#170)
 - 3 new Playwright E2E tests (65 total)
 
 ### Changed
@@ -330,6 +332,8 @@ syncState)` — bulk ProseMirror position resolution
 - `selectedCommentId` cleared on sidebar close
 - Active comment highlight now propagates correctly to
   the commentHighlight extension
+- Comment popover button styled to match header toolbar buttons (#190)
+- Comments panel opens on click of highlighted text (#192)
 - Resolve/reopen/delete no longer throw on peer-deleted
   comments (try/catch added)
 - `commentsDoc` moved to React state for stable reference
@@ -533,6 +537,16 @@ First public npm release. 10 packages published.
   channel (#81)
 - Auth test gaps: self-deauth, admin gate, signature verification,
   round-trip, migration, rotation (#70)
+- Empty blocks from blockstore/HTTP silently fail CBOR decode — now treated
+  as misses with retry, guarding all decode sites (#60)
+- Gossip property test assertion fix — allow `ts=0`, recompute
+  `newestFetched` on block-fetch-failed (#61)
+- History and `loadVersion()` blocks only cached in memory — now persisted
+  to IDB, eliminating re-fetch on page reload (#66)
+
+### Tests
+
+- 22 unit tests for doc-diagnostics, create-doc, and doc-rotate (#48)
 
 ### Security
 
