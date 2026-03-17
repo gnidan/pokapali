@@ -76,8 +76,7 @@ function mockRelay(opts?: {
             getPeers: () => gsPeers,
             getSubscribers: (topic: string) =>
               (subs[topic] ?? []).map((p: string) => ({ toString: () => p })),
-            getMeshPeers: (topic: string) =>
-              [...(mesh.get(topic) ?? [])].map((p) => ({ toString: () => p })),
+            getMeshPeers: (topic: string) => [...(mesh.get(topic) ?? [])],
             backoff,
             streamsOutbound: streamsOut,
             score: {

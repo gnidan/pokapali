@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Helia } from "helia";
 import type { CID } from "multiformats/cid";
 import { createLogger } from "@pokapali/log";
@@ -121,7 +120,7 @@ export function scheduleHealthCheck(
       Math.random() * (HEALTH_CHECK_MAX_MS - HEALTH_CHECK_MIN_MS);
     return setTimeout(async () => {
       const connectedPids = new Set(
-        helia.libp2p.getConnections().map((c: any) => c.remotePeer.toString()),
+        helia.libp2p.getConnections().map((c) => c.remotePeer.toString()),
       );
       for (const pid of knownRelayPeerIds) {
         if (connectedPids.has(pid)) continue;

@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import type { Server } from "node:http";
 import type { Server as HttpsServer } from "node:https";
+import type { GossipSub } from "@chainsafe/libp2p-gossipsub";
 import type { Relay } from "./relay.js";
 import type { Pinner } from "./pinner.js";
 import { createLogger, getLogLevel } from "@pokapali/log";
@@ -98,10 +99,10 @@ function getStatusData(config: HttpConfig) {
   // GossipSub diagnostics
   let gossipsub: Record<string, unknown> | null = null;
   if (relay) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pubsub = (relay.helia.libp2p.services as any).pubsub;
-    const gsTopics: string[] = pubsub.getTopics?.() ?? [];
-    const gsPeers = pubsub.getPeers?.() ?? [];
+    const gs = (relay.helia.libp2p.services as Record<string, unknown>)
+      .pubsub as GossipSub;
+    const gsTopics = gs.getTopics();
+    const gsPeers = gs.getPeers();
     const topics: Record<
       string,
       {
@@ -110,11 +111,11 @@ function getStatusData(config: HttpConfig) {
       }
     > = {};
     for (const t of gsTopics) {
-      const subs = pubsub.getSubscribers(t);
-      const mp = pubsub.getMeshPeers?.(t);
+      const subs = gs.getSubscribers(t);
+      const mp = gs.getMeshPeers(t);
       topics[t] = {
         subscribers: subs.length,
-        mesh: mp?.length ?? 0,
+        mesh: mp.length,
       };
     }
 
@@ -141,14 +142,17 @@ function getGossipsubMetrics(
   const { relay } = config;
   if (!relay) return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gs = (relay.helia.libp2p.services as any).pubsub as any;
+  const gs = (relay.helia.libp2p.services as Record<string, unknown>)
+    .pubsub as GossipSub;
   if (!gs) return null;
 
-  const gsTopics: string[] = gs.getTopics?.() ?? [];
-  const gsPeers: { toString(): string }[] = gs.getPeers?.() ?? [];
-  const backoffMap = gs.backoff as Map<string, Map<string, number>> | undefined;
-  const streamsOut = gs.streamsOutbound as Map<string, unknown> | undefined;
+  const gsTopics = gs.getTopics();
+  const gsPeers = gs.getPeers();
+  // backoff is private on GossipSub — no public API.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const backoffMap = (gs as any).backoff as
+    | Map<string, Map<string, number>>
+    | undefined;
 
   const now = Date.now();
 
@@ -169,8 +173,8 @@ function getGossipsubMetrics(
   > = {};
   const meshPeerIds = new Set<string>();
   for (const t of gsTopics) {
-    const subs = gs.getSubscribers?.(t) ?? [];
-    const mp: { toString(): string }[] = gs.getMeshPeers?.(t) ?? [];
+    const subs = gs.getSubscribers(t);
+    const mp = gs.getMeshPeers(t);
     const topicBackoff = backoffMap?.get(t);
     const meshPeers: {
       peerId: string;
@@ -178,10 +182,9 @@ function getGossipsubMetrics(
       hasStream: boolean;
       backoffSec: number | null;
     }[] = [];
-    for (const p of mp) {
-      const pid = p.toString();
+    for (const pid of mp) {
       meshPeerIds.add(pid);
-      const score = gs.score?.score?.(pid);
+      const score = gs.score.score(pid);
       const boExpiry = topicBackoff?.get(pid);
       const boSec =
         typeof boExpiry === "number" && boExpiry > now
@@ -189,8 +192,8 @@ function getGossipsubMetrics(
           : null;
       meshPeers.push({
         peerId: pid,
-        score: typeof score === "number" ? Math.round(score * 100) / 100 : null,
-        hasStream: streamsOut?.has(pid) ?? false,
+        score: Math.round(score * 100) / 100,
+        hasStream: gs.streamsOutbound.has(pid),
         backoffSec: boSec,
       });
     }
@@ -204,10 +207,8 @@ function getGossipsubMetrics(
   // Score distribution summary
   const scoreValues: number[] = [];
   for (const pid of meshPeerIds) {
-    const score = gs.score?.score?.(pid);
-    if (typeof score === "number") {
-      scoreValues.push(Math.round(score * 100) / 100);
-    }
+    const score = gs.score.score(pid);
+    scoreValues.push(Math.round(score * 100) / 100);
   }
   const sorted = [...scoreValues].sort((a, b) => a - b);
   const distribution =
@@ -224,10 +225,7 @@ function getGossipsubMetrics(
   // Relay peer connectivity — which known relay
   // peers are connected vs disconnected
   const connectedPids = new Set(
-    relay.helia.libp2p
-      .getConnections()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((c: any) => c.remotePeer.toString()),
+    relay.helia.libp2p.getConnections().map((c) => c.remotePeer.toString()),
   );
   // knownRelayPeerIds is internal to relay.ts —
   // approximate from peers with score >= 100
@@ -238,8 +236,8 @@ function getGossipsubMetrics(
     score: number | null;
   }[] = [];
   for (const pid of meshPeerIds) {
-    const score = gs.score?.score?.(pid);
-    if (typeof score === "number" && score >= 90) {
+    const score = gs.score.score(pid);
+    if (score >= 90) {
       relayPeers.push({
         peerId: pid,
         connected: connectedPids.has(pid),
