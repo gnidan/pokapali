@@ -18,11 +18,7 @@ import { LevelDatastore } from "datastore-level";
 import { Key as RawKey } from "interface-datastore";
 import { createLogger } from "@pokapali/log";
 
-// interface-datastore Key has duplicate type
-// declarations (ipns bundles its own). Cast to
-// any at the boundary to satisfy both.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function Key(s: string): any {
+function Key(s: string): RawKey {
   return new RawKey(s);
 }
 
