@@ -43,13 +43,10 @@ export function startStatusLogging(
     // backoff for each subscriber.
     // These access GossipSub internal properties
     // that have no public API.
+    // backoff is private on GossipSub — no public API.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const gsInternal = gs as any;
-    const backoffMap = gsInternal.backoff as
+    const backoffMap = (gs as any).backoff as
       | Map<string, Map<string, number>>
-      | undefined;
-    const streamsOut = gsInternal.streamsOutbound as
-      | Map<string, unknown>
       | undefined;
     for (const topic of gsTopics) {
       const subs = gs.getSubscribers(topic);
@@ -60,16 +57,15 @@ export function startStatusLogging(
         const id = p.toString();
         const short = id.slice(-8);
         const inMesh = topicMeshPeers.has(id) ? "M" : "-";
-        const hasStream = streamsOut?.has(id) ? "S" : "!S";
-        const score = gsInternal.score?.score?.(id) ?? "?";
+        const hasStream = gs.streamsOutbound.has(id) ? "S" : "!S";
+        const score = gs.score.score(id);
         const bo = topicBackoff?.has(id)
           ? `BO:${Math.round(
               ((topicBackoff.get(id) ?? 0) - Date.now()) / 1000,
             )}s`
           : "-";
         return (
-          `${short}[${inMesh}${hasStream} ` +
-          `sc:${typeof score === "number" ? score.toFixed(1) : score} ${bo}]`
+          `${short}[${inMesh}${hasStream} ` + `sc:${score.toFixed(1)} ${bo}]`
         );
       });
       const shortTopic = topic.length > 30 ? "..." + topic.slice(-25) : topic;

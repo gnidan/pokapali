@@ -148,13 +148,10 @@ function getGossipsubMetrics(
 
   const gsTopics = gs.getTopics();
   const gsPeers = gs.getPeers();
+  // backoff is private on GossipSub — no public API.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gsInternal = gs as any;
-  const backoffMap = gsInternal.backoff as
+  const backoffMap = (gs as any).backoff as
     | Map<string, Map<string, number>>
-    | undefined;
-  const streamsOut = gsInternal.streamsOutbound as
-    | Map<string, unknown>
     | undefined;
 
   const now = Date.now();
@@ -187,7 +184,7 @@ function getGossipsubMetrics(
     }[] = [];
     for (const pid of mp) {
       meshPeerIds.add(pid);
-      const score = gsInternal.score?.score?.(pid);
+      const score = gs.score.score(pid);
       const boExpiry = topicBackoff?.get(pid);
       const boSec =
         typeof boExpiry === "number" && boExpiry > now
@@ -195,8 +192,8 @@ function getGossipsubMetrics(
           : null;
       meshPeers.push({
         peerId: pid,
-        score: typeof score === "number" ? Math.round(score * 100) / 100 : null,
-        hasStream: streamsOut?.has(pid) ?? false,
+        score: Math.round(score * 100) / 100,
+        hasStream: gs.streamsOutbound.has(pid),
         backoffSec: boSec,
       });
     }
@@ -210,10 +207,8 @@ function getGossipsubMetrics(
   // Score distribution summary
   const scoreValues: number[] = [];
   for (const pid of meshPeerIds) {
-    const score = gsInternal.score?.score?.(pid);
-    if (typeof score === "number") {
-      scoreValues.push(Math.round(score * 100) / 100);
-    }
+    const score = gs.score.score(pid);
+    scoreValues.push(Math.round(score * 100) / 100);
   }
   const sorted = [...scoreValues].sort((a, b) => a - b);
   const distribution =
@@ -241,8 +236,8 @@ function getGossipsubMetrics(
     score: number | null;
   }[] = [];
   for (const pid of meshPeerIds) {
-    const score = gsInternal.score?.score?.(pid);
-    if (typeof score === "number" && score >= 90) {
+    const score = gs.score.score(pid);
+    if (score >= 90) {
       relayPeers.push({
         peerId: pid,
         connected: connectedPids.has(pid),
