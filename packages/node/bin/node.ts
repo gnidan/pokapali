@@ -19,6 +19,35 @@ import type { Server as HttpsServer } from "node:https";
 
 const log = createLogger("node");
 
+// Third-party libraries (autoTLS cert renewal,
+// gossipsub heartbeat) occasionally pass NaN to
+// setTimeout, triggering Node.js TimeoutNaN
+// warnings. Patch the global to clamp NaN delays
+// to 1ms (matching Node.js internal behaviour)
+// and log once for diagnosis.
+{
+  const origSetTimeout = globalThis.setTimeout;
+  let nanWarned = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).setTimeout = function patchedSetTimeout(
+    cb: (...args: unknown[]) => void,
+    delay?: number,
+    ...args: unknown[]
+  ) {
+    if (delay !== undefined && Number.isNaN(delay)) {
+      if (!nanWarned) {
+        nanWarned = true;
+        log.warn(
+          "setTimeout called with NaN delay" + " (clamped to 1ms):",
+          new Error().stack,
+        );
+      }
+      delay = 1;
+    }
+    return origSetTimeout(cb, delay, ...args);
+  };
+}
+
 const VALID_LOG_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
 function printHelp(): void {
