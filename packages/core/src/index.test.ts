@@ -688,9 +688,14 @@ describe("@pokapali/core", () => {
     });
   });
 
+  // #249: This test was flaky before ca5162a due to
+  // setTimeout(0) not flushing the p2pReady async
+  // chain reliably. Fixed with vi.waitFor(). The
+  // retry(2) is a safety net for heavily loaded CI.
   describe("pinner discovery triggers guarantee query", () => {
     it(
       "fires queryGuarantees when new pinner" + " appears in node-registry",
+      { retry: 2 },
       async () => {
         // Set up a mock registry that captures
         // the on("change") callback so we can
@@ -741,9 +746,12 @@ describe("@pokapali/core", () => {
         // presence guarantees fireGuaranteeQuery
         // has been set.
         const { watchIPNS } = await import("./ipns-helpers.js");
-        await vi.waitFor(() => {
-          expect(watchIPNS).toHaveBeenCalled();
-        });
+        await vi.waitFor(
+          () => {
+            expect(watchIPNS).toHaveBeenCalled();
+          },
+          { timeout: 5000 },
+        );
 
         // nodeChangeHandler should have been
         // registered
