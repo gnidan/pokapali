@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
 import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
+import { setLogLevel, getLogLevel } from "@pokapali/log";
 import {
   _resetForwardingStore,
   decodeForwardingRecord,
@@ -307,6 +308,10 @@ describe("@pokapali/core", () => {
       expect(writer.capability.channels).toEqual(new Set(["content"]));
       expect(writer.configuredChannels).toEqual(["content", "comments"]);
 
+      // Ensure log level allows warn output
+      const prevLevel = getLogLevel();
+      setLogLevel("warn");
+
       // Accessing "content" (has key) should not warn
       const warnSpy = vi.spyOn(console, "warn");
       writer.channel("content");
@@ -326,6 +331,7 @@ describe("@pokapali/core", () => {
       );
       expect(commentsWarns).toHaveLength(1);
       warnSpy.mockRestore();
+      setLogLevel(prevLevel);
       writer.destroy();
     },
   );
@@ -333,6 +339,8 @@ describe("@pokapali/core", () => {
   it("admin accessing all channels does not warn", async () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
+    const prevLevel = getLogLevel();
+    setLogLevel("warn");
     const warnSpy = vi.spyOn(console, "warn");
     doc.channel("content");
     doc.channel("comments");
@@ -341,6 +349,7 @@ describe("@pokapali/core", () => {
     );
     expect(channelWarns).toHaveLength(0);
     warnSpy.mockRestore();
+    setLogLevel(prevLevel);
     doc.destroy();
   });
 
