@@ -18,7 +18,6 @@ import type { Helia } from "helia";
 import type { PrivateKey } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
-import { announceTopic } from "@pokapali/core/announce";
 import { createDelegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
 import { delegatedHTTPRoutingDefaults } from "@helia/routers";
 import { createLogger } from "@pokapali/log";
@@ -179,15 +178,8 @@ export interface RelayConfig {
   // Needed so autoTLS knows our public IP before any
   // peers connect and report observed addresses.
   announceAddrs?: string[];
-  // App IDs to subscribe to announcement topics for.
-  // Subscribes to /pokapali/app/{appId}/announce for
-  // each ID, so the relay joins the GossipSub mesh
-  // and can forward announcements to the pinner.
-  pinAppIds?: string[];
   // Node roles to advertise (e.g. ["relay"],
-  // ["pinner"], or ["relay", "pinner"]).
-  // If omitted, inferred: "pinner" if pinAppIds
-  // is non-empty, otherwise empty.
+  // ["relay", "pinner"]). Defaults to ["relay"].
   roles?: string[];
   // Custom delegated routing endpoint URL. When set,
   // overrides the default (delegated-ipfs.dev) for
@@ -472,24 +464,9 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   log.info("subscribed to", DISCOVERY_TOPIC);
   log.info("subscribed to", SIGNALING_TOPIC);
 
-  // Subscribe to announcement topics for pinned apps
-  for (const appId of config.pinAppIds ?? []) {
-    const topic = announceTopic(appId);
-    pubsub.subscribe(topic);
-    log.info("subscribed to", topic);
-  }
-
   // Capability advertisement
   pubsub.subscribe(NODE_CAPS_TOPIC);
-  const roles =
-    config.roles ??
-    (() => {
-      const inferred = ["relay"];
-      if ((config.pinAppIds ?? []).length > 0) {
-        inferred.push("pinner");
-      }
-      return inferred;
-    })();
+  const roles = config.roles ?? ["relay"];
   const selfPeerId = helia.libp2p.peerId.toString();
 
   // Track peer roles from incoming caps messages
@@ -504,12 +481,99 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     knownPeerRoles.set(caps.peerId, caps.roles);
   });
 
+  // Dynamic app-topic subscription: when peers
+  // subscribe to announcement topics, the relay
+  // auto-subscribes so it joins the mesh and can
+  // forward messages. This makes the relay fully
+  // app-agnostic — no pinAppIds config needed.
+  //
+  // Originator refcounting prevents relay-to-relay
+  // keep-alive deadlock: only non-relay peers
+  // (browsers) count as originators. When the last
+  // originator leaves, the relay unsubscribes —
+  // other relays see the change and cascade.
+  const ANNOUNCE_PREFIX = "/pokapali/app/";
+  const ANNOUNCE_SUFFIX = "/announce";
+  // topic → set of non-relay peer IDs that triggered
+  // the subscription
+  const autoSubOriginators = new Map<string, Set<string>>();
+
+  function isAnnounceTopic(topic: string): boolean {
+    return topic.startsWith(ANNOUNCE_PREFIX) && topic.endsWith(ANNOUNCE_SUFFIX);
+  }
+
+  function isRelayPeer(peerId: string): boolean {
+    const peerRoles = knownPeerRoles.get(peerId);
+    // Peers without known roles are assumed to be
+    // browsers (they don't send caps messages).
+    return (
+      !!peerRoles &&
+      (peerRoles.includes("relay") || peerRoles.includes("pinner"))
+    );
+  }
+
+  pubsub.addEventListener("subscription-change", (evt: any) => {
+    const peer = evt.detail?.peerId?.toString();
+    if (!peer) return;
+    const subs: {
+      topic: string;
+      subscribe: boolean;
+    }[] = evt.detail?.subscriptions ?? [];
+    for (const sub of subs) {
+      if (!isAnnounceTopic(sub.topic)) continue;
+
+      // Only non-relay peers (browsers) count as
+      // originators. Relay peers are ignored — they
+      // have their own originators driving their
+      // subscriptions, preventing keep-alive deadlock.
+      if (isRelayPeer(peer)) continue;
+
+      if (sub.subscribe) {
+        let originators = autoSubOriginators.get(sub.topic);
+        if (!originators) {
+          originators = new Set();
+          autoSubOriginators.set(sub.topic, originators);
+          pubsub.subscribe(sub.topic);
+          log.info("auto-subscribed to", sub.topic);
+        }
+        originators.add(peer);
+      } else {
+        const originators = autoSubOriginators.get(sub.topic);
+        if (originators) {
+          originators.delete(peer);
+        }
+      }
+    }
+  });
+
   // Mutable — set by bin/node.ts once the HTTPS
   // block server is listening. Referenced by
   // publishCaps() for caps advertisements.
   let httpUrl: string | undefined;
 
   function publishCaps() {
+    // Clean up auto-subscribed topics with no
+    // remaining non-relay originators. This prevents
+    // relay-to-relay keep-alive deadlock: when the
+    // last browser leaves, both relays unsubscribe
+    // in cascade.
+    for (const [topic, originators] of autoSubOriginators) {
+      // Prune disconnected originators
+      const connPids = new Set(
+        helia.libp2p.getConnections().map((c: any) => c.remotePeer.toString()),
+      );
+      for (const pid of originators) {
+        if (!connPids.has(pid)) {
+          originators.delete(pid);
+        }
+      }
+      if (originators.size === 0) {
+        pubsub.unsubscribe(topic);
+        autoSubOriginators.delete(topic);
+        log.info("auto-unsubscribed from", topic);
+      }
+    }
+
     // Build neighbor list from connected peers
     // with known roles (relays/pinners).
     const conns = helia.libp2p.getConnections();

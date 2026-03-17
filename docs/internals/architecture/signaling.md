@@ -33,9 +33,10 @@ peers discover existing rooms.
 
 Relay nodes (`@pokapali/node`) subscribe to the
 signaling topic, the peer discovery topic, and
-announcement topics for configured `pinAppIds`. They
-forward messages between browsers via the GossipSub
-mesh. Relays use autoTLS for automatic WSS certificate
+dynamically auto-subscribe to announcement topics
+when connected peers need them. They forward messages
+between browsers via the GossipSub mesh. Relays use
+autoTLS for automatic WSS certificate
 provisioning, and run client-mode DHT to provide
 records without serving DHT queries.
 
