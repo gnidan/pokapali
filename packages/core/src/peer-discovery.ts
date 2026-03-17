@@ -107,7 +107,9 @@ export function startRoomDiscovery(
           [RELAY_TAG]: { value: RELAY_TAG_VALUE },
         },
       })
-      .catch(() => {});
+      .catch((err) => {
+        log.debug("tag relay failed:", (err as Error)?.message ?? err);
+      });
   }
 
   function untagRelay(pid: string) {
@@ -116,8 +118,12 @@ export function startRoomDiscovery(
       .find((c) => c.remotePeer.toString() === pid);
     if (!conn) return;
     helia.libp2p.peerStore
-      .merge(conn.remotePeer, { tags: { [RELAY_TAG]: undefined } })
-      .catch(() => {});
+      .merge(conn.remotePeer, {
+        tags: { [RELAY_TAG]: undefined },
+      })
+      .catch((err) => {
+        log.debug("untag relay failed:", (err as Error)?.message ?? err);
+      });
   }
 
   function trackRelay(pid: string, addrs: string[]) {

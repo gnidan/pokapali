@@ -1,5 +1,7 @@
 import type { Doc } from "./index.js";
+import { createLogger } from "@pokapali/log";
 
+const log = createLogger("auto-save");
 const DEFAULT_DEBOUNCE_MS = 5_000;
 
 export interface AutoSaveOptions {
@@ -32,7 +34,9 @@ export function createAutoSaver(
       timer = null;
     }
     if (doc.saveState.getSnapshot() !== "dirty") return;
-    doc.publish().catch(() => {});
+    doc.publish().catch((err) => {
+      log.warn("auto-save publish failed:", err);
+    });
   }
 
   function onSnapshotRecommended() {

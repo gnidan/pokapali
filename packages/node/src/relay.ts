@@ -782,7 +782,9 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         if (connectedPids.has(pid)) continue;
         const short = pid.slice(-8);
         log.info(`health: relay ...${short} not connected,`, `re-dialing`);
-        findAndDialProviders().catch(() => {});
+        findAndDialProviders().catch((err) => {
+          log.warn("health re-dial failed:", (err as Error)?.message ?? err);
+        });
         break; // one re-dial pass per check
       }
       healthTimer = scheduleHealthCheck();
