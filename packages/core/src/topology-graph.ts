@@ -5,7 +5,7 @@
  * Extracted from index.ts to reduce file size.
  */
 
-import type { AwarenessTopology } from "./topology-sharing.js";
+import { awarenessField } from "./awareness-state.js";
 
 export interface TopologyNode {
   id: string;
@@ -130,8 +130,7 @@ export function buildTopologyGraph(
 
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const topo = (state as any)?.topology as AwarenessTopology | undefined;
+    const topo = awarenessField(state, "topology");
     if (!topo?.knownNodes) continue;
     for (const kn of topo.knownNodes) {
       if (typeof kn.peerId !== "string" || !Array.isArray(kn.roles)) {
@@ -154,15 +153,13 @@ export function buildTopologyGraph(
   //    from awareness topology state.
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const topo = (state as any)?.topology as AwarenessTopology | undefined;
+    const topo = awarenessField(state, "topology");
 
     const peerId = `awareness:${clientId}`;
     graphNodes.push({
       id: peerId,
       kind: "browser",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      label: (state as any)?.user?.name ?? `Peer ${clientId}`,
+      label: awarenessField(state, "user")?.name ?? `Peer ${clientId}`,
       connected: true,
       roles: [],
       clientId,

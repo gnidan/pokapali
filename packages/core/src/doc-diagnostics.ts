@@ -3,6 +3,7 @@ import type { PeerId, PubSub } from "@libp2p/interface";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { LoadingState } from "./facts.js";
 import type { TopologyEdge } from "./topology-graph.js";
+import { awarenessField } from "./awareness-state.js";
 import { getHelia, isHeliaLive } from "./helia.js";
 import { getNodeRegistry } from "./node-registry.js";
 import { createLogger } from "@pokapali/log";
@@ -177,8 +178,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
     const states = ctx.awareness.getStates();
     editors = Math.max(1, states.size);
     for (const [, state] of states) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cs = (state as any)?.clockSum;
+      const cs = awarenessField(state, "clockSum");
       if (typeof cs === "number" && cs > maxPeerClockSum) {
         maxPeerClockSum = cs;
       }

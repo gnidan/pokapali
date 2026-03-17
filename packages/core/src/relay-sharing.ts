@@ -1,5 +1,6 @@
 import type { Awareness } from "y-protocols/awareness";
 import type { RoomDiscovery } from "./peer-discovery.js";
+import { awarenessField } from "./awareness-state.js";
 
 const PUBLISH_INTERVAL_MS = 30_000;
 const INITIAL_DELAY_MS = 5_000;
@@ -27,8 +28,7 @@ export function createRelaySharing(options: RelaySharingOptions): RelaySharing {
     const states = awareness.getStates();
     for (const [clientId, state] of states) {
       if (clientId === awareness.clientID) continue;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const relays = (state as any)?.relays;
+      const relays = awarenessField(state, "relays");
       if (Array.isArray(relays) && relays.length > 0) {
         roomDiscovery.addExternalRelays(relays);
       }
