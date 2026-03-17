@@ -22,10 +22,24 @@ The format is based on
   cursor transaction rebuilds during drag operations
   ([#250](https://github.com/gnidan/pokapali/issues/250))
 
+### Docs
+
+- README refreshed — version bump to alpha.13,
+  package table updated (added comments-tiptap,
+  react), doc links expanded (api-stability,
+  security-design, principles)
+
 ### Internal
 
 - `gitea-api.sh` — fixed missing leading-slash
   normalization for API paths
+- Mesh health status badges — relay availability,
+  mesh connectivity, and pinned doc count via
+  shields.io endpoint on GitHub Pages
+  ([#262](https://github.com/gnidan/pokapali/issues/262))
+- `.nojekyll` added to GitHub Pages deploy so
+  shields.io badge endpoint renders correctly
+  ([#262](https://github.com/gnidan/pokapali/issues/262))
 
 ## [0.1.0-alpha.13] — 2026-03-17
 
