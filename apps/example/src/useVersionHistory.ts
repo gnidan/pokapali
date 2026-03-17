@@ -173,10 +173,7 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
         if (cancelled) break;
         if (loadedSeqsRef.current.has(entry.seq)) continue;
         try {
-          const channels = await doc.loadVersion(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            entry.cid as any,
-          );
+          const channels = await doc.loadVersion(entry.cid);
           if (cancelled) break;
           const ydoc = channels["content"] ?? Object.values(channels)[0];
           if (!ydoc) {

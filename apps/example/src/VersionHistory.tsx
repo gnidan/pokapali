@@ -187,95 +187,92 @@ export function VersionHistory({
         seq: entry.seq,
       });
 
-      doc
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .loadVersion(entry.cid as any)
-        .then(
-          (channels) => {
-            if (cancelRef.current) return;
-            if (requestRef.current !== requestId) {
-              return;
+      doc.loadVersion(entry.cid).then(
+        (channels) => {
+          if (cancelRef.current) return;
+          if (requestRef.current !== requestId) {
+            return;
+          }
+          // Clear any retrying state for this seq
+          setRetrying((prev) => {
+            if (!prev.has(entry.seq)) return prev;
+            const next = new Set(prev);
+            next.delete(entry.seq);
+            return next;
+          });
+          const ydoc = channels["content"] ?? Object.values(channels)[0];
+          if (!ydoc) {
+            setLoadState({
+              status: "error",
+              seq: entry.seq,
+              message: "No content in this version",
+              retryable: false,
+              attempt,
+            });
+            return;
+          }
+          setLoadState({
+            status: "loaded",
+            seq: entry.seq,
+            ydoc,
+          });
+          onPreview(entry, ydoc);
+        },
+        (err) => {
+          if (cancelRef.current) return;
+          if (requestRef.current !== requestId) {
+            return;
+          }
+          const msg = err instanceof Error ? err.message : String(err);
+          const transient = isTransientError(msg);
+          const canRetry = transient && attempt < MAX_RETRIES;
+
+          if (canRetry) {
+            // Schedule automatic retry with backoff
+            setRetrying((prev) => {
+              const next = new Set(prev);
+              next.add(entry.seq);
+              return next;
+            });
+            setLoadState({
+              status: "error",
+              seq: entry.seq,
+              message: msg,
+              retryable: true,
+              attempt,
+            });
+            retryTimerRef.current = setTimeout(() => {
+              if (cancelRef.current) return;
+              if (requestRef.current !== requestId) {
+                return;
+              }
+              selectVersion(entry, attempt + 1);
+            }, RETRY_DELAYS[attempt]);
+          } else {
+            // Exhausted retries or non-transient error
+            if (transient) {
+              setUnavailable((prev) => {
+                const next = new Set(prev);
+                next.add(entry.seq);
+                return next;
+              });
             }
-            // Clear any retrying state for this seq
             setRetrying((prev) => {
               if (!prev.has(entry.seq)) return prev;
               const next = new Set(prev);
               next.delete(entry.seq);
               return next;
             });
-            const ydoc = channels["content"] ?? Object.values(channels)[0];
-            if (!ydoc) {
-              setLoadState({
-                status: "error",
-                seq: entry.seq,
-                message: "No content in this version",
-                retryable: false,
-                attempt,
-              });
-              return;
-            }
             setLoadState({
-              status: "loaded",
+              status: "error",
               seq: entry.seq,
-              ydoc,
+              message: msg,
+              retryable: false,
+              attempt,
             });
-            onPreview(entry, ydoc);
-          },
-          (err) => {
-            if (cancelRef.current) return;
-            if (requestRef.current !== requestId) {
-              return;
-            }
-            const msg = err instanceof Error ? err.message : String(err);
-            const transient = isTransientError(msg);
-            const canRetry = transient && attempt < MAX_RETRIES;
-
-            if (canRetry) {
-              // Schedule automatic retry with backoff
-              setRetrying((prev) => {
-                const next = new Set(prev);
-                next.add(entry.seq);
-                return next;
-              });
-              setLoadState({
-                status: "error",
-                seq: entry.seq,
-                message: msg,
-                retryable: true,
-                attempt,
-              });
-              retryTimerRef.current = setTimeout(() => {
-                if (cancelRef.current) return;
-                if (requestRef.current !== requestId) {
-                  return;
-                }
-                selectVersion(entry, attempt + 1);
-              }, RETRY_DELAYS[attempt]);
-            } else {
-              // Exhausted retries or non-transient error
-              if (transient) {
-                setUnavailable((prev) => {
-                  const next = new Set(prev);
-                  next.add(entry.seq);
-                  return next;
-                });
-              }
-              setRetrying((prev) => {
-                if (!prev.has(entry.seq)) return prev;
-                const next = new Set(prev);
-                next.delete(entry.seq);
-                return next;
-              });
-              setLoadState({
-                status: "error",
-                seq: entry.seq,
-                message: msg,
-                retryable: false,
-                attempt,
-              });
-            }
-          },
-        );
+          }
+        },
+      );
     },
     [doc, onPreview],
   );

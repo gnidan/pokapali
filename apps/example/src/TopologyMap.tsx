@@ -7,7 +7,12 @@ import {
   forceX,
   forceY,
 } from "d3-force";
-import type { Simulation, SimulationNodeDatum } from "d3-force";
+import type {
+  ForceLink,
+  Simulation,
+  SimulationLinkDatum,
+  SimulationNodeDatum,
+} from "d3-force";
 import type {
   TopologyNode,
   TopologyGraphEdge,
@@ -152,9 +157,9 @@ interface SimNode extends SimulationNodeDatum {
 const isInfra = (k: TopologyNode["kind"]) =>
   k === "relay" || k === "pinner" || k === "relay+pinner";
 
-function linkDistanceFn(l: { source: SimNode; target: SimNode }): number {
-  const s = l.source;
-  const t = l.target;
+function linkDistanceFn(l: SimulationLinkDatum<SimNode>): number {
+  const s = l.source as SimNode;
+  const t = l.target as SimNode;
   if (isInfra(s.kind) && isInfra(t.kind)) {
     return 55; // slightly more spacing for thick links
   }
@@ -163,9 +168,9 @@ function linkDistanceFn(l: { source: SimNode; target: SimNode }): number {
   return 110;
 }
 
-function linkStrengthFn(l: { source: SimNode; target: SimNode }): number {
-  const s = l.source;
-  const t = l.target;
+function linkStrengthFn(l: SimulationLinkDatum<SimNode>): number {
+  const s = l.source as SimNode;
+  const t = l.target as SimNode;
   if (isInfra(s.kind) && isInfra(t.kind)) {
     return 0.9;
   }
@@ -213,8 +218,7 @@ function useForceLayout(
     const sim = forceSimulation<SimNode>(nodesRef.current)
       .force(
         "link",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (forceLink as any)([])
+        forceLink<SimNode, SimulationLinkDatum<SimNode>>([])
           .id((d: SimNode) => d.id)
           .distance(linkDistanceFn)
           .strength(linkStrengthFn),
@@ -274,8 +278,10 @@ function useForceLayout(
 
     // Push updated arrays into the simulation
     sim.nodes(nodes);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (sim.force("link") as any)?.links(links);
+    const linkForce = sim.force("link") as
+      | ForceLink<SimNode, SimulationLinkDatum<SimNode>>
+      | undefined;
+    linkForce?.links(links);
 
     // Structural change (nodes added/removed):
     // moderate reheat. Data-only change: gentle.
