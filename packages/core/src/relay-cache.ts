@@ -38,13 +38,6 @@ export function migrateOldCache(): void {
   }
 }
 
-/**
- * Reset migration flag. For testing only.
- */
-export function _resetMigrated(): void {
-  migrated = false;
-}
-
 export function loadCachedRelays(): CachedRelay[] {
   if (!hasLocalStorage()) return [];
   migrateOldCache();

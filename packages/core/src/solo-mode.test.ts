@@ -8,8 +8,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
-import { _resetForwardingStore } from "./forwarding.js";
-
 // Mock helia with zero subscribers (no relays)
 vi.mock("./helia.js", () => ({
   acquireHelia: vi.fn(async () => ({})),
@@ -34,7 +32,6 @@ vi.mock("./helia.js", () => ({
     },
   })),
   isHeliaLive: vi.fn(() => false),
-  _resetHeliaState: vi.fn(),
 }));
 
 vi.mock("./ipns-helpers.js", () => ({
@@ -62,7 +59,6 @@ vi.mock("./peer-discovery.js", () => ({
 vi.mock("./node-registry.js", () => ({
   acquireNodeRegistry: vi.fn(),
   getNodeRegistry: vi.fn(() => null),
-  _resetNodeRegistry: vi.fn(),
   NODE_CAPS_TOPIC: "pokapali._node-caps._p2p._pubsub",
 }));
 
@@ -134,7 +130,6 @@ const SOLO_OPTS = {
 describe("solo mode (no relay)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    _resetForwardingStore();
   });
 
   it("create() succeeds without relays", async () => {

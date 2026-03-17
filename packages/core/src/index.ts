@@ -391,7 +391,7 @@ export type { ForwardingRecord } from "./forwarding.js";
 export { createAutoSaver } from "./auto-save.js";
 export type { AutoSaveOptions } from "./auto-save.js";
 export { truncateUrl, docIdFromUrl } from "./url-utils.js";
-export { NODE_CAPS_TOPIC, _resetNodeRegistry } from "./node-registry.js";
+export { NODE_CAPS_TOPIC } from "./node-registry.js";
 export type {
   KnownNode,
   Neighbor,

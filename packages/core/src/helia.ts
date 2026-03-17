@@ -289,10 +289,3 @@ export function getHelia(): Helia {
 export function isHeliaLive(): boolean {
   return state.phase === "ready";
 }
-
-/**
- * Reset internal state. For testing only.
- */
-export function _resetHeliaState(): void {
-  state = { phase: "idle" };
-}

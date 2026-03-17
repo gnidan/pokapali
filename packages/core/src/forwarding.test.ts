@@ -1,12 +1,9 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   createForwardingRecord,
   encodeForwardingRecord,
   decodeForwardingRecord,
   verifyForwardingRecord,
-  storeForwardingRecord,
-  lookupForwardingRecord,
-  _resetForwardingStore,
 } from "./forwarding.js";
 import { generateAdminSecret, deriveDocKeys } from "@pokapali/crypto";
 
@@ -186,8 +183,11 @@ describe("forwarding records", () => {
   // ── store / lookup ─────────────────────────────
 
   describe("forwarding store", () => {
-    beforeEach(() => {
-      _resetForwardingStore();
+    let mod: typeof import("./forwarding.js");
+
+    beforeEach(async () => {
+      vi.resetModules();
+      mod = await import("./forwarding.js");
     });
 
     it("store and lookup a record", async () => {
@@ -198,14 +198,14 @@ describe("forwarding records", () => {
         rotationKey,
       );
       const bytes = encodeForwardingRecord(record);
-      storeForwardingRecord("oldName", bytes);
+      mod.storeForwardingRecord("oldName", bytes);
 
-      const found = lookupForwardingRecord("oldName");
+      const found = mod.lookupForwardingRecord("oldName");
       expect(found).toEqual(bytes);
     });
 
     it("lookup returns undefined for unknown key", () => {
-      const found = lookupForwardingRecord("unknown");
+      const found = mod.lookupForwardingRecord("unknown");
       expect(found).toBeUndefined();
     });
 
@@ -225,26 +225,11 @@ describe("forwarding records", () => {
       const b1 = encodeForwardingRecord(r1);
       const b2 = encodeForwardingRecord(r2);
 
-      storeForwardingRecord("old", b1);
-      storeForwardingRecord("old", b2);
+      mod.storeForwardingRecord("old", b1);
+      mod.storeForwardingRecord("old", b2);
 
-      const found = lookupForwardingRecord("old");
+      const found = mod.lookupForwardingRecord("old");
       expect(found).toEqual(b2);
-    });
-
-    it("reset clears all records", async () => {
-      const record = await createForwardingRecord(
-        "old",
-        "new",
-        "https://c.com",
-        rotationKey,
-      );
-      const bytes = encodeForwardingRecord(record);
-      storeForwardingRecord("old", bytes);
-
-      _resetForwardingStore();
-
-      expect(lookupForwardingRecord("old")).toBeUndefined();
     });
 
     it("multiple records coexist", async () => {
@@ -260,11 +245,11 @@ describe("forwarding records", () => {
         "https://b.com",
         rotationKey,
       );
-      storeForwardingRecord("old1", encodeForwardingRecord(r1));
-      storeForwardingRecord("old2", encodeForwardingRecord(r2));
+      mod.storeForwardingRecord("old1", encodeForwardingRecord(r1));
+      mod.storeForwardingRecord("old2", encodeForwardingRecord(r2));
 
-      const f1 = lookupForwardingRecord("old1");
-      const f2 = lookupForwardingRecord("old2");
+      const f1 = mod.lookupForwardingRecord("old1");
+      const f2 = mod.lookupForwardingRecord("old2");
       expect(f1).toBeDefined();
       expect(f2).toBeDefined();
 

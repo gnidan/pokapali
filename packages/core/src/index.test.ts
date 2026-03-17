@@ -4,7 +4,6 @@ import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
 import { setLogLevel, getLogLevel } from "@pokapali/log";
 import {
-  _resetForwardingStore,
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
@@ -32,7 +31,6 @@ vi.mock("./helia.js", () => ({
     },
   })),
   isHeliaLive: vi.fn(() => false),
-  _resetHeliaState: vi.fn(),
 }));
 
 vi.mock("./ipns-helpers.js", () => ({
@@ -58,7 +56,6 @@ vi.mock("./peer-discovery.js", () => ({
 vi.mock("./node-registry.js", () => ({
   acquireNodeRegistry: vi.fn(),
   getNodeRegistry: vi.fn(() => null),
-  _resetNodeRegistry: vi.fn(),
   NODE_CAPS_TOPIC: "pokapali._node-caps._p2p._pubsub",
 }));
 
@@ -134,7 +131,6 @@ const OPTS = {
 describe("@pokapali/core", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    _resetForwardingStore();
   });
 
   it("create() returns Doc", async () => {
