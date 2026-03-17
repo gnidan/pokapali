@@ -2,6 +2,21 @@
   "name": "@pokapali/example",
   "version": "0.0.0",
   "private": true,
+  "description": "Example collaborative editor using pokapali",
+  "keywords": [
+    "pokapali",
+    "example",
+    "tiptap",
+    "react",
+    "collaboration"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/apps/example",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "apps/example"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",
   "license": "MIT",
   "scripts": {
