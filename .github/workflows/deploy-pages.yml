@@ -1,0 +1,192 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build example app
+        run: |
+          npm run build \
+            --workspace @pokapali/example
+
+      - name: Generate badge JSON
+        env:
+          NODES_JSON: >-
+            ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          set -euo pipefail
+
+          badge() {
+            jq -n \
+              --arg label "$1" \
+              --arg message "$2" \
+              --arg color "$3" \
+              '{
+                schemaVersion: 1,
+                label: $label,
+                message: $message,
+                color: $color
+              }'
+          }
+
+          DIR="apps/example/dist/badges"
+          mkdir -p "$DIR"
+
+          if [ -z "${NODES_JSON:-}" ]; then
+            echo "No DEPLOY_NODES_CONFIG;" \
+              "writing placeholder badges"
+            badge "relays" "unknown" "lightgrey" \
+              > "$DIR/relays.json"
+            badge "mesh" "unknown" "lightgrey" \
+              > "$DIR/mesh.json"
+            badge "pinned docs" "unknown" \
+              "lightgrey" > "$DIR/pinned.json"
+            exit 0
+          fi
+
+          CONFIG=$(mktemp)
+          printf '%s\n' "$NODES_JSON" > "$CONFIG"
+          NODES=$(jq -r \
+            '.batches[].nodes[] |
+             "\(.name) \(.host)"' "$CONFIG")
+          rm -f "$CONFIG"
+
+          TOTAL=0
+          HEALTHY=0
+          MESH_OK=true
+          PINNED=0
+
+          while IFS=' ' read -r NAME HOST; do
+            TOTAL=$((TOTAL + 1))
+
+            HEALTH=$(curl -sf -m 10 \
+              "http://$HOST:3000/health" \
+              2>/dev/null || true)
+
+            if [ -z "$HEALTH" ]; then
+              echo "$NAME: no response"
+              continue
+            fi
+
+            OK=$(echo "$HEALTH" \
+              | jq -r '.ok')
+            if [ "$OK" != "true" ]; then
+              echo "$NAME: ok=$OK"
+              continue
+            fi
+
+            HEALTHY=$((HEALTHY + 1))
+            echo "$NAME: healthy"
+
+            STATUS=$(curl -sf -m 10 \
+              "http://$HOST:3000/status" \
+              2>/dev/null || true)
+
+            if [ -n "$STATUS" ]; then
+              GS=$(echo "$STATUS" \
+                | jq -r \
+                  '.gossipsub.peers // 0')
+              if [ "$GS" -lt 2 ]; then
+                MESH_OK=false
+                echo "  mesh: $GS peers (low)"
+              fi
+            else
+              MESH_OK=false
+              echo "  mesh: no status"
+            fi
+
+            METRICS=$(curl -sf -m 10 \
+              "http://$HOST:3000/metrics" \
+              2>/dev/null || true)
+
+            if [ -n "$METRICS" ]; then
+              P=$(echo "$METRICS" \
+                | jq -r \
+                  '.pinner.knownNames // 0')
+              if [ "$P" -gt "$PINNED" ]; then
+                PINNED=$P
+              fi
+            fi
+          done <<< "$NODES"
+
+          # Relay badge
+          if [ "$HEALTHY" -eq "$TOTAL" ]; then
+            R_COLOR="brightgreen"
+          elif [ "$HEALTHY" -ge \
+              $((TOTAL - 1)) ]; then
+            R_COLOR="yellow"
+          else
+            R_COLOR="red"
+          fi
+          badge "relays" \
+            "$HEALTHY/$TOTAL online" "$R_COLOR" \
+            > "$DIR/relays.json"
+
+          # Mesh badge
+          if [ "$MESH_OK" = true ] \
+              && [ "$HEALTHY" -eq "$TOTAL" ]; then
+            M_MSG="fully connected"
+            M_COLOR="brightgreen"
+          elif [ "$MESH_OK" = true ]; then
+            M_MSG="connected"
+            M_COLOR="yellow"
+          else
+            M_MSG="degraded"
+            M_COLOR="red"
+          fi
+          badge "mesh" "$M_MSG" "$M_COLOR" \
+            > "$DIR/mesh.json"
+
+          # Pinned docs badge
+          P_FMT=$(printf "%'d" "$PINNED" \
+            2>/dev/null || echo "$PINNED")
+          badge "pinned docs" "$P_FMT" "blue" \
+            > "$DIR/pinned.json"
+
+          echo ""
+          echo "Badges:"
+          echo "  relays: $HEALTHY/$TOTAL ($R_COLOR)"
+          echo "  mesh: $M_MSG ($M_COLOR)"
+          echo "  pinned: $P_FMT"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/example/dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
