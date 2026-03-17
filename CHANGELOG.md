@@ -7,6 +7,65 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Sync status indicator — `doc.status` and `doc.saveState` wired
+  into visible UX with degraded-state warnings in the example app
+  ([#212](https://github.com/gnidan/pokapali/issues/212))
+- Block upload retry with exponential backoff — large snapshots
+  no longer orphaned when relays are temporarily down
+  ([#51](https://github.com/gnidan/pokapali/issues/51))
+- Channel key warnings for pre-comments writers — `doc.channel()`
+  warns on missing keys, `configuredChannels` getter exposes
+  available channels for re-invite flows
+  ([#79](https://github.com/gnidan/pokapali/issues/79))
+- Generic relay — relay is now app-agnostic with dynamic
+  GossipSub topic subscription, no longer requires app-specific
+  pinner config
+  ([#220](https://github.com/gnidan/pokapali/issues/220))
+- Load-test baseline regression detection — automated nightly
+  comparison against stored baselines with configurable
+  thresholds
+  ([#207](https://github.com/gnidan/pokapali/issues/207),
+  [#206](https://github.com/gnidan/pokapali/issues/206))
+
+### Fixed
+
+- Silent error swallowing — all 5 `.catch(() => {})` locations
+  replaced with structured logging
+  ([#150](https://github.com/gnidan/pokapali/issues/150))
+- Unsafe `as any` casts in node — replaced with proper typed
+  access for GossipSub properties; 4 justified casts remain
+  (blockstore/datastore boundary, private `backoff` field)
+  ([#144](https://github.com/gnidan/pokapali/issues/144))
+- `@types/d3-force` moved from production to dev dependencies
+  in example app
+  ([#113](https://github.com/gnidan/pokapali/issues/113))
+- `Awareness` type re-exported from `@pokapali/core` — was
+  exposed on `Doc` interface but not importable by consumers
+  ([#117](https://github.com/gnidan/pokapali/issues/117))
+
+### Changed
+
+- Relay split — `relay.ts` (816 lines) decomposed into focused
+  modules: connection management, topic handling, HTTP routes,
+  and orchestration
+  ([#160](https://github.com/gnidan/pokapali/issues/160))
+
+### Tests
+
+- Property tests for `async-utils` — 15 tests covering merge,
+  scan, filter, take, timeout, and backpressure behaviors
+  ([#135](https://github.com/gnidan/pokapali/issues/135))
+
+### Docs
+
+- CHANGELOG audited against full git history — 9 missing entries
+  added across pre-alpha through alpha.7 releases
+  ([#247](https://github.com/gnidan/pokapali/issues/247))
+- All issue references converted to full GitHub links for
+  correct rendering on npm and external contexts
+
 ## [0.1.0-alpha.11] — 2026-03-16
 
 ### Fixed
