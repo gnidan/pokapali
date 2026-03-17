@@ -21,7 +21,7 @@ import type {
   SyncOptions,
   PubSubLike,
 } from "@pokapali/sync";
-import { decodeSnapshot } from "@pokapali/snapshot";
+import { createSnapshotOps } from "./snapshot-ops.js";
 import { CID } from "multiformats/cid";
 import { getHelia, releaseHelia } from "./helia.js";
 import { publishIPNS, resolveIPNS, watchIPNS } from "./ipns-helpers.js";
@@ -932,6 +932,14 @@ export function createDoc(params: DocParams): Doc {
     }
 
     // --- Effect handlers ---
+    const snapshotOps = createSnapshotOps({
+      snapshotCodec: snapshotLC,
+      subdocManager,
+      resolver,
+      readKey: rk,
+      getClockSum: computeClockSum,
+    });
+
     const effects: EffectHandlers = {
       fetchBlock: async (cid) => {
         return resolver.get(cid);
@@ -941,51 +949,7 @@ export function createDoc(params: DocParams): Doc {
         return resolver.getCached(cid);
       },
 
-      applySnapshot: async (cid, block) => {
-        resolver.put(cid, block);
-
-        const applied = await snapshotLC.applyRemote(cid, rk, (plaintext) =>
-          subdocManager.applySnapshot(plaintext),
-        );
-
-        if (applied) {
-          snapshotLC.setLastIpnsSeq(computeClockSum());
-        }
-
-        // Return seq from block metadata
-        const node = decodeSnapshot(block);
-        return { seq: node.seq };
-      },
-
-      decodeBlock: (block) => {
-        try {
-          const node = decodeSnapshot(block);
-          // Extract publisher hex if present.
-          // publisher field added by protocol branch
-          // — cast to access it before merge.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const pubBytes = (node as any).publisher as Uint8Array | undefined;
-          const publisher = pubBytes ? bytesToHex(pubBytes) : undefined;
-          return {
-            prev: node.prev ?? undefined,
-            seq: node.seq,
-            snapshotTs: node.ts,
-            publisher,
-          };
-        } catch {
-          return {};
-        }
-      },
-
-      isPublisherAuthorized: (publisherHex) => {
-        const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
-        // Permissionless: no authorized publishers
-        // configured → accept everyone.
-        if (map.size === 0) return true;
-        // Auth enabled: publisher must be listed.
-        if (!publisherHex) return false;
-        return map.has(publisherHex);
-      },
+      ...snapshotOps,
 
       announce: (cid, block, seq) => {
         // Cancel any pending retry from a previous

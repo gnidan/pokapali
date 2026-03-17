@@ -1,0 +1,103 @@
+/**
+ * snapshot-ops.ts — Snapshot-related effect handlers,
+ * extracted from create-doc.ts to decouple
+ * interpreter.ts from snapshot-codec internals.
+ *
+ * Provides the SnapshotOps interface (a subset of
+ * EffectHandlers) and a factory that wires up the
+ * concrete implementations from SnapshotCodec +
+ * SubdocManager + BlockResolver.
+ */
+
+import type { CID } from "multiformats/cid";
+import { decodeSnapshot } from "@pokapali/snapshot";
+import { bytesToHex } from "@pokapali/crypto";
+import type { SubdocManager } from "@pokapali/subdocs";
+import type { SnapshotCodec } from "./snapshot-codec.js";
+import type { BlockResolver } from "./block-resolver.js";
+
+// ------------------------------------------------
+// BlockMetadata — decoded snapshot header fields
+// ------------------------------------------------
+
+export interface BlockMetadata {
+  prev?: CID;
+  seq?: number;
+  snapshotTs?: number;
+  /** Hex-encoded publisher identity pubkey,
+   *  if present in the snapshot. */
+  publisher?: string;
+}
+
+// ------------------------------------------------
+// SnapshotOps — the snapshot subset of
+// EffectHandlers
+// ------------------------------------------------
+
+export interface SnapshotOps {
+  decodeBlock(block: Uint8Array): BlockMetadata;
+
+  applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }>;
+
+  isPublisherAuthorized(publisherHex: string | undefined): boolean;
+}
+
+// ------------------------------------------------
+// Factory
+// ------------------------------------------------
+
+export interface SnapshotOpsOptions {
+  snapshotCodec: SnapshotCodec;
+  subdocManager: SubdocManager;
+  resolver: BlockResolver;
+  readKey: CryptoKey;
+  getClockSum: () => number;
+}
+
+export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
+  const { snapshotCodec, subdocManager, resolver, readKey, getClockSum } =
+    options;
+
+  return {
+    decodeBlock(block: Uint8Array): BlockMetadata {
+      try {
+        const node = decodeSnapshot(block);
+        const publisher = node.publisher
+          ? bytesToHex(node.publisher)
+          : undefined;
+        return {
+          prev: node.prev ?? undefined,
+          seq: node.seq,
+          snapshotTs: node.ts,
+          publisher,
+        };
+      } catch {
+        return {};
+      }
+    },
+
+    async applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }> {
+      resolver.put(cid, block);
+
+      const applied = await snapshotCodec.applyRemote(
+        cid,
+        readKey,
+        (plaintext) => subdocManager.applySnapshot(plaintext),
+      );
+
+      if (applied) {
+        snapshotCodec.setLastIpnsSeq(getClockSum());
+      }
+
+      const node = decodeSnapshot(block);
+      return { seq: node.seq };
+    },
+
+    isPublisherAuthorized(publisherHex: string | undefined): boolean {
+      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      if (map.size === 0) return true;
+      if (!publisherHex) return false;
+      return map.has(publisherHex);
+    },
+  };
+}

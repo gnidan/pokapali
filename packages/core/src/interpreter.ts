@@ -18,35 +18,23 @@ import type {
   GossipActivity,
 } from "./facts.js";
 import type { AsyncQueue } from "./sources.js";
+import type { SnapshotOps } from "./snapshot-ops.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("interpreter");
+
+// Re-export for consumers that import from here.
+export type { SnapshotOps } from "./snapshot-ops.js";
+export type { BlockMetadata } from "./snapshot-ops.js";
 
 // ------------------------------------------------
 // EffectHandlers — injected dependency
 // ------------------------------------------------
 
-export interface EffectHandlers {
+export interface EffectHandlers extends SnapshotOps {
   // Block resolution
   fetchBlock(cid: CID): Promise<Uint8Array | null>;
-  applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }>;
   getBlock(cid: CID): Uint8Array | null;
-
-  // Decode snapshot metadata (prev, seq, ts, publisher)
-  decodeBlock(block: Uint8Array): {
-    prev?: CID;
-    seq?: number;
-    snapshotTs?: number;
-    /** Hex-encoded publisher identity pubkey,
-     *  if present and signature valid. */
-    publisher?: string;
-  };
-
-  /** Check if a publisher pubkey is authorized.
-   *  Returns true if no auth is configured
-   *  (permissionless) or if the pubkey is in
-   *  authorizedPublishers. */
-  isPublisherAuthorized(publisherHex: string | undefined): boolean;
 
   // Outbound protocol
   announce(cid: CID, block: Uint8Array, seq: number): void;
@@ -63,7 +51,10 @@ export interface EffectHandlers {
     cid: CID,
     guarantees: ReadonlyMap<
       string,
-      { guaranteeUntil: number; retainUntil: number }
+      {
+        guaranteeUntil: number;
+        retainUntil: number;
+      }
     >,
   ): void;
   emitStatus(status: DocStatus): void;
