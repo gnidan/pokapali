@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.13] — 2026-03-17
+
 ### Added
 
 - Signed announcement proof verification — pinners
