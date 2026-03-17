@@ -15,11 +15,15 @@
  *   --recovery <ms>      Max mesh recovery time (default 30000)
  *   --cross-region       Use cross-region latency threshold
  *                        (default 10000 instead of 5000)
+ *   --baseline <file>    Compare against baseline JSON
+ *   --save-baseline <f>  Write current metrics as baseline
+ *   --regression-tolerance <pct>
+ *                        Max allowed regression % (default 20)
  *
  * Exit 0 = pass, exit 1 = fail, exit 2 = usage error.
  */
 
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 interface PhaseConfig {
@@ -37,6 +41,9 @@ interface Config {
   maxRecoveryMs: number;
   phases: PhaseConfig[];
   phaseMinAckRates: Map<string, number>;
+  baselinePath: string | null;
+  saveBaselinePath: string | null;
+  regressionTolerance: number;
 }
 
 interface Event {
@@ -52,6 +59,43 @@ interface Event {
   actualClockSum?: number;
 }
 
+export interface Baseline {
+  version: 1;
+  date: string;
+  ackRate: number;
+  ackLatencyP50: number;
+  ackLatencyP95: number;
+  ackLatencyP99: number;
+  snapshotsPushed: number;
+  acksReceived: number;
+  readerSyncs: number;
+  convergenceOk: number;
+  convergenceDrift: number;
+  syncLatencyP50: number;
+  syncLatencyP95: number;
+  errorCount: number;
+}
+
+interface MetricsSummary {
+  docs: number;
+  snapshotsPushed: number;
+  acksReceived: number;
+  ackRate: number;
+  ackLatencyP50: number;
+  ackLatencyP95: number;
+  ackLatencyP99: number;
+  errorCount: number;
+  readerSyncs: number;
+  convergenceOk: number;
+  convergenceDrift: number;
+  syncLatencyP50: number;
+  syncLatencyP95: number;
+  maxRecoveryMs: number;
+  churnCycles: number;
+  nodesJoined: number;
+  nodesLeft: number;
+}
+
 function parseArgs(argv: string[]): Config {
   const config: Config = {
     file: "",
@@ -62,6 +106,9 @@ function parseArgs(argv: string[]): Config {
     maxRecoveryMs: 30_000,
     phases: [],
     phaseMinAckRates: new Map(),
+    baselinePath: null,
+    saveBaselinePath: null,
+    regressionTolerance: 20,
   };
 
   const args = argv.slice(2);
@@ -102,6 +149,12 @@ function parseArgs(argv: string[]): Config {
     } else if (arg === "--phase-ack-rate" && args[i + 1]) {
       const [name, pct] = args[++i].split(":");
       config.phaseMinAckRates.set(name, parseFloat(pct));
+    } else if (arg === "--baseline" && args[i + 1]) {
+      config.baselinePath = args[++i];
+    } else if (arg === "--save-baseline" && args[i + 1]) {
+      config.saveBaselinePath = args[++i];
+    } else if (arg === "--regression-tolerance" && args[i + 1]) {
+      config.regressionTolerance = parseFloat(args[++i]);
     } else {
       console.error(`Unknown option: ${arg}`);
       process.exit(2);
@@ -116,6 +169,119 @@ function percentile(sorted: number[], pct: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.min(Math.floor(sorted.length * pct), sorted.length - 1);
   return sorted[idx];
+}
+
+function loadBaseline(path: string): Baseline {
+  const raw = readFileSync(path, "utf-8");
+  const data = JSON.parse(raw) as Baseline;
+  if (data.version !== 1) {
+    console.error(`Unsupported baseline version: ${data.version}`);
+    process.exit(2);
+  }
+  return data;
+}
+
+function saveBaseline(path: string, metrics: MetricsSummary): void {
+  const baseline: Baseline = {
+    version: 1,
+    date: new Date().toISOString().slice(0, 10),
+    ackRate: parseFloat(metrics.ackRate.toFixed(1)),
+    ackLatencyP50: metrics.ackLatencyP50,
+    ackLatencyP95: metrics.ackLatencyP95,
+    ackLatencyP99: metrics.ackLatencyP99,
+    snapshotsPushed: metrics.snapshotsPushed,
+    acksReceived: metrics.acksReceived,
+    readerSyncs: metrics.readerSyncs,
+    convergenceOk: metrics.convergenceOk,
+    convergenceDrift: metrics.convergenceDrift,
+    syncLatencyP50: metrics.syncLatencyP50,
+    syncLatencyP95: metrics.syncLatencyP95,
+    errorCount: metrics.errorCount,
+  };
+  writeFileSync(path, JSON.stringify(baseline, null, 2) + "\n");
+  console.log(`Baseline saved to ${path}`);
+}
+
+export function compareBaseline(
+  metrics: MetricsSummary,
+  baseline: Baseline,
+  tolerancePct: number,
+): { name: string; pass: boolean; detail: string }[] {
+  const checks: {
+    name: string;
+    pass: boolean;
+    detail: string;
+  }[] = [];
+  const tol = tolerancePct / 100;
+
+  // Ack rate: current must not drop below baseline
+  // minus tolerance. Higher is always fine.
+  if (baseline.ackRate > 0) {
+    const minAllowed = baseline.ackRate * (1 - tol);
+    checks.push({
+      name: "Regression: ack rate",
+      pass: metrics.ackRate >= minAllowed,
+      detail:
+        `${metrics.ackRate.toFixed(1)}%` +
+        ` (baseline: ${baseline.ackRate}%,` +
+        ` min: ${minAllowed.toFixed(1)}%)`,
+    });
+  }
+
+  // Latency p95: current must not exceed baseline
+  // plus tolerance. Lower is always fine.
+  if (baseline.ackLatencyP95 > 0) {
+    const maxAllowed = baseline.ackLatencyP95 * (1 + tol);
+    checks.push({
+      name: "Regression: latency p95",
+      pass: metrics.ackLatencyP95 <= maxAllowed,
+      detail:
+        `${metrics.ackLatencyP95}ms` +
+        ` (baseline: ${baseline.ackLatencyP95}ms,` +
+        ` max: ${Math.round(maxAllowed)}ms)`,
+    });
+  }
+
+  // Latency p99: same logic as p95
+  if (baseline.ackLatencyP99 > 0) {
+    const maxAllowed = baseline.ackLatencyP99 * (1 + tol);
+    checks.push({
+      name: "Regression: latency p99",
+      pass: metrics.ackLatencyP99 <= maxAllowed,
+      detail:
+        `${metrics.ackLatencyP99}ms` +
+        ` (baseline: ${baseline.ackLatencyP99}ms,` +
+        ` max: ${Math.round(maxAllowed)}ms)`,
+    });
+  }
+
+  // Convergence drift: if baseline had 0, current
+  // must also be 0 (no tolerance for new drift).
+  if (baseline.convergenceDrift === 0) {
+    checks.push({
+      name: "Regression: convergence",
+      pass: metrics.convergenceDrift === 0,
+      detail:
+        metrics.convergenceDrift === 0
+          ? "0 drift (matches baseline)"
+          : `${metrics.convergenceDrift} drift(s)` + ` (baseline: 0)`,
+    });
+  }
+
+  // Sync latency p95: same as ack latency
+  if (baseline.syncLatencyP95 > 0 && metrics.readerSyncs > 0) {
+    const maxAllowed = baseline.syncLatencyP95 * (1 + tol);
+    checks.push({
+      name: "Regression: sync latency p95",
+      pass: metrics.syncLatencyP95 <= maxAllowed,
+      detail:
+        `${metrics.syncLatencyP95}ms` +
+        ` (baseline: ${baseline.syncLatencyP95}ms,` +
+        ` max: ${Math.round(maxAllowed)}ms)`,
+    });
+  }
+
+  return checks;
 }
 
 async function analyze(config: Config) {
@@ -244,16 +410,37 @@ async function analyze(config: Config) {
   const p95 = percentile(sorted, 0.95);
   const p99 = percentile(sorted, 0.99);
 
-  // RSS: read from process if available, otherwise
-  // not measurable from JSONL alone. Report N/A.
-  // The smoke script checks RSS at runtime; this
-  // analyzer focuses on JSONL-derived metrics.
+  const sortedSync = syncLatencies.slice().sort((a, b) => a - b);
+  const syncP50 = percentile(sortedSync, 0.5);
+  const syncP95 = percentile(sortedSync, 0.95);
+
+  const metrics: MetricsSummary = {
+    docs: docs.size,
+    snapshotsPushed,
+    acksReceived,
+    ackRate,
+    ackLatencyP50: p50,
+    ackLatencyP95: p95,
+    ackLatencyP99: p99,
+    errorCount,
+    readerSyncs,
+    convergenceOk,
+    convergenceDrift,
+    syncLatencyP50: syncP50,
+    syncLatencyP95: syncP95,
+    maxRecoveryMs,
+    churnCycles,
+    nodesJoined,
+    nodesLeft,
+  };
+
+  // RSS: analyzer process only (not from JSONL)
   const rssMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
 
   // Print summary
   console.log("=== Load Test Analysis ===");
   console.log(`  File:          ${config.file}`);
-  console.log(`  Docs:          ${docs.size}`);
+  console.log(`  Docs:          ${metrics.docs}`);
   console.log(`  Snapshots:     ${snapshotsPushed}`);
   console.log(`  Acks:          ${acksReceived}` + ` (${ackRate.toFixed(1)}%)`);
   console.log(`  Ack p50:       ${p50}ms`);
@@ -261,14 +448,11 @@ async function analyze(config: Config) {
   console.log(`  Ack p99:       ${p99}ms`);
   console.log(`  Errors:        ${errorCount}`);
   console.log(
-    `  Max recovery:  ${maxRecoveryMs > 0 ? maxRecoveryMs + "ms" : "N/A"}`,
+    `  Max recovery:  ` + `${maxRecoveryMs > 0 ? maxRecoveryMs + "ms" : "N/A"}`,
   );
   console.log(`  Analyzer RSS:  ${rssMB}MB`);
 
   if (readerSyncs > 0) {
-    const sortedSync = syncLatencies.slice().sort((a, b) => a - b);
-    const syncP50 = percentile(sortedSync, 0.5);
-    const syncP95 = percentile(sortedSync, 0.95);
     console.log(`  Reader syncs:  ${readerSyncs}`);
     console.log(
       `  Convergence:   ` +
@@ -286,7 +470,11 @@ async function analyze(config: Config) {
   }
 
   // Check pass/fail
-  const checks: { name: string; pass: boolean; detail: string }[] = [];
+  const checks: {
+    name: string;
+    pass: boolean;
+    detail: string;
+  }[] = [];
 
   // Ack rate — only check if there were snapshots
   // and we expect acks (Tier 2+). Skip for Tier 1
@@ -387,6 +575,25 @@ async function analyze(config: Config) {
     }
   }
 
+  // Baseline regression checks
+  if (config.baselinePath) {
+    const baseline = loadBaseline(config.baselinePath);
+    console.log(
+      `\n=== Regression Analysis ` + `(baseline: ${baseline.date}) ===`,
+    );
+    const regressionChecks = compareBaseline(
+      metrics,
+      baseline,
+      config.regressionTolerance,
+    );
+    checks.push(...regressionChecks);
+  }
+
+  // Save baseline if requested
+  if (config.saveBaselinePath) {
+    saveBaseline(config.saveBaselinePath, metrics);
+  }
+
   // Print checks
   console.log("\n=== Checks ===");
   let allPass = true;
@@ -410,8 +617,16 @@ async function analyze(config: Config) {
   process.exit(allPass ? 0 : 1);
 }
 
-const config = parseArgs(process.argv);
-analyze(config).catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(2);
-});
+// Guard against running when imported as a module
+// (e.g., by tests that import compareBaseline).
+const isDirectRun =
+  process.argv[1]?.endsWith("/analyze.js") ||
+  process.argv[1]?.endsWith("/analyze.ts");
+
+if (isDirectRun) {
+  const config = parseArgs(process.argv);
+  analyze(config).catch((err) => {
+    console.error("Fatal:", err);
+    process.exit(2);
+  });
+}

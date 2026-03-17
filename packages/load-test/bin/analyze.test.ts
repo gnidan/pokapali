@@ -50,7 +50,7 @@ describe("analyze --phase", () => {
     writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
     const result = execSync(
-      `node packages/load-test/dist/bin/analyze.js ${file}` +
+      `node dist/bin/analyze.js ${file}` +
         ` --max-errors 999` +
         ` --ack-rate 50` +
         ` --phase baseline:0:10` +
@@ -83,7 +83,7 @@ describe("analyze --phase", () => {
 
     try {
       execSync(
-        `node packages/load-test/dist/bin/analyze.js ${file}` +
+        `node dist/bin/analyze.js ${file}` +
           ` --max-errors 999` +
           ` --phase degraded:0:10` +
           ` --phase-ack-rate degraded:50`,
