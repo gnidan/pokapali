@@ -330,6 +330,16 @@ describe("@pokapali/core", () => {
         ),
       );
       expect(commentsWarns).toHaveLength(1);
+
+      // Second call should NOT warn again (dedup)
+      writer.channel("comments");
+      const afterSecond = warnSpy.mock.calls.filter((args) =>
+        args.some(
+          (a) => typeof a === "string" && a.includes('Channel "comments"'),
+        ),
+      );
+      expect(afterSecond).toHaveLength(1);
+
       warnSpy.mockRestore();
       setLogLevel(prevLevel);
       writer.destroy();

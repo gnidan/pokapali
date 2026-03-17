@@ -449,6 +449,9 @@ export function createDoc(params: DocParams): Doc {
   // Channels accessed before sync was available —
   // connected when p2pReady resolves (#199).
   const accessedChannels = new Set<string>();
+  // Channels already warned about missing write key —
+  // avoids spamming console on repeated channel() calls.
+  const warnedChannels = new Set<string>();
   // Standalone awareness: prefer awarenessRoom's if
   // available, otherwise use the standalone param.
   const awareness: Awareness = awarenessRoom?.awareness ?? params.awareness!;
@@ -1424,7 +1427,13 @@ export function createDoc(params: DocParams): Doc {
         const doc = subdocManager.subdoc(name);
         accessedChannels.add(name);
         liveSyncManager?.connectChannel(name);
-        if (!cap.isAdmin && cap.channels.size > 0 && !cap.channels.has(name)) {
+        if (
+          !cap.isAdmin &&
+          cap.channels.size > 0 &&
+          !cap.channels.has(name) &&
+          !warnedChannels.has(name)
+        ) {
+          warnedChannels.add(name);
           log.warn(
             `Channel "${name}" accessed without` +
               " write key — sync disabled for this" +
@@ -1454,7 +1463,7 @@ export function createDoc(params: DocParams): Doc {
     },
 
     get configuredChannels(): readonly string[] {
-      return channels;
+      return [...channels];
     },
 
     get urls(): DocUrls {
