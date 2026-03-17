@@ -1,8 +1,9 @@
 # Pokapali
 
 > **Alpha release.** Published to npm as `@pokapali/*`
-> (currently 0.1.0-alpha.4). Under active development —
-> APIs may change.
+> (currently 0.1.0-alpha.13). Under active development —
+> see [API Stability](docs/api-stability.md) for what's
+> safe to depend on.
 
 P2P collaborative document sync built on
 [Yjs](https://yjs.dev), WebRTC, and IPFS. Handles
@@ -16,31 +17,42 @@ no sign-up.
 
 ## Packages
 
-| Package                                       | Description                                                  |
-| --------------------------------------------- | ------------------------------------------------------------ |
-| [`@pokapali/core`](packages/core)             | Document lifecycle, snapshot push/pull, capability URLs      |
-| [`@pokapali/sync`](packages/sync)             | WebRTC room setup via GossipSub signaling                    |
-| [`@pokapali/crypto`](packages/crypto)         | Key derivation (HKDF), Ed25519 signing, AES-GCM encryption   |
-| [`@pokapali/capability`](packages/capability) | Capability URL encoding/decoding and access level inference  |
-| [`@pokapali/subdocs`](packages/subdocs)       | Yjs subdocument manager with namespace isolation             |
-| [`@pokapali/snapshot`](packages/snapshot)     | Snapshot encoding, decoding, verification, and chain walking |
-| [`@pokapali/node`](packages/node)             | Relay server, pinner, and HTTP health endpoints (Node.js)    |
-| [`@pokapali/log`](packages/log)               | Zero-dependency structured logging                           |
-| [`@pokapali/comments`](packages/comments)     | Comment threads and annotations                              |
-| [`@pokapali/test-utils`](packages/test-utils) | Test helpers and simulated network                           |
+| Package                                                 | Description                                                     |
+| ------------------------------------------------------- | --------------------------------------------------------------- |
+| [`@pokapali/core`](packages/core)                       | Document lifecycle, snapshot push/pull, capability URLs         |
+| [`@pokapali/sync`](packages/sync)                       | WebRTC room setup via GossipSub signaling                       |
+| [`@pokapali/crypto`](packages/crypto)                   | Key derivation (HKDF), Ed25519 signing, AES-GCM encryption      |
+| [`@pokapali/capability`](packages/capability)           | Capability URL encoding/decoding and access level inference     |
+| [`@pokapali/subdocs`](packages/subdocs)                 | Yjs subdocument manager with namespace isolation                |
+| [`@pokapali/snapshot`](packages/snapshot)               | Snapshot encoding, decoding, verification, and chain walking    |
+| [`@pokapali/node`](packages/node)                       | Relay server, pinner, and HTTP block/health endpoints (Node.js) |
+| [`@pokapali/log`](packages/log)                         | Zero-dependency structured logging                              |
+| [`@pokapali/comments`](packages/comments)               | Comment threads with anchored text ranges                       |
+| [`@pokapali/comments-tiptap`](packages/comments-tiptap) | Tiptap extension for comment highlighting and pending anchors   |
+| [`@pokapali/react`](packages/react)                     | React hooks for Doc state, participants, and comments           |
+| [`@pokapali/test-utils`](packages/test-utils)           | Test helpers and simulated network                              |
 
-Most apps only import `@pokapali/core`. The other packages
-are the building blocks it composes.
+Most apps only import `@pokapali/core`. The other
+packages are the building blocks it composes.
 
 ## Documentation
 
 - **[Getting Started](docs/getting-started.md)** —
   quick start with runnable examples
-- **[Guide](docs/guide.md)** — build an app with Pokapali
+- **[Guide](docs/guide.md)** — build an app with
+  Pokapali
+- **[API Stability](docs/api-stability.md)** — which
+  APIs are safe to depend on (Stable / Experimental /
+  Internal tiers)
 - **[Architecture](docs/internals/architecture.md)** —
   full design reference (URL structure, key derivation,
   threat model, namespace enforcement, snapshot chain,
   IPNS publishing)
+- **[Security Design](docs/internals/security-design.md)**
+  — announcement authentication and publisher binding
+- **[Design Principles](docs/internals/principles.md)**
+  — capability URLs, zero-knowledge pinning, Feed
+  reactivity
 - **[Dependencies](docs/internals/deps.md)** — dependency
   versioning decisions
 
@@ -69,9 +81,10 @@ throughout, targeting ES2022/ESNext.
 ## Example App
 
 The [example app](apps/example) is a collaborative text
-editor built with React and TipTap. It demonstrates
+editor built with React and Tiptap. It demonstrates
 document creation, sharing via capability URLs, real-time
-sync, read-only access, and connection diagnostics.
+sync, read-only access, threaded comments, version
+history, and connection diagnostics.
 
 ```sh
 npm run dev
@@ -106,8 +119,8 @@ servers required.
 **Zero-knowledge pinners** — relay/pinner nodes store and
 serve encrypted blocks they cannot read. Anyone can run one.
 
-See [docs/architecture.md](docs/architecture.md) for the
-full design.
+See [Architecture](docs/internals/architecture.md) for
+the full design.
 
 ## License
 
