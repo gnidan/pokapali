@@ -52,7 +52,7 @@ describe("createDocPersistence", () => {
     expect(MockProvider).toHaveBeenCalledTimes(1);
     expect(result.providers.size).toBe(1);
 
-    const guid = MockProvider.mock.calls[0][0];
+    const guid = (MockProvider.mock.calls as any[][])[0][0];
     expect(guid).toBe("test-ipns:_meta");
   });
 
@@ -78,8 +78,8 @@ describe("createDocPersistence", () => {
     createDocPersistence(mgr, ["content"]);
 
     // Check second arg (the doc object) was passed
-    for (const call of MockProvider.mock.calls) {
-      const [guid, doc] = call as [string, any];
+    for (const call of MockProvider.mock.calls as any[][]) {
+      const [guid, doc] = call;
       expect(guid).toBe(doc.guid);
     }
   });
