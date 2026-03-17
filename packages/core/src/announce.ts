@@ -6,6 +6,15 @@
  * resolve the IPNS name to fetch blocks.
  */
 
+import {
+  hexToBytes,
+  bytesToHex,
+  signBytes,
+  verifySignature,
+} from "@pokapali/crypto";
+
+import type { Ed25519KeyPair } from "@pokapali/crypto";
+
 /**
  * Minimal pubsub interface — only publish is needed by
  * the announcer. Kept compatible with PubSubLike from
@@ -170,15 +179,6 @@ export function parseAnnouncement(data: Uint8Array): Announcement | null {
 }
 
 // --- Announcement proof (Tier 1 auth, #75) ---
-
-import {
-  hexToBytes,
-  bytesToHex,
-  signBytes,
-  verifySignature,
-} from "@pokapali/crypto";
-
-import type { Ed25519KeyPair } from "@pokapali/crypto";
 
 /**
  * Sign an announcement proof using the doc signing key.
