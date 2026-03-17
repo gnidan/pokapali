@@ -72,8 +72,8 @@ See also: [principles.md](principles.md),
   channel; what lives in those channels is entirely
   the application's business
 - **The library has no opinion on snapshot timing** —
-  it exposes `publish()` and emits `"publish-needed"`;
-  when to call it is application policy
+  it exposes `publish()` and `createAutoSaver()`;
+  when and how to call it is application policy
 
 ---
 
@@ -138,7 +138,7 @@ const app = pokapali({
 const doc = await app.create();
 doc.channel("content"); // Y.Doc for "content"
 doc.channel("comments"); // Y.Doc for "comments"
-doc.provider; // for awareness / cursor presence
+doc.awareness; // Awareness instance for cursors
 doc.capability; // { channels, canPushSnapshots,
 //   isAdmin }
 doc.urls.admin; // keep private — derives everything
@@ -146,16 +146,17 @@ doc.urls.write; // read + write + canPushSnapshots
 doc.urls.read; // read only
 
 // Reactive state via Feed (useSyncExternalStore-
-// compatible)
+// compatible). Call .getSnapshot() for current value,
+// .subscribe(cb) for changes.
 doc.status; // Feed<DocStatus>
 doc.saveState; // Feed<SaveState>
 doc.tip; // Feed<VersionInfo | null>
 doc.loading; // Feed<LoadingState>
 doc.versions; // Feed<VersionHistory>
-
-// Synchronous getters (current snapshot)
-doc.status; // "connecting" | "synced" | ...
-doc.saveState; // "saved" | "dirty" | ...
+doc.backedUp; // Feed<boolean>
+doc.snapshotEvents; // Feed<SnapshotEvent>
+doc.gossipActivity; // Feed<GossipActivity>
+doc.clientIdMapping; // Feed<IdentityMap>
 
 // Generate a custom capability URL
 doc.invite({
@@ -168,9 +169,8 @@ const doc2 = await app.open(url);
 
 // Snapshot management
 await doc.publish();
-doc.on("publish-needed", () => {
-  doc.publish();
-});
+// Use createAutoSaver for automatic publish timing:
+const autoSaver = createAutoSaver(doc);
 
 // Full editor integration
 const editor = new Editor({
@@ -179,7 +179,7 @@ const editor = new Editor({
       document: doc.channel("content"),
     }),
     CollaborationCursor.configure({
-      provider: doc.provider,
+      provider: { awareness: doc.awareness },
     }),
   ],
 });
@@ -200,7 +200,7 @@ const editor = new Editor({
       document: doc.channel("content"),
     }),
     CollaborationCursor.configure({
-      provider: doc.provider,
+      provider: { awareness: doc.awareness },
     }),
   ],
 });
@@ -210,7 +210,9 @@ const editor = new Editor({
 
 The library deliberately does not call `publish()`
 automatically on any trigger, including disconnect. The
-app should:
+app should either use `createAutoSaver(doc)` (which
+handles debounce, visibility change, and beforeunload)
+or manage publish timing manually:
 
 - Call `publish()` on a periodic timer while the
   document is open
@@ -219,8 +221,6 @@ app should:
   caveats below)
 - Optionally show a save indicator tied to
   `doc.saveState`
-- Listen for `"publish-needed"` as a hint that a
-  publish would be timely
 
 ### Snapshot frequency affects read-only peer latency
 
@@ -244,17 +244,23 @@ is a best-effort supplement, not a guarantee.
 
 ```ts
 window.addEventListener("beforeunload", (e) => {
-  if (doc.saveState === "dirty") {
+  if (doc.saveState.getSnapshot() === "dirty") {
     e.preventDefault();
   }
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden" && doc.saveState === "dirty") {
+  if (
+    document.visibilityState === "hidden" &&
+    doc.saveState.getSnapshot() === "dirty"
+  ) {
     doc.publish(); // fire-and-forget
   }
 });
 ```
+
+Or simply use `createAutoSaver(doc)` which handles both
+of these automatically.
 
 ---
 
@@ -277,21 +283,32 @@ for how these modules compose.
 
 ### Document lifecycle
 
-| Module               | Purpose                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------ |
-| `index.ts`           | `pokapali()` factory, `PokapaliApp` (.create, .open)                                       |
-| `create-doc.ts`      | `createDoc()` — wires interpreter, effect handlers, GossipSub bridge, Feeds. Returns `Doc` |
-| `doc-diagnostics.ts` | `diagnostics()` — node info, network state                                                 |
-| `doc-rotate.ts`      | `rotate()` — identity migration                                                            |
-| `auto-save.ts`       | `createAutoSaver` — 5s debounce, visibility/beforeunload hooks                             |
+| Module                 | Purpose                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `index.ts`             | `pokapali()` factory, `PokapaliApp` (.create, .open)                                       |
+| `create-doc.ts`        | `createDoc()` — wires interpreter, effect handlers, GossipSub bridge, Feeds. Returns `Doc` |
+| `doc-status.ts`        | Status/saveState Feed derivation from fact stream                                          |
+| `doc-identity.ts`      | `clientIdMapping` Feed — maps Yjs clientIDs to verified identity info                      |
+| `doc-gossip-bridge.ts` | Bridges GossipSub messages into the fact stream                                            |
+| `doc-diagnostics.ts`   | `diagnostics()` — node info, network state                                                 |
+| `doc-rotate.ts`        | `rotate()` — identity migration                                                            |
+| `auto-save.ts`         | `createAutoSaver` — 5s debounce, visibility/beforeunload hooks                             |
+| `feed.ts`              | `Feed<T>` — reactive container (getSnapshot, subscribe) for useSyncExternalStore           |
+| `identity.ts`          | Ed25519 keypair generation and client identity registration in `_meta`                     |
+| `errors.ts`            | Typed error classes                                                                        |
 
 ### Snapshot & persistence
 
-| Module              | Purpose                                                                        |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `snapshot-codec.ts` | Snapshot encode/decode/decrypt, chain tip state (prev/seq), version loading    |
-| `block-resolver.ts` | Unified block resolution: memory → IDB → HTTP. Single read/write interface     |
-| `fetch-block.ts`    | Low-level block fetch with retry/backoff (blockstore → HTTP). Used by resolver |
+| Module                     | Purpose                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `snapshot-codec.ts`        | Snapshot encode/decode/decrypt, chain tip state (prev/seq), version loading    |
+| `block-resolver.ts`        | Unified block resolution: memory → IDB → HTTP. Single read/write interface     |
+| `block-upload.ts`          | Block upload to HTTP pinning endpoints                                         |
+| `fetch-block.ts`           | Low-level block fetch with retry/backoff (blockstore → HTTP). Used by resolver |
+| `fetch-tip.ts`             | Fetch current tip CID via IPNS or HTTP                                         |
+| `fetch-version-history.ts` | Walk snapshot chain to build version history                                   |
+| `persistence.ts`           | IndexedDB persistence layer for Yjs docs                                       |
+| `version-cache.ts`         | LRU cache for decoded snapshot versions                                        |
 
 ### Networking & discovery
 
@@ -308,11 +325,58 @@ for how these modules compose.
 
 ### Utilities
 
-| Module             | Purpose                             |
-| ------------------ | ----------------------------------- |
-| `url-utils.ts`     | URL parsing, capability extraction  |
-| `relay-sharing.ts` | Relay address sharing via awareness |
-| `forwarding.ts`    | Rotation forwarding records         |
+| Module             | Purpose                                       |
+| ------------------ | --------------------------------------------- |
+| `url-utils.ts`     | URL parsing, capability extraction            |
+| `relay-sharing.ts` | Relay address sharing via awareness           |
+| `forwarding.ts`    | Rotation forwarding records                   |
+| `async-utils.ts`   | Async queue, merge, scan — stream combinators |
+
+---
+
+## Node Module Structure
+
+The `@pokapali/node` package provides server-side
+infrastructure: pinning, relay, and HTTP serving.
+
+### Relay (generic, topic-agnostic)
+
+The relay was split from a single monolith into focused
+modules:
+
+| Module               | Purpose                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `relay.ts`           | `startRelay()` entry point — assembles Helia, wires GossipSub, starts HTTP, manages lifecycle |
+| `relay-caps.ts`      | Node capabilities broadcast/receive via dedicated GossipSub topic                             |
+| `relay-discovery.ts` | DHT provider registration, CID announcement, block serving                                    |
+| `relay-logging.ts`   | Periodic diagnostic logging (peer counts, topic stats, GossipSub mesh health)                 |
+| `relay-utils.ts`     | Shared constants, PeerId persistence, topic/address helpers                                   |
+
+The relay is **generic** — it subscribes to GossipSub
+topics dynamically as peers join, rather than requiring
+a preconfigured topic list. It uses **originator
+refcounting** to track which non-relay peers subscribe
+to each topic, and unsubscribes when no originators
+remain. Relay-to-relay subscriptions are excluded from
+the originator count to prevent mutual keep-alive
+deadlock between relays.
+
+### Pinner
+
+| Module             | Purpose                                                                  |
+| ------------------ | ------------------------------------------------------------------------ |
+| `pinner.ts`        | `createPinner()` — snapshot ingestion, chain validation, IPNS, GossipSub |
+| `pinner-store.ts`  | Content-addressed block store with 24h retention and history index       |
+| `rate-limiter.ts`  | Per-ipnsName rate limiting for snapshot announcements                    |
+| `ipns-throttle.ts` | Throttled IPNS publishing to avoid DHT flooding                          |
+| `history.ts`       | Snapshot history index (seq → CID mapping, retention window)             |
+| `state.ts`         | Persistent pinner state (last-seen tips per ipnsName)                    |
+
+### HTTP
+
+| Module    | Purpose                                     |
+| --------- | ------------------------------------------- |
+| `http.ts` | Block serving, health checks, CORS, metrics |
 
 ---
 

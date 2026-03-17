@@ -7,10 +7,10 @@
     "build": "tsc && vite build"
   },
   "dependencies": {
-    "@pokapali/comments": "^0.1.0-alpha.6",
-    "@pokapali/comments-tiptap": "^0.1.0-alpha.6",
-    "@pokapali/core": "^0.1.0-alpha.6",
-    "@pokapali/react": "^0.1.0-alpha.6",
+    "@pokapali/comments": "^0.1.0-alpha.11",
+    "@pokapali/comments-tiptap": "^0.1.0-alpha.11",
+    "@pokapali/core": "^0.1.0-alpha.11",
+    "@pokapali/react": "^0.1.0-alpha.11",
     "@tiptap/extension-collaboration": "^2.0.0",
     "@tiptap/extension-collaboration-cursor": "^2.0.0",
     "@tiptap/react": "^2.0.0",

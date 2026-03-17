@@ -247,6 +247,99 @@ new tests.
   `authHash` are treated as permissionless
 - No breaking changes to the public API
 
+## Design Constraint: Edit Attribution
+
+**The person who types on the keyboard must be the
+person who gets attributed for the edit.**
+
+This is a firm design principle. The security work
+must not foreclose per-edit attribution, even though
+full implementation is a future concern.
+
+### What Each Tier Proves
+
+It is critical to distinguish what each tier of
+authentication actually proves:
+
+- **Tier 1 (signed announcements)** proves the
+  _announcer_ holds the doc signing key (write
+  capability). It does NOT prove authorship of
+  specific content within the snapshot. Any writer
+  can announce any snapshot they produce.
+
+- **Tier 2 (publisher binding)** proves the
+  _publisher_ is in the authorization list. It
+  does NOT prove the publisher authored every edit
+  in the snapshot — a snapshot contains merged CRDT
+  state from all peers.
+
+- **Neither tier proves per-edit authorship.** That
+  is a separate, harder problem.
+
+### Path to Per-Edit Attribution
+
+Yjs internally tracks which `clientID` authored
+each edit operation in the CRDT. Auth Phase 1
+(`clientIdentities` Y.Map in `_meta`) already maps
+`clientID → { pubkey, sig }`, creating a chain:
+
+```
+edit → clientID → pubkey → identity
+```
+
+This chain exists today but is not enforced:
+
+- `clientID` is a random number chosen per session.
+  A malicious peer could claim another peer's
+  `clientID`.
+- The `clientIdentities` entry is self-asserted.
+  Verification (`verifySignature` in
+  `doc-identity.ts`) proves the registrant holds
+  the private key matching `pubkey`, but doesn't
+  prevent registration of a stolen or forged
+  `clientID`.
+
+**Future work (not in scope for Tiers 1-3):**
+
+1. **Signed Y.Doc updates:** Each peer signs their
+   Yjs update messages before broadcasting. Other
+   peers verify before applying. This binds each
+   CRDT operation to a specific identity key.
+   Expensive (per-update crypto), but the only
+   way to achieve true per-edit attribution in a
+   CRDT.
+
+2. **ClientID binding proof:** Extend the
+   `clientIdentities` registration to include a
+   challenge-response or nonce, preventing one peer
+   from registering another's `clientID`.
+
+3. **Snapshot attribution vs edit attribution:**
+   Snapshots are full-document state. A snapshot
+   publisher is NOT the author of every edit —
+   they're the peer who serialized the merged
+   state. Per-edit attribution requires inspecting
+   the Yjs update log, not the snapshot publisher
+   field.
+
+### Phase 1 Compatibility
+
+Phase 1 (signed announcements) is fully compatible
+with future per-edit attribution:
+
+- It operates at the announcement layer, not the
+  edit layer. It doesn't touch `clientID` assignment
+  or Yjs update propagation.
+- The `clientIdentities` mapping is preserved and
+  unmodified. Future work can build on it.
+- Announcement proof uses the _doc signing key_
+  (shared by all writers), not per-user identity
+  keys. This is intentional — announcement auth
+  answers "does this peer have write access?" not
+  "who authored this content?"
+- Nothing in Tier 1 conflates announcement auth
+  with edit authorship. The distinction is clean.
+
 ## Non-Goals
 
 - **End-to-end encryption of announcements** — the
@@ -258,3 +351,8 @@ new tests.
 - **Pinner-to-pinner authentication** — pinners
   already share an appId-scoped trust boundary via
   GossipSub topic subscriptions.
+- **Per-edit attribution** — tracked as a future
+  concern. The current tiers authenticate
+  announcements and publishers, not individual
+  edits. See "Design Constraint: Edit Attribution"
+  above for the path forward.
