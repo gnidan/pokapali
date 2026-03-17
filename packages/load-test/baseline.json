@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "date": "2026-03-14",
+  "ackRate": 486.5,
+  "ackLatencyP50": 102,
+  "ackLatencyP95": 2113,
+  "ackLatencyP99": 2888,
+  "snapshotsPushed": 3043,
+  "acksReceived": 14805,
+  "readerSyncs": 14965,
+  "convergenceOk": 14965,
+  "convergenceDrift": 0,
+  "syncLatencyP50": 10,
+  "syncLatencyP95": 33,
+  "errorCount": 0
+}

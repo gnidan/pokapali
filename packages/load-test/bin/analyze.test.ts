@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+
+const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("analyze --phase", () => {
   let dir: string;
@@ -50,14 +53,14 @@ describe("analyze --phase", () => {
     writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
     const result = execSync(
-      `node packages/load-test/dist/bin/analyze.js ${file}` +
+      `node dist/bin/analyze.js ${file}` +
         ` --max-errors 999` +
         ` --ack-rate 50` +
         ` --phase baseline:0:10` +
         ` --phase degraded:10:20` +
         ` --phase-ack-rate baseline:90` +
         ` --phase-ack-rate degraded:30`,
-      { encoding: "utf-8", timeout: 10000 },
+      { encoding: "utf-8", timeout: 10000, cwd: pkgRoot },
     );
 
     expect(result).toContain("baseline:");
@@ -83,11 +86,11 @@ describe("analyze --phase", () => {
 
     try {
       execSync(
-        `node packages/load-test/dist/bin/analyze.js ${file}` +
+        `node dist/bin/analyze.js ${file}` +
           ` --max-errors 999` +
           ` --phase degraded:0:10` +
           ` --phase-ack-rate degraded:50`,
-        { encoding: "utf-8", timeout: 10000 },
+        { encoding: "utf-8", timeout: 10000, cwd: pkgRoot },
       );
       expect.fail("should have exited with code 1");
     } catch (err: unknown) {
