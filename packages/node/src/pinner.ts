@@ -1225,7 +1225,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       try {
         await restoreState();
       } catch (err) {
-        await store.close().catch(() => {});
+        await store.close().catch((closeErr) => {
+          log.warn(
+            "store close failed during error" + " recovery:",
+            (closeErr as Error)?.message ?? closeErr,
+          );
+        });
         throw err;
       }
       await pruneIfNeeded();

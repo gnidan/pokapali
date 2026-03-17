@@ -12,6 +12,9 @@
  */
 import { IndexeddbPersistence } from "y-indexeddb";
 import type { SubdocManager } from "@pokapali/subdocs";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("persistence");
 
 export interface DocPersistence {
   /** All providers' whenSynced promises. */
@@ -62,7 +65,9 @@ export function createDocPersistence(
         p.destroy();
       }
       providers.clear();
-      handle.closeBlockstore?.().catch(() => {});
+      handle.closeBlockstore?.().catch((err) => {
+        log.debug("blockstore close error:", (err as Error)?.message ?? err);
+      });
     },
   };
   return handle;
