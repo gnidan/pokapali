@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@pokapali/crypto", () => ({
   hexToBytes: vi.fn(() => new Uint8Array(32)),
   bytesToHex: vi.fn(() => "00".repeat(32)),
-  verifySignature: vi.fn(async () => true),
+  verifyBytes: vi.fn(async () => true),
 }));
 
 vi.mock("@pokapali/snapshot", () => ({

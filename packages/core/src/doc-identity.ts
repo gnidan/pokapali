@@ -9,7 +9,7 @@
 
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
-import { hexToBytes, bytesToHex, verifySignature } from "@pokapali/crypto";
+import { hexToBytes, bytesToHex, verifyBytes } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
@@ -81,11 +81,7 @@ export function createClientIdMapping(
           const payload = new TextEncoder().encode(
             entry.pubkey + ":" + ipnsName,
           );
-          verifySignature(
-            hexToBytes(entry.pubkey),
-            hexToBytes(entry.sig),
-            payload,
-          )
+          verifyBytes(hexToBytes(entry.pubkey), hexToBytes(entry.sig), payload)
             .then((ok) => {
               verifiedCache.set(key, ok);
               rebuild();

@@ -5,7 +5,7 @@ import {
   encryptSubdoc,
   decryptSubdoc,
   signBytes,
-  verifySignature,
+  verifyBytes,
 } from "@pokapali/crypto";
 
 export interface SnapshotNode {
@@ -100,7 +100,7 @@ export async function decryptSnapshot(
   return result;
 }
 
-export async function validateStructure(block: Uint8Array): Promise<boolean> {
+export async function validateSnapshot(block: Uint8Array): Promise<boolean> {
   try {
     const node = decodeSnapshot(block);
 
@@ -125,7 +125,7 @@ export async function validateStructure(block: Uint8Array): Promise<boolean> {
 
     const payloadBytes = dagCbor.encode(payload);
 
-    const docSigValid = await verifySignature(
+    const docSigValid = await verifyBytes(
       node.publicKey,
       node.signature,
       payloadBytes,
@@ -140,7 +140,7 @@ export async function validateStructure(block: Uint8Array): Promise<boolean> {
         ts: node.ts,
       };
       const pubBytes = dagCbor.encode(pubPayload);
-      const pubSigValid = await verifySignature(
+      const pubSigValid = await verifyBytes(
         node.publisher,
         node.publisherSig,
         pubBytes,

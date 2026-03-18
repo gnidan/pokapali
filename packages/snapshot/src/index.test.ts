@@ -8,13 +8,13 @@ import {
   generateIdentityKeypair,
   encryptSubdoc,
   signBytes,
-  verifySignature,
+  verifyBytes,
 } from "@pokapali/crypto";
 import {
   encodeSnapshot,
   decodeSnapshot,
   decryptSnapshot,
-  validateStructure,
+  validateSnapshot,
   walkChain,
   ChainCycleError,
   ChainDepthExceededError,
@@ -110,7 +110,7 @@ describe("@pokapali/snapshot", () => {
     });
   });
 
-  describe("validateStructure", () => {
+  describe("validateSnapshot", () => {
     it("returns true for valid snapshot", async () => {
       const { readKey, signingKey } = await makeTestKeys();
       const encoded = await encodeSnapshot(
@@ -121,7 +121,7 @@ describe("@pokapali/snapshot", () => {
         1000,
         signingKey,
       );
-      expect(await validateStructure(encoded)).toBe(true);
+      expect(await validateSnapshot(encoded)).toBe(true);
     });
 
     it("returns false for tampered data", async () => {
@@ -139,11 +139,11 @@ describe("@pokapali/snapshot", () => {
       const tampered = new Uint8Array(encoded);
       tampered[tampered.length - 2] ^= 0xff;
 
-      expect(await validateStructure(tampered)).toBe(false);
+      expect(await validateSnapshot(tampered)).toBe(false);
     });
 
     it("returns false for garbage bytes", async () => {
-      expect(await validateStructure(new Uint8Array([0, 1, 2, 3]))).toBe(false);
+      expect(await validateSnapshot(new Uint8Array([0, 1, 2, 3]))).toBe(false);
     });
   });
 
@@ -446,7 +446,7 @@ describe("@pokapali/snapshot", () => {
         identity,
       );
 
-      expect(await validateStructure(encoded)).toBe(true);
+      expect(await validateSnapshot(encoded)).toBe(true);
     });
 
     it("rejects tampered publisher sig", async () => {
@@ -472,7 +472,7 @@ describe("@pokapali/snapshot", () => {
       // Re-encode with tampered publisherSig — doc sig
       // won't match either
       const reEncoded = dagCbor.encode(node);
-      expect(await validateStructure(reEncoded)).toBe(false);
+      expect(await validateSnapshot(reEncoded)).toBe(false);
     });
 
     it("works without publisher (backward compat)", async () => {
@@ -491,7 +491,7 @@ describe("@pokapali/snapshot", () => {
 
       expect(node.publisher).toBeUndefined();
       expect(node.publisherSig).toBeUndefined();
-      expect(await validateStructure(encoded)).toBe(true);
+      expect(await validateSnapshot(encoded)).toBe(true);
     });
 
     it(
@@ -552,7 +552,7 @@ describe("@pokapali/snapshot", () => {
       delete (stripped as Record<string, unknown>).publisherSig;
       const { signature, ...payloadFields } = stripped;
       const payloadBytes = dagCbor.encode(payloadFields);
-      const valid = await verifySignature(
+      const valid = await verifyBytes(
         node.publicKey,
         node.signature,
         payloadBytes,
@@ -586,7 +586,7 @@ describe("@pokapali/snapshot", () => {
         signature,
       });
 
-      expect(await validateStructure(block)).toBe(false);
+      expect(await validateSnapshot(block)).toBe(false);
     });
   });
 
@@ -624,8 +624,8 @@ describe("@pokapali/snapshot", () => {
       const node2 = decodeSnapshot(block2);
 
       // Both validate independently
-      expect(await validateStructure(block1)).toBe(true);
-      expect(await validateStructure(block2)).toBe(true);
+      expect(await validateSnapshot(block1)).toBe(true);
+      expect(await validateSnapshot(block2)).toBe(true);
 
       // Different publisher keys
       expect(node1.publisher).toEqual(id1.publicKey);
@@ -659,7 +659,7 @@ describe("@pokapali/snapshot", () => {
         // included in payload
         const { signature, ...rest } = malformed;
         const reEncoded = dagCbor.encode(malformed);
-        expect(await validateStructure(reEncoded)).toBe(false);
+        expect(await validateSnapshot(reEncoded)).toBe(false);
       },
     );
 
@@ -688,7 +688,7 @@ describe("@pokapali/snapshot", () => {
         tampered.publisher = wrongId.publicKey;
 
         const reEncoded = dagCbor.encode(tampered);
-        expect(await validateStructure(reEncoded)).toBe(false);
+        expect(await validateSnapshot(reEncoded)).toBe(false);
       },
     );
 
@@ -759,7 +759,7 @@ describe("@pokapali/snapshot", () => {
           signingKey,
           identity,
         );
-        expect(await validateStructure(encoded)).toBe(true);
+        expect(await validateSnapshot(encoded)).toBe(true);
 
         // Strip both publisher fields, keep
         // original doc signature
@@ -771,7 +771,7 @@ describe("@pokapali/snapshot", () => {
         const reEncoded = dagCbor.encode(stripped);
         // Doc sig was over payload WITH publisher
         // fields — stripped payload won't match
-        expect(await validateStructure(reEncoded)).toBe(false);
+        expect(await validateSnapshot(reEncoded)).toBe(false);
       },
     );
 
@@ -805,7 +805,7 @@ describe("@pokapali/snapshot", () => {
         });
 
         // Doc sig valid, publisher sig forged
-        expect(await validateStructure(block)).toBe(false);
+        expect(await validateSnapshot(block)).toBe(false);
       },
     );
 
@@ -827,7 +827,7 @@ describe("@pokapali/snapshot", () => {
           signingKey,
           identity,
         );
-        expect(await validateStructure(blockA)).toBe(true);
+        expect(await validateSnapshot(blockA)).toBe(true);
 
         const nodeA = decodeSnapshot(blockA);
         const stolenPubSig = nodeA.publisherSig!;
@@ -855,7 +855,7 @@ describe("@pokapali/snapshot", () => {
 
         // Publisher sig was for (seq=1, ts=1000),
         // not (seq=2, ts=2000)
-        expect(await validateStructure(block)).toBe(false);
+        expect(await validateSnapshot(block)).toBe(false);
       },
     );
   });
@@ -892,7 +892,7 @@ describe("@pokapali/snapshot", () => {
         };
         const payloadBytes = dagCbor.encode(payload);
         expect(
-          await verifySignature(node.publicKey, node.signature, payloadBytes),
+          await verifyBytes(node.publicKey, node.signature, payloadBytes),
         ).toBe(true);
 
         // Verify publisher signature independently
@@ -903,11 +903,11 @@ describe("@pokapali/snapshot", () => {
         };
         const pubBytes = dagCbor.encode(pubPayload);
         expect(
-          await verifySignature(node.publisher!, node.publisherSig!, pubBytes),
+          await verifyBytes(node.publisher!, node.publisherSig!, pubBytes),
         ).toBe(true);
 
-        // And validateStructure confirms both
-        expect(await validateStructure(encoded)).toBe(true);
+        // And validateSnapshot confirms both
+        expect(await validateSnapshot(encoded)).toBe(true);
       },
     );
 
@@ -940,10 +940,10 @@ describe("@pokapali/snapshot", () => {
         };
         const payloadBytes = dagCbor.encode(payload);
         expect(
-          await verifySignature(node.publicKey, node.signature, payloadBytes),
+          await verifyBytes(node.publicKey, node.signature, payloadBytes),
         ).toBe(true);
 
-        expect(await validateStructure(encoded)).toBe(true);
+        expect(await validateSnapshot(encoded)).toBe(true);
       },
     );
   });
@@ -1001,8 +1001,8 @@ describe("@pokapali/snapshot", () => {
         expect(node1.publicKey).toEqual(node2.publicKey);
 
         // Both validate independently
-        expect(await validateStructure(encoded1)).toBe(true);
-        expect(await validateStructure(encoded2)).toBe(true);
+        expect(await validateSnapshot(encoded1)).toBe(true);
+        expect(await validateSnapshot(encoded2)).toBe(true);
       },
     );
   });

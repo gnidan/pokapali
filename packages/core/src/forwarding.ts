@@ -1,7 +1,7 @@
 import * as dagCbor from "@ipld/dag-cbor";
 import {
   signBytes,
-  verifySignature,
+  verifyBytes,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
 
@@ -55,7 +55,7 @@ export async function verifyForwardingRecord(
       newUrl: record.newUrl,
     };
     const payload = dagCbor.encode(signable);
-    return verifySignature(keypair.publicKey, record.signature, payload);
+    return verifyBytes(keypair.publicKey, record.signature, payload);
   } catch {
     return false;
   }

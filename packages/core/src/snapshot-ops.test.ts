@@ -89,7 +89,7 @@ vi.mock("@pokapali/snapshot", () => ({
     ts: 1700000000000,
     publisher: new Uint8Array([0xab, 0xcd]),
   })),
-  validateStructure: vi.fn(async () => true),
+  validateSnapshot: vi.fn(async () => true),
 }));
 
 vi.mock("@pokapali/crypto", () => ({
@@ -248,11 +248,10 @@ describe("createSnapshotOps", () => {
 
   describe("applySnapshot validation", () => {
     it(
-      "throws SnapshotValidationError when" +
-        " validateStructure returns false",
+      "throws SnapshotValidationError when" + " validateSnapshot returns false",
       async () => {
-        const { validateStructure } = await import("@pokapali/snapshot");
-        vi.mocked(validateStructure).mockResolvedValueOnce(false);
+        const { validateSnapshot } = await import("@pokapali/snapshot");
+        vi.mocked(validateSnapshot).mockResolvedValueOnce(false);
 
         const ops = createSnapshotOps(buildOptions());
         const cid = await fakeCid();
@@ -264,8 +263,8 @@ describe("createSnapshotOps", () => {
     );
 
     it("does not call applyRemote when" + " validation fails", async () => {
-      const { validateStructure } = await import("@pokapali/snapshot");
-      vi.mocked(validateStructure).mockResolvedValueOnce(false);
+      const { validateSnapshot } = await import("@pokapali/snapshot");
+      vi.mocked(validateSnapshot).mockResolvedValueOnce(false);
 
       const codec = mockSnapshotCodec();
       const ops = createSnapshotOps(buildOptions({ snapshotCodec: codec }));
@@ -279,10 +278,10 @@ describe("createSnapshotOps", () => {
     });
 
     it(
-      "proceeds normally when validateStructure" + " returns true",
+      "proceeds normally when validateSnapshot" + " returns true",
       async () => {
-        const { validateStructure } = await import("@pokapali/snapshot");
-        vi.mocked(validateStructure).mockResolvedValueOnce(true);
+        const { validateSnapshot } = await import("@pokapali/snapshot");
+        vi.mocked(validateSnapshot).mockResolvedValueOnce(true);
 
         const codec = mockSnapshotCodec();
         const ops = createSnapshotOps(buildOptions({ snapshotCodec: codec }));

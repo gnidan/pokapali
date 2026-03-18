@@ -15,7 +15,7 @@ import {
   encodeSnapshot,
   decodeSnapshot,
   decryptSnapshot,
-  validateStructure,
+  validateSnapshot,
 } from "./index.js";
 import type { FetchCoalescerState } from "./index.js";
 import {
@@ -311,7 +311,7 @@ describe("snapshot encode/decode properties", () => {
           Date.now(),
           signingKey,
         );
-        const valid = await validateStructure(block);
+        const valid = await validateSnapshot(block);
         expect(valid).toBe(true);
       }),
       { numRuns: 20 },
@@ -336,7 +336,7 @@ describe("snapshot encode/decode properties", () => {
       fc.asyncProperty(fc.nat({ max: block.length - 1 }), async (idx) => {
         const tampered = new Uint8Array(block);
         tampered[idx] = (tampered[idx] + 1) % 256;
-        const valid = await validateStructure(tampered);
+        const valid = await validateSnapshot(tampered);
         // Most byte flips should invalidate;
         // some rare CBOR-level changes might
         // still decode differently. We verify
@@ -483,7 +483,7 @@ describe("publisher signature properties", () => {
     },
   );
 
-  it("snapshot with publisher sig passes " + "validateStructure", async () => {
+  it("snapshot with publisher sig passes " + "validateSnapshot", async () => {
     const secret = generateAdminSecret();
     const keys = await deriveDocKeys(secret, "test", ["content"]);
     const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
@@ -508,7 +508,7 @@ describe("publisher signature properties", () => {
             signingKey,
             identityKey,
           );
-          const valid = await validateStructure(block);
+          const valid = await validateSnapshot(block);
           expect(valid).toBe(true);
         },
       ),

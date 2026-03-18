@@ -20,7 +20,7 @@ signingKey)`** — encrypts subdoc state and produces a
   `SnapshotNode`
 - **`decryptSnapshot(node, readKey)`** — decrypts the
   subdoc payloads
-- **`validateStructure(block)`** — verifies CBOR schema
+- **`validateSnapshot(block)`** — verifies CBOR schema
   and Ed25519 signature (no key authorization check)
 - **`walkChain(tipCid, getter)`** — async iterator that
   follows `prev` links

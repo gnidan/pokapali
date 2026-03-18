@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
-import { bytesToHex, hexToBytes, verifySignature } from "@pokapali/crypto";
+import { bytesToHex, hexToBytes, verifyBytes } from "@pokapali/crypto";
 import { signParticipant } from "./identity.js";
 import { createFeed } from "./sources.js";
 import type { WritableFeed } from "./sources.js";
@@ -143,7 +143,7 @@ describe("clientIdentity signature verification", () => {
 
     // Verify using the same format the Feed uses
     const payload = new TextEncoder().encode(pubkeyHex + ":" + docId);
-    const ok = await verifySignature(kp.publicKey, hexToBytes(sigHex), payload);
+    const ok = await verifyBytes(kp.publicKey, hexToBytes(sigHex), payload);
     expect(ok).toBe(true);
   });
 
@@ -158,7 +158,7 @@ describe("clientIdentity signature verification", () => {
 
     // Verify against wrong docId
     const payload = new TextEncoder().encode(pubkeyHex + ":" + "doc-b");
-    const ok = await verifySignature(kp.publicKey, hexToBytes(sigHex), payload);
+    const ok = await verifyBytes(kp.publicKey, hexToBytes(sigHex), payload);
     expect(ok).toBe(false);
   });
 
@@ -178,11 +178,7 @@ describe("clientIdentity signature verification", () => {
     // Verify with kp2's pubkey — should fail
     const pubkey2Hex = bytesToHex(kp2.publicKey);
     const payload = new TextEncoder().encode(pubkey2Hex + ":" + docId);
-    const ok = await verifySignature(
-      kp2.publicKey,
-      hexToBytes(sigHex),
-      payload,
-    );
+    const ok = await verifyBytes(kp2.publicKey, hexToBytes(sigHex), payload);
     expect(ok).toBe(false);
   });
 });
@@ -234,7 +230,7 @@ describe("clientIdMapping Feed projection", () => {
             const payload = new TextEncoder().encode(
               entry.pubkey + ":" + ipnsName,
             );
-            verifySignature(
+            verifyBytes(
               hexToBytes(entry.pubkey),
               hexToBytes(entry.sig),
               payload,

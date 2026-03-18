@@ -117,7 +117,7 @@ Core sub-entry points (`@pokapali/core/announce`,
 `deriveMetaRoomPassword`, `encryptSubdoc`,
 `decryptSubdoc`, `generateIdentityKeypair`,
 `ed25519KeyPairFromSeed`, `signBytes`,
-`verifySignature`, `base64urlEncode`, `bytesToHex`,
+`verifyBytes`, `base64urlEncode`, `bytesToHex`,
 `hexToBytes`, `DocKeys`, `Ed25519KeyPair`
 
 ## @pokapali/capability — All Stable
@@ -130,7 +130,7 @@ Core sub-entry points (`@pokapali/core/announce`,
 ## @pokapali/snapshot — Mostly Stable
 
 **Stable:** `encodeSnapshot`, `decryptSnapshot`,
-`decodeSnapshot`, `validateStructure`, `walkChain`,
+`decodeSnapshot`, `validateSnapshot`, `walkChain`,
 `SnapshotNode`, `CID`, `sha256`, `dagCborCode`
 
 **Internal:** Fetch coalescer exports (will be
