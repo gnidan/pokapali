@@ -183,3 +183,10 @@ The internal module `snapshot-lifecycle.ts` was
 renamed to `snapshot-codec.ts`. This only affects
 consumers using deep imports (which are classified
 as internal — see [api-stability.md](api-stability.md)).
+
+---
+
+## Reference
+
+- **[CHANGELOG](../CHANGELOG.md)** — version-specific
+  release notes and breaking changes

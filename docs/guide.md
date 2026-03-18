@@ -950,3 +950,11 @@ operations.
   `backedUp`, `loading`, `gossipActivity`) to build a
   live network map showing data flow between your app
   and infrastructure nodes.
+
+---
+
+## Next steps
+
+- **[Integration Guide](integration-guide.md)** —
+  add pokapali to an existing Tiptap or ProseMirror
+  editor
