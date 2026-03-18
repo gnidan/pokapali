@@ -324,9 +324,25 @@ describe("narrowCapability", () => {
     expect(narrowed.rotationKey).toBeUndefined();
   });
 
-  it("omits channelKeys if none granted", async () => {
+  it("preserves all channelKeys when " + "channels is undefined", async () => {
     const keys = await makeFullKeys();
     const narrowed = narrowCapability(keys, {});
+    expect(narrowed.channelKeys).toBeDefined();
+    expect(Object.keys(narrowed.channelKeys!).sort()).toEqual([
+      "comments",
+      "content",
+    ]);
+    expect(narrowed.channelKeys!["content"]).toBe(keys.channelKeys!["content"]);
+    expect(narrowed.channelKeys!["comments"]).toBe(
+      keys.channelKeys!["comments"],
+    );
+  });
+
+  it("omits channelKeys when channels is " + "empty array", async () => {
+    const keys = await makeFullKeys();
+    const narrowed = narrowCapability(keys, {
+      channels: [],
+    });
     expect(narrowed.channelKeys).toBeUndefined();
     expect(narrowed.readKey).toBeDefined();
   });

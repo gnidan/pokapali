@@ -277,8 +277,15 @@ export function narrowCapability(
 
   // rotationKey never narrowed (admin only)
 
-  // channel keys: only those in the grant
-  if (grant.channels && grant.channels.length > 0) {
+  // channel keys:
+  //   undefined → preserve all from source
+  //   []        → zero channels
+  //   [...]     → narrow + validate
+  if (grant.channels === undefined) {
+    if (keys.channelKeys) {
+      result.channelKeys = { ...keys.channelKeys };
+    }
+  } else if (grant.channels.length > 0) {
     const missing = grant.channels.filter(
       (ch) => !keys.channelKeys || !(ch in keys.channelKeys),
     );
@@ -295,6 +302,7 @@ export function narrowCapability(
     }
     result.channelKeys = narrowed;
   }
+  // else: grant.channels = [] → no channelKeys
 
   return result;
 }
