@@ -7,6 +7,44 @@ The format is based on
 
 ## [Unreleased]
 
+### Docs
+
+- Add `pokapali()` quick-start code example to root README
+  ([#309](https://github.com/gnidan/pokapali/issues/309))
+- Add code examples to 7 leaf package READMEs — crypto,
+  capability, snapshot, subdocs, sync (new), plus
+  capability and sync from integrations
+  ([#308](https://github.com/gnidan/pokapali/issues/308))
+- Convert all relative links in 12 package READMEs to
+  absolute GitHub URLs so they work on npmjs.com
+  ([#306](https://github.com/gnidan/pokapali/issues/306))
+- Replace `<details>` tag in core README with blockquote
+  for npm rendering compatibility
+  ([#307](https://github.com/gnidan/pokapali/issues/307))
+- Add `lastValidationError` Feed to guide.md and
+  api-stability.md
+  ([#304](https://github.com/gnidan/pokapali/issues/304))
+- Add `persistence` config option to guide.md
+  ([#305](https://github.com/gnidan/pokapali/issues/305))
+- Document pinner per-app configuration (`--pin` flag)
+  in guide.md
+  ([#326](https://github.com/gnidan/pokapali/issues/326))
+- Add section markers to guide.md separating tutorial
+  from patterns/reference; fix getting-started.md label
+  ([#310](https://github.com/gnidan/pokapali/issues/310))
+- Mark React section in getting-started.md with heading;
+  add vanilla `subscribe()` example before it
+  ([#311](https://github.com/gnidan/pokapali/issues/311))
+- Remove phantom `_resetNodeRegistry` from
+  api-stability.md; replace unexported `IdentityMap`
+  type alias with expanded `ReadonlyMap` type
+  ([#302](https://github.com/gnidan/pokapali/issues/302),
+  [#303](https://github.com/gnidan/pokapali/issues/303))
+- Remove hardcoded version numbers from README banner
+  and example package.json deps — use caret ranges that
+  auto-resolve to latest
+  ([#301](https://github.com/gnidan/pokapali/issues/301))
+
 ## [0.1.0-alpha.15] — 2026-03-18
 
 ### Breaking
