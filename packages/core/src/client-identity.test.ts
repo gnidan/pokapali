@@ -178,11 +178,7 @@ describe("clientIdentity signature verification", () => {
     // Verify with kp2's pubkey — should fail
     const pubkey2Hex = bytesToHex(kp2.publicKey);
     const payload = new TextEncoder().encode(pubkey2Hex + ":" + docId);
-    const ok = await verifyBytes(
-      kp2.publicKey,
-      hexToBytes(sigHex),
-      payload,
-    );
+    const ok = await verifyBytes(kp2.publicKey, hexToBytes(sigHex), payload);
     expect(ok).toBe(false);
   });
 });

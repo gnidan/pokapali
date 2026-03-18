@@ -81,11 +81,7 @@ export function createClientIdMapping(
           const payload = new TextEncoder().encode(
             entry.pubkey + ":" + ipnsName,
           );
-          verifyBytes(
-            hexToBytes(entry.pubkey),
-            hexToBytes(entry.sig),
-            payload,
-          )
+          verifyBytes(hexToBytes(entry.pubkey), hexToBytes(entry.sig), payload)
             .then((ok) => {
               verifiedCache.set(key, ok);
               rebuild();

@@ -248,8 +248,7 @@ describe("createSnapshotOps", () => {
 
   describe("applySnapshot validation", () => {
     it(
-      "throws SnapshotValidationError when" +
-        " validateSnapshot returns false",
+      "throws SnapshotValidationError when" + " validateSnapshot returns false",
       async () => {
         const { validateSnapshot } = await import("@pokapali/snapshot");
         vi.mocked(validateSnapshot).mockResolvedValueOnce(false);
