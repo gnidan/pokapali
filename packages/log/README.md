@@ -22,15 +22,17 @@ cycles between `@pokapali/core` and `@pokapali/sync`.
 
 ## Configuration
 
-Set the log level via environment variable or
-`localStorage`:
+Set the log level via environment variable:
 
 ```sh
-# Node.js
 POKAPALI_LOG_LEVEL=debug npx pokapali ...
+```
 
-# Browser (in DevTools console)
-localStorage.setItem("POKAPALI_LOG_LEVEL", "debug")
+Or programmatically at runtime:
+
+```ts
+import { setLogLevel } from "@pokapali/log";
+setLogLevel("debug");
 ```
 
 Default level is `"info"`.
