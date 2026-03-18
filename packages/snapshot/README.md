@@ -36,9 +36,9 @@ const block = await encodeSnapshot(
   signingKey,
 );
 
-// Validate structure + signature (no key needed)
-const validated = await validateSnapshot(block);
-// validated.publicKey, validated.seq, etc.
+// Validate structure + signature (returns boolean)
+const isValid = await validateSnapshot(block);
+console.log("valid:", isValid);
 
 // Decode and decrypt
 const node = decodeSnapshot(block);

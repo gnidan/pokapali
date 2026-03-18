@@ -14,7 +14,9 @@ P2P collaborative document sync built on
 encryption, peer discovery, real-time sync, and persistent
 snapshots so you can focus on your editor.
 
-Documents are identified by an IPNS name in the URL path;
+Documents are identified by an
+[IPNS](https://docs.ipfs.tech/concepts/ipns/) name
+(a self-certifying identifier) in the URL path;
 access level is encoded in the URL fragment as key material.
 Sharing a URL shares a capability. No accounts, no servers,
 no sign-up.
