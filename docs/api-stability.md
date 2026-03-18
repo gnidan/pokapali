@@ -177,3 +177,12 @@ not a module-level export.
 
 `createTestNetwork()`, `TestNetwork`, `TestPeer`,
 `TestNetworkOptions`
+
+---
+
+## Next steps
+
+- **[Guide](guide.md)** — how to use these APIs in
+  practice
+- **[Troubleshooting](troubleshooting.md)** — common
+  errors and how to fix them

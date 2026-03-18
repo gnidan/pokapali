@@ -129,6 +129,8 @@ doc.destroy();
 
 - [Full API guide](guide.md) — comprehensive
   reference for all Doc methods, events, and patterns
+- [Troubleshooting](troubleshooting.md) — common
+  errors and how to fix them
 - [examples/getting-started/](examples/getting-started/)
   — runnable Node.js scripts (create + open)
 - Package READMEs for

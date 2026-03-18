@@ -45,20 +45,19 @@ packages are the building blocks it composes.
   quick start with runnable examples
 - **[Guide](docs/guide.md)** — build an app with
   Pokapali
+- **[Integration Guide](docs/integration-guide.md)**
+  — add pokapali to an existing editor
 - **[API Stability](docs/api-stability.md)** — which
-  APIs are safe to depend on (Stable / Experimental /
-  Internal tiers)
-- **[Architecture](docs/internals/architecture.md)** —
-  full design reference (URL structure, key derivation,
-  threat model, namespace enforcement, snapshot chain,
-  IPNS publishing)
-- **[Security Design](docs/internals/security-design.md)**
-  — announcement authentication and publisher binding
-- **[Design Principles](docs/internals/principles.md)**
-  — capability URLs, zero-knowledge pinning, Feed
-  reactivity
-- **[Dependencies](docs/internals/deps.md)** — dependency
-  versioning decisions
+  APIs are safe to depend on (Stable / Experimental
+  / Internal tiers)
+- **[Security Model](docs/security-model.md)** —
+  capability URLs, encryption, trust model, identity,
+  and document recovery
+- **[Troubleshooting](docs/troubleshooting.md)** —
+  common errors and how to fix them
+- **[Internals](docs/internals/)** — architecture,
+  design principles, security design, and dependency
+  decisions (for contributors)
 
 ## Development
 
@@ -123,8 +122,7 @@ servers required.
 **Zero-knowledge pinners** — relay/pinner nodes store and
 serve encrypted blocks they cannot read. Anyone can run one.
 
-See [Architecture](docs/internals/architecture.md) for
-the full design.
+See [Internals](docs/internals/) for the full design.
 
 ## License
 

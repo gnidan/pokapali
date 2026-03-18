@@ -839,3 +839,10 @@ All Feeds on `Doc` support `useSyncExternalStore`
 | `doc.snapshotEvents`  | `Feed<SnapshotEvent \| null>`                   | Every snapshot (local and remote) |
 | `doc.gossipActivity`  | `Feed<GossipActivity>`                          | GossipSub message flow state      |
 | `doc.clientIdMapping` | `Feed<ReadonlyMap<number, ClientIdentityInfo>>` | Verified client→pubkey mapping    |
+
+---
+
+## Next steps
+
+- **[Comments example](examples/comments/)** — full
+  working example with threaded comments
