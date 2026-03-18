@@ -63,7 +63,11 @@ vi.mock("y-webrtc", () => {
     }
   }
 
-  return { WebrtcProvider: MockProvider };
+  return {
+    WebrtcProvider: MockProvider,
+    signalingConns: new Map(),
+    setupSignalingHandlers: () => {},
+  };
 });
 
 const SIGNALING = ["wss://test.example.com"];

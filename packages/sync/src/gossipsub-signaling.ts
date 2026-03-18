@@ -1,5 +1,8 @@
 import { Observable } from "lib0/observable";
-import { signalingConns, setupSignalingHandlers } from "y-webrtc";
+import {
+  signalingConns,
+  setupSignalingHandlers,
+} from "./y-webrtc-internals.js";
 import { createLogger } from "@pokapali/log";
 
 /**
