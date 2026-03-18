@@ -4,9 +4,9 @@
 [![mesh](https://img.shields.io/endpoint?url=https://gnidan.github.io/pokapali/badges/mesh.json)](https://github.com/gnidan/pokapali/actions/workflows/health-check.yml)
 [![pinned docs](https://img.shields.io/endpoint?url=https://gnidan.github.io/pokapali/badges/pinned.json)](https://github.com/gnidan/pokapali/actions/workflows/health-check.yml)
 
-> **Alpha release.** Published to npm as `@pokapali/*`
-> (currently 0.1.0-alpha.13). Under active development —
-> see [API Stability](docs/api-stability.md) for what's
+> **Alpha release.** Published to npm as `@pokapali/*`.
+> Under active development — see
+> [API Stability](docs/api-stability.md) for what's
 > safe to depend on.
 
 P2P collaborative document sync built on
