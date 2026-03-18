@@ -148,19 +148,13 @@ function parseArgs(argv: string[]): Config {
       });
     } else if (arg === "--phase-ack-rate" && args[i + 1]) {
       const [name, pct] = args[++i]!.split(":");
-      config.phaseMinAckRates.set(
-        name!, parseFloat(pct!),
-      );
+      config.phaseMinAckRates.set(name!, parseFloat(pct!));
     } else if (arg === "--baseline" && args[i + 1]) {
       config.baselinePath = args[++i]!;
     } else if (arg === "--save-baseline" && args[i + 1]) {
       config.saveBaselinePath = args[++i]!;
-    } else if (
-      arg === "--regression-tolerance" && args[i + 1]
-    ) {
-      config.regressionTolerance = parseFloat(
-        args[++i]!,
-      );
+    } else if (arg === "--regression-tolerance" && args[i + 1]) {
+      config.regressionTolerance = parseFloat(args[++i]!);
     } else {
       console.error(`Unknown option: ${arg}`);
       process.exit(2);
@@ -173,10 +167,7 @@ function parseArgs(argv: string[]): Config {
 
 function percentile(sorted: number[], pct: number): number {
   if (sorted.length === 0) return 0;
-  const idx = Math.min(
-    Math.floor(sorted.length * pct),
-    sorted.length - 1,
-  );
+  const idx = Math.min(Math.floor(sorted.length * pct), sorted.length - 1);
   return sorted[idx]!;
 }
 

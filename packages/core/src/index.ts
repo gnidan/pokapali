@@ -88,8 +88,7 @@ interface DocInit {
 export function pokapali(options: PokapaliConfig): PokapaliApp {
   const { channels, origin } = options;
   const appId = options.appId ?? "";
-  const primaryChannel =
-    options.primaryChannel ?? channels[0] ?? "";
+  const primaryChannel = options.primaryChannel ?? channels[0] ?? "";
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
   const persistenceEnabled = options.persistence !== false;

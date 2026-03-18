@@ -78,9 +78,7 @@ describe("deriveDocKeys", () => {
     expect(arraysEqual(a.rotationKey, b.rotationKey)).toBe(true);
     expect(a.awarenessRoomPassword).toBe(b.awarenessRoomPassword);
     for (const ch of channels) {
-      expect(
-        arraysEqual(a.channelKeys[ch]!, b.channelKeys[ch]!),
-      ).toBe(true);
+      expect(arraysEqual(a.channelKeys[ch]!, b.channelKeys[ch]!)).toBe(true);
     }
   });
 
@@ -119,9 +117,7 @@ describe("deriveMetaRoomPassword", () => {
       b.toString(16).padStart(2, "0"),
     ).join("");
 
-    const password = await deriveMetaRoomPassword(
-      chKey,
-    );
+    const password = await deriveMetaRoomPassword(chKey);
     expect(password).not.toBe(chHex);
   });
 });

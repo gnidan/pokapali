@@ -186,11 +186,7 @@ describe("encodeFragment / decodeFragment", () => {
         await exportKey(writer.readKey!),
       ),
     ).toBe(true);
-    expect(
-      arraysEqual(
-        decoded.ipnsKeyBytes!, writer.ipnsKeyBytes!,
-      ),
-    ).toBe(true);
+    expect(arraysEqual(decoded.ipnsKeyBytes!, writer.ipnsKeyBytes!)).toBe(true);
     expect(decoded.rotationKey).toBeUndefined();
     expect(decoded.awarenessRoomPassword).toBe(writer.awarenessRoomPassword);
     expect(

@@ -132,10 +132,8 @@ describe("snapshot validation integration", () => {
       // Tamper: flip bytes near the end where the
       // signature lives
       const tampered = new Uint8Array(block);
-      tampered[tampered.length - 1] =
-        tampered[tampered.length - 1]! ^ 0xff;
-      tampered[tampered.length - 2] =
-        tampered[tampered.length - 2]! ^ 0xff;
+      tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
+      tampered[tampered.length - 2] = tampered[tampered.length - 2]! ^ 0xff;
 
       const valid = await validateSnapshot(tampered);
       expect(valid).toBe(false);
@@ -179,8 +177,7 @@ describe("snapshot validation integration", () => {
       );
 
       const tampered = new Uint8Array(block);
-      tampered[tampered.length - 1] =
-        tampered[tampered.length - 1]! ^ 0xff;
+      tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
 
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
@@ -314,8 +311,7 @@ describe("snapshot validation integration", () => {
           1,
         );
         const tampered = new Uint8Array(origBlock);
-        tampered[tampered.length - 1] =
-          tampered[tampered.length - 1]! ^ 0xff;
+        tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
         const tamperedHash = await sha256.digest(tampered);
         const tamperedCid = CID.createV1(DAG_CBOR_CODE, tamperedHash);
 

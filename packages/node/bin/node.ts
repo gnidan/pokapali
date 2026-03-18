@@ -173,13 +173,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg === "--relay") {
       relay = true;
     } else if (arg === "--pin" && argv[i + 1]) {
-      pinApps = argv[++i]!.split(",").map(
-        (s) => s.trim(),
-      );
+      pinApps = argv[++i]!.split(",").map((s) => s.trim());
     } else if (arg === "--announce" && argv[i + 1]) {
-      announceAddrs = argv[++i]!.split(",").map(
-        (s) => s.trim(),
-      );
+      announceAddrs = argv[++i]!.split(",").map((s) => s.trim());
     } else if (arg === "--delegated-routing" && argv[i + 1]) {
       delegatedRoutingUrl = argv[++i]!;
     } else if (arg === "--log-level" && argv[i + 1]) {

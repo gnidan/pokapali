@@ -115,12 +115,8 @@ describe("setupNamespaceRooms", () => {
     const cp = instances.find((p) => p.roomName === `${IPNS}:content`)!;
     expect(cp.password).toBe(bytesToHex(keys.content!));
 
-    const cmp = instances.find(
-      (p) => p.roomName === `${IPNS}:comments`,
-    )!;
-    expect(cmp.password).toBe(
-      bytesToHex(keys.comments!),
-    );
+    const cmp = instances.find((p) => p.roomName === `${IPNS}:comments`)!;
+    expect(cmp.password).toBe(bytesToHex(keys.comments!));
 
     mgr.destroy();
   });
@@ -298,12 +294,8 @@ describe("lazy channel connection", () => {
 
     sync.connectChannel("content");
     expect(instances).toHaveLength(1);
-    expect(instances[0]!.roomName).toBe(
-      `${IPNS}:content`,
-    );
-    expect(instances[0]!.password).toBe(
-      bytesToHex(keys.content!),
-    );
+    expect(instances[0]!.roomName).toBe(`${IPNS}:content`);
+    expect(instances[0]!.password).toBe(bytesToHex(keys.content!));
 
     mgr.destroy();
   });
