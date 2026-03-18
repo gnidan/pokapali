@@ -7,6 +7,104 @@ The format is based on
 
 ## [Unreleased]
 
+### Breaking
+
+- **`validateStructure()` renamed to `validateSnapshot()`** in
+  `@pokapali/snapshot` — the old name is removed
+  ([#276](https://github.com/gnidan/pokapali/issues/276))
+- **`verifySignature()` renamed to `verifyBytes()`** in
+  `@pokapali/crypto` — the old name is removed
+  ([#283](https://github.com/gnidan/pokapali/issues/283))
+- 8 exports demoted from Stable to Experimental tier —
+  `RotateResult`, `AckedBy`, `GuaranteeUntil`, `RetainUntil`,
+  `GossipActivity`, `BackedUp`, `SnapshotEvents`, `Loading`;
+  signatures are unchanged but stability guarantees are relaxed
+  ([#284](https://github.com/gnidan/pokapali/issues/284))
+
+### Added
+
+- Browser environment guard — `pokapali()` factory now throws
+  a clear `"pokapali requires a browser environment"` error
+  when called in Node.js or other non-browser runtimes, instead
+  of crashing on missing `indexedDB`
+  ([#290](https://github.com/gnidan/pokapali/issues/290))
+
+### Fixed
+
+- `narrowCapability()` no longer silently drops all channels
+  when `grant.channels` is `undefined` — it now preserves the
+  original channels or throws on empty array
+  ([#273](https://github.com/gnidan/pokapali/issues/273))
+- Pinner no longer crashes on malformed base64 in GossipSub
+  messages — invalid payloads are caught and logged instead
+  of taking down the process
+  ([#287](https://github.com/gnidan/pokapali/issues/287))
+
+### Docs
+
+- New consumer guides: troubleshooting.md (common errors and
+  fixes), security-model.md (threat model and guarantees)
+  ([#277](https://github.com/gnidan/pokapali/issues/277),
+  [#278](https://github.com/gnidan/pokapali/issues/278))
+- New package READMEs: `@pokapali/react`, `@pokapali/comments-tiptap`
+  — install, quick start, API reference, tier annotations
+  ([#279](https://github.com/gnidan/pokapali/issues/279),
+  [#281](https://github.com/gnidan/pokapali/issues/281))
+- New docs/internals/README.md navigation page; root README
+  "Where to go next" section with 7 cross-linking gaps fixed
+  ([#280](https://github.com/gnidan/pokapali/issues/280),
+  [#282](https://github.com/gnidan/pokapali/issues/282))
+- api-stability.md updated with P4 tier decisions and
+  supplementary export tiers for react + comments-tiptap
+- Migration guide Feed.subscribe examples corrected — callbacks
+  now use the `() => void` signature with `getSnapshot()` inside
+  ([#299](https://github.com/gnidan/pokapali/issues/299))
+- Fixed `namespace` → `channel` terminology in 5 package READMEs
+  ([#293](https://github.com/gnidan/pokapali/issues/293))
+- Fixed dead `architecture.md` links in 7 package READMEs —
+  updated to `docs/internals/` paths
+  ([#295](https://github.com/gnidan/pokapali/issues/295))
+- Fixed reversed parameter orderings in crypto README examples
+  ([#296](https://github.com/gnidan/pokapali/issues/296))
+- Fixed `doc.lastSaveError` → `doc.lastPersistenceError` in
+  integration guide
+  ([#298](https://github.com/gnidan/pokapali/issues/298))
+- Fixed false `localStorage` claim in log package README —
+  replaced with actual `setLogLevel()` API
+  ([#300](https://github.com/gnidan/pokapali/issues/300))
+- Fixed deprecated `doc.provider` and `doc.on()` in core
+  README examples — replaced with `doc.awareness` and Feed
+  subscription patterns
+  ([#294](https://github.com/gnidan/pokapali/issues/294))
+- Fixed comments README importing unexported `createFeed` —
+  replaced with inline Feed-compatible object
+  ([#297](https://github.com/gnidan/pokapali/issues/297))
+
+### Fixed (npm)
+
+- Added `publishConfig: { access: "public" }` to 4 scoped
+  packages (comments, test-utils, react, comments-tiptap) —
+  without this, `npm publish` defaults to restricted access
+  ([#291](https://github.com/gnidan/pokapali/issues/291))
+- Updated stale peer dependency versions in react (alpha.6 →
+  alpha.14) and comments-tiptap (alpha.5 → alpha.14) — old
+  versions caused peer conflict warnings on install
+  ([#292](https://github.com/gnidan/pokapali/issues/292))
+
+### Internal
+
+- `noUncheckedIndexedAccess` enabled in tsconfig — 356 type
+  errors fixed across 63 files with zero behavioral changes
+  ([#256](https://github.com/gnidan/pokapali/issues/256))
+- `SaveState` type docs now include `"save-error"` variant
+  ([#272](https://github.com/gnidan/pokapali/issues/272))
+- `RotateResult` promoted to match `Doc.rotate()` Stable tier
+  ([#274](https://github.com/gnidan/pokapali/issues/274))
+- Fetch coalescer internals tagged `@internal` in JSDoc
+  ([#275](https://github.com/gnidan/pokapali/issues/275))
+- `DocKeys`/`CapabilityKeys` JSDoc relationship documented
+  ([#285](https://github.com/gnidan/pokapali/issues/285))
+
 ## [0.1.0-alpha.14] — 2026-03-17
 
 ### Added
