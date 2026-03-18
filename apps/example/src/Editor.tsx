@@ -43,6 +43,7 @@ import {
   renderCursor,
   type StoredUser,
 } from "./UserIdentity";
+import { ValidationWarning } from "./ValidationWarning";
 import { DragSafeCursors } from "./DragSafeCursors";
 import { capitalize } from "./utils";
 
@@ -51,6 +52,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const saveState = useFeed(doc.saveState);
   const tipInfo = useFeed(doc.tip);
   const ackCount = tipInfo?.ackedBy.size ?? 0;
+  const validationError = useFeed(doc.lastValidationError);
 
   const [showShare, setShowShare] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -475,6 +477,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
                   Read-only — you cannot edit this document.
                 </div>
               )}
+              <ValidationWarning error={validationError} />
               <EditorContent editor={editor} />
             </>
           ) : (
