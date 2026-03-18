@@ -335,13 +335,13 @@ statusLabel("connecting"); // "Connecting"
 
 A `Feed<SaveState>` with values:
 
-| Value           | Meaning                                           |
-| --------------- | ------------------------------------------------- |
-| `"unpublished"` | No snapshot has ever been pushed for this doc     |
-| `"dirty"`       | Local edits exist that haven't been published     |
-| `"saving"`      | `publish()` is in progress                        |
-| `"saved"`       | Latest edits have been published                  |
-| `"save-error"`  | Last `publish()` failed (see `doc.lastSaveError`) |
+| Value           | Meaning                                                    |
+| --------------- | ---------------------------------------------------------- |
+| `"unpublished"` | No snapshot has ever been pushed for this doc              |
+| `"dirty"`       | Local edits exist that haven't been published              |
+| `"saving"`      | `publish()` is in progress                                 |
+| `"saved"`       | Latest edits have been published                           |
+| `"save-error"`  | Last `publish()` failed (check `doc.lastPersistenceError`) |
 
 Human-readable labels:
 
@@ -673,7 +673,8 @@ const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
 ```ts
 const saveState = useFeed(doc.saveState);
 if (saveState === "save-error") {
-  console.error(doc.lastSaveError);
+  const err = doc.lastPersistenceError.getSnapshot();
+  if (err) console.error(err);
 }
 ```
 

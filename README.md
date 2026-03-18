@@ -27,7 +27,7 @@ no sign-up.
 | [`@pokapali/sync`](packages/sync)                       | WebRTC room setup via GossipSub signaling                       |
 | [`@pokapali/crypto`](packages/crypto)                   | Key derivation (HKDF), Ed25519 signing, AES-GCM encryption      |
 | [`@pokapali/capability`](packages/capability)           | Capability URL encoding/decoding and access level inference     |
-| [`@pokapali/subdocs`](packages/subdocs)                 | Yjs subdocument manager with namespace isolation                |
+| [`@pokapali/subdocs`](packages/subdocs)                 | Yjs subdocument manager with channel isolation                  |
 | [`@pokapali/snapshot`](packages/snapshot)               | Snapshot encoding, decoding, verification, and chain walking    |
 | [`@pokapali/node`](packages/node)                       | Relay server, pinner, and HTTP block/health endpoints (Node.js) |
 | [`@pokapali/log`](packages/log)                         | Zero-dependency structured logging                              |
@@ -105,7 +105,7 @@ The path contains the public IPNS name; the fragment
 Which keys are present determines access level (admin,
 writer, read-only).
 
-**Namespace isolation** — each namespace (e.g. "content",
+**Channel isolation** — each channel (e.g. "content",
 "comments") is a separate Yjs subdocument synced over its
 own encrypted WebRTC room. Write enforcement is structural:
 no key = no room = no connection.

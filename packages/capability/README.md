@@ -14,9 +14,9 @@ This package handles serialization and provides
 ## Key Exports
 
 - **`CapabilityKeys`** — interface for the optional key
-  set (readKey, ipnsKeyBytes, rotationKey, namespaceKeys,
+  set (readKey, ipnsKeyBytes, rotationKey, channelKeys,
   awarenessRoomPassword)
-- **`Capability`** — inferred access level (namespaces,
+- **`Capability`** — inferred access level (channels,
   canPushSnapshots, isAdmin)
 - **`inferCapability(keys)`** — determines access level
   from which keys are present
@@ -26,10 +26,10 @@ This package handles serialization and provides
   base, ipnsName, and keys
 - **`narrowCapability(keys, grant)`** — produces a
   subset of keys for a lower-privilege URL
-- **`CapabilityGrant`** — specifies which namespaces
+- **`CapabilityGrant`** — specifies which channels
   and whether `canPushSnapshots` to include
 
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Capability URLs](../../docs/internals/architecture.md)
+- [Architecture — Capability URLs](../../docs/internals/)

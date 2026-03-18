@@ -14,16 +14,16 @@ and the Web Crypto API for AES-GCM encryption.
 
 - **`generateAdminSecret()`** — generates a random
   base64url-encoded admin secret
-- **`deriveDocKeys(secret, appId, namespaces)`** —
+- **`deriveDocKeys(secret, appId, channels)`** —
   derives all keys (readKey, ipnsKeyBytes, rotationKey,
-  namespace keys, awarenessRoomPassword)
+  channel keys, awarenessRoomPassword)
 - **`DocKeys`** — interface for the full key set
 - **`ed25519KeyPairFromSeed(seed)`** — Ed25519 keypair
   from a 32-byte seed
-- **`signBytes(data, keyPair)`** / **`verifyBytes(
-data, signature, publicKey)`** — Ed25519 sign/verify
-- **`encryptSubdoc(data, readKey)`** /
-  **`decryptSubdoc(ciphertext, readKey)`** — AES-GCM
+- **`signBytes(keyPair, data)`** / **`verifyBytes(
+publicKey, signature, data)`** — Ed25519 sign/verify
+- **`encryptSubdoc(readKey, data)`** /
+  **`decryptSubdoc(readKey, ciphertext)`** — AES-GCM
   encrypt/decrypt
 - **`bytesToHex(bytes)`** / **`hexToBytes(hex)`** —
   hex encoding utilities
@@ -31,4 +31,4 @@ data, signature, publicKey)`** — Ed25519 sign/verify
 ## Links
 
 - [Root README](../../README.md)
-- [Architecture — Key Derivation](../../docs/internals/architecture.md)
+- [Architecture — Key Derivation](../../docs/internals/)
