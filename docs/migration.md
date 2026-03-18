@@ -32,17 +32,21 @@ doc.on("node-change", (nodes) => {
 **After:**
 
 ```ts
-doc.snapshotEvents.subscribe((event) => {
+doc.snapshotEvents.subscribe(() => {
+  const event = doc.snapshotEvents.getSnapshot();
   /* ... */
 });
 
 // For publish-needed, use auto-save or manual
 // subscribe to doc.saveState:
-doc.saveState.subscribe((state) => {
-  if (state === "dirty") doc.publish();
+doc.saveState.subscribe(() => {
+  if (doc.saveState.getSnapshot() === "dirty") {
+    doc.publish();
+  }
 });
 
-doc.gossipActivity.subscribe((activity) => {
+doc.gossipActivity.subscribe(() => {
+  const activity = doc.gossipActivity.getSnapshot();
   /* ... */
 });
 ```
