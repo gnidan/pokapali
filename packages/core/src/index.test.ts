@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+} from "vitest";
 import * as Y from "yjs";
 import { parseUrl, inferCapability } from "@pokapali/capability";
 import { encodeSnapshot } from "@pokapali/snapshot";
@@ -122,11 +130,39 @@ import {
 import { acquireNodeRegistry, getNodeRegistry } from "./node-registry.js";
 import { publishGuaranteeQuery } from "./announce.js";
 
+// Stub window so the browser-environment guard in
+// pokapali() doesn't trip in Node/vitest.
+const hadWindow = typeof window !== "undefined";
+if (!hadWindow) {
+  // @ts-expect-error — minimal stub
+  globalThis.window = {};
+}
+afterAll(() => {
+  if (!hadWindow) {
+    // @ts-expect-error — removing stub
+    delete globalThis.window;
+  }
+});
+
 const OPTS = {
   appId: "test-app",
   channels: ["content", "comments"],
   origin: "https://example.com",
 };
+
+describe("pokapali() environment guard", () => {
+  it("throws in non-browser environment", () => {
+    const saved = globalThis.window;
+    try {
+      // @ts-expect-error — removing window
+      delete globalThis.window;
+      expect(() => pokapali(OPTS)).toThrow(/browser/i);
+      expect(() => pokapali(OPTS)).toThrow(/@pokapali\/node/);
+    } finally {
+      globalThis.window = saved;
+    }
+  });
+});
 
 describe("@pokapali/core", () => {
   beforeEach(() => {

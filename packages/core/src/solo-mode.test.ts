@@ -6,8 +6,22 @@
  * reopen, publish. No errors should surface from
  * missing network connectivity.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterAll, beforeEach } from "vitest";
 import * as Y from "yjs";
+
+// Stub window so the browser-environment guard in
+// pokapali() doesn't trip in Node/vitest.
+const hadWindow = typeof window !== "undefined";
+if (!hadWindow) {
+  // @ts-expect-error — minimal stub
+  globalThis.window = {};
+}
+afterAll(() => {
+  if (!hadWindow) {
+    // @ts-expect-error — removing stub
+    delete globalThis.window;
+  }
+});
 // Mock helia with zero subscribers (no relays)
 vi.mock("./helia.js", () => ({
   acquireHelia: vi.fn(async () => ({})),
