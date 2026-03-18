@@ -54,6 +54,7 @@ function mockEffects(overrides?: Partial<EffectHandlers>): EffectHandlers {
     emitGuarantee: vi.fn(),
     emitStatus: vi.fn(),
     emitSaveState: vi.fn(),
+    emitValidationError: vi.fn(),
     ...overrides,
   };
 }
