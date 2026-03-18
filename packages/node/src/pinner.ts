@@ -18,6 +18,10 @@ import type { RateLimiterConfig } from "./rate-limiter.js";
 import { createHistoryTracker } from "./history.js";
 import type { HistoryTracker, RetentionConfig } from "./history.js";
 import { createIpnsThrottle } from "./ipns-throttle.js";
+import {
+  createNewNameLimiter,
+  DEFAULT_MAX_NEW_NAMES_PER_HOUR,
+} from "./new-name-limiter.js";
 import { loadState } from "./state.js";
 import { createPinnerStore } from "./pinner-store.js";
 import type { PinnerStore } from "./pinner-store.js";
@@ -96,6 +100,10 @@ export interface PinnerConfig {
    * announcements for unknown names are dropped when
    * at capacity. Default: 10 000. */
   maxNames?: number;
+  /** Max new IPNS names admitted per hour. Global
+   * rate limit to prevent name-flooding abuse.
+   * Default: 100. Set to 0 to reject all new names. */
+  maxNewNamesPerHour?: number;
 }
 
 export interface PinnerMetrics {
@@ -105,6 +113,7 @@ export interface PinnerMetrics {
   snapshotsIngested: number;
   rateLimitRejects: number;
   capacityRejects: number;
+  newNameRejects: number;
   reannounceCount: number;
   lastReannounceMs: number;
   lastPersistMs: number;
@@ -166,6 +175,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   const DEFAULT_IPNS_RATE_LIMIT = 10;
   const ipnsThrottle = createIpnsThrottle(
     config.ipnsRateLimit ?? DEFAULT_IPNS_RATE_LIMIT,
+  );
+  const newNameLimiter = createNewNameLimiter(
+    config.maxNewNamesPerHour ?? DEFAULT_MAX_NEW_NAMES_PER_HOUR,
   );
 
   const rateLimits: RateLimiterConfig = {
@@ -374,6 +386,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   let snapshotsIngested = 0;
   let rateLimitRejects = 0;
   let capacityRejects = 0;
+  let newNameRejects = 0;
   let reannounceCount = 0;
   let lastReannounceMs = 0;
   let lastPersistMs = 0;
@@ -1218,9 +1231,16 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     fromPinner?: boolean,
   ): void {
     // Admission gate: reject unknown names at capacity
-    if (!knownNames.has(ipnsName) && knownNames.size >= maxNames) {
-      capacityRejects++;
-      return;
+    // or when new-name rate limit is exceeded.
+    if (!knownNames.has(ipnsName)) {
+      if (knownNames.size >= maxNames) {
+        capacityRejects++;
+        return;
+      }
+      if (!newNameLimiter.tryAdmit()) {
+        newNameRejects++;
+        return;
+      }
     }
 
     knownNames.add(ipnsName);
@@ -1341,6 +1361,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         snapshotsIngested,
         rateLimitRejects,
         capacityRejects,
+        newNameRejects,
         reannounceCount,
         lastReannounceMs,
         lastPersistMs,
@@ -1629,9 +1650,16 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       if (phase !== "running") return false;
 
       // Admission gate: reject unknown names at capacity
-      if (!knownNames.has(ipnsName) && knownNames.size >= maxNames) {
-        capacityRejects++;
-        return false;
+      // or when new-name rate limit is exceeded.
+      if (!knownNames.has(ipnsName)) {
+        if (knownNames.size >= maxNames) {
+          capacityRejects++;
+          return false;
+        }
+        if (!newNameLimiter.tryAdmit()) {
+          newNameRejects++;
+          return false;
+        }
       }
 
       // Rate limit: block size

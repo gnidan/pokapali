@@ -75,6 +75,9 @@ Options:
                               (default: 30d = 2592000000)
   --ipns-rate-limit <n>       Max IPNS requests/sec to
                               delegated routing (default: 10)
+  --max-new-names-per-hour <n> Max new IPNS names admitted
+                              per hour (default: 100,
+                              0 = reject all new names)
   --stale-resolve-days <n>    Drop names with no activity
                               and no resolve for N days
                               (default: 3, 0 = disable)
@@ -109,6 +112,7 @@ interface ParsedArgs {
   retentionHourlyMs: number;
   retentionDailyMs: number;
   ipnsRateLimit: number;
+  maxNewNamesPerHour: number;
   staleResolveDays: number;
   noTls: boolean;
   tcpPort: number | undefined;
@@ -131,6 +135,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let retentionHourlyMs = DEFAULT_RETENTION_HOURLY_MS;
   let retentionDailyMs = DEFAULT_RETENTION_DAILY_MS;
   let ipnsRateLimit = 10;
+  let maxNewNamesPerHour = 100;
   let staleResolveDays = 3;
   let noTls = false;
   let tcpPort: number | undefined = undefined;
@@ -207,6 +212,12 @@ function parseArgs(argv: string[]): ParsedArgs {
         log.error(`invalid --ipns-rate-limit: "${argv[i]}"`);
         process.exit(1);
       }
+    } else if (arg === "--max-new-names-per-hour" && argv[i + 1]) {
+      maxNewNamesPerHour = parseInt(argv[++i], 10);
+      if (Number.isNaN(maxNewNamesPerHour) || maxNewNamesPerHour < 0) {
+        log.error(`invalid --max-new-names-per-hour:` + ` "${argv[i]}"`);
+        process.exit(1);
+      }
     } else if (arg === "--stale-resolve-days" && argv[i + 1]) {
       staleResolveDays = parseInt(argv[++i], 10);
       if (Number.isNaN(staleResolveDays) || staleResolveDays < 0) {
@@ -255,6 +266,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     retentionHourlyMs,
     retentionDailyMs,
     ipnsRateLimit,
+    maxNewNamesPerHour,
     staleResolveDays,
     noTls,
     tcpPort,
@@ -286,6 +298,7 @@ async function main() {
     retentionHourlyMs,
     retentionDailyMs,
     ipnsRateLimit,
+    maxNewNamesPerHour,
     staleResolveDays,
     noTls,
     tcpPort,
@@ -480,6 +493,7 @@ async function main() {
       pubsub,
       peerId,
       ipnsRateLimit,
+      maxNewNamesPerHour,
       staleResolveDays,
       retentionConfig: {
         fullResolutionMs: retentionFullMs,
