@@ -312,4 +312,174 @@ describe("createTopologySharing", () => {
     expect(libp2p._handlers.get("peer:disconnect")?.size ?? 0).toBe(0);
     expect(registry._changeCbs.size).toBe(0);
   });
+
+  it("publishNow cancels pending debounce " + "timers", () => {
+    const registry = makeRegistry([makeNode("relay-A", ["relay"], true)]);
+    const awareness = makeAwareness();
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    // Trigger peer:connect debounce
+    libp2p._dispatch("peer:connect");
+    // Trigger node change debounce
+    registry._fireChange();
+
+    // publishNow should fire immediately and
+    // cancel both pending debounce timers
+    ts.publishNow();
+    expect(awareness.setLocalStateField).toHaveBeenCalledTimes(1);
+
+    // Advancing past both debounce periods (but
+    // not past periodic/initial timers which are
+    // separate) — only debounce publishes should
+    // be cancelled
+    awareness.setLocalStateField.mockClear();
+    // Advance 1s — both debounce timers were
+    // cleared by publishNow, so no publish
+    vi.advanceTimersByTime(1_000);
+    // The initial 2s timer is still pending
+    // (1s remaining). Advance to trigger it.
+    vi.advanceTimersByTime(1_000);
+    // Initial timer fires — that's expected
+    const callsAfterInitial = awareness.setLocalStateField.mock.calls.length;
+
+    // Advance past 5s node debounce period —
+    // the debounce timers were cleared, so no
+    // additional publish from those
+    awareness.setLocalStateField.mockClear();
+    vi.advanceTimersByTime(5_000);
+    // No debounce-originated publish should fire
+    // (periodic timer hasn't elapsed yet either —
+    // we're at ~9s total, periodic is 30s)
+    expect(awareness.setLocalStateField).not.toHaveBeenCalled();
+
+    ts.destroy();
+  });
+
+  it("peer:disconnect triggers 2s debounce " + "publish", () => {
+    const registry = makeRegistry([makeNode("relay-A", ["relay"], true)]);
+    const awareness = makeAwareness();
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    // Initial publish
+    vi.advanceTimersByTime(2_000);
+    awareness.setLocalStateField.mockClear();
+
+    // Fire disconnect
+    libp2p._dispatch("peer:disconnect");
+
+    // Not yet at 2s
+    vi.advanceTimersByTime(1_500);
+    expect(awareness.setLocalStateField).not.toHaveBeenCalled();
+
+    // After 2s debounce
+    vi.advanceTimersByTime(500);
+    expect(awareness.setLocalStateField).toHaveBeenCalledTimes(1);
+
+    ts.destroy();
+  });
+
+  it("empty registry publishes empty arrays", () => {
+    const registry = makeRegistry([]);
+    const awareness = makeAwareness();
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    ts.publishNow();
+    const topo = awareness._fields.topology as any;
+    expect(topo.connectedRelays).toEqual([]);
+    expect(topo.relayRoles).toEqual({});
+    expect(topo.knownNodes).toEqual([]);
+
+    ts.destroy();
+  });
+
+  it("rapid node-change events collapse into " + "single publish", () => {
+    const registry = makeRegistry([makeNode("relay-A", ["relay"], true)]);
+    const awareness = makeAwareness();
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    // Initial publish
+    vi.advanceTimersByTime(2_000);
+    awareness.setLocalStateField.mockClear();
+
+    // Fire 5 rapid node changes
+    registry._fireChange();
+    registry._fireChange();
+    registry._fireChange();
+    registry._fireChange();
+    registry._fireChange();
+
+    // After 5s debounce — only 1 publish
+    vi.advanceTimersByTime(5_000);
+    expect(awareness.setLocalStateField).toHaveBeenCalledTimes(1);
+
+    ts.destroy();
+  });
+
+  it("destroy during pending debounce prevents" + " publish", () => {
+    const registry = makeRegistry([makeNode("relay-A", ["relay"], true)]);
+    const awareness = makeAwareness();
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    // Start debounce timers
+    libp2p._dispatch("peer:connect");
+    registry._fireChange();
+
+    // Destroy before timers fire
+    ts.destroy();
+
+    awareness.setLocalStateField.mockClear();
+    vi.advanceTimersByTime(10_000);
+    expect(awareness.setLocalStateField).not.toHaveBeenCalled();
+  });
+
+  it("pinner-only node appears in " + "connectedRelays", () => {
+    const registry = makeRegistry([makeNode("pinner-A", ["pinner"], true)]);
+    const awareness = makeAwareness();
+    const libp2p = makeLibp2p();
+
+    const ts = createTopologySharing({
+      awareness: awareness as any,
+      registry: registry as any,
+      libp2p,
+    });
+
+    ts.publishNow();
+    const topo = awareness._fields.topology as any;
+    expect(topo.connectedRelays).toEqual(["pinner-A"]);
+    expect(topo.relayRoles).toEqual({
+      "pinner-A": ["pinner"],
+    });
+
+    ts.destroy();
+  });
 });

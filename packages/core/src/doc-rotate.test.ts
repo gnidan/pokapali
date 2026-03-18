@@ -180,4 +180,113 @@ describe("rotateDoc", () => {
 
     expect(encodeAll).toHaveBeenCalled();
   });
+
+  it("calls buildUrl three times (admin, write, read)", async () => {
+    const { buildUrl } = await import("@pokapali/capability");
+    (buildUrl as ReturnType<typeof vi.fn>).mockClear();
+
+    await rotateDoc(baseContext(), mockCreateDoc(), noopPopulateMeta);
+
+    expect(buildUrl).toHaveBeenCalledTimes(3);
+  });
+
+  it("calls narrowCapability for write and read URLs", async () => {
+    const { narrowCapability } = await import("@pokapali/capability");
+    (narrowCapability as ReturnType<typeof vi.fn>).mockClear();
+
+    await rotateDoc(baseContext(), mockCreateDoc(), noopPopulateMeta);
+
+    // narrowCapability called for write URL (with
+    // canPushSnapshots:true) and read URL (without)
+    expect(narrowCapability).toHaveBeenCalledTimes(2);
+
+    const calls = (narrowCapability as ReturnType<typeof vi.fn>).mock.calls;
+    // Write URL grant includes canPushSnapshots
+    expect(calls[0][1]).toEqual(
+      expect.objectContaining({
+        canPushSnapshots: true,
+      }),
+    );
+    // Read URL grant has no push
+    expect(calls[1][1]).toEqual(
+      expect.objectContaining({
+        channels: [],
+      }),
+    );
+  });
+
+  it("threads channels to createDocFn params", async () => {
+    const createFn = mockCreateDoc();
+    const ctx = baseContext({
+      channels: ["content", "meta"],
+    });
+    await rotateDoc(ctx, createFn, noopPopulateMeta);
+
+    const params = (createFn as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as DocParams;
+    expect(params.channels).toEqual(["content", "meta"]);
+  });
+
+  it("threads signalingUrls to createDocFn " + "params", async () => {
+    const createFn = mockCreateDoc();
+    const ctx = baseContext({
+      signalingUrls: ["wss://a.example.com", "wss://b.example.com"],
+    });
+    await rotateDoc(ctx, createFn, noopPopulateMeta);
+
+    const params = (createFn as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as DocParams;
+    expect(params.signalingUrls).toEqual([
+      "wss://a.example.com",
+      "wss://b.example.com",
+    ]);
+  });
+
+  it("succeeds when room discovery throws", async () => {
+    const { startRoomDiscovery } = await import("./peer-discovery.js");
+    (startRoomDiscovery as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => {
+        throw new Error("helia not ready");
+      },
+    );
+
+    const createFn = mockCreateDoc();
+    const result = await rotateDoc(baseContext(), createFn, noopPopulateMeta);
+
+    // Should still succeed — room discovery is
+    // optional
+    expect(result.newDoc).toBeDefined();
+    expect(result.forwardingRecord).toBeInstanceOf(Uint8Array);
+  });
+
+  it("stores forwarding record from old to new " + "ipnsName", async () => {
+    const { storeForwardingRecord } = await import("./forwarding.js");
+    (storeForwardingRecord as ReturnType<typeof vi.fn>).mockClear();
+
+    const ctx = baseContext({
+      ipnsName: "old-name-123",
+    });
+    await rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta);
+
+    expect(storeForwardingRecord).toHaveBeenCalledWith(
+      "old-name-123",
+      expect.any(Uint8Array),
+    );
+  });
+
+  it(
+    "passes populateMetaFn the signing public " + "key and channel keys",
+    async () => {
+      const metaFn = vi.fn();
+      await rotateDoc(baseContext(), mockCreateDoc(), metaFn);
+
+      expect(metaFn).toHaveBeenCalledWith(
+        expect.anything(), // metaDoc
+        expect.any(Uint8Array), // signing pubkey
+        expect.objectContaining({
+          content: expect.any(Uint8Array),
+        }),
+      );
+    },
+  );
 });
