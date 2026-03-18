@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.16] — 2026-03-18
+
 ### Docs
 
 - Add `pokapali()` quick-start code example to root README

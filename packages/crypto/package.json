@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/crypto",
-  "version": "0.1.0-alpha.15",
+  "version": "0.1.0-alpha.16",
   "description": "Cryptographic primitives for pokapali",
   "keywords": [
     "pokapali",

@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/comments",
-  "version": "0.1.0-alpha.15",
+  "version": "0.1.0-alpha.16",
   "description": "Anchored, attributed, threaded comments for Yjs documents",
   "keywords": [
     "pokapali",
@@ -42,7 +42,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@pokapali/log": "0.1.0-alpha.15"
+    "@pokapali/log": "0.1.0-alpha.16"
   },
   "peerDependencies": {
     "yjs": "^13.6.0"
