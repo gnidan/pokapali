@@ -41,14 +41,21 @@ function Editor({ doc }: { doc: Doc }) {
 
 ## Hooks
 
-| Hook               | Signature                                       | Description                                                                                                                         |
-| ------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `useFeed`          | `(feed: Feed<T>) => T`                          | Subscribe to a reactive Feed via `useSyncExternalStore`. Accepts `null`/`undefined`, returns `undefined` until a feed is available. |
-| `useDocReady`      | `(doc, timeoutMs?) => boolean`                  | Returns `true` once `doc.ready()` resolves. Optional timeout resolves early.                                                        |
-| `useAutoSave`      | `(doc, debounceMs?) => void`                    | Sets up debounced auto-publish. No-op if the doc lacks push capability. Cleans up on unmount.                                       |
-| `useDocDestroy`    | `(doc) => void`                                 | Calls `doc.destroy()` on unmount. Declare this hook **last** so React cleans it up first (reverse order).                           |
-| `useParticipants`  | `(doc) => ReadonlyMap<number, ParticipantInfo>` | Subscribe to awareness and return the current participant map. Re-renders on awareness changes.                                     |
-| `useSnapshotFlash` | `(doc, durationMs?) => boolean`                 | Returns `true` briefly after a snapshot event, for visual feedback (flash/pulse). Defaults to 2000 ms.                              |
+### Stable
+
+| Hook            | Signature                      | Description                                                                                                                         |
+| --------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `useFeed`       | `(feed: Feed<T>) => T`         | Subscribe to a reactive Feed via `useSyncExternalStore`. Accepts `null`/`undefined`, returns `undefined` until a feed is available. |
+| `useDocReady`   | `(doc, timeoutMs?) => boolean` | Returns `true` once `doc.ready()` resolves. Optional timeout resolves early.                                                        |
+| `useDocDestroy` | `(doc) => void`                | Calls `doc.destroy()` on unmount. Declare this hook **last** so React cleans it up first (reverse order).                           |
+
+### Experimental
+
+| Hook               | Signature                                       | Description                                                                                            |
+| ------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `useAutoSave`      | `(doc, debounceMs?) => void`                    | Sets up debounced auto-publish. No-op if the doc lacks push capability. Cleans up on unmount.          |
+| `useParticipants`  | `(doc) => ReadonlyMap<number, ParticipantInfo>` | Subscribe to awareness and return the current participant map. Re-renders on awareness changes.        |
+| `useSnapshotFlash` | `(doc, durationMs?) => boolean`                 | Returns `true` briefly after a snapshot event, for visual feedback (flash/pulse). Defaults to 2000 ms. |
 
 ## Peer Dependencies
 
@@ -57,5 +64,4 @@ function Editor({ doc }: { doc: Doc }) {
 
 ## Links
 
-- [Integration Guide](../../docs/integration-guide.md)
 - [Root README](../../README.md)

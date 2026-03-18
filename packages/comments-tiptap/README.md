@@ -19,7 +19,6 @@ import {
   CommentHighlight,
   PendingAnchorHighlight,
   resolveAnchors,
-  getSyncState,
 } from "@pokapali/comments-tiptap";
 import { comments } from "@pokapali/comments";
 
@@ -59,8 +58,6 @@ if (anchor) {
   `Anchor` from the current editor selection.
   Returns `null` if selection is collapsed or sync
   plugin is inactive.
-- **`getSyncState(editor)`** — typed wrapper for
-  y-prosemirror's sync plugin state.
 
 ### Bulk Resolution
 
@@ -102,5 +99,4 @@ if (anchor) {
 ## Links
 
 - [@pokapali/comments README](../comments/README.md)
-- [Integration Guide](../../docs/integration-guide.md)
 - [Root README](../../README.md)
