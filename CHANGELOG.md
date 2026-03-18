@@ -7,6 +7,20 @@ The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Consumer builds fail when bundling `@pokapali/sync`
+  with Vite/Rollup — `signalingConns` and
+  `setupSignalingHandlers` imported from `y-webrtc`
+  are internal variables, not public exports. Replaced
+  ambient type patch with ESM shim that accesses
+  y-webrtc internals at runtime
+  ([#341](https://github.com/gnidan/pokapali/issues/341))
+
+### Docs
+
+- Remove alpha release banner from root README
+
 ## [0.1.0] — 2026-03-18
 
 First stable release. 12 packages across the
