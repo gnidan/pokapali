@@ -16,6 +16,9 @@ import {
   decryptSnapshot,
   validateStructure,
   walkChain,
+  ChainCycleError,
+  ChainDepthExceededError,
+  DEFAULT_MAX_CHAIN_DEPTH,
   createFetchCoalescerState,
   coalescerNext,
   coalescerResolve,
@@ -229,6 +232,152 @@ describe("@pokapali/snapshot", () => {
         nodes.push(node.seq);
       }
       expect(nodes).toEqual([0]);
+    });
+
+    it("throws ChainCycleError on cycle", async () => {
+      // Craft two blocks that point to each other.
+      // We can't use encodeSnapshot because prev
+      // links form a DAG, so we use dag-cbor directly
+      // to fake the cycle.
+      const cidA = CID.parse(
+        "bafyreigdmqpykrgxyaxtlafqpqhzrb7qy2rh75n" + "hdgm3xbaloyhpmhbseq",
+      );
+      const cidB = CID.parse(
+        "bafyreib2rxk3rybloqtdq5qhxst4asm2tq46ec2" + "t3hunxkrmybawy6rr7i",
+      );
+
+      // Block A: prev → cidB
+      const nodeA = dagCbor.encode({
+        subdocs: {},
+        prev: cidB,
+        seq: 1,
+        ts: 2000,
+        publicKey: new Uint8Array(32),
+        signature: new Uint8Array(64),
+      });
+
+      // Block B: prev → cidA (cycle!)
+      const nodeB = dagCbor.encode({
+        subdocs: {},
+        prev: cidA,
+        seq: 0,
+        ts: 1000,
+        publicKey: new Uint8Array(32),
+        signature: new Uint8Array(64),
+      });
+
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cidA.toString(), nodeA);
+      blocks.set(cidB.toString(), nodeB);
+
+      const getter = async (cid: CID) => {
+        const b = blocks.get(cid.toString());
+        if (!b) throw new Error("not found");
+        return b;
+      };
+
+      const nodes: number[] = [];
+      await expect(async () => {
+        let i = 0;
+        for await (const node of walkChain(cidA, getter)) {
+          nodes.push(node.seq);
+          if (++i > 100) {
+            throw new Error("safety bail: walkChain did not detect cycle");
+          }
+        }
+      }).rejects.toThrow(ChainCycleError);
+    });
+
+    it("throws ChainDepthExceededError at maxDepth", async () => {
+      // Build a linear chain of 5 blocks, walk with
+      // maxDepth=3 — should throw after yielding 3.
+      const { readKey, signingKey } = await makeTestKeys();
+      const blocks = new Map<string, Uint8Array>();
+      let prevCid: CID | null = null;
+
+      for (let i = 0; i < 5; i++) {
+        const encoded = await encodeSnapshot(
+          { doc: new Uint8Array([i]) },
+          readKey,
+          prevCid,
+          i,
+          (i + 1) * 1000,
+          signingKey,
+        );
+        const cid = await cidFromBytes(encoded);
+        blocks.set(cid.toString(), encoded);
+        prevCid = cid;
+      }
+
+      const getter = async (cid: CID) => {
+        const b = blocks.get(cid.toString());
+        if (!b) throw new Error("not found");
+        return b;
+      };
+
+      const nodes: number[] = [];
+      await expect(async () => {
+        for await (const node of walkChain(prevCid!, getter, { maxDepth: 3 })) {
+          nodes.push(node.seq);
+        }
+      }).rejects.toThrow(ChainDepthExceededError);
+      // Should have yielded exactly 3 before throwing
+      expect(nodes).toEqual([4, 3, 2]);
+    });
+
+    it("respects custom maxDepth", async () => {
+      // Chain of 2 blocks, maxDepth=10 — no error
+      const { readKey, signingKey } = await makeTestKeys();
+      const blocks = new Map<string, Uint8Array>();
+
+      const genesis = await encodeSnapshot(
+        { doc: new Uint8Array([1]) },
+        readKey,
+        null,
+        0,
+        1000,
+        signingKey,
+      );
+      const genesisCid = await cidFromBytes(genesis);
+      blocks.set(genesisCid.toString(), genesis);
+
+      const second = await encodeSnapshot(
+        { doc: new Uint8Array([2]) },
+        readKey,
+        genesisCid,
+        1,
+        2000,
+        signingKey,
+      );
+      const secondCid = await cidFromBytes(second);
+      blocks.set(secondCid.toString(), second);
+
+      const getter = async (cid: CID) => {
+        const b = blocks.get(cid.toString());
+        if (!b) throw new Error("not found");
+        return b;
+      };
+
+      const nodes: number[] = [];
+      for await (const node of walkChain(secondCid, getter, { maxDepth: 10 })) {
+        nodes.push(node.seq);
+      }
+      expect(nodes).toEqual([1, 0]);
+    });
+
+    it("exports DEFAULT_MAX_CHAIN_DEPTH", () => {
+      expect(typeof DEFAULT_MAX_CHAIN_DEPTH).toBe("number");
+      expect(DEFAULT_MAX_CHAIN_DEPTH).toBeGreaterThan(0);
+    });
+
+    it("error types have descriptive messages", async () => {
+      const err1 = new ChainCycleError("cid-abc");
+      expect(err1.message).toContain("cid-abc");
+      expect(err1.name).toBe("ChainCycleError");
+
+      const err2 = new ChainDepthExceededError(100);
+      expect(err2.message).toContain("100");
+      expect(err2.name).toBe("ChainDepthExceededError");
     });
   });
 

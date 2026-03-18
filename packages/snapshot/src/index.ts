@@ -154,16 +154,50 @@ export async function validateStructure(block: Uint8Array): Promise<boolean> {
   }
 }
 
+export class ChainCycleError extends Error {
+  override name = "ChainCycleError" as const;
+  constructor(public readonly cid: string) {
+    super(`Cycle detected in snapshot chain at ${cid}`);
+  }
+}
+
+export class ChainDepthExceededError extends Error {
+  override name = "ChainDepthExceededError" as const;
+  constructor(public readonly maxDepth: number) {
+    super(`Snapshot chain exceeded max depth of ${maxDepth}`);
+  }
+}
+
+export const DEFAULT_MAX_CHAIN_DEPTH = 1000;
+
+export interface WalkChainOptions {
+  maxDepth?: number;
+}
+
 export async function* walkChain(
   tipCid: CID,
   blockGetter: (cid: CID) => Promise<Uint8Array>,
+  options?: WalkChainOptions,
 ): AsyncGenerator<SnapshotNode> {
+  const maxDepth = options?.maxDepth ?? DEFAULT_MAX_CHAIN_DEPTH;
+  const visited = new Set<string>();
   let current: CID | null = tipCid;
+  let depth = 0;
+
   while (current !== null) {
+    const key = current.toString();
+    if (visited.has(key)) {
+      throw new ChainCycleError(key);
+    }
+    if (depth >= maxDepth) {
+      throw new ChainDepthExceededError(maxDepth);
+    }
+    visited.add(key);
     const block = await blockGetter(current);
     const node = decodeSnapshot(block);
     yield node;
     current = node.prev;
+    depth++;
   }
 }
 
