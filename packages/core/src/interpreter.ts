@@ -19,6 +19,7 @@ import type {
 } from "./facts.js";
 import type { AsyncQueue } from "./sources.js";
 import type { SnapshotOps } from "./snapshot-ops.js";
+import { SnapshotValidationError } from "./snapshot-ops.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("interpreter");
@@ -354,14 +355,25 @@ export async function runInterpreter(
             // becomes the tip.
             continue;
           }
-          // Inline apply — fast, awaited
-          const result = await effects.applySnapshot(tipCid, block);
-          feedback.push({
-            type: "tip-advanced",
-            ts: Date.now(),
-            cid: tipCid,
-            seq: result.seq,
-          });
+          // Inline apply — fast, awaited.
+          // Validation happens inside applySnapshot;
+          // catch SnapshotValidationError to skip
+          // invalid blocks without crashing the doc.
+          try {
+            const result = await effects.applySnapshot(tipCid, block);
+            feedback.push({
+              type: "tip-advanced",
+              ts: Date.now(),
+              cid: tipCid,
+              seq: result.seq,
+            });
+          } catch (err) {
+            if (err instanceof SnapshotValidationError) {
+              log.warn("skipping invalid snapshot:", err.message);
+            } else {
+              throw err;
+            }
+          }
         }
       }
     }

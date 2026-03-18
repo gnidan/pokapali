@@ -10,11 +10,22 @@
  */
 
 import type { CID } from "multiformats/cid";
-import { decodeSnapshot } from "@pokapali/snapshot";
+import { decodeSnapshot, validateStructure } from "@pokapali/snapshot";
 import { bytesToHex } from "@pokapali/crypto";
+import { createLogger } from "@pokapali/log";
 import type { SubdocManager } from "@pokapali/subdocs";
 import type { SnapshotCodec } from "./snapshot-codec.js";
 import type { BlockResolver } from "./block-resolver.js";
+import { ValidationError } from "./errors.js";
+
+const log = createLogger("snapshot-ops");
+
+export class SnapshotValidationError extends ValidationError {
+  override name = "SnapshotValidationError" as const;
+  constructor(public readonly cid: string) {
+    super(`Snapshot block failed signature validation: ` + cid);
+  }
+}
 
 // ------------------------------------------------
 // BlockMetadata — decoded snapshot header fields
@@ -77,6 +88,16 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
     },
 
     async applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }> {
+      const valid = await validateStructure(block);
+      if (!valid) {
+        const cidStr = cid.toString();
+        log.warn(
+          "rejecting snapshot: failed validation",
+          cidStr.slice(0, 16) + "...",
+        );
+        throw new SnapshotValidationError(cidStr);
+      }
+
       resolver.put(cid, block);
 
       const applied = await snapshotCodec.applyRemote(

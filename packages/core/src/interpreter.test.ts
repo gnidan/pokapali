@@ -14,6 +14,7 @@ import {
   MAX_INTERPRETER_RETRIES,
   RETRY_BASE_MS,
 } from "./interpreter.js";
+import { SnapshotValidationError } from "./snapshot-ops.js";
 import type { EffectHandlers, ScanOutput } from "./interpreter.js";
 import {
   initialDocState,
@@ -1715,6 +1716,45 @@ describe("interpreter publisher authorization", () => {
     const advanced = feedback.find((f) => f.type === "tip-advanced");
     expect(advanced).toBeUndefined();
   });
+
+  it(
+    "skips tip advance when applySnapshot " + "throws SnapshotValidationError",
+    async () => {
+      const cid = await fakeCid(112);
+      const block = fakeBlock(112);
+
+      const { effects, feedback } = await runWithFacts(
+        [
+          {
+            type: "cid-discovered",
+            ts: 1,
+            cid,
+            source: "gossipsub",
+            block,
+            seq: 1,
+          },
+        ],
+        {
+          getBlock: vi.fn().mockReturnValue(block),
+          decodeBlock: vi.fn().mockReturnValue({
+            seq: 1,
+            publisher: "good-pubkey",
+          }),
+          isPublisherAuthorized: vi.fn().mockReturnValue(true),
+          applySnapshot: vi
+            .fn()
+            .mockRejectedValue(new SnapshotValidationError(cid.toString())),
+        },
+      );
+
+      // applySnapshot was called (validation
+      // happens inside it)
+      expect(effects.applySnapshot).toHaveBeenCalledWith(cid, block);
+      // But tip-advanced should NOT appear
+      const advanced = feedback.find((f) => f.type === "tip-advanced");
+      expect(advanced).toBeUndefined();
+    },
+  );
 
   it("applies tip when publisher is authorized", async () => {
     const cid = await fakeCid(111);

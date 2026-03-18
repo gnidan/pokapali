@@ -8,7 +8,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
-import { createSnapshotOps, type SnapshotOpsOptions } from "./snapshot-ops.js";
+import {
+  createSnapshotOps,
+  SnapshotValidationError,
+  type SnapshotOpsOptions,
+} from "./snapshot-ops.js";
 import type { SnapshotCodec } from "./snapshot-codec.js";
 import type { BlockResolver } from "./block-resolver.js";
 import type { SubdocManager } from "@pokapali/subdocs";
@@ -85,6 +89,7 @@ vi.mock("@pokapali/snapshot", () => ({
     ts: 1700000000000,
     publisher: new Uint8Array([0xab, 0xcd]),
   })),
+  validateStructure: vi.fn(async () => true),
 }));
 
 vi.mock("@pokapali/crypto", () => ({
@@ -237,5 +242,63 @@ describe("createSnapshotOps", () => {
         expect(ops.isPublisherAuthorized(undefined)).toBe(false);
       },
     );
+  });
+
+  // ----- Snapshot validation (#216) -----
+
+  describe("applySnapshot validation", () => {
+    it(
+      "throws SnapshotValidationError when" +
+        " validateStructure returns false",
+      async () => {
+        const { validateStructure } = await import("@pokapali/snapshot");
+        vi.mocked(validateStructure).mockResolvedValueOnce(false);
+
+        const ops = createSnapshotOps(buildOptions());
+        const cid = await fakeCid();
+
+        await expect(
+          ops.applySnapshot(cid, new Uint8Array([1, 2])),
+        ).rejects.toThrow(SnapshotValidationError);
+      },
+    );
+
+    it("does not call applyRemote when" + " validation fails", async () => {
+      const { validateStructure } = await import("@pokapali/snapshot");
+      vi.mocked(validateStructure).mockResolvedValueOnce(false);
+
+      const codec = mockSnapshotCodec();
+      const ops = createSnapshotOps(buildOptions({ snapshotCodec: codec }));
+      const cid = await fakeCid();
+
+      await expect(
+        ops.applySnapshot(cid, new Uint8Array([1])),
+      ).rejects.toThrow();
+
+      expect(codec.applyRemote).not.toHaveBeenCalled();
+    });
+
+    it(
+      "proceeds normally when validateStructure" + " returns true",
+      async () => {
+        const { validateStructure } = await import("@pokapali/snapshot");
+        vi.mocked(validateStructure).mockResolvedValueOnce(true);
+
+        const codec = mockSnapshotCodec();
+        const ops = createSnapshotOps(buildOptions({ snapshotCodec: codec }));
+        const cid = await fakeCid();
+        const result = await ops.applySnapshot(cid, new Uint8Array([1]));
+
+        expect(codec.applyRemote).toHaveBeenCalled();
+        expect(result).toEqual({ seq: 5 });
+      },
+    );
+
+    it("SnapshotValidationError has correct" + " name and includes CID", () => {
+      const err = new SnapshotValidationError("bafyabc123");
+      expect(err.name).toBe("SnapshotValidationError");
+      expect(err.message).toContain("bafyabc123");
+      expect(err).toBeInstanceOf(Error);
+    });
   });
 });
