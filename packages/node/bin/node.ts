@@ -525,15 +525,21 @@ async function main() {
           if (!appId) return;
           const msg = parseAnnouncement(evt.detail.data);
           if (msg && !msg.ack) {
-            const blockData = msg.block ? base64ToUint8(msg.block) : undefined;
-            pinner!.onAnnouncement(
-              msg.ipnsName,
-              msg.cid,
-              appId,
-              blockData,
-              msg.fromPinner,
-              msg.proof,
-            );
+            try {
+              const blockData = msg.block
+                ? base64ToUint8(msg.block)
+                : undefined;
+              pinner!.onAnnouncement(
+                msg.ipnsName,
+                msg.cid,
+                appId,
+                blockData,
+                msg.fromPinner,
+                msg.proof,
+              );
+            } catch (err) {
+              log.warn("bad announcement payload", msg.ipnsName, err);
+            }
             return;
           }
 
