@@ -11,6 +11,38 @@ determines the access level (admin, writer, read-only).
 This package handles serialization and provides
 `narrowCapability` for generating lower-privilege URLs.
 
+## Usage
+
+```typescript
+import {
+  buildUrl,
+  parseUrl,
+  inferCapability,
+  narrowCapability,
+} from "@pokapali/capability";
+
+// Build a capability URL from keys
+const url = await buildUrl("https://my-app.com", ipnsName, keys);
+// → "https://my-app.com/doc/<ipnsName>#<encoded-keys>"
+
+// Parse a capability URL back into its parts
+const { base, ipnsName, keys } = await parseUrl(url);
+
+// Determine what this key set can do
+const cap = inferCapability(keys, ["content", "comments"]);
+console.log(cap.isAdmin); // true if rotationKey present
+console.log(cap.canPushSnapshots); // true if ipnsKeyBytes present
+console.log(cap.channels); // Set of writable channel names
+
+// Generate a lower-privilege URL for sharing
+const writeKeys = narrowCapability(keys, {
+  channels: ["content"],
+  canPushSnapshots: true,
+});
+const writeUrl = await buildUrl(base, ipnsName, writeKeys);
+// writeUrl grants content-channel write access only
+```
+
 ## Key Exports
 
 - **`CapabilityKeys`** — interface for the optional key
