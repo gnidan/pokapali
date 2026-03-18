@@ -16,41 +16,53 @@ safe to depend on and which may change.
 
 ### Stable
 
-| Export              | Description                                                                                                   |
-| ------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `pokapali(options)` | Factory — returns `PokapaliApp`                                                                               |
-| `PokapaliConfig`    | Configuration type                                                                                            |
-| `PokapaliApp`       | App instance (`.create()`, `.open()`)                                                                         |
-| `Doc`               | Document handle — `.channel()`, `.publish()`, `.invite()`, `.urls`, `.destroy()`, `.capability`, `.awareness` |
-| `DocUrls`           | `{ admin, write, read, best }`                                                                                |
-| `Feed<T>`           | Reactive container (`getSnapshot`, `subscribe`)                                                               |
-| `DocStatus`         | `"connecting" \| "synced" \| "receiving" \| "offline"`                                                        |
-| `SaveState`         | `"saved" \| "dirty" \| "saving" \| "unpublished" \| "save-error"`                                             |
-| `VersionInfo`       | Snapshot metadata (cid, seq, ts)                                                                              |
-| `DocRole`           | Role discriminator                                                                                            |
-| `SnapshotEvent`     | Snapshot event payload                                                                                        |
-| `docIdFromUrl()`    | Extract IPNS name from a capability URL                                                                       |
-| `Capability`        | Re-exported from `@pokapali/capability` — access level info                                                   |
-| `CapabilityGrant`   | Re-exported from `@pokapali/capability` — scoped invite grant                                                 |
-| `RotateResult`      | Result of a key-rotation operation                                                                            |
+| Export                    | Description                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `pokapali(options)`       | Factory — returns `PokapaliApp`                                                                               |
+| `PokapaliConfig`          | Configuration type                                                                                            |
+| `PokapaliApp`             | App instance (`.create()`, `.open()`)                                                                         |
+| `Doc`                     | Document handle — `.channel()`, `.publish()`, `.invite()`, `.urls`, `.destroy()`, `.capability`, `.awareness` |
+| `DocUrls`                 | `{ admin, write, read, best }`                                                                                |
+| `Feed<T>`                 | Reactive container (`getSnapshot`, `subscribe`)                                                               |
+| `DocStatus`               | `"connecting" \| "synced" \| "receiving" \| "offline"`                                                        |
+| `SaveState`               | `"saved" \| "dirty" \| "saving" \| "unpublished" \| "save-error"`                                             |
+| `VersionInfo`             | Snapshot metadata (cid, seq, ts)                                                                              |
+| `DocRole`                 | Role discriminator                                                                                            |
+| `SnapshotEvent`           | Snapshot event payload                                                                                        |
+| `docIdFromUrl()`          | Extract IPNS name from a capability URL                                                                       |
+| `statusLabel()`           | Human-readable label for a `DocStatus` value                                                                  |
+| `saveLabel()`             | Human-readable label for a `SaveState` value                                                                  |
+| `PokapaliError`           | Base error class for all pokapali errors                                                                      |
+| `PermissionError`         | Thrown on capability/role violations                                                                          |
+| `TimeoutError`            | Thrown when an operation times out                                                                            |
+| `DestroyedError`          | Thrown when operating on a destroyed Doc                                                                      |
+| `ValidationError`         | Thrown on invalid input                                                                                       |
+| `SnapshotValidationError` | Thrown when a remote snapshot fails signature validation (extends `ValidationError`)                          |
+| `NotFoundError`           | Thrown when a resource is not found                                                                           |
+| `ClientIdentityInfo`      | Client identity info (`{ pubkey, verified }`)                                                                 |
+| `IdentityMap`             | `ReadonlyMap<number, ClientIdentityInfo>` — client ID to identity mapping                                     |
+| `Capability`              | Re-exported from `@pokapali/capability` — access level info                                                   |
+| `CapabilityGrant`         | Re-exported from `@pokapali/capability` — scoped invite grant                                                 |
+| `RotateResult`            | Result of a key-rotation operation                                                                            |
 
 #### Feeds on Doc
 
 All Feeds are stable as types (`Feed<T>` interface).
 The specific Feeds on Doc vary by stability tier:
 
-| Feed                   | Type                   | Tier         |
-| ---------------------- | ---------------------- | ------------ |
-| `status`               | `Feed<DocStatus>`      | Stable       |
-| `saveState`            | `Feed<SaveState>`      | Stable       |
-| `tip`                  | `Feed<VersionInfo>`    | Stable       |
-| `loading`              | `Feed<LoadingState>`   | Experimental |
-| `backedUp`             | `Feed<boolean>`        | Experimental |
-| `versions`             | `Feed<VersionHistory>` | Experimental |
-| `snapshotEvents`       | `Feed<SnapshotEvent>`  | Stable       |
-| `gossipActivity`       | `Feed<GossipActivity>` | Experimental |
-| `clientIdMapping`      | `Feed<IdentityMap>`    | Experimental |
-| `lastPersistenceError` | `Feed<string\|null>`   | Experimental |
+| Feed                   | Type                        | Tier         |
+| ---------------------- | --------------------------- | ------------ |
+| `status`               | `Feed<DocStatus>`           | Stable       |
+| `saveState`            | `Feed<SaveState>`           | Stable       |
+| `tip`                  | `Feed<VersionInfo>`         | Stable       |
+| `loading`              | `Feed<LoadingState>`        | Experimental |
+| `backedUp`             | `Feed<boolean>`             | Experimental |
+| `versions`             | `Feed<VersionHistory>`      | Experimental |
+| `snapshotEvents`       | `Feed<SnapshotEvent>`       | Stable       |
+| `gossipActivity`       | `Feed<GossipActivity>`      | Experimental |
+| `clientIdMapping`      | `Feed<IdentityMap>`         | Stable       |
+| `lastPersistenceError` | `Feed<string\|null>`        | Experimental |
+| `lastValidationError`  | `Feed<{cid,message}\|null>` | Experimental |
 
 #### Deprecated (will be removed in 0.2.0)
 
@@ -74,8 +86,7 @@ These APIs work but may change shape:
 
 - `LoadingState`, `VersionHistory`,
   `VersionHistoryEntry`, `VersionEntryStatus`
-- `GossipActivity`, `ParticipantInfo`,
-  `ClientIdentityInfo`, `doc.clientIdMapping`
+- `GossipActivity`, `ParticipantInfo`
 - `fetchVersionHistory()`, `VersionEntry`,
   `VersionTier`
 - `createAutoSaver()`, `AutoSaveOptions`
@@ -83,15 +94,12 @@ These APIs work but may change shape:
 - `TopologyGraph`, `TopologyNode`, `TopologyEdge`,
   `TopologyGraphEdge`
 - `AwarenessTopology`, `AwarenessKnownNode`
+- `Awareness` — re-exported from `y-protocols/awareness`
 - `doc.configuredChannels` — channels configured for
   the app (compare with `capability.channels` to
   detect missing keys for re-invite flows)
 - `doc.lastPersistenceError` — IDB write failure
   notifications (added in alpha.7)
-- `PermissionError`, `TimeoutError`,
-  `DestroyedError`, `ValidationError`,
-  `NotFoundError`, `SnapshotValidationError`
-- `statusLabel()`, `saveLabel()`
 - `truncateUrl()`
 
 ### Internal
@@ -131,6 +139,8 @@ Core sub-entry points (`@pokapali/core/announce`,
 
 **Stable:** `encodeSnapshot`, `decryptSnapshot`,
 `decodeSnapshot`, `validateSnapshot`, `walkChain`,
+`WalkChainOptions`, `ChainCycleError`,
+`ChainDepthExceededError`, `DEFAULT_MAX_CHAIN_DEPTH`,
 `SnapshotNode`, `CID`, `sha256`, `dagCborCode`
 
 **Internal:** Fetch coalescer exports (will be
@@ -156,19 +166,27 @@ All other exports are internal.
 ## @pokapali/node
 
 **Stable:** `createPinner`, `startRelay`,
-`startHttpServer`, `PinnerConfig`, `Pinner`,
-`RelayConfig`, `Relay`, `HttpConfig`
+`startHttpServer`, `startBlockServer`,
+`PinnerConfig`, `Pinner`, `RelayConfig`, `Relay`,
+`HttpConfig`, `HttpsConfig`
 
 **Experimental:** `PinnerMetrics`, `encodeNodeCaps`,
 `decodeNodeCaps`, `NodeCapabilities`, `NodeNeighbor`
 
-**Internal:** Rate limiter, history tracker, and
-related types
+**Internal:** `TipData`, `GuaranteeData`,
+`TipResponse`, `GuaranteeResponse`,
+`SnapshotRecord`, `HistoryEntry`,
+`NODE_CAPS_TOPIC`, `announceTopic()` (re-exports),
+rate limiter, history tracker, and related types
 
 ## @pokapali/comments — All Experimental
 
 `comments()`, `Comments<T>`, `Comment<T>`, `Anchor`,
-`ResolvedAnchor`, `anchorFromRelativePositions()`
+`ResolvedAnchor`, `CommentsOptions`,
+`anchorFromRelativePositions()`
+
+Re-exports: `Feed`, `ClientIdMapping`,
+`ClientIdentityInfo` (from `@pokapali/core`)
 
 Note: `createAnchor()` is a method on `Comments<T>`,
 not a module-level export.
@@ -176,7 +194,33 @@ not a module-level export.
 ## @pokapali/test-utils — All Experimental
 
 `createTestNetwork()`, `TestNetwork`, `TestPeer`,
-`TestNetworkOptions`
+`TestNetworkOptions`, `LatencyOptions`,
+`createTestRelay()`, `TestRelay`, `TestRelayOptions`
+
+## @pokapali/react
+
+**Stable:** `useFeed()`, `useDocReady()`,
+`useDocDestroy()`
+
+**Experimental:** `useAutoSave()`,
+`useParticipants()`, `useSnapshotFlash()`
+
+## @pokapali/comments-tiptap — Mostly Experimental
+
+**Experimental:**
+`anchorFromSelection()`, `resolveAnchors()`,
+`CommentHighlight`, `PendingAnchorHighlight`,
+`commentHighlightKey`,
+`rebuildCommentDecorations()`,
+`setPendingAnchorDecoration()`,
+`clearPendingAnchorDecoration()`
+
+Types: `ResolvedCommentAnchor`,
+`CommentHighlightOptions`
+
+Re-exports: `Anchor` (from `@pokapali/comments`)
+
+**Internal:** `getSyncState()`, `SyncState`
 
 ---
 
