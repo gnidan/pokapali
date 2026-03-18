@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Node.js relay and pinner for pokapali networks",
   "keywords": [
     "pokapali",
@@ -53,10 +53,10 @@
     "@libp2p/crypto": "^5.0.0",
     "@libp2p/kad-dht": "^15.1.11",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
-    "@pokapali/core": "0.1.0",
-    "@pokapali/crypto": "0.1.0",
-    "@pokapali/log": "0.1.0",
-    "@pokapali/snapshot": "0.1.0",
+    "@pokapali/core": "0.1.1",
+    "@pokapali/crypto": "0.1.1",
+    "@pokapali/log": "0.1.1",
+    "@pokapali/snapshot": "0.1.1",
     "blockstore-fs": "3.0.2",
     "datastore-level": "^12.0.2",
     "helia": "^5.5.1",

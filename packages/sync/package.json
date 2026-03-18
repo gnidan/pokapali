@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/sync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WebRTC sync provider for pokapali documents",
   "keywords": [
     "pokapali",
@@ -42,8 +42,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@pokapali/log": "0.1.0",
-    "@pokapali/subdocs": "0.1.0",
+    "@pokapali/log": "0.1.1",
+    "@pokapali/subdocs": "0.1.1",
     "lib0": "^0.2.117",
     "y-webrtc": "^10.3.0"
   },

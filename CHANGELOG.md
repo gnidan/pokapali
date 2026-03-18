@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-03-18
+
 ### Fixed
 
 - Consumer builds fail when bundling `@pokapali/sync`
