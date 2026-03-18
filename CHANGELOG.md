@@ -39,6 +39,14 @@ The format is based on
   messages — invalid payloads are caught and logged instead
   of taking down the process
   ([#287](https://github.com/gnidan/pokapali/issues/287))
+- Added `publishConfig: { access: "public" }` to 4 scoped
+  packages (comments, test-utils, react, comments-tiptap) —
+  without this, `npm publish` defaults to restricted access
+  ([#291](https://github.com/gnidan/pokapali/issues/291))
+- Updated stale peer dependency versions in react (alpha.6 →
+  alpha.14) and comments-tiptap (alpha.5 → alpha.14) — old
+  versions caused peer conflict warnings on install
+  ([#292](https://github.com/gnidan/pokapali/issues/292))
 
 ### Docs
 
@@ -79,17 +87,6 @@ The format is based on
 - Fixed comments README importing unexported `createFeed` —
   replaced with inline Feed-compatible object
   ([#297](https://github.com/gnidan/pokapali/issues/297))
-
-### Fixed (npm)
-
-- Added `publishConfig: { access: "public" }` to 4 scoped
-  packages (comments, test-utils, react, comments-tiptap) —
-  without this, `npm publish` defaults to restricted access
-  ([#291](https://github.com/gnidan/pokapali/issues/291))
-- Updated stale peer dependency versions in react (alpha.6 →
-  alpha.14) and comments-tiptap (alpha.5 → alpha.14) — old
-  versions caused peer conflict warnings on install
-  ([#292](https://github.com/gnidan/pokapali/issues/292))
 
 ### Internal
 
