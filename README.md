@@ -19,6 +19,30 @@ access level is encoded in the URL fragment as key material.
 Sharing a URL shares a capability. No accounts, no servers,
 no sign-up.
 
+```ts
+import { pokapali } from "@pokapali/core";
+
+const app = pokapali({
+  appId: "my-app",
+  channels: ["content"],
+  origin: window.location.origin,
+});
+
+// Create a document (you become admin)
+const doc = await app.create();
+
+// Edit via Yjs
+const ytext = doc.channel("content").getText("body");
+ytext.insert(0, "Hello, world!");
+
+// Share — the URL encodes the access level
+console.log(doc.urls.write); // writer invite
+console.log(doc.urls.read); // read-only link
+
+// Open from a capability URL
+const doc2 = await app.open(someUrl);
+```
+
 ## Packages
 
 | Package                                                 | Description                                                     |
