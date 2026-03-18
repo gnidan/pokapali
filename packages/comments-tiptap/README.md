@@ -98,5 +98,5 @@ if (anchor) {
 
 ## Links
 
-- [@pokapali/comments README](../comments/README.md)
-- [Root README](../../README.md)
+- [@pokapali/comments README](https://github.com/gnidan/pokapali/blob/main/packages/comments/README.md)
+- [Root README](https://github.com/gnidan/pokapali#readme)

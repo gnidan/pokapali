@@ -30,5 +30,5 @@ publicKey, signature, data)`** — Ed25519 sign/verify
 
 ## Links
 
-- [Root README](../../README.md)
-- [Architecture — Key Derivation](../../docs/internals/)
+- [Root README](https://github.com/gnidan/pokapali#readme)
+- [Architecture — Key Derivation](https://github.com/gnidan/pokapali/tree/main/docs/internals)

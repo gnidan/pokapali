@@ -41,5 +41,5 @@ npx pokapali \
 
 ## Links
 
-- [Root README](../../README.md)
-- [Architecture — Pinning Servers](../../docs/internals/)
+- [Root README](https://github.com/gnidan/pokapali#readme)
+- [Architecture — Pinning Servers](https://github.com/gnidan/pokapali/tree/main/docs/internals)

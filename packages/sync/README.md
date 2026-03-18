@@ -31,5 +31,5 @@ signaling servers required.
 
 ## Links
 
-- [Root README](../../README.md)
-- [Architecture](../../docs/internals/)
+- [Root README](https://github.com/gnidan/pokapali#readme)
+- [Architecture](https://github.com/gnidan/pokapali/tree/main/docs/internals)

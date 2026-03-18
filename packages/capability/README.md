@@ -31,5 +31,5 @@ This package handles serialization and provides
 
 ## Links
 
-- [Root README](../../README.md)
-- [Architecture — Capability URLs](../../docs/internals/)
+- [Root README](https://github.com/gnidan/pokapali#readme)
+- [Architecture — Capability URLs](https://github.com/gnidan/pokapali/tree/main/docs/internals)

@@ -68,7 +68,7 @@ doc2.destroy();
 ```
 
 See
-[examples/getting-started/](../../docs/examples/getting-started/)
+[examples/getting-started/](https://github.com/gnidan/pokapali/tree/main/docs/examples/getting-started)
 for runnable create and open scripts.
 
 ## API
@@ -149,22 +149,21 @@ const editor = new Editor({
 
 ## Related Packages
 
-| Package                                | Purpose                    |
-| -------------------------------------- | -------------------------- |
-| [@pokapali/comments](../comments/)     | Anchored threaded comments |
-| [@pokapali/test-utils](../test-utils/) | In-memory test transport   |
-| [@pokapali/node](../node/)             | Relay + pinner server      |
-| [@pokapali/log](../log/)               | Structured logging         |
+| Package                                                                                  | Purpose                    |
+| ---------------------------------------------------------------------------------------- | -------------------------- |
+| [@pokapali/comments](https://github.com/gnidan/pokapali/tree/main/packages/comments)     | Anchored threaded comments |
+| [@pokapali/test-utils](https://github.com/gnidan/pokapali/tree/main/packages/test-utils) | In-memory test transport   |
+| [@pokapali/node](https://github.com/gnidan/pokapali/tree/main/packages/node)             | Relay + pinner server      |
+| [@pokapali/log](https://github.com/gnidan/pokapali/tree/main/packages/log)               | Structured logging         |
 
 ## Internals
 
-<details>
-<summary>Internal modules (for contributors)</summary>
-
-These are implementation details, not public API.
-Do not import from sub-entry points (`/announce`,
-`/block-upload`, `/snapshot-codec`, `/ipns-helpers`)
-unless you are building server infrastructure.
+> **Internal modules (for contributors)**
+>
+> These are implementation details, not public API.
+> Do not import from sub-entry points (`/announce`,
+> `/block-upload`, `/snapshot-codec`, `/ipns-helpers`)
+> unless you are building server infrastructure.
 
 | Module                | Purpose                 |
 | --------------------- | ----------------------- |
@@ -184,11 +183,9 @@ unless you are building server infrastructure.
 | `auto-save.ts`        | Debounced auto-publish  |
 | `topology-sharing.ts` | Network topology        |
 
-</details>
-
 ## Links
 
-- [Getting Started](../../docs/getting-started.md)
-- [Full API Guide](../../docs/guide.md)
-- [Architecture](../../docs/internals/)
-- [Examples](../../docs/examples/getting-started/)
+- [Getting Started](https://github.com/gnidan/pokapali/blob/main/docs/getting-started.md)
+- [Full API Guide](https://github.com/gnidan/pokapali/blob/main/docs/guide.md)
+- [Architecture](https://github.com/gnidan/pokapali/tree/main/docs/internals)
+- [Examples](https://github.com/gnidan/pokapali/tree/main/docs/examples/getting-started)
