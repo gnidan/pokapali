@@ -91,7 +91,7 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
       const valid = await validateStructure(block);
       if (!valid) {
         const cidStr = cid.toString();
-        log.warn(
+        log.debug(
           "rejecting snapshot: failed validation",
           cidStr.slice(0, 16) + "...",
         );
