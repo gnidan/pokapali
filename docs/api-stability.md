@@ -40,7 +40,6 @@ safe to depend on and which may change.
 | `SnapshotValidationError` | Thrown when a remote snapshot fails signature validation (extends `ValidationError`)                          |
 | `NotFoundError`           | Thrown when a resource is not found                                                                           |
 | `ClientIdentityInfo`      | Client identity info (`{ pubkey, verified }`)                                                                 |
-| `IdentityMap`             | `ReadonlyMap<number, ClientIdentityInfo>` — client ID to identity mapping                                     |
 | `Capability`              | Re-exported from `@pokapali/capability` — access level info                                                   |
 | `CapabilityGrant`         | Re-exported from `@pokapali/capability` — scoped invite grant                                                 |
 | `RotateResult`            | Result of a key-rotation operation                                                                            |
@@ -50,19 +49,19 @@ safe to depend on and which may change.
 All Feeds are stable as types (`Feed<T>` interface).
 The specific Feeds on Doc vary by stability tier:
 
-| Feed                   | Type                        | Tier         |
-| ---------------------- | --------------------------- | ------------ |
-| `status`               | `Feed<DocStatus>`           | Stable       |
-| `saveState`            | `Feed<SaveState>`           | Stable       |
-| `tip`                  | `Feed<VersionInfo>`         | Stable       |
-| `loading`              | `Feed<LoadingState>`        | Experimental |
-| `backedUp`             | `Feed<boolean>`             | Experimental |
-| `versions`             | `Feed<VersionHistory>`      | Experimental |
-| `snapshotEvents`       | `Feed<SnapshotEvent>`       | Stable       |
-| `gossipActivity`       | `Feed<GossipActivity>`      | Experimental |
-| `clientIdMapping`      | `Feed<IdentityMap>`         | Stable       |
-| `lastPersistenceError` | `Feed<string\|null>`        | Experimental |
-| `lastValidationError`  | `Feed<{cid,message}\|null>` | Experimental |
+| Feed                   | Type                                            | Tier         |
+| ---------------------- | ----------------------------------------------- | ------------ |
+| `status`               | `Feed<DocStatus>`                               | Stable       |
+| `saveState`            | `Feed<SaveState>`                               | Stable       |
+| `tip`                  | `Feed<VersionInfo>`                             | Stable       |
+| `loading`              | `Feed<LoadingState>`                            | Experimental |
+| `backedUp`             | `Feed<boolean>`                                 | Experimental |
+| `versions`             | `Feed<VersionHistory>`                          | Experimental |
+| `snapshotEvents`       | `Feed<SnapshotEvent>`                           | Stable       |
+| `gossipActivity`       | `Feed<GossipActivity>`                          | Experimental |
+| `clientIdMapping`      | `Feed<ReadonlyMap<number, ClientIdentityInfo>>` | Stable       |
+| `lastPersistenceError` | `Feed<string\|null>`                            | Experimental |
+| `lastValidationError`  | `Feed<{cid,message}\|null>`                     | Experimental |
 
 #### Deprecated (will be removed in 0.2.0)
 
@@ -110,7 +109,7 @@ Do not depend on these — they exist for
 - `encodeForwardingRecord()`,
   `decodeForwardingRecord()`,
   `verifyForwardingRecord()`, `ForwardingRecord`
-- `NODE_CAPS_TOPIC`, `_resetNodeRegistry()`
+- `NODE_CAPS_TOPIC`
 - `KnownNode`, `Neighbor`, `NodeRegistry`,
   `NodeRegistryEvents`
 
