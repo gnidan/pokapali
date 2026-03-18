@@ -23,5 +23,5 @@ edits.
 
 ## Links
 
-- [Root README](../../README.md)
-- [Architecture — Channel Isolation](../../docs/internals/)
+- [Root README](https://github.com/gnidan/pokapali#readme)
+- [Architecture — Channel Isolation](https://github.com/gnidan/pokapali/tree/main/docs/internals)

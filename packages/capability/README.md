@@ -63,5 +63,5 @@ const writeUrl = await buildUrl(base, ipnsName, writeKeys);
 
 ## Links
 
-- [Root README](../../README.md)
-- [Architecture — Capability URLs](../../docs/internals/)
+- [Root README](https://github.com/gnidan/pokapali#readme)
+- [Architecture — Capability URLs](https://github.com/gnidan/pokapali/tree/main/docs/internals)

@@ -32,5 +32,5 @@ convenience.
 
 ## Links
 
-- [Root README](../../README.md)
-- [Architecture — Snapshot Chain](../../docs/internals/)
+- [Root README](https://github.com/gnidan/pokapali#readme)
+- [Architecture — Snapshot Chain](https://github.com/gnidan/pokapali/tree/main/docs/internals)

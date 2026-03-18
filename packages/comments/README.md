@@ -87,4 +87,4 @@ c.feed.subscribe(() => {
 
 ## Links
 
-- [Root README](../../README.md)
+- [Root README](https://github.com/gnidan/pokapali#readme)
