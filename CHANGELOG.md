@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.14] — 2026-03-17
+
 ### Added
 
 - Browser-side announcement signing — browsers now

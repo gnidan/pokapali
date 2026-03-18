@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/capability",
-  "version": "0.1.0-alpha.13",
+  "version": "0.1.0-alpha.14",
   "description": "Capability-based access control for pokapali documents",
   "keywords": [
     "pokapali",
@@ -41,7 +41,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@pokapali/crypto": "0.1.0-alpha.13"
+    "@pokapali/crypto": "0.1.0-alpha.14"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
