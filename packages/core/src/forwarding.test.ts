@@ -151,7 +151,7 @@ describe("forwarding records", () => {
     );
     // Flip a byte in the signature
     record.signature = new Uint8Array(record.signature);
-    record.signature[0] ^= 0xff;
+    record.signature[0] = record.signature[0]! ^ 0xff;
     const valid = await verifyForwardingRecord(record, rotationKey);
     expect(valid).toBe(false);
   });

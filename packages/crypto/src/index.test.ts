@@ -60,7 +60,7 @@ describe("deriveDocKeys", () => {
       "content",
     ]);
     for (const ch of channels) {
-      expect(keys.channelKeys[ch].length).toBe(32);
+      expect(keys.channelKeys[ch]!.length).toBe(32);
     }
   });
 
@@ -78,7 +78,7 @@ describe("deriveDocKeys", () => {
     expect(arraysEqual(a.rotationKey, b.rotationKey)).toBe(true);
     expect(a.awarenessRoomPassword).toBe(b.awarenessRoomPassword);
     for (const ch of channels) {
-      expect(arraysEqual(a.channelKeys[ch], b.channelKeys[ch])).toBe(true);
+      expect(arraysEqual(a.channelKeys[ch]!, b.channelKeys[ch]!)).toBe(true);
     }
   });
 
@@ -100,7 +100,7 @@ describe("deriveMetaRoomPassword", () => {
     const keys = await deriveDocKeys("test-secret-1234", "test-app", [
       "primary",
     ]);
-    const chKey = keys.channelKeys["primary"];
+    const chKey = keys.channelKeys["primary"]!;
 
     const a = await deriveMetaRoomPassword(chKey);
     const b = await deriveMetaRoomPassword(chKey);
@@ -112,7 +112,7 @@ describe("deriveMetaRoomPassword", () => {
     const keys = await deriveDocKeys("test-secret-1234", "test-app", [
       "primary",
     ]);
-    const chKey = keys.channelKeys["primary"];
+    const chKey = keys.channelKeys["primary"]!;
     const chHex = Array.from(chKey, (b) =>
       b.toString(16).padStart(2, "0"),
     ).join("");

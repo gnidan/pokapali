@@ -124,7 +124,7 @@ describe("announce protocol integration", () => {
       expect(messages).toHaveLength(1);
 
       // Parse the raw message as a receiver would
-      const parsed = parseAnnouncement(messages[0].data);
+      const parsed = parseAnnouncement(messages[0]!.data);
       expect(parsed).not.toBeNull();
       expect(parsed!.ipnsName).toBe(ipnsName);
       expect(parsed!.cid).toBe(cid.toString());
@@ -165,7 +165,7 @@ describe("announce protocol integration", () => {
     expect(messages).toHaveLength(2);
 
     // Parse the ack message
-    const ackMsg = parseAnnouncement(messages[1].data);
+    const ackMsg = parseAnnouncement(messages[1]!.data);
     expect(ackMsg).not.toBeNull();
     expect(ackMsg!.ack).toBeDefined();
     expect(ackMsg!.ack!.peerId).toBe("pinner-1");
@@ -233,7 +233,7 @@ describe("announce protocol integration", () => {
 
     await announceSnapshot(pubsub, APP_ID, "big-doc", cid.toString(), 1, block);
 
-    const parsed = parseAnnouncement(messages[0].data);
+    const parsed = parseAnnouncement(messages[0]!.data);
     expect(parsed).not.toBeNull();
     // Block should be omitted (>1MB)
     expect(parsed!.block).toBeUndefined();

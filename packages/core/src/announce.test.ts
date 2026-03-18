@@ -37,7 +37,7 @@ describe("announceSnapshot", () => {
     await announceSnapshot(pubsub, "test-app", "abc123", "bafyexample");
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
-    const [topic, data] = mockPublish.mock.calls[0];
+    const [topic, data] = mockPublish.mock.calls[0]!;
     expect(topic).toBe("/pokapali/app/test-app/announce");
     const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
@@ -63,7 +63,7 @@ describe("announceAck", () => {
     );
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
-    const [topic, data] = mockPublish.mock.calls[0];
+    const [topic, data] = mockPublish.mock.calls[0]!;
     expect(topic).toBe("/pokapali/app/test-app/announce");
     const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
@@ -146,7 +146,7 @@ describe("parseAnnouncement", () => {
     // base64 encode it
     let binary = "";
     for (let i = 0; i < bigBlock.length; i++) {
-      binary += String.fromCharCode(bigBlock[i]);
+      binary += String.fromCharCode(bigBlock[i]!);
     }
     const b64 = btoa(binary);
     const data = new TextEncoder().encode(
@@ -181,7 +181,7 @@ describe("publishGuaranteeQuery", () => {
     await publishGuaranteeQuery(pubsub, "test-app", "abc123");
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
-    const [topic, data] = mockPublish.mock.calls[0];
+    const [topic, data] = mockPublish.mock.calls[0]!;
     expect(topic).toBe("/pokapali/app/test-app/announce");
     const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
@@ -334,7 +334,7 @@ describe("announcement proof (#75)", () => {
       proof,
     );
 
-    const [, data] = mockPublish.mock.calls[0];
+    const [, data] = mockPublish.mock.calls[0]!;
     const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed.proof).toBe(proof);
   });

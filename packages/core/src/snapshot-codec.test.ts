@@ -171,8 +171,8 @@ describe("createSnapshotCodec", () => {
       });
 
       expect(recovered).toHaveLength(1);
-      expect(recovered[0].content).toEqual(plaintext.content);
-      expect(recovered[0].meta).toEqual(plaintext.meta);
+      expect(recovered[0]!.content).toEqual(plaintext.content);
+      expect(recovered[0]!.meta).toEqual(plaintext.meta);
     });
 
     it("push produces valid block decodable by snapshot package", async () => {
@@ -369,7 +369,7 @@ describe("createSnapshotCodec", () => {
 
       const result = await codec.loadVersion(cid, readKey);
       expect(result.content).toBeInstanceOf(Y.Doc);
-      expect(result.content.getText("body").toString()).toBe("hello world");
+      expect(result.content!.getText("body").toString()).toBe("hello world");
     });
 
     it("caches decoded versions", async () => {

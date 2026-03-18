@@ -44,7 +44,7 @@ function getTextWithPositions(doc: PMNode): TextWithPositions {
         positions.push(-1);
       }
       for (let i = 0; i < node.text.length; i++) {
-        chars.push(node.text[i]);
+        chars.push(node.text[i]!);
         positions.push(pos + i);
       }
       lastTextEnd = pos + node.text.length;
@@ -107,7 +107,7 @@ function firstValidPos(
   end: number,
 ): number {
   for (let i = start; i <= end; i++) {
-    if (positions[i] >= 0) return positions[i];
+    if (positions[i]! >= 0) return positions[i]!;
   }
   return -1;
 }
@@ -116,7 +116,7 @@ function firstValidPos(
  *  non-negative PM position in the map. */
 function lastValidPos(positions: number[], start: number, end: number): number {
   for (let i = end; i >= start; i--) {
-    if (positions[i] >= 0) return positions[i];
+    if (positions[i]! >= 0) return positions[i]!;
   }
   return -1;
 }
@@ -144,7 +144,7 @@ function buildDiffDecorations(
       const segEnd = previewOffset + text.length;
       for (let i = previewOffset; i <= segEnd; i++) {
         const atEnd = i === segEnd;
-        const atBoundary = !atEnd && preview.positions[i] === -1;
+        const atBoundary = !atEnd && preview.positions[i]! === -1;
         if (atBoundary || atEnd) {
           if (i > segStart) {
             const from = firstValidPos(preview.positions, segStart, i - 1);

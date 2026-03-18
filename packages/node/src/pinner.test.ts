@@ -491,7 +491,7 @@ describe("pinner with mock helia", () => {
       await pinner.flush();
 
       expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
-      const [topic, data] = mockPubsub.publish.mock.calls[0];
+      const [topic, data] = mockPubsub.publish.mock.calls[0]!;
       expect(topic).toBe("/pokapali/app/test-app/announce");
 
       const response = JSON.parse(new TextDecoder().decode(data));
@@ -1004,9 +1004,9 @@ describe("pinner with mock helia", () => {
 
       // Verify timestamps
       const tsBySeq = history.sort((a, b) => a.ts - b.ts);
-      expect(tsBySeq[0].ts).toBe(1000);
-      expect(tsBySeq[1].ts).toBe(2000);
-      expect(tsBySeq[2].ts).toBe(3000);
+      expect(tsBySeq[0]!.ts).toBe(1000);
+      expect(tsBySeq[1]!.ts).toBe(2000);
+      expect(tsBySeq[2]!.ts).toBe(3000);
 
       await pinner2.stop();
     });

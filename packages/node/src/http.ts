@@ -302,7 +302,7 @@ export function startHttpServer(config: HttpConfig): Server {
     if (pinner) {
       const ingestMatch = url.pathname.match(/^\/ingest\/([a-zA-Z0-9._-]+)$/);
       if (req.method === "POST" && ingestMatch) {
-        const ipnsName = ingestMatch[1];
+        const ipnsName = ingestMatch[1]!;
         const result = await readBody(req);
         if (!("ok" in result)) {
           if (result.error === "too_large") {
@@ -512,7 +512,7 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
       // GET /tip/:ipnsName
       const tipMatch = url.pathname.match(/^\/tip\/([a-fA-F0-9]{64})$/);
       if (req.method === "GET" && tipMatch && config.getTipData) {
-        const ipnsName = tipMatch[1];
+        const ipnsName = tipMatch[1]!;
         const ip = getClientIp(req, config.trustProxy);
         if (!limiter.check(ip)) {
           res.writeHead(429, {
@@ -580,7 +580,7 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
       // GET /guarantee/:ipnsName
       const guarMatch = url.pathname.match(/^\/guarantee\/([a-fA-F0-9]{64})$/);
       if (req.method === "GET" && guarMatch && config.getGuarantee) {
-        const ipnsName = guarMatch[1];
+        const ipnsName = guarMatch[1]!;
         const ip = getClientIp(req, config.trustProxy);
         if (!limiter.check(ip)) {
           res.writeHead(429, {
@@ -622,7 +622,7 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
       // GET /history/:ipnsName
       const histMatch = url.pathname.match(/^\/history\/([a-fA-F0-9]+)$/);
       if (req.method === "GET" && histMatch && config.getHistory) {
-        const ipnsName = histMatch[1];
+        const ipnsName = histMatch[1]!;
         const limit = Math.min(
           parseInt(url.searchParams.get("limit") ?? "50", 10) || 50,
           200,
@@ -636,7 +636,7 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
           records.sort((a, b) => b.ts - a.ts);
           const now = Date.now();
           const policy = config.retentionPolicy;
-          const tipCid = records.length > 0 ? records[0].cid : null;
+          const tipCid = records.length > 0 ? records[0]!.cid : null;
 
           const withSeq = records.map((r, i) => {
             const base = {
@@ -723,7 +723,7 @@ export function startBlockServer(config: HttpsConfig): HttpsServer {
       // Parse CID
       let cid: CID;
       try {
-        cid = CID.parse(match[1]);
+        cid = CID.parse(match[1]!);
       } catch {
         res.writeHead(400, {
           "content-type": "application/json",

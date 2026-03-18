@@ -241,8 +241,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     let i = heap.length - 1;
     while (i > 0) {
       const parent = (i - 1) >> 1;
-      if (heap[parent].nextAt <= heap[i].nextAt) break;
-      [heap[parent], heap[i]] = [heap[i], heap[parent]];
+      if (heap[parent]!.nextAt <= heap[i]!.nextAt) break;
+      [heap[parent], heap[i]] = [heap[i]!, heap[parent]!];
       i = parent;
     }
   }
@@ -258,12 +258,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         let smallest = i;
         const l = 2 * i + 1;
         const r = 2 * i + 2;
-        if (l < heap.length && heap[l].nextAt < heap[smallest].nextAt)
+        if (l < heap.length && heap[l]!.nextAt < heap[smallest]!.nextAt)
           smallest = l;
-        if (r < heap.length && heap[r].nextAt < heap[smallest].nextAt)
+        if (r < heap.length && heap[r]!.nextAt < heap[smallest]!.nextAt)
           smallest = r;
         if (smallest === i) break;
-        [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
+        [heap[i], heap[smallest]] = [heap[smallest]!, heap[i]!];
         i = smallest;
       }
     }
@@ -719,7 +719,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       while (phase === "running" && !abortCycle) {
         const i = idx++;
         if (i >= candidates.length) return;
-        const result = await republishOne(candidates[i]);
+        const result = await republishOne(candidates[i]!);
         if (result === "ok") ok++;
         else fail++;
 
@@ -1113,7 +1113,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       while (true) {
         const i = idx++;
         if (i >= candidates.length) break;
-        const { name, tipCid } = candidates[i];
+        const { name, tipCid } = candidates[i]!;
         try {
           const cid = CID.parse(tipCid);
           // Read the tip block to find prev pointer

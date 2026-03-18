@@ -209,7 +209,7 @@ describe("publishIPNS", () => {
     // (the in-flight), once for cid2 (the coalesced
     // pending). cid2 replaces any earlier pending.
     expect(mockCreateIPNSRecord).toHaveBeenCalledTimes(2);
-    const secondCall = mockCreateIPNSRecord.mock.calls[1];
+    const secondCall = mockCreateIPNSRecord.mock.calls[1]!;
     expect(secondCall[1].toString()).toBe(cid2.toString());
     expect(secondCall[2]).toBe(20n);
   });
@@ -368,7 +368,7 @@ describe("watchIPNS", () => {
     // First poll fires immediately
     await vi.advanceTimersByTimeAsync(0);
     expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate.mock.calls[0][0].toString()).toBe(cid1.toString());
+    expect(onUpdate.mock.calls[0]![0].toString()).toBe(cid1.toString());
 
     // Second poll — same CID, no new call
     await vi.advanceTimersByTimeAsync(100);
@@ -377,7 +377,7 @@ describe("watchIPNS", () => {
     // Third poll — CID changes
     await vi.advanceTimersByTimeAsync(100);
     expect(onUpdate).toHaveBeenCalledTimes(2);
-    expect(onUpdate.mock.calls[1][0].toString()).toBe(cid2.toString());
+    expect(onUpdate.mock.calls[1]![0].toString()).toBe(cid2.toString());
 
     stop();
   });
@@ -471,7 +471,7 @@ describe("watchIPNS", () => {
     // Second poll succeeds
     await vi.advanceTimersByTimeAsync(100);
     expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate.mock.calls[0][0].toString()).toBe(cid.toString());
+    expect(onUpdate.mock.calls[0]![0].toString()).toBe(cid.toString());
 
     stop();
   });

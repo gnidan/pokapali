@@ -57,9 +57,9 @@ function createMockIDB() {
                 put: (value: unknown) => {
                   if (mode === "readwrite") {
                     const key = store.keyPath
-                      ? (value as Record<string, string>)[store.keyPath]
+                      ? (value as Record<string, string>)[store.keyPath!]
                       : String(value);
-                    store.data.set(key, value);
+                    store.data.set(key!, value);
                   }
                   queueMicrotask(() => txResult.oncomplete?.());
                 },
@@ -122,7 +122,7 @@ describe("version-cache", () => {
 
     const result = await readVersionCache("test-ipns");
     expect(result!.entries).toHaveLength(1);
-    expect(result!.entries[0].cid).toBe("bafyxyz");
+    expect(result!.entries[0]!.cid).toBe("bafyxyz");
   });
 
   it("isolates entries by ipnsName", async () => {
@@ -131,8 +131,8 @@ describe("version-cache", () => {
 
     const a = await readVersionCache("doc-a");
     const b = await readVersionCache("doc-b");
-    expect(a!.entries[0].cid).toBe("bafya");
-    expect(b!.entries[0].cid).toBe("bafyb");
+    expect(a!.entries[0]!.cid).toBe("bafya");
+    expect(b!.entries[0]!.cid).toBe("bafyb");
   });
 
   it("handles empty entries", async () => {
@@ -165,8 +165,8 @@ describe("version-cache", () => {
     await writeVersionCache("big-doc", entries);
     const result = await readVersionCache("big-doc");
     expect(result!.entries).toHaveLength(500);
-    expect(result!.entries[0].cid).toBe("bafy-0");
-    expect(result!.entries[499].cid).toBe("bafy-499");
+    expect(result!.entries[0]!.cid).toBe("bafy-0");
+    expect(result!.entries[499]!.cid).toBe("bafy-499");
   });
 
   it("concurrent writes — last write wins", async () => {
@@ -183,7 +183,7 @@ describe("version-cache", () => {
     expect(result).not.toBeNull();
     // The later write should win since put() is
     // called sequentially through the mock
-    expect(result!.entries[0].cid).toBe("bafynew");
+    expect(result!.entries[0]!.cid).toBe("bafynew");
   });
 
   it("updatedAt reflects time of write, not " + "read", async () => {

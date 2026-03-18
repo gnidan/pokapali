@@ -199,15 +199,15 @@ describe("snapshot chain integration", () => {
     // descending seq order
     const history = versionHistory(state.chain);
     expect(history).toHaveLength(3);
-    expect(history[0].seq).toBe(3);
-    expect(history[1].seq).toBe(2);
-    expect(history[2].seq).toBe(1);
-    expect(history[0].cid.toString()).toBe(v3.cid.toString());
-    expect(history[2].cid.toString()).toBe(v1.cid.toString());
+    expect(history[0]!.seq).toBe(3);
+    expect(history[1]!.seq).toBe(2);
+    expect(history[2]!.seq).toBe(1);
+    expect(history[0]!.cid.toString()).toBe(v3.cid.toString());
+    expect(history[2]!.cid.toString()).toBe(v1.cid.toString());
     // v3 is applied, v1 and v2 are fetched
-    expect(history[0].available).toBe(true);
-    expect(history[1].available).toBe(true);
-    expect(history[2].available).toBe(true);
+    expect(history[0]!.available).toBe(true);
+    expect(history[1]!.available).toBe(true);
+    expect(history[2]!.available).toBe(true);
   });
 
   it("real block metadata matches reducer " + "chain entry", async () => {

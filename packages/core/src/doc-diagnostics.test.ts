@@ -144,13 +144,13 @@ describe("buildDiagnostics", () => {
     const result = buildDiagnostics(baseCtx());
 
     expect(result.nodes).toHaveLength(1);
-    expect(result.nodes[0].peerId).toBe("peer-relay");
-    expect(result.nodes[0].short).toBe("er-relay");
-    expect(result.nodes[0].connected).toBe(true);
-    expect(result.nodes[0].roles).toEqual(["relay"]);
-    expect(result.nodes[0].rolesConfirmed).toBe(true);
-    expect(result.nodes[0].ackedCurrentCid).toBe(false);
-    expect(result.nodes[0].browserCount).toBe(2);
+    expect(result.nodes[0]!.peerId).toBe("peer-relay");
+    expect(result.nodes[0]!.short).toBe("er-relay");
+    expect(result.nodes[0]!.connected).toBe(true);
+    expect(result.nodes[0]!.roles).toEqual(["relay"]);
+    expect(result.nodes[0]!.rolesConfirmed).toBe(true);
+    expect(result.nodes[0]!.ackedCurrentCid).toBe(false);
+    expect(result.nodes[0]!.browserCount).toBe(2);
   });
 
   it("adds pinner role when peer acked but " + "roles lack it", () => {
@@ -167,9 +167,9 @@ describe("buildDiagnostics", () => {
     });
     const result = buildDiagnostics(ctx);
 
-    expect(result.nodes[0].roles).toContain("pinner");
-    expect(result.nodes[0].roles).toContain("relay");
-    expect(result.nodes[0].ackedCurrentCid).toBe(true);
+    expect(result.nodes[0]!.roles).toContain("pinner");
+    expect(result.nodes[0]!.roles).toContain("relay");
+    expect(result.nodes[0]!.ackedCurrentCid).toBe(true);
   });
 
   it("does not duplicate pinner role when " + "already present", () => {
@@ -186,7 +186,7 @@ describe("buildDiagnostics", () => {
     });
     const result = buildDiagnostics(ctx);
 
-    const pinnerCount = result.nodes[0].roles.filter(
+    const pinnerCount = result.nodes[0]!.roles.filter(
       (r: string) => r === "pinner",
     ).length;
     expect(pinnerCount).toBe(1);
@@ -229,7 +229,7 @@ describe("buildDiagnostics", () => {
     });
     const result = buildDiagnostics(ctx);
 
-    const node = result.nodes[0];
+    const node = result.nodes[0]!;
     expect(node.roles).toContain("relay");
     expect(node.roles).toContain("pinner");
   });

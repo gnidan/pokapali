@@ -351,7 +351,7 @@ export function VersionHistory({
 
           {listState.status === "idle" &&
             versions.length > 0 &&
-            versions[versions.length - 1].seq > 1 && (
+            versions[versions.length - 1]!.seq > 1 && (
               <div className="vh-archive-note">
                 Older versions have been archived
               </div>

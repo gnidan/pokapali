@@ -56,7 +56,7 @@ describe("relay-cache", () => {
       );
       const result = mod.loadCachedRelays();
       expect(result).toHaveLength(1);
-      expect(result[0].peerId).toBe("fresh-peer");
+      expect(result[0]!.peerId).toBe("fresh-peer");
     });
 
     it("handles corrupted JSON", () => {

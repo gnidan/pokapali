@@ -181,7 +181,7 @@ describe("signBytes / verifyBytes properties", () => {
           // Tamper: XOR first byte with 1
           // (guaranteed different)
           const tampered = new Uint8Array(data);
-          tampered[0] = tampered[0] ^ 1;
+          tampered[0] = tampered[0]! ^ 1;
 
           const valid = await verifyBytes(kp.publicKey, sig, tampered);
           expect(valid).toBe(false);
@@ -250,7 +250,7 @@ describe("deriveDocKeys properties", () => {
           expect(keys.ipnsKeyBytes.length).toBe(32);
           expect(keys.rotationKey.length).toBe(32);
           for (const ch of channels) {
-            expect(keys.channelKeys[ch].length).toBe(32);
+            expect(keys.channelKeys[ch]!.length).toBe(32);
           }
         },
       ),

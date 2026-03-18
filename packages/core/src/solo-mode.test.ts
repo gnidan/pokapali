@@ -168,16 +168,16 @@ describe("solo mode (no relay)", () => {
 
     spy.mockClear();
     await doc.publish();
-    expect(spy.mock.calls[0][3]).toBe(1); // seq
-    expect(spy.mock.calls[0][2]).toBeNull(); // prev
+    expect(spy.mock.calls[0]![3]).toBe(1); // seq
+    expect(spy.mock.calls[0]![2]).toBeNull(); // prev
 
     await doc.publish();
-    expect(spy.mock.calls[1][3]).toBe(2);
-    expect(spy.mock.calls[1][2]).not.toBeNull();
+    expect(spy.mock.calls[1]![3]).toBe(2);
+    expect(spy.mock.calls[1]![2]).not.toBeNull();
 
     await doc.publish();
-    expect(spy.mock.calls[2][3]).toBe(3);
-    expect(spy.mock.calls[2][2]).not.toBeNull();
+    expect(spy.mock.calls[2]![3]).toBe(3);
+    expect(spy.mock.calls[2]![2]).not.toBeNull();
     doc.destroy();
   });
 

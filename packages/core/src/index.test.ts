@@ -225,14 +225,14 @@ describe("@pokapali/core", () => {
     await doc.publish();
     expect(spy).toHaveBeenCalledTimes(1);
     // seq = 1, prev = null
-    expect(spy.mock.calls[0][3]).toBe(1);
-    expect(spy.mock.calls[0][2]).toBeNull();
+    expect(spy.mock.calls[0]![3]).toBe(1);
+    expect(spy.mock.calls[0]![2]).toBeNull();
 
     await doc.publish();
     expect(spy).toHaveBeenCalledTimes(2);
     // seq = 2, prev = CID
-    expect(spy.mock.calls[1][3]).toBe(2);
-    expect(spy.mock.calls[1][2]).not.toBeNull();
+    expect(spy.mock.calls[1]![3]).toBe(2);
+    expect(spy.mock.calls[1]![2]).not.toBeNull();
     doc.destroy();
   });
 
@@ -499,9 +499,9 @@ describe("@pokapali/core", () => {
       await doc.publish();
       const h = await doc.versionHistory();
       expect(h).toHaveLength(1);
-      expect(h[0].seq).toBe(1);
-      expect(h[0].ts).toBeTypeOf("number");
-      expect(h[0].cid).toBeDefined();
+      expect(h[0]!.seq).toBe(1);
+      expect(h[0]!.ts).toBeTypeOf("number");
+      expect(h[0]!.cid).toBeDefined();
       doc.destroy();
     });
 
@@ -517,10 +517,10 @@ describe("@pokapali/core", () => {
       const h = await doc.versionHistory();
       expect(h).toHaveLength(2);
       // newest first
-      expect(h[0].seq).toBe(2);
-      expect(h[1].seq).toBe(1);
+      expect(h[0]!.seq).toBe(2);
+      expect(h[1]!.seq).toBe(1);
       // CIDs differ
-      expect(h[0].cid.toString()).not.toBe(h[1].cid.toString());
+      expect(h[0]!.cid.toString()).not.toBe(h[1]!.cid.toString());
       doc.destroy();
     });
 
@@ -538,9 +538,9 @@ describe("@pokapali/core", () => {
       // No pinner URLs → falls back to local
       const h = await doc.versionHistory();
       expect(h).toHaveLength(3);
-      expect(h[0].seq).toBe(3);
-      expect(h[1].seq).toBe(2);
-      expect(h[2].seq).toBe(1);
+      expect(h[0]!.seq).toBe(3);
+      expect(h[1]!.seq).toBe(2);
+      expect(h[2]!.seq).toBe(1);
       doc.destroy();
     });
   });
@@ -555,10 +555,10 @@ describe("@pokapali/core", () => {
       await doc.publish();
 
       const h = await doc.versionHistory();
-      const version = await doc.loadVersion(h[0].cid);
+      const version = await doc.loadVersion(h[0]!.cid);
       expect(version).toBeDefined();
       expect(version["content"]).toBeInstanceOf(Y.Doc);
-      const restored = version["content"].getMap("data").get("hello");
+      const restored = version["content"]!.getMap("data").get("hello");
       expect(restored).toBe("world");
       doc.destroy();
     });

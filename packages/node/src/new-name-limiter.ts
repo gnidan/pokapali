@@ -26,7 +26,7 @@ export function createNewNameLimiter(maxPerHour: number): NewNameLimiter {
 
   function prune(now: number): void {
     const cutoff = now - WINDOW_MS;
-    while (timestamps.length > 0 && timestamps[0] <= cutoff) {
+    while (timestamps.length > 0 && timestamps[0]! <= cutoff) {
       timestamps.shift();
     }
   }

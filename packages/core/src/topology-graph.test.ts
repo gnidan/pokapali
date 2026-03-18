@@ -38,8 +38,8 @@ describe("buildTopologyGraph", () => {
     };
     const graph = buildTopologyGraph(info, makeAwareness());
     expect(graph.nodes).toHaveLength(1);
-    expect(graph.nodes[0].id).toBe("_self");
-    expect(graph.nodes[0].kind).toBe("self");
+    expect(graph.nodes[0]!.id).toBe("_self");
+    expect(graph.nodes[0]!.kind).toBe("self");
   });
 
   it("adds infrastructure nodes from" + " diagnostics", () => {

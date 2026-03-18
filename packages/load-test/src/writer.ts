@@ -147,7 +147,7 @@ export async function startWriter(
       crypto.getRandomValues(bytes.subarray(off, end));
     }
     for (let i = 0; i < size; i++) {
-      result += chars[bytes[i] % chars.length];
+      result += chars[bytes[i]! % chars.length];
     }
     return result;
   }

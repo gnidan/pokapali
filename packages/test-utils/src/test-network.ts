@@ -245,8 +245,8 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
       const peerNames = [...peers.keys()];
       for (let i = 0; i < peerNames.length; i++) {
         for (let j = i + 1; j < peerNames.length; j++) {
-          const a = peerNames[i];
-          const b = peerNames[j];
+          const a = peerNames[i]!;
+          const b = peerNames[j]!;
           const aGroup = groups.findIndex((g) => g.includes(a));
           const bGroup = groups.findIndex((g) => g.includes(b));
           if (aGroup !== bGroup) {
@@ -261,7 +261,7 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
       const peerNames = [...peers.keys()];
       for (let i = 0; i < peerNames.length; i++) {
         for (let j = i + 1; j < peerNames.length; j++) {
-          reconnectPair(peerNames[i], peerNames[j]);
+          reconnectPair(peerNames[i]!, peerNames[j]!);
         }
       }
     },
@@ -272,10 +272,10 @@ export function createTestNetwork(options: TestNetworkOptions): TestNetwork {
       if (peerList.length < 2) return true;
 
       for (const ch of channels) {
-        const first = peerList[0].docs.get(ch)!;
+        const first = peerList[0]!.docs.get(ch)!;
         const firstSv = Y.encodeStateVector(first);
         for (let i = 1; i < peerList.length; i++) {
-          const other = peerList[i].docs.get(ch)!;
+          const other = peerList[i]!.docs.get(ch)!;
           const otherSv = Y.encodeStateVector(other);
           if (!uint8Equal(firstSv, otherSv)) {
             return false;

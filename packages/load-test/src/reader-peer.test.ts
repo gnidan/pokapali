@@ -58,7 +58,7 @@ function makeAnnouncementPayload(opts: {
   if (opts.block) {
     let binary = "";
     for (let i = 0; i < opts.block.length; i++) {
-      binary += String.fromCharCode(opts.block[i]);
+      binary += String.fromCharCode(opts.block[i]!);
     }
     blockB64 = btoa(binary);
   }

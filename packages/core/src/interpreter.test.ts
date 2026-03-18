@@ -335,7 +335,7 @@ describe("interpreter fetch dispatch", () => {
     // fetchBlock called for both cidB (gossipsub)
     // AND cidA (chain-walk auto-fetch)
     const calls = (effects.fetchBlock as ReturnType<typeof vi.fn>).mock.calls;
-    const fetchedCids = calls.map((c: CID[]) => c[0].toString());
+    const fetchedCids = calls.map((c: CID[]) => c[0]!.toString());
     expect(fetchedCids).toContain(cidB.toString());
     expect(fetchedCids).toContain(cidA.toString());
   });

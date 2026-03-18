@@ -335,7 +335,7 @@ describe("snapshot encode/decode properties", () => {
     await fc.assert(
       fc.asyncProperty(fc.nat({ max: block.length - 1 }), async (idx) => {
         const tampered = new Uint8Array(block);
-        tampered[idx] = (tampered[idx] + 1) % 256;
+        tampered[idx] = (tampered[idx]! + 1) % 256;
         const valid = await validateSnapshot(tampered);
         // Most byte flips should invalidate;
         // some rare CBOR-level changes might

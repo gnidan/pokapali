@@ -115,46 +115,46 @@ function parseArgs(argv: string[]): Config {
   let i = 0;
 
   // First positional arg is the file
-  if (args.length === 0 || args[0].startsWith("--")) {
+  if (args.length === 0 || args[0]!.startsWith("--")) {
     console.error("Usage: analyze <file.jsonl> [options]");
     process.exit(2);
   }
-  config.file = args[i++];
+  config.file = args[i++]!;
 
   while (i < args.length) {
     const arg = args[i];
     if (arg === "--ack-rate" && args[i + 1]) {
-      config.minAckRate = parseFloat(args[++i]);
+      config.minAckRate = parseFloat(args[++i]!);
     } else if (arg === "--latency-p95" && args[i + 1]) {
-      config.maxLatencyP95 = parseInt(args[++i], 10);
+      config.maxLatencyP95 = parseInt(args[++i]!, 10);
     } else if (arg === "--max-errors" && args[i + 1]) {
-      config.maxErrors = parseInt(args[++i], 10);
+      config.maxErrors = parseInt(args[++i]!, 10);
     } else if (arg === "--max-rss" && args[i + 1]) {
-      config.maxRssMB = parseInt(args[++i], 10);
+      config.maxRssMB = parseInt(args[++i]!, 10);
     } else if (arg === "--recovery" && args[i + 1]) {
-      config.maxRecoveryMs = parseInt(args[++i], 10);
+      config.maxRecoveryMs = parseInt(args[++i]!, 10);
     } else if (arg === "--cross-region") {
       config.maxLatencyP95 = 10_000;
     } else if (arg === "--phase" && args[i + 1]) {
-      const parts = args[++i].split(":");
+      const parts = args[++i]!.split(":");
       if (parts.length !== 3) {
         console.error("Invalid --phase format." + " Use name:startS:endS");
         process.exit(2);
       }
       config.phases.push({
-        name: parts[0],
-        startS: parseInt(parts[1], 10),
-        endS: parseInt(parts[2], 10),
+        name: parts[0]!,
+        startS: parseInt(parts[1]!, 10),
+        endS: parseInt(parts[2]!, 10),
       });
     } else if (arg === "--phase-ack-rate" && args[i + 1]) {
-      const [name, pct] = args[++i].split(":");
-      config.phaseMinAckRates.set(name, parseFloat(pct));
+      const [name, pct] = args[++i]!.split(":");
+      config.phaseMinAckRates.set(name!, parseFloat(pct!));
     } else if (arg === "--baseline" && args[i + 1]) {
-      config.baselinePath = args[++i];
+      config.baselinePath = args[++i]!;
     } else if (arg === "--save-baseline" && args[i + 1]) {
-      config.saveBaselinePath = args[++i];
+      config.saveBaselinePath = args[++i]!;
     } else if (arg === "--regression-tolerance" && args[i + 1]) {
-      config.regressionTolerance = parseFloat(args[++i]);
+      config.regressionTolerance = parseFloat(args[++i]!);
     } else {
       console.error(`Unknown option: ${arg}`);
       process.exit(2);
@@ -168,7 +168,7 @@ function parseArgs(argv: string[]): Config {
 function percentile(sorted: number[], pct: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.min(Math.floor(sorted.length * pct), sorted.length - 1);
-  return sorted[idx];
+  return sorted[idx]!;
 }
 
 function loadBaseline(path: string): Baseline {

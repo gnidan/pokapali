@@ -87,7 +87,7 @@ describe("merge (property)", () => {
               .filter((t) => t.src === s)
               .map((t) => t.idx);
             for (let i = 1; i < fromSource.length; i++) {
-              expect(fromSource[i]).toBeGreaterThan(fromSource[i - 1]);
+              expect(fromSource[i]!).toBeGreaterThan(fromSource[i - 1]!);
             }
           }
         },
@@ -142,7 +142,7 @@ describe("scan (property)", () => {
           const results = await collect(
             scan(asyncFrom(items), (s, f) => s + f, init),
           );
-          expect(results[0].prev).toBe(init);
+          expect(results[0]!.prev).toBe(init);
         },
       ),
       { numRuns: 100 },
@@ -158,7 +158,7 @@ describe("scan (property)", () => {
             scan(asyncFrom(items), (s, f) => s + f, 0),
           );
           for (let i = 1; i < results.length; i++) {
-            expect(results[i].prev).toBe(results[i - 1].next);
+            expect(results[i]!.prev).toBe(results[i - 1]!.next);
           }
         },
       ),
@@ -175,7 +175,7 @@ describe("scan (property)", () => {
             scan(asyncFrom(items), (s, f) => s + f, 0),
           );
           for (let i = 0; i < items.length; i++) {
-            expect(results[i].fact).toBe(items[i]);
+            expect(results[i]!.fact).toBe(items[i]);
           }
         },
       ),
@@ -193,7 +193,7 @@ describe("scan (property)", () => {
             scan(asyncFrom(items), (s, f) => s + f, init),
           );
           const expected = items.reduce((a, b) => a + b, init);
-          expect(results[results.length - 1].next).toBe(expected);
+          expect(results[results.length - 1]!.next).toBe(expected);
         },
       ),
       { numRuns: 100 },
@@ -223,10 +223,10 @@ describe("scan (property)", () => {
             ),
           );
           // Final state contains all items
-          expect(results[results.length - 1].next).toEqual(items);
+          expect(results[results.length - 1]!.next).toEqual(items);
           // Chain is consistent
           for (let i = 1; i < results.length; i++) {
-            expect(results[i].prev).toBe(results[i - 1].next);
+            expect(results[i]!.prev).toBe(results[i - 1]!.next);
           }
         },
       ),
