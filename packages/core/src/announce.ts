@@ -10,7 +10,7 @@ import {
   hexToBytes,
   bytesToHex,
   signBytes,
-  verifySignature,
+  verifyBytes,
 } from "@pokapali/crypto";
 
 import type { Ed25519KeyPair } from "@pokapali/crypto";
@@ -209,7 +209,7 @@ export async function verifyAnnouncementProof(
     const publicKey = hexToBytes(ipnsName);
     const sig = hexToBytes(proof);
     const payload = new TextEncoder().encode(ipnsName + ":" + cid);
-    return await verifySignature(publicKey, sig, payload);
+    return await verifyBytes(publicKey, sig, payload);
   } catch {
     return false;
   }

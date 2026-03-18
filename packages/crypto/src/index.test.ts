@@ -8,7 +8,7 @@ import {
   decryptSubdoc,
   ed25519KeyPairFromSeed,
   signBytes,
-  verifySignature,
+  verifyBytes,
   hexToBytes,
   bytesToHex,
 } from "./index.js";
@@ -172,7 +172,7 @@ describe("Ed25519", () => {
     const kp = await ed25519KeyPairFromSeed(seed);
     const data = new TextEncoder().encode("sign me");
     const sig = await signBytes(kp, data);
-    const valid = await verifySignature(kp.publicKey, sig, data);
+    const valid = await verifyBytes(kp.publicKey, sig, data);
     expect(valid).toBe(true);
   });
 
@@ -182,7 +182,7 @@ describe("Ed25519", () => {
     const otherKp = await ed25519KeyPairFromSeed(otherSeed);
     const data = new TextEncoder().encode("sign me");
     const sig = await signBytes(kp, data);
-    const valid = await verifySignature(otherKp.publicKey, sig, data);
+    const valid = await verifyBytes(otherKp.publicKey, sig, data);
     expect(valid).toBe(false);
   });
 
@@ -190,7 +190,7 @@ describe("Ed25519", () => {
     const truncatedKey = new Uint8Array(16);
     const badSig = new Uint8Array(32);
     const data = new TextEncoder().encode("test");
-    const valid = await verifySignature(truncatedKey, badSig, data);
+    const valid = await verifyBytes(truncatedKey, badSig, data);
     expect(valid).toBe(false);
   });
 
@@ -199,7 +199,7 @@ describe("Ed25519", () => {
     const data = new TextEncoder().encode("original");
     const sig = await signBytes(kp, data);
     const tampered = new TextEncoder().encode("tampered");
-    const valid = await verifySignature(kp.publicKey, sig, tampered);
+    const valid = await verifyBytes(kp.publicKey, sig, tampered);
     expect(valid).toBe(false);
   });
 });
@@ -223,7 +223,7 @@ describe("generateIdentityKeypair", () => {
     const kp = await generateIdentityKeypair();
     const data = new TextEncoder().encode("identity test");
     const sig = await signBytes(kp, data);
-    const valid = await verifySignature(kp.publicKey, sig, data);
+    const valid = await verifyBytes(kp.publicKey, sig, data);
     expect(valid).toBe(true);
   });
 });

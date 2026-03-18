@@ -180,7 +180,7 @@ export async function signBytes(
   return ed25519.signAsync(data, keypair.privateKey);
 }
 
-export async function verifySignature(
+export async function verifyBytes(
   publicKey: Uint8Array,
   signature: Uint8Array,
   data: Uint8Array,

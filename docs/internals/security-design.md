@@ -19,7 +19,7 @@ waste, snapshot chain pollution, traffic amplification.
 ### Gap 2: Unbound Publisher Identity (#76)
 
 Snapshot `publisher` fields are self-claimed.
-`validateStructure()` verifies the signature is
+`validateSnapshot()` verifies the signature is
 cryptographically valid but never checks whether the
 publisher is authorized to publish for that IPNS name.
 The `authorizedPublishers` list is enforced only in
@@ -36,7 +36,7 @@ snapshot).
 Announcement arrives via GossipSub
   → Pinner trusts ipnsName claim (NO VERIFICATION)
   → Pinner fetches CID
-  → validateStructure() checks:
+  → validateSnapshot() checks:
     ✓ doc signing key signature
     ✓ publisher signature (if present)
     ✗ publisher authorization
@@ -293,7 +293,7 @@ This chain exists today but is not enforced:
   A malicious peer could claim another peer's
   `clientID`.
 - The `clientIdentities` entry is self-asserted.
-  Verification (`verifySignature` in
+  Verification (`verifyBytes` in
   `doc-identity.ts`) proves the registrant holds
   the private key matching `pubkey`, but doesn't
   prevent registration of a stolen or forged

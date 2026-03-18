@@ -15,7 +15,7 @@ import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,
   signBytes,
-  verifySignature,
+  verifyBytes,
   generateAdminSecret,
 } from "./index.js";
 
@@ -152,7 +152,7 @@ describe("encryptSubdoc / decryptSubdoc properties", () => {
 // sign / verify
 // ------------------------------------------------
 
-describe("signBytes / verifySignature properties", () => {
+describe("signBytes / verifyBytes properties", () => {
   it("valid signature always verifies", async () => {
     await fc.assert(
       fc.asyncProperty(
@@ -161,7 +161,7 @@ describe("signBytes / verifySignature properties", () => {
         async (seed, data) => {
           const kp = await ed25519KeyPairFromSeed(seed);
           const sig = await signBytes(kp, data);
-          const valid = await verifySignature(kp.publicKey, sig, data);
+          const valid = await verifyBytes(kp.publicKey, sig, data);
           expect(valid).toBe(true);
         },
       ),
@@ -183,7 +183,7 @@ describe("signBytes / verifySignature properties", () => {
           const tampered = new Uint8Array(data);
           tampered[0] = tampered[0] ^ 1;
 
-          const valid = await verifySignature(kp.publicKey, sig, tampered);
+          const valid = await verifyBytes(kp.publicKey, sig, tampered);
           expect(valid).toBe(false);
         },
       ),

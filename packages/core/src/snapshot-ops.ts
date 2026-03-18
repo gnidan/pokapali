@@ -10,7 +10,7 @@
  */
 
 import type { CID } from "multiformats/cid";
-import { decodeSnapshot, validateStructure } from "@pokapali/snapshot";
+import { decodeSnapshot, validateSnapshot } from "@pokapali/snapshot";
 import { bytesToHex } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
 import type { SubdocManager } from "@pokapali/subdocs";
@@ -88,7 +88,7 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
     },
 
     async applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }> {
-      const valid = await validateStructure(block);
+      const valid = await validateSnapshot(block);
       if (!valid) {
         const cidStr = cid.toString();
         log.debug(

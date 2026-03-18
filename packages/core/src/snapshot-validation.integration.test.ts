@@ -4,7 +4,7 @@
  *
  * Exercises the real cross-package validation path:
  * @pokapali/crypto (key generation) →
- * @pokapali/snapshot (encode + validateStructure) →
+ * @pokapali/snapshot (encode + validateSnapshot) →
  * @pokapali/core snapshot-ops (SnapshotValidationError)
  * → interpreter (graceful degradation).
  *
@@ -20,7 +20,7 @@ import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
-import { encodeSnapshot, validateStructure } from "@pokapali/snapshot";
+import { encodeSnapshot, validateSnapshot } from "@pokapali/snapshot";
 import { createSnapshotOps, SnapshotValidationError } from "./snapshot-ops.js";
 import { ValidationError } from "./errors.js";
 import { runInterpreter } from "./interpreter.js";
@@ -116,12 +116,12 @@ function mockBlockResolver() {
 // --- Tests ---
 
 describe("snapshot validation integration", () => {
-  describe("validateStructure with real crypto", () => {
+  describe("validateSnapshot with real crypto", () => {
     it("accepts a validly signed snapshot block", async () => {
       const { keys, signingKey } = await generateKeys();
       const { block } = await encodeValidBlock(keys.readKey, signingKey, 1);
 
-      const valid = await validateStructure(block);
+      const valid = await validateSnapshot(block);
       expect(valid).toBe(true);
     });
 
@@ -135,14 +135,14 @@ describe("snapshot validation integration", () => {
       tampered[tampered.length - 1] ^= 0xff;
       tampered[tampered.length - 2] ^= 0xff;
 
-      const valid = await validateStructure(tampered);
+      const valid = await validateSnapshot(tampered);
       expect(valid).toBe(false);
     });
 
     it("rejects garbage bytes", async () => {
       const garbage = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
 
-      const valid = await validateStructure(garbage);
+      const valid = await validateSnapshot(garbage);
       expect(valid).toBe(false);
     });
   });
@@ -260,7 +260,7 @@ describe("snapshot validation integration", () => {
   describe("interpreter graceful degradation", () => {
     /**
      * Wire the real interpreter pipeline with an
-     * applySnapshot that calls real validateStructure,
+     * applySnapshot that calls real validateSnapshot,
      * then delegates to a mock for the actual apply.
      * This tests the full path: invalid block →
      * SnapshotValidationError → interpreter catch →
@@ -316,9 +316,9 @@ describe("snapshot validation integration", () => {
         const tamperedCid = CID.createV1(DAG_CBOR_CODE, tamperedHash);
 
         // Build an applySnapshot that uses real
-        // validateStructure
+        // validateSnapshot
         const realApply = async (cid: CID, block: Uint8Array) => {
-          const valid = await validateStructure(block);
+          const valid = await validateSnapshot(block);
           if (!valid) {
             throw new SnapshotValidationError(cid.toString());
           }
@@ -408,7 +408,7 @@ describe("snapshot validation integration", () => {
       const garbageCid = await fakeCid(77);
 
       const realApply = async (cid: CID, block: Uint8Array) => {
-        const valid = await validateStructure(block);
+        const valid = await validateSnapshot(block);
         if (!valid) {
           throw new SnapshotValidationError(cid.toString());
         }

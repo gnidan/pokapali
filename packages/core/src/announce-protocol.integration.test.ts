@@ -24,7 +24,7 @@ import {
 import {
   encodeSnapshot,
   decodeSnapshot,
-  validateStructure,
+  validateSnapshot,
 } from "@pokapali/snapshot";
 import {
   announceSnapshot,
@@ -139,7 +139,7 @@ describe("announce protocol integration", () => {
       expect(decoded.prev).toBeNull();
 
       // Validate signature on the recovered block
-      const valid = await validateStructure(recoveredBlock);
+      const valid = await validateSnapshot(recoveredBlock);
       expect(valid).toBe(true);
     },
   );

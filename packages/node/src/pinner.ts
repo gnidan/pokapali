@@ -1,7 +1,7 @@
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
-import { validateStructure, decodeSnapshot } from "@pokapali/snapshot";
+import { validateSnapshot, decodeSnapshot } from "@pokapali/snapshot";
 import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";
@@ -462,7 +462,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         });
       }
 
-      const valid = await validateStructure(block);
+      const valid = await validateSnapshot(block);
       if (!valid) {
         try {
           decodeSnapshot(block);
@@ -1670,7 +1670,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       }
 
       // Structural validation
-      const valid = await validateStructure(block);
+      const valid = await validateSnapshot(block);
       if (!valid) {
         return false;
       }
