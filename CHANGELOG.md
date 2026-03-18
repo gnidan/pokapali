@@ -11,9 +11,8 @@ The format is based on
 
 - Add `pokapali()` quick-start code example to root README
   ([#309](https://github.com/gnidan/pokapali/issues/309))
-- Add code examples to 7 leaf package READMEs — crypto,
-  capability, snapshot, subdocs, sync (new), plus
-  capability and sync from integrations
+- Add code examples to 5 leaf package READMEs — crypto,
+  capability, snapshot, subdocs, sync
   ([#308](https://github.com/gnidan/pokapali/issues/308))
 - Convert all relative links in 12 package READMEs to
   absolute GitHub URLs so they work on npmjs.com
@@ -21,8 +20,7 @@ The format is based on
 - Replace `<details>` tag in core README with blockquote
   for npm rendering compatibility
   ([#307](https://github.com/gnidan/pokapali/issues/307))
-- Add `lastValidationError` Feed to guide.md and
-  api-stability.md
+- Add `lastValidationError` Feed to guide.md
   ([#304](https://github.com/gnidan/pokapali/issues/304))
 - Add `persistence` config option to guide.md
   ([#305](https://github.com/gnidan/pokapali/issues/305))
