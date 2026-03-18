@@ -25,14 +25,14 @@ safe to depend on and which may change.
 | `DocUrls`           | `{ admin, write, read, best }`                                                                                |
 | `Feed<T>`           | Reactive container (`getSnapshot`, `subscribe`)                                                               |
 | `DocStatus`         | `"connecting" \| "synced" \| "receiving" \| "offline"`                                                        |
-| `SaveState`         | `"saved" \| "dirty" \| "saving" \| "unpublished"`                                                             |
+| `SaveState`         | `"saved" \| "dirty" \| "saving" \| "unpublished" \| "save-error"`                                             |
 | `VersionInfo`       | Snapshot metadata (cid, seq, ts)                                                                              |
 | `DocRole`           | Role discriminator                                                                                            |
 | `SnapshotEvent`     | Snapshot event payload                                                                                        |
-| `truncateUrl()`     | Shorten a capability URL for display                                                                          |
 | `docIdFromUrl()`    | Extract IPNS name from a capability URL                                                                       |
 | `Capability`        | Re-exported from `@pokapali/capability` — access level info                                                   |
 | `CapabilityGrant`   | Re-exported from `@pokapali/capability` — scoped invite grant                                                 |
+| `RotateResult`      | Result of a key-rotation operation                                                                            |
 
 #### Feeds on Doc
 
@@ -88,6 +88,11 @@ These APIs work but may change shape:
   detect missing keys for re-invite flows)
 - `doc.lastPersistenceError` — IDB write failure
   notifications (added in alpha.7)
+- `PermissionError`, `TimeoutError`,
+  `DestroyedError`, `ValidationError`,
+  `NotFoundError`, `SnapshotValidationError`
+- `statusLabel()`, `saveLabel()`
+- `truncateUrl()`
 
 ### Internal
 
@@ -100,7 +105,6 @@ Do not depend on these — they exist for
 - `NODE_CAPS_TOPIC`, `_resetNodeRegistry()`
 - `KnownNode`, `Neighbor`, `NodeRegistry`,
   `NodeRegistryEvents`
-- `RotateResult`
 
 Core sub-entry points (`@pokapali/core/announce`,
 `@pokapali/core/block-upload`,

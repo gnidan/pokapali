@@ -1,6 +1,12 @@
 import type { DocKeys } from "@pokapali/crypto";
 import { base64urlEncode } from "@pokapali/crypto";
 
+/**
+ * Narrowed subset of {@link @pokapali/crypto!DocKeys} for
+ * sharing via capability URLs. Fields are optional because
+ * lower permission levels (e.g. read-only) omit keys that
+ * grant write or admin access.
+ */
 export interface CapabilityKeys {
   readKey?: CryptoKey;
   ipnsKeyBytes?: Uint8Array;

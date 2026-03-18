@@ -14,6 +14,15 @@ export function base64urlEncode(bytes: Uint8Array): string {
     .replace(/=+$/, "");
 }
 
+/**
+ * Full set of cryptographic keys derived from an admin secret.
+ *
+ * Contains every key needed to operate a document. The
+ * related {@link @pokapali/capability!CapabilityKeys} type
+ * is the narrowed subset suitable for sharing via capability
+ * URLs (fields are optional because lower permission levels
+ * omit certain keys).
+ */
 export interface DocKeys {
   readKey: CryptoKey;
   ipnsKeyBytes: Uint8Array;
