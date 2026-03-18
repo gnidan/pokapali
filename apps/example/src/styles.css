@@ -1427,6 +1427,12 @@ body {
   color: #f97316;
 }
 
+.cs-synced {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #64748b;
+}
+
 .cs-fetch-failed {
   font-size: 0.7rem;
   font-weight: 500;
@@ -1503,6 +1509,10 @@ body {
 
 .cs-block-failed {
   color: #ef4444;
+}
+
+.cs-block-available {
+  opacity: 0.6;
 }
 
 .cs-block-cid {
