@@ -59,7 +59,7 @@ doc.saveState.subscribe(() => {
   seconds.
 - `"saving"` — a publish is in progress.
 - `"save-error"` — the last publish failed. Check
-  `doc.lastSaveError` for details.
+  `doc.lastPersistenceError` for related details.
 - `"saved"` — the snapshot was published and
   acknowledged. If other peers still don't see it,
   they may have a connectivity issue on their end.
@@ -162,12 +162,22 @@ const app = pokapali({
 
 If you have a read-only capability URL, write
 operations won't throw — they apply locally but don't
-propagate. Check `doc.urls` to see which access level
-the current URL grants:
+propagate. Check the capability to see your access
+level:
 
 ```ts
-console.log(doc.urls.best);
-// "admin" | "write" | "read"
+doc.capability.isAdmin; // full control?
+doc.capability.canPushSnapshots; // can publish?
+doc.capability.channels; // writable channels
+```
+
+Or use `doc.urls` to get shareable links at each
+tier:
+
+```ts
+doc.urls.admin; // full control (null if not admin)
+doc.urls.write; // edit + publish (null if read-only)
+doc.urls.read; // view only (always available)
 ```
 
 ---
@@ -187,12 +197,16 @@ Tiptap or ProseMirror (which use `XmlFragment`),
 pass the correct type:
 
 ```ts
-import { Comments } from "@pokapali/comments";
+import { comments } from "@pokapali/comments";
 
-const comments = new Comments(doc, {
+const c = comments(commentsDoc, contentDoc, {
   contentType: contentDoc.getXmlFragment("default"),
 });
 ```
+
+`comments()` takes two separate `Y.Doc` arguments:
+one for comment storage and one for the content
+being annotated.
 
 ### "Cannot add comment: no author identity"
 
