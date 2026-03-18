@@ -939,6 +939,15 @@ operations.
   discovery and provide GossipSub signaling for peers
   behind NAT. Pinners persist snapshots so documents
   load even when the author is offline.
+- **Running your own pinner** — pinners subscribe to
+  GossipSub topics scoped by `appId`. Pass your app's
+  ID to the `--pin` flag:
+  ```sh
+  npx @pokapali/node --relay --pin "my-app"
+  ```
+  Multiple apps: `--pin "app1,app2"`. The pinner only
+  stores snapshots for the listed app IDs. Your app's
+  `appId` must match exactly.
 - **Monitor node health** with
   `doc.diagnostics().nodes` to warn users when no
   pinners are connected.
