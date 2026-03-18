@@ -85,8 +85,11 @@ function mockSnapshotCodec() {
   return {
     push: vi.fn(),
     applyRemote: vi.fn().mockResolvedValue(true),
+    loadVersion: vi.fn().mockResolvedValue({}),
+    prev: null,
+    seq: 1,
+    lastIpnsSeq: null as number | null,
     setLastIpnsSeq: vi.fn(),
-    getLastIpnsSeq: vi.fn().mockReturnValue(0),
   };
 }
 
