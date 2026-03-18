@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-03-18
+
 First stable release. 12 packages across the
 `@pokapali/*` scope, built over 18 alpha releases.
 

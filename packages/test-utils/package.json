@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/test-utils",
-  "version": "0.1.0-alpha.17",
+  "version": "0.1.0",
   "description": "Shared test utilities for pokapali packages",
   "keywords": [
     "pokapali",
