@@ -33,6 +33,9 @@
     "!dist/src/**/*.test.*"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run",
