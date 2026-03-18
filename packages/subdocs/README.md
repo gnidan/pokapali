@@ -11,6 +11,35 @@ handles snapshot application with origin markers so
 snapshot-sourced updates can be distinguished from local
 edits.
 
+## Quick Example
+
+```ts
+import { createSubdocManager, SNAPSHOT_ORIGIN } from "@pokapali/subdocs";
+
+// Create a manager with two channels
+const mgr = createSubdocManager("doc-ipns-name", ["content", "comments"]);
+
+// Access a channel's Y.Doc
+const contentDoc = mgr.subdoc("content");
+const ytext = contentDoc.getText("body");
+ytext.insert(0, "Hello!");
+
+// Check dirty state (local edits since last snapshot)
+console.log(mgr.isDirty); // true
+
+// Encode all subdocs for snapshotting
+const encoded = mgr.encodeAll();
+// { content: Uint8Array, comments: Uint8Array,
+//   _meta: Uint8Array }
+
+// Apply a remote snapshot
+mgr.applySnapshot(remoteData);
+// Updates are applied with SNAPSHOT_ORIGIN so
+// dirty tracking ignores them
+
+mgr.destroy();
+```
+
 ## Key Exports
 
 - **`createSubdocManager(channels)`** — factory that

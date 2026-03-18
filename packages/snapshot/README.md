@@ -11,6 +11,41 @@ state of every subdocument, linked into an append-only
 chain via `prev` CID pointers. Snapshots are signed with
 Ed25519 for structural validation by pinners.
 
+## Quick Example
+
+```ts
+import {
+  encodeSnapshot,
+  decodeSnapshot,
+  decryptSnapshot,
+  validateSnapshot,
+} from "@pokapali/snapshot";
+import { deriveDocKeys, ed25519KeyPairFromSeed } from "@pokapali/crypto";
+
+// Derive keys (normally done by @pokapali/core)
+const keys = await deriveDocKeys(secret, "my-app", ["content"]);
+const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+
+// Encode a snapshot from subdoc state
+const block = await encodeSnapshot(
+  { content: contentBytes, _meta: metaBytes },
+  keys.readKey,
+  null, // prev CID (null for first snapshot)
+  1, // seq
+  Date.now(), // ts
+  signingKey,
+);
+
+// Validate structure + signature (no key needed)
+const validated = await validateSnapshot(block);
+// validated.publicKey, validated.seq, etc.
+
+// Decode and decrypt
+const node = decodeSnapshot(block);
+const plaintext = await decryptSnapshot(node, keys.readKey);
+// plaintext.content, plaintext._meta
+```
+
 ## Key Exports
 
 - **`encodeSnapshot(plaintext, readKey, prev, seq, ts,
