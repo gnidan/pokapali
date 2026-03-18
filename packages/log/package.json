@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/log",
-  "version": "0.1.0-alpha.16",
+  "version": "0.1.0-alpha.17",
   "description": "Structured logging for pokapali packages",
   "keywords": [
     "pokapali",

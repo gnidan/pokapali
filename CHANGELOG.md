@@ -7,6 +7,8 @@ The format is based on
 
 ## [Unreleased]
 
+## [0.1.0-alpha.17] — 2026-03-18
+
 ### Fixed
 
 - Updated stale peer dependency versions in react
