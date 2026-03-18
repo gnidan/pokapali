@@ -428,6 +428,13 @@ describe("@pokapali/core", () => {
     doc.destroy();
   });
 
+  it("lastValidationError Feed starts null", async () => {
+    const lib = pokapali(OPTS);
+    const doc = await lib.create();
+    expect(doc.lastValidationError.getSnapshot()).toBeNull();
+    doc.destroy();
+  });
+
   it("on('publish-needed') fires", async () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();

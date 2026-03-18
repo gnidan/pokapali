@@ -199,6 +199,14 @@ export interface Doc {
    *  when block/doc writes to IndexedDB fail
    *  (e.g. quota exceeded in incognito). */
   readonly lastPersistenceError: Feed<string | null>;
+  /** Last snapshot validation error, or null.
+   *  Fires when a remote snapshot fails signature
+   *  validation. Resets to null on next successful
+   *  tip advance. */
+  readonly lastValidationError: Feed<{
+    cid: string;
+    message: string;
+  } | null>;
 
   // ── Derived getters (from tip Feed) ────────
   /** @deprecated Use `tip.getSnapshot()?.cid`. */
@@ -578,6 +586,12 @@ export function createDoc(params: DocParams): Doc {
   const persistenceErrorFeed: WritableFeed<string | null> = createFeed<
     string | null
   >(null);
+  type ValidationErrorInfo = {
+    cid: string;
+    message: string;
+  } | null;
+  const validationErrorFeed: WritableFeed<ValidationErrorInfo> =
+    createFeed<ValidationErrorInfo>(null);
 
   // --- Client identity mapping feed ---
   const clientIdMapping = createClientIdMapping(
@@ -1063,6 +1077,7 @@ export function createDoc(params: DocParams): Doc {
       markReady: () => markReady(),
 
       emitSnapshotApplied: (cid, seq) => {
+        validationErrorFeed._update(null);
         const cidStr = cid.toString();
         if (cidStr === lastLocalPublishCid) {
           lastLocalPublishCid = null;
@@ -1116,6 +1131,9 @@ export function createDoc(params: DocParams): Doc {
       // already fire events.
       emitStatus: () => {},
       emitSaveState: () => {},
+      emitValidationError: (info) => {
+        validationErrorFeed._update(info);
+      },
     };
 
     // --- Run interpreter ---
@@ -1541,6 +1559,7 @@ export function createDoc(params: DocParams): Doc {
     gossipActivity: gossipActivityFeed as Feed<GossipActivity>,
     clientIdMapping: clientIdMappingFeed as Feed<IdentityMap>,
     lastPersistenceError: persistenceErrorFeed as Feed<string | null>,
+    lastValidationError: validationErrorFeed as Feed<ValidationErrorInfo>,
 
     ready(options?: { timeoutMs?: number }): Promise<void> {
       if (!options?.timeoutMs) return readyPromise;
