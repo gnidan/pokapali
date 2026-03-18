@@ -68,8 +68,8 @@ destroyAwareness();
 - **`setupAwarenessRoom()`** — creates the shared
   awareness room (all capability levels join)
 - **`createGossipSubSignaling()`** — GossipSub-based
-  signaling adapter that registers in y-webrtc's
-  `signalingConns` map
+  signaling adapter that integrates with y-webrtc's
+  WebrtcProvider for peer discovery
 - **`SyncManager`** — interface for connection status,
   cleanup, and `onStatusChange(cb)` for reacting to
   y-webrtc provider status events (e.g. after PBKDF2
