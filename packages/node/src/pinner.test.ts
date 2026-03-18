@@ -1473,4 +1473,105 @@ describe("pinner with mock helia", () => {
       await pinner.stop();
     });
   });
+
+  describe("new-name rate limit", () => {
+    function makeName(i: number): string {
+      return i.toString(16).padStart(64, "0");
+    }
+
+    it(
+      "rejects announcements when new-name" + " rate limit is exceeded",
+      async () => {
+        const block = await makeSnapshot({ ts: 5000 });
+        const cid = await blockToCid(block);
+        const blocks = new Map<string, Uint8Array>();
+        blocks.set(cid.toString(), block);
+        const mockHelia = createMockHelia(blocks);
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          helia: mockHelia as any,
+          maxNewNamesPerHour: 2,
+        });
+        await pinner.start();
+
+        // First 2 new names should be admitted
+        pinner.onAnnouncement(makeName(0), cid.toString(), "test-app");
+        pinner.onAnnouncement(makeName(1), cid.toString(), "test-app");
+        await pinner.flush();
+        expect(pinner.metrics().knownNames).toBe(2);
+        expect(pinner.metrics().newNameRejects).toBe(0);
+
+        // 3rd new name should be rate-limited
+        pinner.onAnnouncement(makeName(2), cid.toString(), "test-app");
+        await pinner.flush();
+        expect(pinner.metrics().knownNames).toBe(2);
+        expect(pinner.metrics().newNameRejects).toBe(1);
+
+        await pinner.stop();
+      },
+    );
+
+    it(
+      "allows updates to existing names" + " regardless of rate limit",
+      async () => {
+        const block1 = await makeSnapshot({
+          ts: 5000,
+          seq: 1,
+        });
+        const cid1 = await blockToCid(block1);
+        const block2 = await makeSnapshot({
+          ts: 6000,
+          seq: 2,
+        });
+        const cid2 = await blockToCid(block2);
+        const blocks = new Map<string, Uint8Array>();
+        blocks.set(cid1.toString(), block1);
+        blocks.set(cid2.toString(), block2);
+        const mockHelia = createMockHelia(blocks);
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          helia: mockHelia as any,
+          maxNewNamesPerHour: 1,
+        });
+        await pinner.start();
+
+        const name = makeName(0);
+        pinner.onAnnouncement(name, cid1.toString(), "test-app");
+        await pinner.flush();
+
+        // Update same name — should work even though
+        // rate limit is exhausted
+        pinner.onAnnouncement(name, cid2.toString(), "test-app");
+        await pinner.flush();
+        expect(pinner.metrics().knownNames).toBe(1);
+        expect(pinner.metrics().newNameRejects).toBe(0);
+
+        await pinner.stop();
+      },
+    );
+
+    it(
+      "rejects ingest for new names" + " when rate limit exceeded",
+      async () => {
+        const block = await makeSnapshot({ ts: 5000 });
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          maxNewNamesPerHour: 0,
+        });
+        await pinner.start();
+
+        const result = await pinner.ingest(makeName(0), block);
+        expect(result).toBe(false);
+        expect(pinner.metrics().newNameRejects).toBe(1);
+
+        await pinner.stop();
+      },
+    );
+  });
 });
