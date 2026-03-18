@@ -1,7 +1,8 @@
 # Building an App with Pokapali
 
 Pokapali is a P2P collaborative document library built on
-[Yjs](https://yjs.dev), WebRTC, and IPFS (Helia). It
+[Yjs](https://yjs.dev), WebRTC, and IPFS
+([Helia](https://helia.io), a JS IPFS implementation). It
 handles encryption, peer discovery, real-time sync, and
 persistent snapshots so you can focus on your app.
 
@@ -808,10 +809,11 @@ Writers skip `resolving` — they receive snapshots via
 GossipSub announcements, which provide the CID
 directly. Readers start with IPNS resolution.
 
-Retries are event-driven: a failed fetch is retried
-when the CID is re-discovered via GossipSub re-announce
-(15s) or IPNS poll (30s). There is no fixed retry
-count or interval.
+Retries use exponential backoff: up to 3 attempts with
+delays of 10 s, 30 s, 90 s (`RETRY_BASE_MS * 3^(n-1)`).
+A failed fetch can also be retried earlier when the CID
+is re-discovered via GossipSub re-announce (15 s) or
+IPNS poll (30 s).
 
 On `failed`, the library calls `markReady()` so the
 editor mounts with whatever state is available (local
