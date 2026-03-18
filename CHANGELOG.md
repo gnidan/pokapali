@@ -7,6 +7,37 @@ The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Updated stale peer dependency versions in react
+  (alpha.14 → alpha.16) and comments-tiptap (alpha.14
+  → alpha.16) — consumers installing these packages
+  no longer see peer conflict warnings
+  ([#335](https://github.com/gnidan/pokapali/issues/335))
+
+### Docs
+
+- Replace deprecated `doc.provider` with
+  `{ awareness: doc.awareness }` in integration-guide
+  Tiptap examples
+  ([#333](https://github.com/gnidan/pokapali/issues/333))
+- Fix getting-started examples broken by environment
+  guard — remove "runnable Node.js scripts" claim,
+  add browser-only note
+  ([#334](https://github.com/gnidan/pokapali/issues/334))
+- Correct guide.md retry claim — was "no fixed retry
+  count", now documents actual MAX_INTERPRETER_RETRIES
+  = 3 with exponential backoff
+  ([#336](https://github.com/gnidan/pokapali/issues/336))
+- Fix snapshot README `validateSnapshot` example —
+  returns `Promise<boolean>`, not an object
+  ([#337](https://github.com/gnidan/pokapali/issues/337))
+- Define "Helia" on first use in guide.md with link
+  ([#338](https://github.com/gnidan/pokapali/issues/338))
+- Define "IPNS name" on first use in root README with
+  link to IPFS docs
+  ([#339](https://github.com/gnidan/pokapali/issues/339))
+
 ## [0.1.0-alpha.16] — 2026-03-18
 
 ### Docs
