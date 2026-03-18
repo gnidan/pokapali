@@ -4,7 +4,10 @@
  * Demonstrates: app.open(), reading content,
  * subscribing to live updates, and cleanup.
  *
- * Usage: npx tsx open.ts <url>
+ * NOTE: @pokapali/core requires a browser environment
+ * (WebRTC, IndexedDB, Web Crypto). This file shows
+ * the API for reading — to run it, use a bundler
+ * like Vite that targets the browser.
  */
 
 import { pokapali } from "@pokapali/core";
