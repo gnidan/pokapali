@@ -127,8 +127,8 @@ doc.destroy();
 
 ## Next steps
 
-- [Full API guide](guide.md) — comprehensive
-  reference for all Doc methods, events, and patterns
+- [Building an App](guide.md) — tutorial walkthrough
+  plus patterns and reference for Doc APIs
 - [Troubleshooting](troubleshooting.md) — common
   errors and how to fix them
 - [examples/getting-started/](examples/getting-started/)
