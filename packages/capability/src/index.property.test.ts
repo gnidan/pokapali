@@ -319,3 +319,178 @@ describe("buildUrl / parseUrl properties", () => {
     expect(path1).toBe(path2);
   });
 });
+
+// ------------------------------------------------
+// narrowCapability monotonicity via inferCapability
+// ------------------------------------------------
+
+describe("narrowCapability monotonicity", () => {
+  it(
+    "narrowed capability permissions are a " + "subset of original",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.subarray(["a", "b", "c", "d"], {
+            minLength: 0,
+            maxLength: 4,
+          }),
+          fc.boolean(),
+          async (grantChs, canPush) => {
+            const allChs = ["a", "b", "c", "d"];
+            const full = await realKeys(allChs);
+            const narrowed = narrowCapability(full, {
+              canPushSnapshots: canPush,
+              channels: grantChs,
+            });
+
+            const origCap = inferCapability(full, allChs);
+            const narrowedCap = inferCapability(narrowed, allChs);
+
+            // narrowed channels ⊆ original channels
+            for (const ch of narrowedCap.channels) {
+              expect(origCap.channels.has(ch)).toBe(true);
+            }
+
+            // narrowed can never gain admin
+            if (!origCap.isAdmin) {
+              expect(narrowedCap.isAdmin).toBe(false);
+            }
+            // narrowed never has admin (rotationKey
+            // is always stripped)
+            expect(narrowedCap.isAdmin).toBe(false);
+
+            // canPushSnapshots only if granted AND
+            // original had it
+            if (!origCap.canPushSnapshots || !canPush) {
+              expect(narrowedCap.canPushSnapshots).toBe(false);
+            }
+          },
+        ),
+        { numRuns: 20 },
+      );
+    },
+  );
+
+  it(
+    "double-narrow produces same capability " + "as single narrow",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.subarray(["a", "b", "c"], {
+            minLength: 0,
+            maxLength: 3,
+          }),
+          fc.boolean(),
+          async (grantChs, canPush) => {
+            const full = await realKeys(["a", "b", "c"]);
+            const grant = {
+              canPushSnapshots: canPush,
+              channels: grantChs,
+            };
+
+            const once = narrowCapability(full, grant);
+            const twice = narrowCapability(once, grant);
+
+            const allChs = ["a", "b", "c"];
+            const onceCap = inferCapability(once, allChs);
+            const twiceCap = inferCapability(twice, allChs);
+
+            expect(twiceCap.isAdmin).toBe(onceCap.isAdmin);
+            expect(twiceCap.canPushSnapshots).toBe(onceCap.canPushSnapshots);
+            expect([...twiceCap.channels].sort()).toEqual(
+              [...onceCap.channels].sort(),
+            );
+          },
+        ),
+        { numRuns: 20 },
+      );
+    },
+  );
+
+  it("narrowing with empty grant strips " + "channels and push", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.stringMatching(/^[a-z]{1,4}$/), {
+          minLength: 1,
+          maxLength: 3,
+        }),
+        async (channels) => {
+          const unique = [...new Set(channels)];
+          const full = await realKeys(unique);
+          const narrowed = narrowCapability(full, {
+            canPushSnapshots: false,
+            channels: [],
+          });
+
+          expect(narrowed.ipnsKeyBytes).toBeUndefined();
+          expect(narrowed.rotationKey).toBeUndefined();
+          expect(narrowed.channelKeys).toBeUndefined();
+          // readKey and password preserved
+          expect(narrowed.readKey).toBeDefined();
+          expect(narrowed.awarenessRoomPassword).toBeDefined();
+        },
+      ),
+      { numRuns: 15 },
+    );
+  });
+});
+
+// ------------------------------------------------
+// Encoding canonical form
+// ------------------------------------------------
+
+describe("encoding canonical form", () => {
+  it("entries are sorted by label in wire " + "format", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.stringMatching(/^[a-z]{1,6}$/), {
+          minLength: 2,
+          maxLength: 5,
+        }),
+        async (channels) => {
+          const unique = [...new Set(channels)];
+          if (unique.length < 2) return;
+
+          const keys = await realKeys(unique);
+          const fragment = await encodeFragment(keys);
+
+          // Encode twice with shuffled channel
+          // order — should produce same output
+          const shuffled: CapabilityKeys = {
+            ...keys,
+            channelKeys: Object.fromEntries(
+              Object.entries(keys.channelKeys!).reverse(),
+            ),
+          };
+          const fragment2 = await encodeFragment(shuffled);
+          expect(fragment2).toBe(fragment);
+        },
+      ),
+      { numRuns: 15 },
+    );
+  });
+
+  it(
+    "round-trip preserves keys regardless of " + "channel name order",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.shuffledSubarray(["alpha", "beta", "gamma", "delta"], {
+            minLength: 2,
+            maxLength: 4,
+          }),
+          async (channels) => {
+            const keys = await realKeys(channels);
+            const fragment = await encodeFragment(keys);
+            const decoded = await decodeFragment(fragment);
+
+            for (const ch of channels) {
+              expect(decoded.channelKeys![ch]).toEqual(keys.channelKeys[ch]);
+            }
+          },
+        ),
+        { numRuns: 15 },
+      );
+    },
+  );
+});
