@@ -28,7 +28,7 @@ export function ValidationWarning({
   return (
     <div
       className="validation-warning"
-      role="alert"
+      role="status"
       aria-live="polite"
       title={`Rejected snapshot: ${error.cid}`}
     >

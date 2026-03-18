@@ -52,9 +52,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const saveState = useFeed(doc.saveState);
   const tipInfo = useFeed(doc.tip);
   const ackCount = tipInfo?.ackedBy.size ?? 0;
-  const validationError = useFeed(
-    doc.lastValidationError,
-  );
+  const validationError = useFeed(doc.lastValidationError);
 
   const [showShare, setShowShare] = useState(false);
   const [showHistory, setShowHistory] = useState(false);

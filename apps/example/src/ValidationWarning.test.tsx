@@ -35,7 +35,7 @@ describe("ValidationWarning", () => {
     });
     const el = container.querySelector(".validation-warning");
     expect(el).not.toBeNull();
-    expect(el!.getAttribute("role")).toBe("alert");
+    expect(el!.getAttribute("role")).toBe("status");
     expect(el!.textContent).toContain("received update was rejected");
   });
 
