@@ -171,7 +171,7 @@ const editor = new Editor({
       document: doc.channel("content"),
     }),
     CollaborationCursor.configure({
-      provider: doc.provider,
+      provider: { awareness: doc.awareness },
       user: { name: "Alice", color: "#2196f3" },
     }),
   ],
@@ -792,7 +792,7 @@ function Editor({ doc }: { doc: Doc }) {
               document: doc.channel("content"),
             }),
             CollaborationCursor.configure({
-              provider: doc.provider,
+              provider: { awareness: doc.awareness },
               user: {
                 name: "Alice",
                 color: "#2196f3",

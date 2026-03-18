@@ -141,7 +141,7 @@ doc.destroy();
 - [Troubleshooting](troubleshooting.md) — common
   errors and how to fix them
 - [examples/getting-started/](examples/getting-started/)
-  — runnable Node.js scripts (create + open)
+  — browser-oriented API examples (create + open)
 - Package READMEs for
   [@pokapali/comments](../packages/comments/),
   [@pokapali/node](../packages/node/),

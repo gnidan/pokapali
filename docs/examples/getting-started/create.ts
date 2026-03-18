@@ -5,7 +5,10 @@
  * channel access, Y.Text editing, publishing,
  * and generating invite URLs.
  *
- * Usage: npx tsx create.ts
+ * NOTE: @pokapali/core requires a browser environment
+ * (WebRTC, IndexedDB, Web Crypto). This file shows
+ * the API for reading — to run it, use a bundler
+ * like Vite that targets the browser.
  */
 
 import { pokapali } from "@pokapali/core";
