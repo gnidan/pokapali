@@ -7,9 +7,136 @@ The format is based on
 
 ## [Unreleased]
 
-## [0.1.0-alpha.17] — 2026-03-18
+First stable release. 12 packages across the
+`@pokapali/*` scope, built over 18 alpha releases.
 
-### Fixed
+### Highlights
+
+**Core** — P2P collaborative document sync for the
+browser. `pokapali(config)` returns an app that
+creates and opens documents. Each document syncs via
+WebRTC (GossipSub), persists to IndexedDB, and
+publishes snapshots to IPFS. The internal
+architecture is a fact-stream state machine: typed
+facts flow through pure reducers, with an interpreter
+dispatching side effects (block fetches, IPNS
+publishes, snapshot creation). Channels partition
+document content into independent Yjs sub-documents.
+
+**Reactive state** — All observable state is exposed
+via `Feed<T>`, a synchronous push primitive with
+`subscribe()` and `getSnapshot()`. Feeds cover
+connectivity (`doc.status`), persistence
+(`doc.saveState`), version history (`doc.tip`,
+`doc.versions`), loading progress (`doc.loading`),
+participant identity (`doc.clientIdMapping`), backup
+status (`doc.backedUp`), and persistence errors
+(`doc.lastPersistenceError`). The legacy event
+emitter (`doc.on`/`doc.off`) is deprecated.
+
+**Capabilities** — URL-based capability tokens encode
+admin/write/read permissions with optional channel
+restrictions. Documents expose `doc.urls.admin`,
+`doc.urls.write`, `doc.urls.read`, and
+`doc.urls.best`. `doc.invite()` generates shareable
+URLs. `narrowCapability()` derives restricted tokens
+from broader ones.
+
+**Comments** — `@pokapali/comments` provides threaded
+comments anchored to document ranges via Yjs relative
+positions. Anchors survive concurrent edits, detect
+inversions from paragraph splits, and resolve across
+content types. `@pokapali/comments-tiptap` adapts
+this for Tiptap editors: `anchorFromSelection()`,
+`resolveAnchors()`, `CommentHighlight` and
+`PendingAnchorHighlight` extensions.
+
+**React** — `@pokapali/react` provides hooks for
+common patterns: `useFeed(feed)` for reactive Feed
+subscriptions, `useDocReady(doc)` for ready gates,
+`useAutoSave(doc)` for persistence lifecycle,
+`useDocDestroy(doc)` for cleanup, and
+`useParticipants(doc)` for live participant lists.
+
+**Identity** — Per-user Ed25519 identity with
+clientID-to-pubkey mapping in a `_meta` sub-document.
+Signed registration prevents impersonation.
+`doc.identityPubkey` exposes the local user's key.
+
+**Snapshots** — CBOR-encoded, content-addressed
+snapshots stored in IPFS. `validateSnapshot()` for
+structural verification. Version history via
+`doc.versions` Feed with chain-walk progress.
+`doc.loadVersion()` restores historical states.
+Pinner-side version thinning with 14-day retention
+tiers.
+
+**Infrastructure** — Relay nodes bridge browser peers
+via WebSocket. 7 production relays with rolling
+deploy, health-check cron, and auto-issue creation.
+Pinner nodes persist snapshots and serve them via
+HTTP (`/tip/:name`, `/block/:cid`,
+`/guarantee/:name`). Pinners enforce admission caps,
+prune stale IPNS names, and acknowledge guarantees.
+
+**Typed errors** — `PokapaliError`, `PermissionError`,
+`TimeoutError`, `DestroyedError`, `ValidationError`,
+`NotFoundError` for programmatic error handling.
+Browser environment guard throws a clear error when
+`pokapali()` is called outside a browser.
+
+**Lazy startup** — Helia bootstraps in the background
+after local content is ready, eliminating the 5–15s
+blank screen on slow networks. WebRTC rooms connect
+on demand. Editor renders immediately from IndexedDB.
+
+**Testing** — 1200+ unit tests, 65 Playwright E2E
+tests, property-based tests for crypto, capability,
+snapshot, reducers, async-utils, and chain state.
+Chaos test infrastructure with relay-kill and
+peer-churn scenarios. Nightly load tests with
+ephemeral relays on a dedicated test VPS.
+
+**Documentation** — Consumer guides: getting-started,
+guide, integration-guide, troubleshooting,
+security-model, migration, api-stability. Runnable
+examples at `docs/examples/`. Per-package READMEs
+with install instructions, code examples, and API
+stability tier annotations. Internals docs:
+architecture, deps, principles.
+
+**API stability** — Exports classified as Stable
+(frozen until 0.2.0) or Experimental. 8 types
+demoted to Experimental during pre-release review.
+2 renames (`validateStructure` → `validateSnapshot`,
+`verifySignature` → `verifyBytes`) finalized before
+freeze.
+
+### Packages
+
+- `@pokapali/core` — main entry point and `Doc` API
+- `@pokapali/sync` — Yjs sync protocol over GossipSub
+- `@pokapali/subdocs` — channel-based sub-document
+  management
+- `@pokapali/snapshot` — CBOR snapshot codec and
+  validation
+- `@pokapali/capability` — URL-based capability tokens
+- `@pokapali/crypto` — Ed25519 key generation and
+  signing
+- `@pokapali/comments` — threaded comments with
+  anchored ranges
+- `@pokapali/comments-tiptap` — Tiptap adapter for
+  comments
+- `@pokapali/react` — React hooks (`useFeed`,
+  `useDocReady`, `useAutoSave`, etc.)
+- `@pokapali/node` — relay and pinner for Node.js
+- `@pokapali/log` — structured logging
+- `@pokapali/test-utils` — in-memory transport for
+  testing (not published to npm)
+
+### Changes since 0.1.0-alpha.17
+
+#### Fixed
 
 - Updated stale peer dependency versions in react
   (alpha.14 → alpha.16) and comments-tiptap (alpha.14
@@ -17,7 +144,7 @@ The format is based on
   no longer see peer conflict warnings
   ([#335](https://github.com/gnidan/pokapali/issues/335))
 
-### Docs
+#### Docs
 
 - Replace deprecated `doc.provider` with
   `{ awareness: doc.awareness }` in integration-guide
