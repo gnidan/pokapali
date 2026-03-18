@@ -100,8 +100,21 @@ const cleanup = createAutoSaver(doc);
 
 ## Observe status
 
-Feeds are `{ getSnapshot(), subscribe() }` — they
-work directly with React's `useSyncExternalStore`:
+Feeds are `{ getSnapshot(), subscribe() }` objects:
+
+```ts
+doc.status.subscribe(() => {
+  console.log("status:", doc.status.getSnapshot());
+});
+```
+
+Available feeds: `doc.status`, `doc.saveState`,
+`doc.tip`, `doc.loading`, `doc.versions`,
+`doc.clientIdMapping`.
+
+### React
+
+Feeds work directly with `useSyncExternalStore`:
 
 ```ts
 import { useSyncExternalStore } from "react";
@@ -114,10 +127,6 @@ function StatusBadge({ doc }) {
   return <span>{status}</span>;
 }
 ```
-
-Available feeds: `doc.status`, `doc.saveState`,
-`doc.tip`, `doc.loading`, `doc.versions`,
-`doc.clientIdMapping`.
 
 ## Clean up
 
