@@ -206,6 +206,8 @@ export { sha256 } from "multiformats/hashes/sha2";
 export { code as dagCborCode } from "@ipld/dag-cbor";
 
 // Pure state machine for fetch coalescing
+
+/** @internal */
 export interface FetchCoalescerState {
   pending: Set<string>;
   inflight: Set<string>;
@@ -213,6 +215,7 @@ export interface FetchCoalescerState {
   failed: Set<string>;
 }
 
+/** @internal */
 export function createFetchCoalescerState(): FetchCoalescerState {
   return {
     pending: new Set(),
@@ -224,6 +227,7 @@ export function createFetchCoalescerState(): FetchCoalescerState {
 
 const COALESCER_CONCURRENCY = 3;
 
+/** @internal */
 export function coalescerNext(state: FetchCoalescerState): {
   toFetch: string[];
 } {
@@ -248,6 +252,7 @@ export function coalescerNext(state: FetchCoalescerState): {
   return { toFetch };
 }
 
+/** @internal */
 export function coalescerResolve(
   state: FetchCoalescerState,
   cid: string,
@@ -258,6 +263,7 @@ export function coalescerResolve(
   return state;
 }
 
+/** @internal */
 export function coalescerFail(
   state: FetchCoalescerState,
   cid: string,

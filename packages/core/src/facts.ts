@@ -157,6 +157,15 @@ export type Fact =
 
 export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
 
+/**
+ * Persistence state of a document.
+ *
+ * - `"saved"` — all changes persisted
+ * - `"unpublished"` — new doc, never published
+ * - `"saving"` — write in progress
+ * - `"dirty"` — local changes not yet persisted
+ * - `"save-error"` — last save attempt failed
+ */
 export type SaveState =
   | "saved"
   | "unpublished"
