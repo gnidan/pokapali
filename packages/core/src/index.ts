@@ -414,3 +414,4 @@ export {
   ValidationError,
   NotFoundError,
 } from "./errors.js";
+export { SnapshotValidationError } from "./snapshot-ops.js";
