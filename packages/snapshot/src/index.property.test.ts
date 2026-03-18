@@ -14,6 +14,7 @@ import {
   coalescerFail,
   encodeSnapshot,
   decodeSnapshot,
+  decryptSnapshot,
   validateStructure,
 } from "./index.js";
 import type { FetchCoalescerState } from "./index.js";
@@ -345,4 +346,231 @@ describe("snapshot encode/decode properties", () => {
       { numRuns: 30 },
     );
   });
+});
+
+// ------------------------------------------------
+// Snapshot encrypt/decrypt round-trip
+// ------------------------------------------------
+
+describe("snapshot encrypt/decrypt round-trip", () => {
+  it(
+    "decrypt(encode(...), readKey) recovers " + "original plaintext",
+    async () => {
+      const secret = generateAdminSecret();
+      const keys = await deriveDocKeys(secret, "test", ["content"]);
+      const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+
+      await fc.assert(
+        fc.asyncProperty(
+          fc.uint8Array({
+            minLength: 0,
+            maxLength: 256,
+          }),
+          fc.nat({ max: 1000 }),
+          fc.nat({ max: 100_000 }),
+          async (payload, seq, ts) => {
+            const plaintext = { content: payload };
+            const block = await encodeSnapshot(
+              plaintext,
+              keys.readKey,
+              null,
+              seq,
+              ts,
+              signingKey,
+            );
+            const node = decodeSnapshot(block);
+            const decrypted = await decryptSnapshot(node, keys.readKey);
+
+            expect(decrypted.content).toEqual(payload);
+          },
+        ),
+        { numRuns: 30 },
+      );
+    },
+  );
+
+  it(
+    "decrypt with multiple subdocs preserves " + "all namespaces",
+    async () => {
+      const secret = generateAdminSecret();
+      const keys = await deriveDocKeys(secret, "test", ["content", "meta"]);
+      const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+
+      await fc.assert(
+        fc.asyncProperty(
+          fc.uint8Array({
+            minLength: 1,
+            maxLength: 128,
+          }),
+          fc.uint8Array({
+            minLength: 1,
+            maxLength: 128,
+          }),
+          async (contentData, metaData) => {
+            const plaintext = {
+              content: contentData,
+              meta: metaData,
+            };
+            const block = await encodeSnapshot(
+              plaintext,
+              keys.readKey,
+              null,
+              1,
+              1000,
+              signingKey,
+            );
+            const node = decodeSnapshot(block);
+            const decrypted = await decryptSnapshot(node, keys.readKey);
+
+            expect(decrypted.content).toEqual(contentData);
+            expect(decrypted.meta).toEqual(metaData);
+            expect(Object.keys(decrypted).sort()).toEqual(["content", "meta"]);
+          },
+        ),
+        { numRuns: 20 },
+      );
+    },
+  );
+});
+
+// ------------------------------------------------
+// Publisher signature invariants
+// ------------------------------------------------
+
+describe("publisher signature properties", () => {
+  it(
+    "both-or-neither: identityKey produces " + "both publisher+publisherSig",
+    async () => {
+      const secret = generateAdminSecret();
+      const keys = await deriveDocKeys(secret, "test", ["content"]);
+      const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+
+      // Separate identity key for publisher
+      const idSeed = generateAdminSecret();
+      const idKeys = await deriveDocKeys(idSeed, "identity", []);
+      const identityKey = await ed25519KeyPairFromSeed(idKeys.ipnsKeyBytes);
+
+      await fc.assert(
+        fc.asyncProperty(
+          fc.boolean(),
+          fc.nat({ max: 500 }),
+          async (includeIdentity, seq) => {
+            const block = await encodeSnapshot(
+              {
+                content: new Uint8Array([1]),
+              },
+              keys.readKey,
+              null,
+              seq,
+              Date.now(),
+              signingKey,
+              includeIdentity ? identityKey : undefined,
+            );
+            const node = decodeSnapshot(block);
+
+            if (includeIdentity) {
+              expect(node.publisher).toBeDefined();
+              expect(node.publisherSig).toBeDefined();
+              expect(node.publisher).toEqual(identityKey.publicKey);
+            } else {
+              expect(node.publisher).toBeUndefined();
+              expect(node.publisherSig).toBeUndefined();
+            }
+          },
+        ),
+        { numRuns: 20 },
+      );
+    },
+  );
+
+  it("snapshot with publisher sig passes " + "validateStructure", async () => {
+    const secret = generateAdminSecret();
+    const keys = await deriveDocKeys(secret, "test", ["content"]);
+    const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+
+    const idSeed = generateAdminSecret();
+    const idKeys = await deriveDocKeys(idSeed, "identity", []);
+    const identityKey = await ed25519KeyPairFromSeed(idKeys.ipnsKeyBytes);
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.nat({ max: 100 }),
+        fc.nat({ max: 100_000 }),
+        async (seq, ts) => {
+          const block = await encodeSnapshot(
+            {
+              content: new Uint8Array([seq & 0xff]),
+            },
+            keys.readKey,
+            null,
+            seq,
+            ts,
+            signingKey,
+            identityKey,
+          );
+          const valid = await validateStructure(block);
+          expect(valid).toBe(true);
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it(
+    "different identity keys produce different " + "publisher fields",
+    async () => {
+      const secret = generateAdminSecret();
+      const keys = await deriveDocKeys(secret, "test", ["content"]);
+      const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+
+      await fc.assert(
+        fc.asyncProperty(
+          fc.uint8Array({
+            minLength: 32,
+            maxLength: 32,
+          }),
+          fc.uint8Array({
+            minLength: 32,
+            maxLength: 32,
+          }),
+          async (seed1, seed2) => {
+            // Skip if seeds are identical
+            if (seed1.every((b, i) => b === seed2[i])) {
+              return;
+            }
+
+            const id1 = await ed25519KeyPairFromSeed(seed1);
+            const id2 = await ed25519KeyPairFromSeed(seed2);
+
+            const block1 = await encodeSnapshot(
+              { content: new Uint8Array([1]) },
+              keys.readKey,
+              null,
+              1,
+              1000,
+              signingKey,
+              id1,
+            );
+            const block2 = await encodeSnapshot(
+              { content: new Uint8Array([1]) },
+              keys.readKey,
+              null,
+              1,
+              1000,
+              signingKey,
+              id2,
+            );
+
+            const node1 = decodeSnapshot(block1);
+            const node2 = decodeSnapshot(block2);
+
+            // Different identity keys →
+            // different publisher pubkeys
+            expect(node1.publisher).not.toEqual(node2.publisher);
+          },
+        ),
+        { numRuns: 20 },
+      );
+    },
+  );
 });

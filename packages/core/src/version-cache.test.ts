@@ -146,4 +146,75 @@ describe("version-cache", () => {
     const result = await readVersionCache("test");
     expect(result).toBeNull();
   });
+
+  it(
+    "write silently swallows error when " + "indexedDB unavailable",
+    async () => {
+      vi.stubGlobal("indexedDB", undefined);
+      // Should not throw
+      await writeVersionCache("test", [{ cid: "bafyabc", seq: 1, ts: 1000 }]);
+    },
+  );
+
+  it("handles large entry arrays", async () => {
+    const entries = Array.from({ length: 500 }, (_, i) => ({
+      cid: `bafy-${i}`,
+      seq: i + 1,
+      ts: i * 1000,
+    }));
+    await writeVersionCache("big-doc", entries);
+    const result = await readVersionCache("big-doc");
+    expect(result!.entries).toHaveLength(500);
+    expect(result!.entries[0].cid).toBe("bafy-0");
+    expect(result!.entries[499].cid).toBe("bafy-499");
+  });
+
+  it("concurrent writes — last write wins", async () => {
+    // Fire two writes without awaiting the first
+    const p1 = writeVersionCache("race-doc", [
+      { cid: "bafyold", seq: 1, ts: 100 },
+    ]);
+    const p2 = writeVersionCache("race-doc", [
+      { cid: "bafynew", seq: 2, ts: 200 },
+    ]);
+    await Promise.all([p1, p2]);
+
+    const result = await readVersionCache("race-doc");
+    expect(result).not.toBeNull();
+    // The later write should win since put() is
+    // called sequentially through the mock
+    expect(result!.entries[0].cid).toBe("bafynew");
+  });
+
+  it("updatedAt reflects time of write, not " + "read", async () => {
+    const beforeWrite = Date.now();
+    await writeVersionCache("time-doc", [
+      { cid: "bafytime", seq: 1, ts: 1000 },
+    ]);
+    const afterWrite = Date.now();
+
+    const result = await readVersionCache("time-doc");
+    expect(result!.updatedAt).toBeGreaterThanOrEqual(beforeWrite);
+    expect(result!.updatedAt).toBeLessThanOrEqual(afterWrite);
+  });
+
+  it("read after IDB open error returns null", async () => {
+    const brokenIDB = {
+      open() {
+        const req = {
+          result: null,
+          error: new DOMException("blocked"),
+          onupgradeneeded: null as (() => void) | null,
+          onsuccess: null as (() => void) | null,
+          onerror: null as (() => void) | null,
+        };
+        queueMicrotask(() => req.onerror?.());
+        return req;
+      },
+    };
+    vi.stubGlobal("indexedDB", brokenIDB);
+
+    const result = await readVersionCache("err-doc");
+    expect(result).toBeNull();
+  });
 });
