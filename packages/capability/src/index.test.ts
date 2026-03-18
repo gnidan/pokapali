@@ -331,13 +331,39 @@ describe("narrowCapability", () => {
     expect(narrowed.readKey).toBeDefined();
   });
 
-  it("ignores channels not in source", async () => {
+  it("throws on channel not in source keys", async () => {
     const keys = await makeFullKeys();
-    const narrowed = narrowCapability(keys, {
-      channels: ["nonexistent"],
-    });
-    expect(narrowed.channelKeys).toBeUndefined();
+    expect(() =>
+      narrowCapability(keys, {
+        channels: ["nonexistent"],
+      }),
+    ).toThrow(/nonexistent/);
   });
+
+  it("throws listing all missing channels", async () => {
+    const keys = await makeFullKeys();
+    expect(() =>
+      narrowCapability(keys, {
+        channels: ["content", "missing1", "missing2"],
+      }),
+    ).toThrow(/missing1.*missing2|missing2.*missing1/);
+  });
+
+  it(
+    "throws when keys have no channelKeys " + "but grant requests channels",
+    async () => {
+      const full = await makeFullKeys();
+      const readOnly: CapabilityKeys = {
+        readKey: full.readKey,
+        awarenessRoomPassword: full.awarenessRoomPassword,
+      };
+      expect(() =>
+        narrowCapability(readOnly, {
+          channels: ["content"],
+        }),
+      ).toThrow(/content/);
+    },
+  );
 
   it("narrows writer to channel subset", async () => {
     const full = await makeFullKeys();

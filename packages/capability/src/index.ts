@@ -278,16 +278,22 @@ export function narrowCapability(
   // rotationKey never narrowed (admin only)
 
   // channel keys: only those in the grant
-  if (grant.channels && keys.channelKeys) {
+  if (grant.channels && grant.channels.length > 0) {
+    const missing = grant.channels.filter(
+      (ch) => !keys.channelKeys || !(ch in keys.channelKeys),
+    );
+    if (missing.length > 0) {
+      throw new Error(
+        "narrowCapability: grant requests channels " +
+          "not in source keys: " +
+          missing.join(", "),
+      );
+    }
     const narrowed: Record<string, Uint8Array> = {};
     for (const ch of grant.channels) {
-      if (ch in keys.channelKeys) {
-        narrowed[ch] = keys.channelKeys[ch];
-      }
+      narrowed[ch] = keys.channelKeys![ch];
     }
-    if (Object.keys(narrowed).length > 0) {
-      result.channelKeys = narrowed;
-    }
+    result.channelKeys = narrowed;
   }
 
   return result;

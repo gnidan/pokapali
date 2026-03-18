@@ -201,7 +201,7 @@ describe("narrowCapability properties", () => {
     await fc.assert(
       fc.asyncProperty(
         fc.boolean(),
-        fc.array(fc.stringMatching(/^[a-z]{1,6}$/), {
+        fc.subarray(["a", "b", "c"], {
           minLength: 0,
           maxLength: 3,
         }),
