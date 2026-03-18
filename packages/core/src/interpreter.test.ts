@@ -67,6 +67,7 @@ function mockEffects(overrides?: Partial<EffectHandlers>): EffectHandlers {
     emitGuarantee: vi.fn(),
     emitStatus: vi.fn(),
     emitSaveState: vi.fn(),
+    emitValidationError: vi.fn(),
     ...overrides,
   };
 }
@@ -1753,6 +1754,11 @@ describe("interpreter publisher authorization", () => {
       // But tip-advanced should NOT appear
       const advanced = feedback.find((f) => f.type === "tip-advanced");
       expect(advanced).toBeUndefined();
+      // emitValidationError should be called
+      expect(effects.emitValidationError).toHaveBeenCalledWith({
+        cid: cid.toString(),
+        message: expect.stringContaining(cid.toString()),
+      });
     },
   );
 

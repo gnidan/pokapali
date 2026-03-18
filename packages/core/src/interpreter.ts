@@ -60,6 +60,7 @@ export interface EffectHandlers extends SnapshotOps {
   ): void;
   emitStatus(status: DocStatus): void;
   emitSaveState(saveState: SaveState): void;
+  emitValidationError(info: { cid: string; message: string }): void;
 }
 
 // ------------------------------------------------
@@ -370,6 +371,10 @@ export async function runInterpreter(
           } catch (err) {
             if (err instanceof SnapshotValidationError) {
               log.warn("skipping invalid snapshot:", err.message);
+              effects.emitValidationError({
+                cid: err.cid,
+                message: err.message,
+              });
             } else {
               throw err;
             }
