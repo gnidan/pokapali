@@ -86,6 +86,13 @@ interface DocInit {
 }
 
 export function pokapali(options: PokapaliConfig): PokapaliApp {
+  if (typeof window === "undefined") {
+    throw new Error(
+      "@pokapali/core requires a browser environment." +
+        " For Node.js, use @pokapali/node instead.",
+    );
+  }
+
   const { channels, origin } = options;
   const appId = options.appId ?? "";
   const primaryChannel = options.primaryChannel ?? channels[0] ?? "";
