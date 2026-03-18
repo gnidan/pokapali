@@ -102,7 +102,7 @@ for runnable create and open scripts.
 | `destroy()`       | Clean up all connections                  |
 | `urls`            | `{ admin, write, read, best }`            |
 | `capability`      | `{ channels, canPushSnapshots, isAdmin }` |
-| `provider`        | y-webrtc provider (for cursor awareness)  |
+| `awareness`       | Yjs Awareness instance (cursor state)     |
 
 ### Reactive Feeds
 
@@ -117,11 +117,13 @@ compatible with React's `useSyncExternalStore`.
 | `doc.loading`   | `LoadingState`        | Fetch progress       |
 | `doc.versions`  | `VersionHistory`      | Version list         |
 
-### Events
+### Snapshot Events
 
 ```typescript
-doc.on("snapshot", (e: SnapshotEvent) => { ... });
-doc.on("publish-needed", () => { ... });
+doc.snapshotEvents.subscribe(() => {
+  const event = doc.snapshotEvents.getSnapshot();
+  if (event) console.log("snapshot:", event.cid);
+});
 ```
 
 ## Editor Integration
@@ -139,7 +141,7 @@ const editor = new Editor({
       document: doc.channel("content"),
     }),
     CollaborationCursor.configure({
-      provider: doc.provider,
+      provider: { awareness: doc.awareness },
     }),
   ],
 });
