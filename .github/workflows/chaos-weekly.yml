@@ -7,10 +7,10 @@ on:
     inputs:
       scenario:
         description: >-
-          Scenario to run (s1, s4, or both)
+          Scenario to run (s1, s3, s4, or all)
         required: false
         type: string
-        default: "both"
+        default: "all"
       writers:
         description: "Number of writers"
         required: false
@@ -78,7 +78,7 @@ jobs:
     needs: setup
     if: >-
       github.event_name == 'schedule' ||
-      inputs.scenario == 'both' ||
+      inputs.scenario == 'all' ||
       inputs.scenario == 's1'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -146,7 +146,7 @@ jobs:
     if: >-
       always() && (
         github.event_name == 'schedule' ||
-        inputs.scenario == 'both' ||
+        inputs.scenario == 'all' ||
         inputs.scenario == 's4'
       )
     runs-on: ubuntu-latest
@@ -209,9 +209,78 @@ jobs:
           path: /tmp/results/
           retention-days: 90
 
+  s3-name-flood:
+    name: "S3: New-Name Flood"
+    needs: [setup, s4-peer-churn]
+    if: >-
+      always() && (
+        github.event_name == 'schedule' ||
+        inputs.scenario == 'all' ||
+        inputs.scenario == 's3'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LOADTEST_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo \
+            "${{ secrets.LOADTEST_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Run S3
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+          WRITERS: ${{ inputs.writers || 5 }}
+          BASELINE: ${{ inputs.baseline || 60 }}
+          READERS: ${{ inputs.readers || 2 }}
+        run: |
+          ssh "$LOADTEST_USER@$HOST" \
+            bash -s -- \
+              "$LOADTEST_REPO" \
+              "$WRITERS" \
+              "$BASELINE" \
+              "$READERS" \
+            <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          packages/load-test/bin/chaos-s3.sh \
+            --writers "$2" \
+            --baseline "$3" \
+            --readers "$4" \
+            --output /tmp/chaos-s3
+          REMOTE
+
+      - name: Download results
+        if: always()
+        env:
+          HOST: ${{ secrets.LOADTEST_SSH_HOST }}
+        run: |
+          mkdir -p /tmp/results
+          scp "$LOADTEST_USER@$HOST:/tmp/chaos-s3/*" \
+            /tmp/results/ || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-s3-${{ github.run_number }}
+          path: /tmp/results/
+          retention-days: 90
+
   cleanup:
     name: Cleanup
-    needs: [s1-relay-kill, s4-peer-churn]
+    needs: [s1-relay-kill, s4-peer-churn, s3-name-flood]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
