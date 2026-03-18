@@ -5,6 +5,16 @@ Pokapali is a P2P collaborative document library built on
 handles encryption, peer discovery, real-time sync, and
 persistent snapshots so you can focus on your app.
 
+This guide has two parts:
+
+1. **[Tutorial](#quick-start)** — step-by-step walkthrough
+   from `npm install` to a working collaborative app
+2. **[Patterns & Reference](#url-routing)** — standalone
+   topics (URL routing, rotation, loading states, version
+   history) to consult as needed
+
+---
+
 ## Quick Start
 
 ```sh
@@ -698,6 +708,10 @@ createAutoSaver(doc);
 // Share the admin URL
 console.log("Share this link:", doc.urls.admin);
 ```
+
+---
+
+# Patterns & Reference
 
 ## URL Routing
 
