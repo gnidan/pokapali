@@ -13,6 +13,30 @@ The format is based on
   sign snapshot announcements before publishing,
   completing Phase 1 auth end-to-end
   ([#253](https://github.com/gnidan/pokapali/issues/253))
+- Remote snapshot validation — snapshots from peers
+  are now verified (CBOR structure, signatures,
+  publisher attestation) before applying; tampered
+  or unsigned blocks are rejected and the document
+  stays alive
+  ([#216](https://github.com/gnidan/pokapali/issues/216))
+- Chain depth limit and cycle detection — walkChain
+  now enforces a configurable max depth (default 1000) and detects cycles via visited-CID set,
+  preventing DoS from unbounded or circular chains
+  ([#78](https://github.com/gnidan/pokapali/issues/78))
+- Global IPNS rate limit — pinners now enforce a
+  sliding-window rate limit on new name admissions
+  (`--max-new-names-per-hour`, default 100),
+  preventing name-flood abuse; `newNameRejects`
+  metric exposed via `/metrics`
+  ([#77](https://github.com/gnidan/pokapali/issues/77))
+- `doc.lastValidationError` Feed — surfaces snapshot
+  validation failures to the UI; fires on rejection,
+  resets on successful tip advance
+  ([#216](https://github.com/gnidan/pokapali/issues/216))
+- Validation warning banner — example app shows a
+  dismissible amber banner when a malformed snapshot
+  is rejected, with truncated CID for diagnostics
+  ([#216](https://github.com/gnidan/pokapali/issues/216))
 
 ### Fixed
 
@@ -40,6 +64,22 @@ The format is based on
 - `.nojekyll` added to GitHub Pages deploy so
   shields.io badge endpoint renders correctly
   ([#262](https://github.com/gnidan/pokapali/issues/262))
+- 20 new property tests — snapshot encrypt/decrypt
+  round-trip, capability narrowing monotonicity,
+  shouldAutoFetch policy, createFeed invariants
+- 24 test gap tests — version-cache, relay-sharing,
+  doc-rotate, topology-sharing coverage bolstered
+  ([#130](https://github.com/gnidan/pokapali/issues/130),
+  [#131](https://github.com/gnidan/pokapali/issues/131),
+  [#133](https://github.com/gnidan/pokapali/issues/133),
+  [#136](https://github.com/gnidan/pokapali/issues/136))
+- New-name flood chaos scenario (S3) — 3-phase
+  baseline/flood/recovery test exercising the IPNS
+  rate limiter under aggressive churn
+- Consumer integration tests for snapshot validation
+  — 12 tests verifying rejection, error hierarchy,
+  and graceful degradation from consumer perspective
+  ([#216](https://github.com/gnidan/pokapali/issues/216))
 
 ## [0.1.0-alpha.13] — 2026-03-17
 
