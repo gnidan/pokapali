@@ -137,7 +137,7 @@ describe("@pokapali/snapshot", () => {
 
       // Tamper with the encoded bytes
       const tampered = new Uint8Array(encoded);
-      tampered[tampered.length - 2] ^= 0xff;
+      tampered[tampered.length - 2]! ^= 0xff;
 
       expect(await validateSnapshot(tampered)).toBe(false);
     });
@@ -466,7 +466,7 @@ describe("@pokapali/snapshot", () => {
       const node = decodeSnapshot(encoded);
       // Tamper with publisherSig
       const tampered = new Uint8Array(node.publisherSig!);
-      tampered[0] ^= 0xff;
+      tampered[0]! ^= 0xff;
       node.publisherSig = tampered;
 
       // Re-encode with tampered publisherSig — doc sig
@@ -737,8 +737,8 @@ describe("@pokapali/snapshot", () => {
 
       expect(nodes).toHaveLength(2);
       // Both have publisher fields
-      expect(nodes[0].publisher).toEqual(id.publicKey);
-      expect(nodes[1].publisher).toEqual(id.publicKey);
+      expect(nodes[0]!.publisher).toEqual(id.publicKey);
+      expect(nodes[1]!.publisher).toEqual(id.publicKey);
     });
   });
 

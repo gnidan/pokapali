@@ -279,7 +279,7 @@ describe("createFeed (property)", () => {
             counts.push(0);
             const idx = i;
             feed.subscribe(() => {
-              counts[idx]++;
+              counts[idx] = (counts[idx] ?? 0) + 1;
             });
           }
 

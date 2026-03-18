@@ -26,7 +26,7 @@ export function loadUser(): StoredUser {
   } catch {
     // localStorage unavailable
   }
-  const color = CURSOR_COLORS[Math.floor(Math.random() * CURSOR_COLORS.length)];
+  const color = CURSOR_COLORS[Math.floor(Math.random() * CURSOR_COLORS.length)]!;
   return { name: "", color };
 }
 

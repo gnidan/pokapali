@@ -80,7 +80,7 @@ export async function* merge<T>(
   for (let i = 0; i < iters.length; i++) {
     pending.set(
       i,
-      iters[i].next().then((result) => ({ idx: i, result })),
+      iters[i]!.next().then((result) => ({ idx: i, result })),
     );
   }
 
@@ -92,7 +92,7 @@ export async function* merge<T>(
       yield result.value;
       pending.set(
         idx,
-        iters[idx].next().then((result) => ({ idx, result })),
+        iters[idx]!.next().then((result) => ({ idx, result })),
       );
     }
   }

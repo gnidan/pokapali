@@ -100,7 +100,7 @@ describe("helia lifecycle", () => {
 
   it("passes gossipsub in libp2p services", async () => {
     await mod.acquireHelia();
-    const call = mockCreateHelia.mock.calls[0];
+    const call = mockCreateHelia.mock.calls[0]!;
     const init = call[0] as Record<string, unknown>;
     const libp2p = init.libp2p as Record<string, unknown>;
     const services = libp2p.services as Record<string, unknown>;

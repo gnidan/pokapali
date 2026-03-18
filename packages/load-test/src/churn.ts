@@ -28,7 +28,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function pickRandom<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)];
+  return items[Math.floor(Math.random() * items.length)]!;
 }
 
 export async function startChurnScheduler(

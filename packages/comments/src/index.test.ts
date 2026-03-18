@@ -50,14 +50,14 @@ describe("comments()", () => {
 
       const list = c.feed.getSnapshot();
       expect(list).toHaveLength(1);
-      expect(list[0].id).toBe(id);
-      expect(list[0].content).toBe("Fix this typo.");
-      expect(list[0].author).toBe("alice-pubkey");
-      expect(list[0].data.status).toBe("open");
-      expect(list[0].anchor).not.toBeNull();
-      expect(list[0].anchor!.status).toBe("resolved");
-      expect(list[0].parentId).toBeNull();
-      expect(list[0].children).toHaveLength(0);
+      expect(list[0]!.id).toBe(id);
+      expect(list[0]!.content).toBe("Fix this typo.");
+      expect(list[0]!.author).toBe("alice-pubkey");
+      expect(list[0]!.data.status).toBe("open");
+      expect(list[0]!.anchor).not.toBeNull();
+      expect(list[0]!.anchor!.status).toBe("resolved");
+      expect(list[0]!.parentId).toBeNull();
+      expect(list[0]!.children).toHaveLength(0);
       c.destroy();
     });
 
@@ -92,10 +92,10 @@ describe("comments()", () => {
 
       const list = c.feed.getSnapshot();
       expect(list).toHaveLength(1);
-      expect(list[0].children).toHaveLength(1);
-      expect(list[0].children[0].content).toBe("Reply");
-      expect(list[0].children[0].parentId).toBe(parentId);
-      expect(list[0].children[0].anchor).toBeNull();
+      expect(list[0]!.children).toHaveLength(1);
+      expect(list[0]!.children[0]!.content).toBe("Reply");
+      expect(list[0]!.children[0]!.parentId).toBe(parentId);
+      expect(list[0]!.children[0]!.anchor).toBeNull();
       c.destroy();
     });
 
@@ -169,9 +169,9 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      const kids = list[0].children;
+      const kids = list[0]!.children;
       expect(kids).toHaveLength(2);
-      expect(kids[0].ts).toBeLessThanOrEqual(kids[1].ts);
+      expect(kids[0]!.ts).toBeLessThanOrEqual(kids[1]!.ts);
       c.destroy();
     });
   });
@@ -192,8 +192,8 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      expect(list[0].data.status).toBe("resolved");
-      expect(list[0].data.resolvedBy).toBe("bob");
+      expect(list[0]!.data.status).toBe("resolved");
+      expect(list[0]!.data.resolvedBy).toBe("bob");
       c.destroy();
     });
 
@@ -209,8 +209,8 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      expect(list[0].data.status).toBe("resolved");
-      expect(list[0].data.resolvedBy).toBeNull();
+      expect(list[0]!.data.status).toBe("resolved");
+      expect(list[0]!.data.resolvedBy).toBeNull();
       c.destroy();
     });
 
@@ -318,7 +318,7 @@ describe("comments()", () => {
       });
 
       // Initially unverified.
-      expect(c.feed.getSnapshot()[0].authorVerified).toBe(false);
+      expect(c.feed.getSnapshot()[0]!.authorVerified).toBe(false);
 
       const cb = vi.fn();
       c.feed.subscribe(cb);
@@ -329,7 +329,7 @@ describe("comments()", () => {
       );
 
       expect(cb).toHaveBeenCalled();
-      expect(c.feed.getSnapshot()[0].authorVerified).toBe(true);
+      expect(c.feed.getSnapshot()[0]!.authorVerified).toBe(true);
       c.destroy();
     });
 
@@ -359,7 +359,7 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      const anchor = list[0].anchor!;
+      const anchor = list[0]!.anchor!;
       expect(anchor.status).toBe("resolved");
       if (anchor.status === "resolved") {
         expect(anchor.start).toBe(0);
@@ -376,7 +376,7 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      expect(list[0].anchor).toBeNull();
+      expect(list[0]!.anchor).toBeNull();
       c.destroy();
     });
 
@@ -391,7 +391,7 @@ describe("comments()", () => {
       contentDoc.getText("default").insert(0, "hey ");
 
       const list = c.feed.getSnapshot();
-      const anchor = list[0].anchor!;
+      const anchor = list[0]!.anchor!;
       expect(anchor.status).toBe("resolved");
       if (anchor.status === "resolved") {
         expect(anchor.start).toBe(10);
@@ -431,7 +431,7 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      expect(list[0].authorVerified).toBe(true);
+      expect(list[0]!.authorVerified).toBe(true);
       c.destroy();
     });
 
@@ -443,7 +443,7 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      expect(list[0].authorVerified).toBe(false);
+      expect(list[0]!.authorVerified).toBe(false);
       c.destroy();
     });
 
@@ -467,7 +467,7 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      expect(list[0].authorVerified).toBe(false);
+      expect(list[0]!.authorVerified).toBe(false);
       c.destroy();
     });
   });
@@ -534,7 +534,7 @@ describe("comments()", () => {
 
       const list = c.feed.getSnapshot();
       expect(list).toHaveLength(1);
-      const anchor = list[0].anchor!;
+      const anchor = list[0]!.anchor!;
       expect(anchor.status).toBe("resolved");
       if (anchor.status === "resolved") {
         expect(anchor.start).toBe(0);
@@ -552,7 +552,7 @@ describe("comments()", () => {
       });
 
       const list = c.feed.getSnapshot();
-      const anchor = list[0].anchor!;
+      const anchor = list[0]!.anchor!;
       expect(anchor.status).toBe("resolved");
       if (anchor.status === "resolved") {
         expect(anchor.start).toBe(0);
@@ -636,7 +636,7 @@ describe("comments()", () => {
 
       const list2 = c2.feed.getSnapshot();
       expect(list2).toHaveLength(1);
-      expect(list2[0].content).toBe("alice's comment");
+      expect(list2[0]!.content).toBe("alice's comment");
 
       c1.destroy();
       c2.destroy();

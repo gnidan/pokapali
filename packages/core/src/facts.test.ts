@@ -98,10 +98,10 @@ describe("versionHistory", () => {
     };
     const history = versionHistory(chain);
     expect(history).toHaveLength(2);
-    expect(history[0].seq).toBe(3);
-    expect(history[0].available).toBe(true);
-    expect(history[1].seq).toBe(1);
-    expect(history[1].available).toBe(true);
+    expect(history[0]!.seq).toBe(3);
+    expect(history[0]!.available).toBe(true);
+    expect(history[1]!.seq).toBe(1);
+    expect(history[1]!.available).toBe(true);
   });
 
   it("marks unknown/fetching/failed as unavailable", async () => {
@@ -119,7 +119,7 @@ describe("versionHistory", () => {
       ]),
     };
     const history = versionHistory(chain);
-    expect(history[0].available).toBe(false);
+    expect(history[0]!.available).toBe(false);
   });
 
   it("treats applied as available", async () => {
@@ -138,7 +138,7 @@ describe("versionHistory", () => {
       ]),
     };
     const history = versionHistory(chain);
-    expect(history[0].available).toBe(true);
+    expect(history[0]!.available).toBe(true);
   });
 
   it("handles mixed available and unavailable", async () => {
@@ -174,11 +174,11 @@ describe("versionHistory", () => {
     const history = versionHistory(chain);
     expect(history).toHaveLength(3);
     // seq 3 (fetched) → available
-    expect(history[0].available).toBe(true);
+    expect(history[0]!.available).toBe(true);
     // seq 2 (unknown) → unavailable
-    expect(history[1].available).toBe(false);
+    expect(history[1]!.available).toBe(false);
     // seq 1 (applied) → available
-    expect(history[2].available).toBe(true);
+    expect(history[2]!.available).toBe(true);
   });
 });
 
@@ -323,10 +323,10 @@ describe("deriveVersionHistory", () => {
     };
     const h = deriveVersionHistory(chain);
     expect(h.entries).toHaveLength(2);
-    expect(h.entries[0].seq).toBe(3);
-    expect(h.entries[0].status).toBe("available");
-    expect(h.entries[1].seq).toBe(1);
-    expect(h.entries[1].status).toBe("available");
+    expect(h.entries[0]!.seq).toBe(3);
+    expect(h.entries[0]!.status).toBe("available");
+    expect(h.entries[1]!.seq).toBe(1);
+    expect(h.entries[1]!.status).toBe("available");
     expect(h.walking).toBe(false);
   });
 
@@ -361,9 +361,9 @@ describe("deriveVersionHistory", () => {
       ]),
     };
     const h = deriveVersionHistory(chain);
-    expect(h.entries[0].status).toBe("available");
-    expect(h.entries[1].status).toBe("loading");
-    expect(h.entries[2].status).toBe("failed");
+    expect(h.entries[0]!.status).toBe("available");
+    expect(h.entries[1]!.status).toBe("loading");
+    expect(h.entries[2]!.status).toBe("failed");
   });
 
   it("sets walking=true when unknown entries", async () => {
@@ -435,10 +435,10 @@ describe("deriveVersionHistory", () => {
     const h = deriveVersionHistory(interpreter, local);
     expect(h.entries).toHaveLength(2);
     // cidB only in local chain
-    expect(h.entries[0].seq).toBe(2);
+    expect(h.entries[0]!.seq).toBe(2);
     // cidA from interpreter (authoritative)
-    expect(h.entries[1].seq).toBe(1);
-    expect(h.entries[1].status).toBe("available");
+    expect(h.entries[1]!.seq).toBe(1);
+    expect(h.entries[1]!.status).toBe("available");
   });
 
   it("interpreter chain takes precedence", async () => {
@@ -470,6 +470,6 @@ describe("deriveVersionHistory", () => {
     const h = deriveVersionHistory(interpreter, local);
     expect(h.entries).toHaveLength(1);
     // Should use interpreter status, not local
-    expect(h.entries[0].status).toBe("available");
+    expect(h.entries[0]!.status).toBe("available");
   });
 });

@@ -38,10 +38,10 @@ describe("fetchVersionHistory", () => {
     );
 
     expect(result).toHaveLength(2);
-    expect(result[0].cid.toString()).toBe(cid2.toString());
-    expect(result[0].seq).toBe(2);
-    expect(result[0].ts).toBe(2000);
-    expect(result[1].cid.toString()).toBe(cid1.toString());
+    expect(result[0]!.cid.toString()).toBe(cid2.toString());
+    expect(result[0]!.seq).toBe(2);
+    expect(result[0]!.ts).toBe(2000);
+    expect(result[1]!.cid.toString()).toBe(cid1.toString());
     expect(local).not.toHaveBeenCalled();
   });
 
@@ -63,7 +63,7 @@ describe("fetchVersionHistory", () => {
     );
 
     expect(result).toHaveLength(1);
-    expect(result[0].cid.toString()).toBe(cid.toString());
+    expect(result[0]!.cid.toString()).toBe(cid.toString());
     expect(local).toHaveBeenCalled();
   });
 
@@ -116,7 +116,7 @@ describe("fetchVersionHistory", () => {
     );
 
     expect(result).toHaveLength(1);
-    expect(result[0].seq).toBe(1);
+    expect(result[0]!.seq).toBe(1);
   });
 
   it("tries next pinner on failure", async () => {
@@ -161,7 +161,7 @@ describe("fetchVersionHistory", () => {
     );
 
     expect(result).toHaveLength(1);
-    expect(result[0].seq).toBe(0);
+    expect(result[0]!.seq).toBe(0);
   });
 
   it("handles empty array from pinner", async () => {
@@ -227,10 +227,10 @@ describe("fetchVersionHistory", () => {
     );
 
     expect(result).toHaveLength(2);
-    expect(result[0].tier).toBe("tip");
-    expect(result[0].expiresAt).toBeNull();
-    expect(result[1].tier).toBe("hourly");
-    expect(result[1].expiresAt).toBe(exp);
+    expect(result[0]!.tier).toBe("tip");
+    expect(result[0]!.expiresAt).toBeNull();
+    expect(result[1]!.tier).toBe("hourly");
+    expect(result[1]!.expiresAt).toBe(exp);
   });
 
   it("ignores invalid tier values", async () => {
@@ -261,8 +261,8 @@ describe("fetchVersionHistory", () => {
     );
 
     expect(result).toHaveLength(1);
-    expect(result[0].tier).toBeUndefined();
+    expect(result[0]!.tier).toBeUndefined();
     // expiresAt is still parsed even if tier is bad
-    expect(result[0].expiresAt).toBe(9999);
+    expect(result[0]!.expiresAt).toBe(9999);
   });
 });

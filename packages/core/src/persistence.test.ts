@@ -52,7 +52,7 @@ describe("createDocPersistence", () => {
     expect(MockProvider).toHaveBeenCalledTimes(1);
     expect(result.providers.size).toBe(1);
 
-    const guid = (MockProvider.mock.calls as any[][])[0][0];
+    const guid = (MockProvider.mock.calls as any[][])[0]![0];
     expect(guid).toBe("test-ipns:_meta");
   });
 

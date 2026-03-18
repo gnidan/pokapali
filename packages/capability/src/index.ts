@@ -130,7 +130,7 @@ export async function decodeFragment(
           " when copied",
       );
     }
-    const labelLen = buf[offset++];
+    const labelLen = buf[offset++]!;
     if (offset + labelLen > buf.length) {
       throw new Error(
         "Truncated capability fragment at byte " +
@@ -152,7 +152,7 @@ export async function decodeFragment(
           " when copied",
       );
     }
-    const valueLen = buf[offset++];
+    const valueLen = buf[offset++]!;
     if (offset + valueLen > buf.length) {
       throw new Error(
         "Truncated capability fragment at byte " +
@@ -304,7 +304,7 @@ export function narrowCapability(
     }
     const narrowed: Record<string, Uint8Array> = {};
     for (const ch of grant.channels) {
-      narrowed[ch] = keys.channelKeys![ch];
+      narrowed[ch] = keys.channelKeys![ch]!;
     }
     result.channelKeys = narrowed;
   }

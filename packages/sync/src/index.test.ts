@@ -113,10 +113,14 @@ describe("setupNamespaceRooms", () => {
     sync.connectChannel("comments");
 
     const cp = instances.find((p) => p.roomName === `${IPNS}:content`)!;
-    expect(cp.password).toBe(bytesToHex(keys.content));
+    expect(cp.password).toBe(bytesToHex(keys.content!));
 
-    const cmp = instances.find((p) => p.roomName === `${IPNS}:comments`)!;
-    expect(cmp.password).toBe(bytesToHex(keys.comments));
+    const cmp = instances.find(
+      (p) => p.roomName === `${IPNS}:comments`,
+    )!;
+    expect(cmp.password).toBe(
+      bytesToHex(keys.comments!),
+    );
 
     mgr.destroy();
   });
@@ -166,8 +170,8 @@ describe("setupNamespaceRooms", () => {
     sync.connectChannel("comments");
 
     // One still connecting, one connected
-    instances[0].connected = false;
-    instances[0].shouldConnect = true;
+    instances[0]!.connected = false;
+    instances[0]!.shouldConnect = true;
     expect(sync.status).toBe("connected");
 
     mgr.destroy();
@@ -294,8 +298,12 @@ describe("lazy channel connection", () => {
 
     sync.connectChannel("content");
     expect(instances).toHaveLength(1);
-    expect(instances[0].roomName).toBe(`${IPNS}:content`);
-    expect(instances[0].password).toBe(bytesToHex(keys.content));
+    expect(instances[0]!.roomName).toBe(
+      `${IPNS}:content`,
+    );
+    expect(instances[0]!.password).toBe(
+      bytesToHex(keys.content!),
+    );
 
     mgr.destroy();
   });
@@ -364,7 +372,7 @@ describe("setupAwarenessRoom", () => {
     const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
 
     expect(instances).toHaveLength(1);
-    const p = instances[0];
+    const p = instances[0]!;
 
     expect(p.roomName).toBe(`${IPNS}:awareness`);
     expect(p.password).toBe("abcdef01");
@@ -376,7 +384,7 @@ describe("setupAwarenessRoom", () => {
   it("exposes provider awareness", () => {
     const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
 
-    expect(room.awareness).toBe(instances[0].awareness);
+    expect(room.awareness).toBe(instances[0]!.awareness);
 
     room.destroy();
   });
@@ -386,7 +394,7 @@ describe("setupAwarenessRoom", () => {
 
     expect(room.connected).toBe(true);
 
-    instances[0].connected = false;
+    instances[0]!.connected = false;
     expect(room.connected).toBe(false);
 
     room.destroy();
@@ -413,7 +421,7 @@ describe("setupAwarenessRoom", () => {
 
   it("destroy cleans up provider and dummy doc", () => {
     const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
-    const p = instances[0];
+    const p = instances[0]!;
 
     room.destroy();
 

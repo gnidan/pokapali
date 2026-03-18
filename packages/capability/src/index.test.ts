@@ -50,14 +50,14 @@ describe("encodeFragment / decodeFragment", () => {
     expect(decoded.awarenessRoomPassword).toBe(keys.awarenessRoomPassword);
     expect(
       arraysEqual(
-        decoded.channelKeys!["content"],
-        keys.channelKeys!["content"],
+        decoded.channelKeys!["content"]!,
+        keys.channelKeys!["content"]!,
       ),
     ).toBe(true);
     expect(
       arraysEqual(
-        decoded.channelKeys!["comments"],
-        keys.channelKeys!["comments"],
+        decoded.channelKeys!["comments"]!,
+        keys.channelKeys!["comments"]!,
       ),
     ).toBe(true);
   });
@@ -103,13 +103,13 @@ describe("encodeFragment / decodeFragment", () => {
     const labels: string[] = [];
     let offset = 1;
     while (offset < buf.length) {
-      const labelLen = buf[offset++];
+      const labelLen = buf[offset++]!;
       const label = new TextDecoder().decode(
         buf.slice(offset, offset + labelLen),
       );
       labels.push(label);
       offset += labelLen;
-      const valueLen = buf[offset++];
+      const valueLen = buf[offset++]!;
       offset += valueLen;
     }
     const sorted = [...labels].sort();
@@ -186,13 +186,17 @@ describe("encodeFragment / decodeFragment", () => {
         await exportKey(writer.readKey!),
       ),
     ).toBe(true);
-    expect(arraysEqual(decoded.ipnsKeyBytes!, writer.ipnsKeyBytes!)).toBe(true);
+    expect(
+      arraysEqual(
+        decoded.ipnsKeyBytes!, writer.ipnsKeyBytes!,
+      ),
+    ).toBe(true);
     expect(decoded.rotationKey).toBeUndefined();
     expect(decoded.awarenessRoomPassword).toBe(writer.awarenessRoomPassword);
     expect(
       arraysEqual(
-        decoded.channelKeys!["content"],
-        writer.channelKeys!["content"],
+        decoded.channelKeys!["content"]!,
+        writer.channelKeys!["content"]!,
       ),
     ).toBe(true);
   });
@@ -225,7 +229,7 @@ describe("inferCapability", () => {
       readKey: full.readKey,
       awarenessRoomPassword: full.awarenessRoomPassword,
       channelKeys: {
-        comments: full.channelKeys!["comments"],
+        comments: full.channelKeys!["comments"]!,
       },
     };
     const cap = inferCapability(partial, ["content", "comments"]);

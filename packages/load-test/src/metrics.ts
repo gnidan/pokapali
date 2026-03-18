@@ -142,7 +142,7 @@ export function createMetrics(outputPath?: string): MetricsCollector {
           Math.floor(sorted.length * pct),
           sorted.length - 1,
         );
-        return sorted[idx];
+        return sorted[idx]!;
       };
 
       const MS_PER_DAY = 86_400_000;

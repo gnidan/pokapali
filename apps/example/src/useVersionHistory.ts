@@ -206,12 +206,12 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
   const deltas = useMemo(() => {
     const result = new Map<number, number>();
     for (let i = 0; i < versions.length; i++) {
-      const text = versionTexts.get(versions[i].seq);
+      const text = versionTexts.get(versions[i]!.seq);
       if (text === undefined) continue;
       const next = versions[i + 1];
       if (!next) {
         // First version — all content is "added"
-        result.set(versions[i].seq, text.length);
+        result.set(versions[i]!.seq, text.length);
         continue;
       }
       const prevText = versionTexts.get(next.seq);
@@ -228,7 +228,7 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
           deleted += seg.length;
         }
       }
-      result.set(versions[i].seq, inserted - deleted);
+      result.set(versions[i]!.seq, inserted - deleted);
     }
     return result;
   }, [versions, versionTexts]);

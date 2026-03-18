@@ -154,7 +154,7 @@ describe("rotateDoc", () => {
     await rotateDoc(baseContext(), createFn, noopPopulateMeta);
 
     const params = (createFn as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as DocParams;
+      .calls[0]![0] as DocParams;
     expect(params.ipnsName).toBe("new-ipns-name");
     expect(params.appId).toBe("test-app");
     expect(params.channels).toEqual(["content"]);
@@ -202,13 +202,13 @@ describe("rotateDoc", () => {
 
     const calls = (narrowCapability as ReturnType<typeof vi.fn>).mock.calls;
     // Write URL grant includes canPushSnapshots
-    expect(calls[0][1]).toEqual(
+    expect(calls[0]![1]).toEqual(
       expect.objectContaining({
         canPushSnapshots: true,
       }),
     );
     // Read URL grant has no push
-    expect(calls[1][1]).toEqual(
+    expect(calls[1]![1]).toEqual(
       expect.objectContaining({
         channels: [],
       }),
@@ -223,7 +223,7 @@ describe("rotateDoc", () => {
     await rotateDoc(ctx, createFn, noopPopulateMeta);
 
     const params = (createFn as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as DocParams;
+      .calls[0]![0] as DocParams;
     expect(params.channels).toEqual(["content", "meta"]);
   });
 
@@ -235,7 +235,7 @@ describe("rotateDoc", () => {
     await rotateDoc(ctx, createFn, noopPopulateMeta);
 
     const params = (createFn as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as DocParams;
+      .calls[0]![0] as DocParams;
     expect(params.signalingUrls).toEqual([
       "wss://a.example.com",
       "wss://b.example.com",

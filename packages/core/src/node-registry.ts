@@ -132,8 +132,8 @@ function rolesEqual(a: string[], b: string[]): boolean {
 function neighborsEqual(a: Neighbor[], b: Neighbor[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].peerId !== b[i].peerId) return false;
-    if (a[i].role !== b[i].role) return false;
+    if (a[i]!.peerId !== b[i]!.peerId) return false;
+    if (a[i]!.role !== b[i]!.role) return false;
   }
   return true;
 }

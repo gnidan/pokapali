@@ -47,32 +47,32 @@ function parseArgs(argv: string[]): Config {
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--writers" && argv[i + 1]) {
-      config.writers = parseInt(argv[++i], 10);
+      config.writers = parseInt(argv[++i]!, 10);
     } else if (arg === "--readers" && argv[i + 1]) {
-      config.readers = parseInt(argv[++i], 10);
+      config.readers = parseInt(argv[++i]!, 10);
     } else if (arg === "--churn-interval" && argv[i + 1]) {
-      config.churnIntervalMs = parseInt(argv[++i], 10);
+      config.churnIntervalMs = parseInt(argv[++i]!, 10);
     } else if (arg === "--churn-size" && argv[i + 1]) {
-      config.churnSize = parseInt(argv[++i], 10);
+      config.churnSize = parseInt(argv[++i]!, 10);
     } else if (arg === "--stabilize" && argv[i + 1]) {
-      config.stabilizeMs = parseInt(argv[++i], 10);
+      config.stabilizeMs = parseInt(argv[++i]!, 10);
     } else if (arg === "--interval" && argv[i + 1]) {
-      config.editIntervalMs = parseInt(argv[++i], 10);
+      config.editIntervalMs = parseInt(argv[++i]!, 10);
     } else if (arg === "--edit-size" && argv[i + 1]) {
-      config.editSizeBytes = parseInt(argv[++i], 10);
+      config.editSizeBytes = parseInt(argv[++i]!, 10);
     } else if (arg === "--duration" && argv[i + 1]) {
-      config.durationS = parseInt(argv[++i], 10);
+      config.durationS = parseInt(argv[++i]!, 10);
     } else if (arg === "--bootstrap" && argv[i + 1]) {
-      config.bootstrap.push(argv[++i]);
+      config.bootstrap.push(argv[++i]!);
     } else if (arg === "--http-url" && argv[i + 1]) {
-      config.httpUrls.push(argv[++i]);
+      config.httpUrls.push(argv[++i]!);
     } else if (arg === "--output" && argv[i + 1]) {
-      config.output = argv[++i];
+      config.output = argv[++i]!;
     } else if (arg === "--app-id" && argv[i + 1]) {
-      config.appId = argv[++i];
+      config.appId = argv[++i]!;
     } else if (arg === "--log-level" && argv[i + 1]) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setLogLevel(argv[++i] as any);
+      setLogLevel(argv[++i]! as any);
     } else {
       console.error(`unknown arg: ${arg}`);
       process.exit(1);

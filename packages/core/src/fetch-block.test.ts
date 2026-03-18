@@ -118,7 +118,7 @@ describe("fetchBlock", () => {
 
       expect(result).toEqual(data);
       expect(mockFetch).toHaveBeenCalledOnce();
-      expect(mockFetch.mock.calls[0][0]).toBe(
+      expect(mockFetch.mock.calls[0]![0]).toBe(
         `https://relay.example.com/block/${cid.toString()}`,
       );
 

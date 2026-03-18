@@ -95,7 +95,7 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   const line = pts.join(" ");
   const fill =
     line + ` ${SPARK_W - SPARK_PAD},${SPARK_H}` + ` ${SPARK_PAD},${SPARK_H}`;
-  const last = pts[pts.length - 1].split(",");
+  const last = pts[pts.length - 1]!.split(",");
 
   return (
     <svg
@@ -112,7 +112,7 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
-      <circle cx={last[0]} cy={last[1]} r="2.5" fill={color} />
+      <circle cx={last[0]!} cy={last[1]!} r="2.5" fill={color} />
     </svg>
   );
 }
@@ -132,7 +132,7 @@ function MultiSparkline({ series }: { series: Series[] }) {
         {active.map((s) => {
           const pts = normalizePoints(s.data, SPARK_W, SPARK_H, SPARK_PAD);
           const line = pts.join(" ");
-          const last = pts[pts.length - 1].split(",");
+          const last = pts[pts.length - 1]!.split(",");
           return (
             <g key={s.label}>
               <polyline
@@ -143,7 +143,7 @@ function MultiSparkline({ series }: { series: Series[] }) {
                 strokeLinejoin="round"
                 strokeOpacity="0.8"
               />
-              <circle cx={last[0]} cy={last[1]} r="2.5" fill={s.color} />
+              <circle cx={last[0]!} cy={last[1]!} r="2.5" fill={s.color} />
             </g>
           );
         })}

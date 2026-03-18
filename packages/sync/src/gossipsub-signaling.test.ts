@@ -178,11 +178,13 @@ describe("GossipSubSignaling", () => {
       });
 
       expect(pubsub._published).toHaveLength(1);
-      const pub = pubsub._published[0];
+      const pub = pubsub._published[0]!;
       // All publishes go to the shared topic
       expect(pub.topic).toBe("/pokapali/signaling");
       // Room name is in the payload
-      const decoded = JSON.parse(new TextDecoder().decode(pub.data));
+      const decoded = JSON.parse(
+        new TextDecoder().decode(pub.data),
+      );
       expect(decoded).toEqual({
         type: "publish",
         topic: "room1",

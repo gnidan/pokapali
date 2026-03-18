@@ -95,10 +95,10 @@ export function deriveHttpUrlFromCert(
   const ipMatch = multiaddrs
     .filter((a) => !a.includes("/p2p-circuit/"))
     .map((a) => a.match(/^\/ip4\/((?:\d+\.){3}\d+)\//))
-    .find((m) => m && !m[1].startsWith("127."));
+    .find((m) => m && !m[1]!.startsWith("127."));
   if (!ipMatch) return undefined;
 
-  const ip = ipMatch[1];
+  const ip = ipMatch[1]!;
   const dashed = ip.replace(/\./g, "-");
   return `https://${dashed}.${domain}:${httpsPort}`;
 }
@@ -144,7 +144,7 @@ export async function openBlockstore(storagePath: string): Promise<{
       for await (const chunk of rawBlockstore.get(key)) {
         chunks.push(chunk);
       }
-      if (chunks.length === 1) return chunks[0];
+      if (chunks.length === 1) return chunks[0]!;
       const total = chunks.reduce((s, c) => s + c.length, 0);
       const merged = new Uint8Array(total);
       let offset = 0;

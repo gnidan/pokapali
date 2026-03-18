@@ -241,7 +241,7 @@ describe("interpreter pipeline integration", () => {
     await done;
 
     expect(effects.emitAck).toHaveBeenCalled();
-    const call = (effects.emitAck as ReturnType<typeof vi.fn>).mock.calls[0];
+    const call = (effects.emitAck as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(call[0]).toBe(cid);
     // ackedBy should be a Set containing "pinner-1"
     expect(call[1]).toBeInstanceOf(Set);

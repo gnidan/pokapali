@@ -59,11 +59,11 @@ describe("HistoryTracker", () => {
 
     const removed = tracker.prune(now);
     expect(removed).toHaveLength(1);
-    expect(removed[0].toString()).toBe(old.toString());
+    expect(removed[0]!.toString()).toBe(old.toString());
 
     const entry = tracker.getEntry("name1");
     expect(entry!.snapshots).toHaveLength(1);
-    expect(entry!.snapshots[0].cid).toBe(recent.toString());
+    expect(entry!.snapshots[0]!.cid).toBe(recent.toString());
   });
 
   it("always keeps the tip even if old", async () => {
@@ -213,7 +213,7 @@ describe("thinSnapshots", () => {
     const removed = tracker.thinSnapshots("doc1", defaultConfig, now);
 
     expect(removed).toHaveLength(1);
-    expect(removed[0].toString()).toBe(ancient.toString());
+    expect(removed[0]!.toString()).toBe(ancient.toString());
     const remainingCids = tracker.getHistory("doc1").map((s) => s.cid);
     expect(remainingCids).not.toContain(ancient.toString());
   });
@@ -322,7 +322,7 @@ describe("thinSnapshots", () => {
     // a and b are in same hour bucket, 3 days old,
     // in hourly tier (2-5d). Keep latest (b), remove a
     expect(removed).toHaveLength(1);
-    expect(removed[0].toString()).toBe(a.toString());
+    expect(removed[0]!.toString()).toBe(a.toString());
   });
 
   it("spans all tiers in a single call", async () => {

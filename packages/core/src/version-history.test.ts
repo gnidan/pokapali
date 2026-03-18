@@ -163,7 +163,7 @@ describe("partial history / gap handling (Item 5)", () => {
     const docs = await lc.loadVersion(result.cid, readKey);
     expect(docs).toHaveProperty("content");
     expect(docs.content).toBeDefined();
-    expect(docs.content.getText("content").toString()).toBe("hello");
+    expect(docs.content!.getText("content").toString()).toBe("hello");
   });
 
   it("push builds a chain of versions", async () => {
@@ -185,9 +185,9 @@ describe("partial history / gap handling (Item 5)", () => {
     }
 
     // Verify chain linkage via prev pointers
-    expect(results[0].prev).toBeNull();
+    expect(results[0]!.prev).toBeNull();
     for (let i = 1; i < results.length; i++) {
-      expect(results[i].prev!.toString()).toBe(results[i - 1].cid.toString());
+      expect(results[i]!.prev!.toString()).toBe(results[i - 1]!.cid.toString());
     }
   });
 

@@ -345,7 +345,7 @@ function startLoop(
     const pm = posMapRef.current;
     let alive = 0;
     for (let i = pool.particles.length - 1; i >= 0; i--) {
-      const p = pool.particles[i];
+      const p = pool.particles[i]!;
       if (t < p.born) {
         alive++;
         continue;
@@ -1092,7 +1092,7 @@ export function TopologyMap({
         g,
         [
           {
-            srcId: infra[idx],
+            srcId: infra[idx]!,
             tgtId: "_self",
             color: C.relay,
           },
@@ -1114,7 +1114,7 @@ export function TopologyMap({
         g,
         [
           {
-            srcId: infra[idx],
+            srcId: infra[idx]!,
             tgtId: "_self",
             color: C.edge,
           },

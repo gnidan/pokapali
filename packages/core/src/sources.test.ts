@@ -210,12 +210,12 @@ describe("scan", () => {
     const facts = asyncFrom(["a", "b", "c"]);
     const results = await collect(scan(facts, (s, f) => s + f, ""));
 
-    expect(results[0].prev).toBe("");
-    expect(results[0].next).toBe("a");
-    expect(results[1].prev).toBe("a");
-    expect(results[1].next).toBe("ab");
-    expect(results[2].prev).toBe("ab");
-    expect(results[2].next).toBe("abc");
+    expect(results[0]!.prev).toBe("");
+    expect(results[0]!.next).toBe("a");
+    expect(results[1]!.prev).toBe("a");
+    expect(results[1]!.next).toBe("ab");
+    expect(results[2]!.prev).toBe("ab");
+    expect(results[2]!.next).toBe("abc");
   });
 
   it("yields nothing for empty input", async () => {
@@ -253,7 +253,7 @@ describe("scan", () => {
       ),
     );
 
-    expect(results[2].next).toEqual({
+    expect(results[2]!.next).toEqual({
       count: 3,
       sum: 60,
     });
@@ -285,9 +285,9 @@ describe("reannounceFacts", () => {
     }
 
     expect(ticks).toHaveLength(2);
-    expect(ticks[0].type).toBe("reannounce-tick");
-    expect(ticks[1].type).toBe("reannounce-tick");
-    expect(ticks[1].ts).toBeGreaterThanOrEqual(ticks[0].ts);
+    expect(ticks[0]!.type).toBe("reannounce-tick");
+    expect(ticks[1]!.type).toBe("reannounce-tick");
+    expect(ticks[1]!.ts).toBeGreaterThanOrEqual(ticks[0]!.ts);
   });
 
   it("terminates when signal aborts", async () => {
@@ -322,7 +322,7 @@ describe("ipnsFacts", () => {
     const result = await collect(ipnsFacts(poll, 5, ac.signal));
 
     expect(result.length).toBeGreaterThanOrEqual(1);
-    expect(result[0].type).toBe("cid-discovered");
+    expect(result[0]!.type).toBe("cid-discovered");
     expect((result[0] as any).source).toBe("ipns");
     expect((result[0] as any).cid).toBe(fakeCid);
   });
@@ -339,7 +339,7 @@ describe("ipnsFacts", () => {
     const result = await collect(ipnsFacts(poll, 5, ac.signal));
 
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe("cid-discovered");
+    expect(result[0]!.type).toBe("cid-discovered");
   });
 });
 

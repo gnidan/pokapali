@@ -147,21 +147,21 @@ function parseArgs(argv: string[]): ParsedArgs {
       printHelp();
       process.exit(0);
     } else if (arg === "--port" && argv[i + 1]) {
-      port = parseInt(argv[++i], 10);
+      port = parseInt(argv[++i]!, 10);
       if (Number.isNaN(port)) {
         log.error(`invalid --port value: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--https-port" && argv[i + 1]) {
-      httpsPort = parseInt(argv[++i], 10);
+      httpsPort = parseInt(argv[++i]!, 10);
       if (Number.isNaN(httpsPort)) {
         log.error(`invalid --https-port value: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--cors-origin" && argv[i + 1]) {
-      corsOrigin = argv[++i];
+      corsOrigin = argv[++i]!;
     } else if (arg === "--rate-limit-rpm" && argv[i + 1]) {
-      rateLimitRpm = parseInt(argv[++i], 10);
+      rateLimitRpm = parseInt(argv[++i]!, 10);
       if (Number.isNaN(rateLimitRpm)) {
         log.error(`invalid --rate-limit-rpm: "${argv[i]}"`);
         process.exit(1);
@@ -169,17 +169,21 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg === "--trust-proxy") {
       trustProxy = true;
     } else if (arg === "--storage-path" && argv[i + 1]) {
-      storagePath = argv[++i];
+      storagePath = argv[++i]!;
     } else if (arg === "--relay") {
       relay = true;
     } else if (arg === "--pin" && argv[i + 1]) {
-      pinApps = argv[++i].split(",").map((s) => s.trim());
+      pinApps = argv[++i]!.split(",").map(
+        (s) => s.trim(),
+      );
     } else if (arg === "--announce" && argv[i + 1]) {
-      announceAddrs = argv[++i].split(",").map((s) => s.trim());
+      announceAddrs = argv[++i]!.split(",").map(
+        (s) => s.trim(),
+      );
     } else if (arg === "--delegated-routing" && argv[i + 1]) {
-      delegatedRoutingUrl = argv[++i];
+      delegatedRoutingUrl = argv[++i]!;
     } else if (arg === "--log-level" && argv[i + 1]) {
-      const val = argv[++i];
+      const val = argv[++i]!;
       if (!VALID_LOG_LEVELS.includes(val as LogLevel)) {
         log.error(
           `invalid --log-level "${val}".` +
@@ -189,49 +193,49 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       logLevel = val as LogLevel;
     } else if (arg === "--retention-full" && argv[i + 1]) {
-      retentionFullMs = parseInt(argv[++i], 10);
+      retentionFullMs = parseInt(argv[++i]!, 10);
       if (Number.isNaN(retentionFullMs)) {
         log.error(`invalid --retention-full: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--retention-hourly" && argv[i + 1]) {
-      retentionHourlyMs = parseInt(argv[++i], 10);
+      retentionHourlyMs = parseInt(argv[++i]!, 10);
       if (Number.isNaN(retentionHourlyMs)) {
         log.error(`invalid --retention-hourly: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--retention-daily" && argv[i + 1]) {
-      retentionDailyMs = parseInt(argv[++i], 10);
+      retentionDailyMs = parseInt(argv[++i]!, 10);
       if (Number.isNaN(retentionDailyMs)) {
         log.error(`invalid --retention-daily: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--ipns-rate-limit" && argv[i + 1]) {
-      ipnsRateLimit = parseInt(argv[++i], 10);
+      ipnsRateLimit = parseInt(argv[++i]!, 10);
       if (Number.isNaN(ipnsRateLimit) || ipnsRateLimit < 1) {
         log.error(`invalid --ipns-rate-limit: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--max-new-names-per-hour" && argv[i + 1]) {
-      maxNewNamesPerHour = parseInt(argv[++i], 10);
+      maxNewNamesPerHour = parseInt(argv[++i]!, 10);
       if (Number.isNaN(maxNewNamesPerHour) || maxNewNamesPerHour < 0) {
         log.error(`invalid --max-new-names-per-hour:` + ` "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--stale-resolve-days" && argv[i + 1]) {
-      staleResolveDays = parseInt(argv[++i], 10);
+      staleResolveDays = parseInt(argv[++i]!, 10);
       if (Number.isNaN(staleResolveDays) || staleResolveDays < 0) {
         log.error(`invalid --stale-resolve-days:` + ` "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--tcp-port" && argv[i + 1]) {
-      tcpPort = parseInt(argv[++i], 10);
+      tcpPort = parseInt(argv[++i]!, 10);
       if (Number.isNaN(tcpPort)) {
         log.error(`invalid --tcp-port value: "${argv[i]}"`);
         process.exit(1);
       }
     } else if (arg === "--ws-port" && argv[i + 1]) {
-      wsPort = parseInt(argv[++i], 10);
+      wsPort = parseInt(argv[++i]!, 10);
       if (Number.isNaN(wsPort)) {
         log.error(`invalid --ws-port value: "${argv[i]}"`);
         process.exit(1);

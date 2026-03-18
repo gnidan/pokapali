@@ -84,20 +84,20 @@ describe("extractWssAddrs", () => {
     const addrs = ["/ip4/1.2.3.4/tcp/4001/ws", "/ip4/1.2.3.4/tcp/443/tls/ws"];
     const result = extractWssAddrs(PID, addrs, true);
     expect(result).toHaveLength(1);
-    expect(result[0].toString()).toContain("/tls/");
+    expect(result[0]!.toString()).toContain("/tls/");
   });
 
   it("appends /p2p/ suffix if missing", () => {
     const addrs = ["/ip4/1.2.3.4/tcp/4001/ws"];
     const result = extractWssAddrs(PID, addrs, false);
-    expect(result[0].toString()).toContain(`/p2p/${PID}`);
+    expect(result[0]!.toString()).toContain(`/p2p/${PID}`);
   });
 
   it("preserves existing /p2p/ suffix", () => {
     const addr = "/ip4/1.2.3.4/tcp/4001/ws/p2p/" + PID;
     const result = extractWssAddrs(PID, [addr], false);
     // Should not double the /p2p/ suffix
-    const str = result[0].toString();
+    const str = result[0]!.toString();
     const count = (str.match(/\/p2p\//g) || []).length;
     expect(count).toBe(1);
   });
@@ -407,7 +407,7 @@ describe("startRoomDiscovery", () => {
           // Relay stays tracked — never untracked
           expect(rd.relayPeerIds.has(RELAY_PID)).toBe(true);
 
-          await vi.advanceTimersByTimeAsync(expectedDelays[i] + 1);
+          await vi.advanceTimersByTimeAsync(expectedDelays[i]! + 1);
           expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
 
           // Let failed dial settle
