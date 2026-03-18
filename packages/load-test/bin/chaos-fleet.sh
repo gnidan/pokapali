@@ -6,7 +6,7 @@ set -euo pipefail
 # Usage:
 #   chaos-fleet.sh start <count> [--base-port N]
 #     [--base-tcp-port N] [--pin-count N]
-#     [--app-id ID]
+#     [--app-id ID] [--pinner-flags "extra flags"]
 #   chaos-fleet.sh stop
 #   chaos-fleet.sh health
 #   chaos-fleet.sh pids
@@ -26,6 +26,7 @@ BASE_PORT=3000
 BASE_TCP_PORT=4001
 PIN_COUNT=2
 APP_ID="pokapali-chaos-test"
+PINNER_FLAGS=""
 ACTION=""
 COUNT=0
 
@@ -52,6 +53,7 @@ parse_args() {
       --base-tcp-port) BASE_TCP_PORT="$2"; shift 2 ;;
       --pin-count) PIN_COUNT="$2"; shift 2 ;;
       --app-id) APP_ID="$2"; shift 2 ;;
+      --pinner-flags) PINNER_FLAGS="$2"; shift 2 ;;
       *) echo "Unknown: $1"; exit 1 ;;
     esac
   done
@@ -86,6 +88,9 @@ start_fleet() {
     flags+=" --ws-port $ws_port"
     if [ "$i" -lt "$PIN_COUNT" ]; then
       flags+=" --pin $APP_ID"
+      if [ -n "$PINNER_FLAGS" ]; then
+        flags+=" $PINNER_FLAGS"
+      fi
     fi
 
     # shellcheck disable=SC2086
