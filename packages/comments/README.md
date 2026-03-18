@@ -13,16 +13,24 @@ any Yjs setup.
 
 ```typescript
 import { comments } from "@pokapali/comments";
-import { createFeed } from "@pokapali/comments";
+import type { Feed } from "@pokapali/comments";
 import * as Y from "yjs";
 
 const commentsDoc = new Y.Doc();
 const contentDoc = new Y.Doc();
 contentDoc.getText("default").insert(0, "Hello world");
 
+// In a real app, pass doc.clientIdMapping from
+// @pokapali/core. For standalone usage, provide a
+// Feed-compatible object:
+const emptyMapping: Feed<Map<number, unknown>> = {
+  getSnapshot: () => new Map(),
+  subscribe: () => () => {},
+};
+
 const c = comments<{ status: "open" | "resolved" }>(commentsDoc, contentDoc, {
   author: "alice-pubkey",
-  clientIdMapping: createFeed(new Map()),
+  clientIdMapping: emptyMapping,
 });
 
 // Add a comment anchored to "Hello".
