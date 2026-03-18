@@ -44,6 +44,7 @@ const app = pokapali({
 | `rtc`            | `object`   | No       | —               | WebRTC peer connection options passed to `simple-peer` (e.g. custom ICE servers).                                                                                                                  |
 | `signalingUrls`  | `string[]` | No       | `[]`            | Additional WebSocket signaling server URLs. Empty by default — signaling uses GossipSub via libp2p, not WebSocket servers.                                                                         |
 | `bootstrapPeers` | `string[]` | No       | libp2p defaults | Override libp2p bootstrap peer multiaddrs. Rarely needed — the defaults connect to the public libp2p network.                                                                                      |
+| `persistence`    | `boolean`  | No       | `true`          | Enable IndexedDB persistence for Yjs state and IPFS blocks. Set to `false` to disable (e.g. for testing without cache).                                                                            |
 
 ### 2. Create or open a document
 
@@ -391,18 +392,19 @@ function SaveIndicator({ doc }) {
 
 Available Feeds:
 
-| Feed                       | Type                                            | Changes when                              |
-| -------------------------- | ----------------------------------------------- | ----------------------------------------- |
-| `doc.status`               | `Feed<DocStatus>`                               | Connectivity changes                      |
-| `doc.saveState`            | `Feed<SaveState>`                               | Publish starts/completes, content dirtied |
-| `doc.tip`                  | `Feed<VersionInfo \| null>`                     | New snapshot applied                      |
-| `doc.loading`              | `Feed<LoadingState>`                            | IPNS resolving, block fetching            |
-| `doc.backedUp`             | `Feed<boolean>`                                 | Pinner ack received or tip changes        |
-| `doc.versions`             | `Feed<VersionHistory>`                          | Chain walk progress, new snapshots        |
-| `doc.snapshotEvents`       | `Feed<SnapshotEvent \| null>`                   | Every local publish or remote snapshot    |
-| `doc.gossipActivity`       | `Feed<GossipActivity>`                          | GossipSub message received                |
-| `doc.clientIdMapping`      | `Feed<ReadonlyMap<number, ClientIdentityInfo>>` | Peer registers identity in \_meta         |
-| `doc.lastPersistenceError` | `Feed<string \| null>`                          | IDB write fails or recovers               |
+| Feed                       | Type                                            | Changes when                                |
+| -------------------------- | ----------------------------------------------- | ------------------------------------------- |
+| `doc.status`               | `Feed<DocStatus>`                               | Connectivity changes                        |
+| `doc.saveState`            | `Feed<SaveState>`                               | Publish starts/completes, content dirtied   |
+| `doc.tip`                  | `Feed<VersionInfo \| null>`                     | New snapshot applied                        |
+| `doc.loading`              | `Feed<LoadingState>`                            | IPNS resolving, block fetching              |
+| `doc.backedUp`             | `Feed<boolean>`                                 | Pinner ack received or tip changes          |
+| `doc.versions`             | `Feed<VersionHistory>`                          | Chain walk progress, new snapshots          |
+| `doc.snapshotEvents`       | `Feed<SnapshotEvent \| null>`                   | Every local publish or remote snapshot      |
+| `doc.gossipActivity`       | `Feed<GossipActivity>`                          | GossipSub message received                  |
+| `doc.clientIdMapping`      | `Feed<ReadonlyMap<number, ClientIdentityInfo>>` | Peer registers identity in \_meta           |
+| `doc.lastPersistenceError` | `Feed<string \| null>`                          | IDB write fails or recovers                 |
+| `doc.lastValidationError`  | `Feed<{cid: string, message: string} \| null>`  | Remote snapshot fails structural validation |
 
 Each Feed has an equality gate that prevents spurious
 notifications — high-frequency events like GossipSub
