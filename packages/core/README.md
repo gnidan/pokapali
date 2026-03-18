@@ -188,5 +188,5 @@ unless you are building server infrastructure.
 
 - [Getting Started](../../docs/getting-started.md)
 - [Full API Guide](../../docs/guide.md)
-- [Architecture](../../docs/internals/architecture.md)
+- [Architecture](../../docs/internals/)
 - [Examples](../../docs/examples/getting-started/)
