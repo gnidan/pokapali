@@ -349,70 +349,6 @@ body {
   width: 120px;
 }
 
-/* Status indicator */
-
-.status-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.status-indicator.degraded {
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
-  border-radius: 6px;
-  padding: 2px 10px;
-}
-
-.status-indicator.degraded.offline {
-  background: #fef2f2;
-  border-color: #ef4444;
-}
-
-.status-text {
-  font-size: 0.8rem;
-  color: #666;
-}
-
-.status-indicator.degraded .status-text {
-  color: #92400e;
-  font-weight: 500;
-}
-
-.status-indicator.degraded.offline .status-text {
-  color: #991b1b;
-}
-
-.status-warning {
-  font-size: 0.7rem;
-  color: #92400e;
-}
-
-.status-indicator.degraded.offline .status-warning {
-  color: #991b1b;
-}
-
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.status-dot.synced {
-  background: #22c55e;
-}
-.status-dot.connecting {
-  background: #eab308;
-}
-.status-dot.receiving {
-  background: #06b6d4;
-}
-.status-dot.offline {
-  background: #ef4444;
-}
-
 /* Editor */
 
 .editor-container {
@@ -1855,11 +1791,11 @@ body {
 
   /* Hide degraded-state warning text on mobile —
      the colored dot + label is enough */
-  .status-warning {
+  .pkp-status-indicator__warning {
     display: none;
   }
 
-  .status-indicator.degraded {
+  .pkp-status-indicator--degraded {
     padding: 2px 6px;
   }
 
