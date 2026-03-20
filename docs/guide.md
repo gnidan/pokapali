@@ -660,7 +660,7 @@ const topo = doc.topologyGraph();
 //   label, connected, roles, clientId?,
 //   ackedCurrentCid?, browserCount?
 
-// topo.edges: TopologyGraphEdge[]
+// topo.edges: TopologyEdge[]
 //   source, target, connected
 ```
 

@@ -428,9 +428,9 @@ export type {
 } from "./doc-diagnostics.js";
 
 export type {
-  TopologyEdge,
+  CapabilityEdge,
   TopologyNode,
-  TopologyGraphEdge,
+  TopologyEdge,
   TopologyGraph,
 } from "./topology-graph.js";
 

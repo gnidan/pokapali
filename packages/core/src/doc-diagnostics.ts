@@ -2,7 +2,7 @@ import type { Awareness } from "y-protocols/awareness";
 import type { PeerId, PubSub } from "@libp2p/interface";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import type { LoadingState } from "./facts.js";
-import type { TopologyEdge } from "./topology-graph.js";
+import type { CapabilityEdge } from "./topology-graph.js";
 import { awarenessField } from "./awareness-state.js";
 import { getHelia, isHeliaLive } from "./helia.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -63,7 +63,7 @@ export interface Diagnostics {
   retainUntil: number | null;
   /** Topology edges derived from node-reported
    *  neighbors. Each edge is [sourceId, targetId]. */
-  topology: TopologyEdge[];
+  topology: CapabilityEdge[];
 }
 
 export interface DiagnosticsContext {
@@ -194,7 +194,7 @@ export function buildDiagnostics(ctx: DiagnosticsContext): Diagnostics {
   }
 
   // Build topology edges from node neighbors
-  const topology: TopologyEdge[] = [];
+  const topology: CapabilityEdge[] = [];
   for (const node of nodeList) {
     for (const nb of node.neighbors) {
       topology.push({
