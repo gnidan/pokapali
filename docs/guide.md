@@ -1073,23 +1073,39 @@ operations.
 - **Capability URLs are secrets** — treat them like
   passwords. The hash fragment is never sent to
   servers, but anyone with the full URL has access.
-- **Pokapali nodes** (relays and pinners) are optional.
-  Peers connect directly via WebRTC. Relays improve
-  discovery and provide GossipSub signaling for peers
-  behind NAT. Pinners persist snapshots so documents
-  load even when the author is offline.
-- **Running your own pinner** — pinners subscribe to
-  GossipSub topics scoped by `appId`. Pass your app's
-  ID to the `--pin` flag:
+- **Infrastructure model:**
+  - **Relays are shared** — all apps discover peers
+    through the same relay network. Peers connect
+    directly via WebRTC; relays improve discovery and
+    provide GossipSub signaling for peers behind NAT.
+  - **Pinners are per-app** — a pinner only stores
+    snapshots for the `appId`s it's configured to
+    serve. The existing pokapali pinners serve the
+    example app. **If you're building a new app, you
+    need to run your own pinner** — otherwise your
+    data won't persist when all browsers close.
+  - **Anyone can run a pinner.** That's the community
+    model: app developers run the initial pinners for
+    their app. Users who care about persistence can
+    run additional pinners. A pinner can serve
+    multiple apps.
+  - **Zero-knowledge** — pinners store encrypted
+    blocks they cannot read. Running a pinner does
+    not grant access to document content.
+- **Running a pinner** — pinners subscribe to
+  GossipSub topics scoped by `appId`. Pass your
+  app's ID to the `--pin` flag:
   ```sh
   npx @pokapali/node --relay --pin "my-app"
   ```
-  Multiple apps: `--pin "app1,app2"`. The pinner only
-  stores snapshots for the listed app IDs. Your app's
-  `appId` must match exactly.
-- **Monitor node health** with
+  Multiple apps: `--pin "app1,app2"`. The pinner
+  only stores snapshots for the listed app IDs.
+  Your app's `appId` must match exactly.
+- **Monitor pinner health** with
   `doc.diagnostics().nodes` to warn users when no
-  pinners are connected.
+  pinners are connected. Use `doc.backedUp` to
+  show whether at least one pinner has acknowledged
+  the current snapshot.
 - **Large documents** (over 1 MB serialized) require at
   least one pinner with HTTP block upload support. The
   library handles this automatically — blocks that

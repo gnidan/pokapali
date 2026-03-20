@@ -97,6 +97,15 @@ This creates an encrypted, content-addressed snapshot
 that pinners replicate. Documents load even when the
 original author is offline.
 
+> **Infrastructure note:** Relays are shared — all
+> apps can discover peers through them. Pinners are
+> per-app — they only store snapshots for app IDs
+> they're configured to serve. If you're building a
+> new app, you'll need to run your own pinner (or
+> your data won't persist when all browsers close).
+> See the [guide](guide.md#tips-and-best-practices)
+> for how to run a pinner.
+
 For automatic publishing, use `createAutoSaver`:
 
 ```ts
