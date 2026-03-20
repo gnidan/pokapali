@@ -42,7 +42,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@pokapali/log": "0.1.1"
+    "@pokapali/log": "^0.1.1"
   },
   "peerDependencies": {
     "yjs": "^13.6.0"

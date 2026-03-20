@@ -26,6 +26,7 @@
     "*.{json,md,yml,yaml,css}": "prettier --write"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.30.0",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
