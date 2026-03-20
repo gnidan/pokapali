@@ -75,22 +75,34 @@ export async function loadIdentity(appId: string): Promise<Ed25519KeyPair> {
 }
 
 /**
- * Sign a participant awareness payload: covers
- * (pubkey, docId) to prevent cross-doc replay.
- * Returns hex-encoded signature.
+ * Sign a participant awareness payload. When
+ * clientId is provided, produces a v2 signature
+ * binding the identity to a specific clientID
+ * (prevents replay under a different clientID).
+ *
+ * v1 payload: `pubkeyHex:docId`
+ * v2 payload: `pubkeyHex:clientId:docId`
  */
 export async function signParticipant(
   keypair: Ed25519KeyPair,
   docId: string,
-): Promise<string> {
+  clientId?: number,
+): Promise<{ sig: string; v?: 2 }> {
   const pubkeyHex = bytesToHex(keypair.publicKey);
-  const payload = new TextEncoder().encode(pubkeyHex + ":" + docId);
-  const sig = await signBytes(keypair, payload);
-  return bytesToHex(sig);
+  const payload =
+    clientId !== undefined
+      ? pubkeyHex + ":" + clientId + ":" + docId
+      : pubkeyHex + ":" + docId;
+  const sig = await signBytes(keypair, new TextEncoder().encode(payload));
+  return clientId !== undefined
+    ? { sig: bytesToHex(sig), v: 2 }
+    : { sig: bytesToHex(sig) };
 }
 
 export interface ParticipantAwareness {
   pubkey: string;
   displayName?: string;
   sig: string;
+  /** Signature format version. Absent = v1. */
+  v?: 2;
 }

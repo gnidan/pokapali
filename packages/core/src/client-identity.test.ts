@@ -130,21 +130,56 @@ describe("clientIdentities Y.Map", () => {
 // ── Signature verification tests ────────────────
 
 describe("clientIdentity signature verification", () => {
-  it("valid signature verifies", async () => {
-    // Use real crypto to produce a valid sig
+  it("v1 signature verifies (no clientId)", async () => {
     const { ed25519KeyPairFromSeed } = await import("@pokapali/crypto");
     const seed = new Uint8Array(32);
     seed[0] = 1;
     const kp = await ed25519KeyPairFromSeed(seed);
     const docId = "test-doc-123";
 
-    const sigHex = await signParticipant(kp, docId);
+    const { sig } = await signParticipant(kp, docId);
     const pubkeyHex = bytesToHex(kp.publicKey);
 
-    // Verify using the same format the Feed uses
     const payload = new TextEncoder().encode(pubkeyHex + ":" + docId);
-    const ok = await verifyBytes(kp.publicKey, hexToBytes(sigHex), payload);
+    const ok = await verifyBytes(kp.publicKey, hexToBytes(sig), payload);
     expect(ok).toBe(true);
+  });
+
+  it("v2 signature verifies with clientId", async () => {
+    const { ed25519KeyPairFromSeed } = await import("@pokapali/crypto");
+    const seed = new Uint8Array(32);
+    seed[0] = 5;
+    const kp = await ed25519KeyPairFromSeed(seed);
+    const docId = "test-doc-v2";
+    const clientId = 42;
+
+    const { sig, v } = await signParticipant(kp, docId, clientId);
+    expect(v).toBe(2);
+    const pubkeyHex = bytesToHex(kp.publicKey);
+
+    // v2 payload: pubkey:clientId:docId
+    const payload = new TextEncoder().encode(
+      pubkeyHex + ":" + clientId + ":" + docId,
+    );
+    const ok = await verifyBytes(kp.publicKey, hexToBytes(sig), payload);
+    expect(ok).toBe(true);
+  });
+
+  it("v2 sig under wrong clientId fails " + "(replay prevention)", async () => {
+    const { ed25519KeyPairFromSeed } = await import("@pokapali/crypto");
+    const seed = new Uint8Array(32);
+    seed[0] = 6;
+    const kp = await ed25519KeyPairFromSeed(seed);
+    const docId = "replay-doc";
+
+    // Sign for clientId 100
+    const { sig } = await signParticipant(kp, docId, 100);
+    const pubkeyHex = bytesToHex(kp.publicKey);
+
+    // Verify under clientId 200 — must fail
+    const payload = new TextEncoder().encode(pubkeyHex + ":200:" + docId);
+    const ok = await verifyBytes(kp.publicKey, hexToBytes(sig), payload);
+    expect(ok).toBe(false);
   });
 
   it("wrong docId fails verification", async () => {
@@ -153,12 +188,11 @@ describe("clientIdentity signature verification", () => {
     seed[0] = 2;
     const kp = await ed25519KeyPairFromSeed(seed);
 
-    const sigHex = await signParticipant(kp, "doc-a");
+    const { sig } = await signParticipant(kp, "doc-a");
     const pubkeyHex = bytesToHex(kp.publicKey);
 
-    // Verify against wrong docId
     const payload = new TextEncoder().encode(pubkeyHex + ":" + "doc-b");
-    const ok = await verifyBytes(kp.publicKey, hexToBytes(sigHex), payload);
+    const ok = await verifyBytes(kp.publicKey, hexToBytes(sig), payload);
     expect(ok).toBe(false);
   });
 
@@ -173,12 +207,11 @@ describe("clientIdentity signature verification", () => {
     const kp2 = await ed25519KeyPairFromSeed(seed2);
 
     const docId = "doc-x";
-    const sigHex = await signParticipant(kp1, docId);
+    const { sig } = await signParticipant(kp1, docId);
 
-    // Verify with kp2's pubkey — should fail
     const pubkey2Hex = bytesToHex(kp2.publicKey);
     const payload = new TextEncoder().encode(pubkey2Hex + ":" + docId);
-    const ok = await verifyBytes(kp2.publicKey, hexToBytes(sigHex), payload);
+    const ok = await verifyBytes(kp2.publicKey, hexToBytes(sig), payload);
     expect(ok).toBe(false);
   });
 });
@@ -211,6 +244,7 @@ describe("clientIdMapping Feed projection", () => {
         const entry = value as {
           pubkey?: string;
           sig?: string;
+          v?: number;
         };
         if (!entry?.pubkey || !entry?.sig) continue;
 
@@ -227,9 +261,11 @@ describe("clientIdMapping Feed projection", () => {
           });
           if (cached === undefined) {
             verifiedCache.set(key, null);
-            const payload = new TextEncoder().encode(
-              entry.pubkey + ":" + ipnsName,
-            );
+            const raw =
+              entry.v === 2
+                ? entry.pubkey + ":" + key + ":" + ipnsName
+                : entry.pubkey + ":" + ipnsName;
+            const payload = new TextEncoder().encode(raw);
             verifyBytes(
               hexToBytes(entry.pubkey),
               hexToBytes(entry.sig),
@@ -280,13 +316,13 @@ describe("clientIdMapping Feed projection", () => {
     expect(snap.get(42)?.verified).toBe(false);
   });
 
-  it("verifies valid sig asynchronously", async () => {
+  it("verifies valid v1 sig asynchronously", async () => {
     const { ed25519KeyPairFromSeed } = await import("@pokapali/crypto");
     const seed = new Uint8Array(32);
     seed[0] = 10;
     const kp = await ed25519KeyPairFromSeed(seed);
     const docId = "verify-doc";
-    const sigHex = await signParticipant(kp, docId);
+    const { sig } = await signParticipant(kp, docId);
     const pubkeyHex = bytesToHex(kp.publicKey);
 
     const doc = new Y.Doc();
@@ -294,15 +330,72 @@ describe("clientIdMapping Feed projection", () => {
 
     doc.getMap("clientIdentities").set("99", {
       pubkey: pubkeyHex,
-      sig: sigHex,
+      sig,
     });
 
-    // Wait for async verification
     await vi.waitFor(() => {
       const snap = feed.getSnapshot();
       expect(snap.get(99)?.verified).toBe(true);
     });
   });
+
+  it("verifies valid v2 sig asynchronously", async () => {
+    const { ed25519KeyPairFromSeed } = await import("@pokapali/crypto");
+    const seed = new Uint8Array(32);
+    seed[0] = 11;
+    const kp = await ed25519KeyPairFromSeed(seed);
+    const docId = "verify-v2";
+    const clientId = 77;
+    const { sig } = await signParticipant(kp, docId, clientId);
+    const pubkeyHex = bytesToHex(kp.publicKey);
+
+    const doc = new Y.Doc();
+    const { feed } = createProjection(doc, docId);
+
+    doc.getMap("clientIdentities").set(String(clientId), {
+      pubkey: pubkeyHex,
+      sig,
+      v: 2,
+    });
+
+    await vi.waitFor(() => {
+      const snap = feed.getSnapshot();
+      expect(snap.get(clientId)?.verified).toBe(true);
+    });
+  });
+
+  it(
+    "v2 sig under wrong clientId fails " + "verification in projection",
+    async () => {
+      const { ed25519KeyPairFromSeed } = await import("@pokapali/crypto");
+      const seed = new Uint8Array(32);
+      seed[0] = 12;
+      const kp = await ed25519KeyPairFromSeed(seed);
+      const docId = "replay-proj";
+      // Sign for clientId 100
+      const { sig } = await signParticipant(kp, docId, 100);
+      const pubkeyHex = bytesToHex(kp.publicKey);
+
+      const doc = new Y.Doc();
+      const { feed } = createProjection(doc, docId);
+
+      // Store under clientId 200 (replay attempt)
+      doc.getMap("clientIdentities").set("200", {
+        pubkey: pubkeyHex,
+        sig,
+        v: 2,
+      });
+
+      await vi.waitFor(() => {
+        const snap = feed.getSnapshot();
+        // Should exist but fail verification
+        expect(snap.get(200)?.verified).toBe(false);
+        // Cache should be populated (not still
+        // in-flight)
+        expect(snap.get(200)?.pubkey).toBe(pubkeyHex);
+      });
+    },
+  );
 
   it("notifies subscribers on change", () => {
     const doc = new Y.Doc();

@@ -59,6 +59,7 @@ export function createClientIdMapping(
       const entry = value as {
         pubkey?: string;
         sig?: string;
+        v?: number;
       };
       if (!entry?.pubkey || !entry?.sig) continue;
 
@@ -78,9 +79,13 @@ export function createClientIdMapping(
         if (cached === undefined) {
           // null = in-flight
           verifiedCache.set(key, null);
-          const payload = new TextEncoder().encode(
-            entry.pubkey + ":" + ipnsName,
-          );
+          // v2 payload includes clientID binding;
+          // v1 (no version field) uses legacy format.
+          const raw =
+            entry.v === 2
+              ? entry.pubkey + ":" + key + ":" + ipnsName
+              : entry.pubkey + ":" + ipnsName;
+          const payload = new TextEncoder().encode(raw);
           verifyBytes(hexToBytes(entry.pubkey), hexToBytes(entry.sig), payload)
             .then((ok) => {
               verifiedCache.set(key, ok);
@@ -129,8 +134,9 @@ export function setupParticipantAwareness(
 ): () => void {
   if (identity) {
     const kp = identity;
-    signParticipant(kp, ipnsName)
-      .then((sig) => {
+    const clientId = awareness.clientID;
+    signParticipant(kp, ipnsName, clientId)
+      .then(({ sig, v }) => {
         const userState = awareness.getLocalState() as Record<
           string,
           unknown
@@ -141,17 +147,18 @@ export function setupParticipantAwareness(
         const participant: ParticipantAwareness = {
           pubkey: bytesToHex(kp.publicKey),
           sig,
+          ...(v ? { v } : {}),
           ...(userName ? { displayName: userName } : {}),
         };
         awareness.setLocalStateField("participant", participant);
 
         // Persist clientID→pubkey in _meta so the
         // mapping survives across snapshots.
-        const clientId = awareness.clientID;
         const identities = metaDoc.getMap("clientIdentities");
         identities.set(String(clientId), {
           pubkey: bytesToHex(kp.publicKey),
           sig,
+          v: 2,
         });
       })
       .catch((err) => {

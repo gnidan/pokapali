@@ -107,7 +107,7 @@ vi.mock("./identity.js", () => ({
     publicKey: new Uint8Array(32),
     privateKey: new Uint8Array(32),
   })),
-  signParticipant: vi.fn(async () => "aa".repeat(32)),
+  signParticipant: vi.fn(async () => ({ sig: "aa".repeat(32), v: 2 })),
 }));
 
 vi.mock("@pokapali/snapshot", async () => {

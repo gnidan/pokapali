@@ -84,7 +84,7 @@ vi.mock("./persistence.js", () => ({
 }));
 
 vi.mock("./identity.js", () => ({
-  signParticipant: vi.fn(async () => "mocksig"),
+  signParticipant: vi.fn(async () => ({ sig: "mocksig", v: 2 })),
 }));
 
 vi.mock("./fetch-tip.js", () => ({
