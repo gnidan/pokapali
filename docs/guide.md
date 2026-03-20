@@ -121,7 +121,14 @@ levels:
 doc.urls.admin; // full control (null if not admin)
 doc.urls.write; // edit + publish (null if read-only)
 doc.urls.read; // view only (always available)
+doc.urls.best; // highest-privilege URL available
 ```
+
+`doc.urls.best` returns the highest-privilege URL the
+current capability allows: admin if available,
+otherwise write, otherwise read. Use it for shareable
+links or URL bar updates where you want to preserve
+the user's full access level.
 
 URLs are self-contained capability tokens — the hash
 fragment encodes encrypted keys. Anyone with the URL can
@@ -315,7 +322,17 @@ the background. Local content from IndexedDB is
 available right away — the editor can mount and accept
 input before any network connection is established.
 Use `doc.ready()` to wait for the first remote state
-if you need it.
+if you need it. Pass `{ timeoutMs }` to reject with a
+`TimeoutError` if initial sync takes too long:
+
+```ts
+await doc.ready({ timeoutMs: 60_000 });
+```
+
+Without a timeout, `ready()` waits indefinitely — if
+no pinner or peers are reachable, it never resolves.
+See [integration-guide.md](integration-guide.md) for
+the full ready() pattern.
 
 **Connectivity** — `doc.status` tells you whether the
 document is connected to peers:
@@ -553,7 +570,10 @@ to you.
 
 The `createAutoSaver` utility handles snapshot publishing
 automatically on visibility change, beforeunload, and
-debounced `publish-needed` events:
+debounced `publish-needed` events. **Browser only** —
+it uses `window.addEventListener("beforeunload")` and
+`document.addEventListener("visibilitychange")`. For
+non-browser environments, call `doc.publish()` directly.
 
 ```ts
 import { createAutoSaver } from "@pokapali/core";

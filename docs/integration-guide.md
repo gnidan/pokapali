@@ -286,6 +286,12 @@ const cleanup = createAutoSaver(doc);
 - `visibilitychange` handler — fire-and-forget
   publish when tab is hidden
 
+**Browser only.** `createAutoSaver` relies on
+`window` and `document` APIs. In non-browser
+environments (Node.js, testing), call
+`doc.publish()` directly or implement your own
+save trigger.
+
 It's a no-op for read-only peers (checks
 `canPushSnapshots`).
 

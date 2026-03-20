@@ -78,6 +78,9 @@ console.log(ydoc.getText("body").toString());
 
 `ready()` resolves once content is available from
 IndexedDB cache, connected peers, or pinner HTTP.
+Pass `{ timeoutMs: 60_000 }` to reject with a
+`TimeoutError` instead of waiting indefinitely when
+no source is reachable.
 
 ## Persist to the network
 
