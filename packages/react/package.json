@@ -23,13 +23,15 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
-    }
+    },
+    "./comments.css": "./src/comments.css"
   },
   "files": [
     "dist/src/**/*.js",
     "dist/src/**/*.d.ts",
     "dist/src/**/*.js.map",
-    "!dist/src/**/*.test.*"
+    "!dist/src/**/*.test.*",
+    "src/comments.css"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -41,10 +43,22 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
+    "@pokapali/comments": "^0.1.1",
     "@pokapali/core": "^0.1.1",
-    "react": ">=18"
+    "@tiptap/pm": "^2.0.0",
+    "react": ">=18",
+    "yjs": "^13.6.0"
+  },
+  "peerDependenciesMeta": {
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "yjs": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@pokapali/comments": "^0.1.1",
     "@pokapali/core": "^0.1.1",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
