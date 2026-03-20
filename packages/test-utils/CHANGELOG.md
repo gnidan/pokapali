@@ -1,5 +1,14 @@
 # @pokapali/test-utils
 
+## 0.1.4
+
+### Patch Changes
+
+- [`0d0379c`](https://github.com/gnidan/pokapali/commit/0d0379c2d6098c7bbe49898e285e612dc90e0fd6)
+  Add optional `httpUrl` parameter to `createTestRelay()` that publishes
+  v2 node-caps via GossipSub, enabling E2E tests for pinner-provided
+  tier badges and expiry countdowns.
+
 ## 0.1.3
 
 ### Patch Changes

@@ -1,5 +1,45 @@
 # @pokapali/core
 
+## 0.1.4
+
+### Patch Changes
+
+- [#55](https://github.com/gnidan/pokapali/issues/55)
+  [`914d7e7`](https://github.com/gnidan/pokapali/commit/914d7e74c801467b6350dcc2e86d2f4a5ee27c5a)
+  Pause periodic timers when browser tab is hidden.
+
+  Adds `createThrottledInterval`, a visibility-aware
+  `setInterval` wrapper that pauses (or throttles) when
+  the tab is backgrounded and optionally fires
+  immediately on resume.
+
+  Integrated into topology-sharing, relay-sharing,
+  node-registry, peer-discovery, and gossipsub-signaling
+  to eliminate unnecessary background CPU, network, and
+  battery usage.
+
+- [#252](https://github.com/gnidan/pokapali/issues/252)
+  [`6bb6ae0`](https://github.com/gnidan/pokapali/commit/6bb6ae004b242383c738d7bcf8f92623ad0396bc)
+  Bind clientID into identity signature payload.
+
+  v2 signature format signs `pubkey:clientID:ipnsName`
+  instead of `pubkey:ipnsName`, preventing replay of a
+  valid identity entry under a different clientID.
+
+  Entries gain an optional `v: 2` field for dual
+  verification — old clients degrade gracefully
+  (show v2 entries as unverified).
+
+- [`88d49f1`](https://github.com/gnidan/pokapali/commit/88d49f1d8697bd8141b3c9127034d00dde6b468c)
+  Fix relay-sharing timer firing after test cleanup.
+  Add destroyed guard to publishRelays and
+  onAwarenessUpdate callbacks so they no-op after
+  destroy(). Fix incomplete peer-discovery mock in
+  index.test.ts to include relayEntries and
+  addExternalRelays.
+- Updated dependencies
+  - @pokapali/sync@0.1.2
+
 ## 0.1.3
 
 ### Patch Changes

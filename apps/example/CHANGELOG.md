@@ -1,5 +1,18 @@
 # @pokapali/example
 
+## 0.0.2
+
+### Patch Changes
+
+- [`aa2dc35`](https://github.com/gnidan/pokapali/commit/aa2dc3566cd06692d6d7a477d5a61e4bb14bf1a0)
+  Migrate example app to use CommentSidebar, CommentPopover, and
+  useComments from @pokapali/react instead of local copies
+  ([#328](https://github.com/gnidan/pokapali/issues/328))
+- Updated dependencies
+  - @pokapali/core@0.1.4
+  - @pokapali/comments-tiptap@0.1.2
+  - @pokapali/react@0.1.3
+
 ## 0.0.1
 
 ### Patch Changes

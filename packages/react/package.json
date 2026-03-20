@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/react",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "React hooks for pokapali documents",
   "keywords": [
     "pokapali",
@@ -44,7 +44,7 @@
   },
   "peerDependencies": {
     "@pokapali/comments": "^0.1.1",
-    "@pokapali/core": "^0.1.1",
+    "@pokapali/core": "^0.1.4",
     "@tiptap/pm": "^2.0.0",
     "react": ">=18",
     "yjs": "^13.6.0"
@@ -59,7 +59,7 @@
   },
   "devDependencies": {
     "@pokapali/comments": "^0.1.1",
-    "@pokapali/core": "^0.1.1",
+    "@pokapali/core": "^0.1.4",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.2.3",
