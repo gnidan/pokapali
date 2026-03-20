@@ -66,6 +66,15 @@ export function createAutoSaver(
   window.addEventListener("beforeunload", onBeforeUnload);
   document.addEventListener("visibilitychange", onVisibilityChange);
 
+  // If the doc is already dirty when the autosaver
+  // attaches (e.g. from populateMeta during create,
+  // or identity registration), start the debounce
+  // timer immediately so the first edit doesn't
+  // require a manual publish (#359).
+  if (doc.saveState.getSnapshot() === "dirty") {
+    onSnapshotRecommended();
+  }
+
   return () => {
     if (timer) {
       clearTimeout(timer);

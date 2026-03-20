@@ -219,6 +219,39 @@ describe("createAutoSaver", () => {
     cleanup();
   });
 
+  it(
+    "schedules save immediately when doc" +
+      " is already dirty on attach (#359)",
+    async () => {
+      const doc = mockDoc({ saveState: "dirty" });
+      const cleanup = createAutoSaver(doc as any, {
+        debounceMs: 500,
+      });
+
+      // No explicit publish-needed emitted — the
+      // autosaver should have started the timer
+      // from the initial dirty check.
+      expect(doc.publish).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(doc.publish).toHaveBeenCalledTimes(1);
+
+      cleanup();
+    },
+  );
+
+  it("does not schedule initial save when" + " doc is not dirty", async () => {
+    const doc = mockDoc({ saveState: "saved" });
+    const cleanup = createAutoSaver(doc as any, {
+      debounceMs: 500,
+    });
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(doc.publish).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
   it("visibilitychange clears pending debounce" + " timer", async () => {
     const doc = mockDoc({
       saveState: "dirty",
