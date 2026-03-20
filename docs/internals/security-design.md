@@ -30,23 +30,27 @@ unauthorized snapshot injection (readers without
 authorization checks accept any structurally valid
 snapshot).
 
-## Current Trust Model
+## Trust Model
+
+After Phase 1 (Tier 1), the trust model is:
 
 ```
 Announcement arrives via GossipSub
-  → Pinner trusts ipnsName claim (NO VERIFICATION)
+  → Pinner verifies announcement proof (Phase 1)
   → Pinner fetches CID
+  → verifyCid() checks block hash matches CID
   → validateSnapshot() checks:
     ✓ doc signing key signature
     ✓ publisher signature (if present)
+    ✓ announcer holds write capability (proof)
+    ✓ CID hash integrity (verifyCid)
     ✗ publisher authorization
-    ✗ announcer identity
-  → Pinner re-announces to network
+  → Pinner stores block, re-announces to network
 ```
 
-The only verification is structural: "this snapshot
-was signed by _some_ valid key." There is no check
-that the signer has authority over the document.
+Remaining gap: publisher authorization (Phase 2).
+The pinner cannot yet verify whether the publisher
+is in the document's authorization list.
 
 ## Proposed Fix
 
@@ -191,30 +195,25 @@ signed announcements.
 
 ## Implementation Plan
 
-### Phase 1 (this sprint): Design + Tier 1
+### Phase 1: Tier 1 — Signed Announcements (COMPLETE)
 
-1. Add `proof` field to `Announcement` interface
-   (`announce.ts`)
-2. Sign announcements in `announceSnapshot()`
-   (`announce.ts`) — requires passing doc signing key
-3. Verify proof in pinner's GossipSub handler
-   (`node.ts`) and `onAnnouncement()` (`pinner.ts`)
-4. Accept unproven announcements with warning log
+Implemented in Sprint 9 (#75, #76) with browser-side
+signing wired up in #253.
+
+1. `proof` field added to `Announcement` interface
+2. Announcements signed with doc signing key
+3. Pinner verifies proof in GossipSub handler
+4. Unproven announcements accepted with warning
    (migration period)
-5. Tests: forged announcement rejected, valid
-   announcement accepted, unproven announcement
-   accepted with deprecation warning
 
-**Files changed:**
+**Additional CID verification** (Sprint 15-16):
 
-- `packages/core/src/announce.ts` — format + signing
-- `packages/node/src/pinner.ts` — verification
-- `packages/node/bin/node.ts` — pass proof to handler
+- #286: fetchTip CID hash verification
+- #288: pinner validates blocks before storing
+- #289: gossip bridge CID hash verification
+- Shared `verifyCid()` utility extracted
 
-**Estimated scope:** ~50 lines changed, 3 files, 5-8
-new tests.
-
-### Phase 2 (future sprint): Tier 2a
+### Phase 2: Tier 2a — Publisher Authorization (TODO)
 
 1. Add `authHash` to snapshot format
    (`snapshot/src/index.ts`)
@@ -224,7 +223,7 @@ new tests.
 4. Browser includes authHash when publishing with
    authorization enabled
 
-### Phase 3 (future sprint): Tier 2b + Tier 3
+### Phase 3: Tier 2b + Tier 3 (TODO)
 
 1. Cleartext authorization list in snapshot header
 2. Per-peer rate limiting in pinner
