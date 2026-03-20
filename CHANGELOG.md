@@ -7,6 +7,32 @@ The format is based on
 
 ## [Unreleased]
 
+## 2026-03-19
+
+### Internal
+
+- Add changeset enforcement to PR CI checks on both
+  Gitea and GitHub. PRs that change packages without a
+  changeset file will now fail CI.
+- Fix shell parsing error in release.sh caused by
+  unquoted apostrophe in Co-authored-by trailer inside
+  a heredoc command substitution.
+- Switch to per-package git tags created by
+  `changeset publish` in GHA. Remove monorepo
+  `v<version>` tag from release.sh. Fix changelog
+  diff to show new (untracked) CHANGELOG files.
+  Guard against duplicate internal CHANGELOG entries.
+  Add tag push step to publish.yml.
+- Rewrite release.sh to wrap @changesets/cli.
+  Replaces manual version-bump.mjs and per-package
+  tag logic with `changeset version` + single
+  `v<version>` tag. Adds changelog diff review
+  pause, interactive push confirmation, and
+  internal changeset extraction (non-package
+  changes injected into root CHANGELOG.md under
+  an "Internal" heading). Preserves old script
+  as release-legacy.sh for rollback.
+
 ## [0.1.1] — 2026-03-18
 
 ### Fixed

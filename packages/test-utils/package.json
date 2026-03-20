@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/test-utils",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Networking and peer-simulation utilities for testing pokapali applications",
   "keywords": [
     "pokapali",
