@@ -227,7 +227,7 @@ const ackCount = useFeed(doc.backedUp) ? 1 : 0;
 | Prop        | Type                           | Description                                                                        |
 | ----------- | ------------------------------ | ---------------------------------------------------------------------------------- |
 | `saveState` | `SaveState`                    | Current save state from `doc.saveState` Feed.                                      |
-| `ackCount`  | `number`                       | Number of pinners that acknowledged the snapshot. Shows "Saved to N servers".      |
+| `ackCount`  | `number`                       | Number of servers that acknowledged the snapshot. Shows "Saved to N servers".      |
 | `onPublish` | `() => void`                   | Called when the user clicks the button (visible in `dirty` / `unpublished` state). |
 | `labels`    | `Partial<SaveIndicatorLabels>` | Override default English strings.                                                  |
 
