@@ -1,8 +1,15 @@
 import * as Y from "yjs";
 
+/**
+ * Origin marker for snapshot-applied updates.
+ * Update handlers use this to distinguish remote
+ * snapshot data from local edits when computing
+ * the dirty flag.
+ */
 export const SNAPSHOT_ORIGIN: unique symbol = Symbol("snapshot-apply");
 
 export interface SubdocManagerOptions {
+  /** Reserved for future use. */
   primaryNamespace?: string;
   /**
    * Additional origins to suppress when computing
@@ -12,18 +19,73 @@ export interface SubdocManagerOptions {
   skipOrigins?: Set<object>;
 }
 
+/**
+ * Manages a set of named Yjs subdocuments for a
+ * single pokapali document. Each channel maps to
+ * one Y.Doc, plus a `_meta` doc for internal state
+ * (e.g. client identity mappings).
+ */
 export interface SubdocManager {
+  /**
+   * Returns the Y.Doc for the given namespace.
+   * Throws if the namespace was not registered at
+   * creation time and has not been introduced via
+   * {@link applySnapshot}.
+   */
   subdoc(ns: string): Y.Doc;
+  /** The internal `_meta` subdocument. */
   readonly metaDoc: Y.Doc;
+  /**
+   * Encodes all subdocuments as Yjs state updates.
+   * Resets the dirty flag after encoding.
+   */
   encodeAll(): Record<string, Uint8Array>;
+  /**
+   * Applies a snapshot (namespace → Yjs update) to
+   * the managed subdocuments. Creates new Y.Docs
+   * on demand for namespaces not seen at creation.
+   * Uses {@link SNAPSHOT_ORIGIN} so the dirty flag
+   * is not set.
+   */
   applySnapshot(data: Record<string, Uint8Array>): void;
+  /**
+   * True when any subdocument has received a local
+   * update since the last {@link encodeAll} call.
+   */
   readonly isDirty: boolean;
+  /**
+   * Registers a listener for the "dirty" event,
+   * fired on the first local update after the dirty
+   * flag was cleared.
+   */
   on(event: "dirty", cb: () => void): void;
+  /** Removes a previously registered "dirty"
+   *  listener. */
   off(event: "dirty", cb: () => void): void;
+  /**
+   * Resolves when all managed subdocuments have
+   * finished loading.
+   */
   readonly whenLoaded: Promise<void>;
+  /**
+   * Tears down update handlers and destroys all
+   * managed Y.Docs. Idempotent.
+   */
   destroy(): void;
 }
 
+/**
+ * Creates a {@link SubdocManager} that owns one
+ * Y.Doc per namespace plus a `_meta` doc. Each
+ * doc's guid is `${ipnsName}:${namespace}`.
+ *
+ * @param ipnsName - The document's IPNS name,
+ *   used as a guid prefix for subdocuments.
+ * @param namespaces - Channel names to create
+ *   subdocuments for. A `_meta` doc is always
+ *   added automatically.
+ * @param _options - Optional configuration.
+ */
 export function createSubdocManager(
   ipnsName: string,
   namespaces: string[],
