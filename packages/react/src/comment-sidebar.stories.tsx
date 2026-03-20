@@ -88,10 +88,10 @@ const meta: Meta<typeof CommentSidebar> = {
         style={{
           position: "relative",
           width: 380,
-          height: 600,
+          height: 480,
           border: "1px solid #e2e8f0",
           borderRadius: 8,
-          overflow: "hidden",
+          overflow: "auto",
         }}
       >
         <Story />
@@ -161,28 +161,6 @@ export const ActiveConversation: Story = {
           status: "resolved",
           start: 150,
           end: 170,
-        },
-      }),
-      makeComment({
-        id: "active-4",
-        author: DAVE_KEY,
-        content: "Should we mention the deadline here?",
-        ts: AGO_5M,
-        anchor: {
-          status: "resolved",
-          start: 200,
-          end: 230,
-        },
-      }),
-      makeComment({
-        id: "active-5",
-        author: BOB_KEY,
-        content: "I updated the intro — let me know what " + "you think.",
-        ts: AGO_JUST_NOW,
-        anchor: {
-          status: "resolved",
-          start: 250,
-          end: 280,
         },
       }),
     ],
