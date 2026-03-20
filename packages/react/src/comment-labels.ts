@@ -94,11 +94,6 @@ function relativeAge(ts: number): string {
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
-function truncatePubkey(pubkey: string): string {
-  if (pubkey.length <= 12) return pubkey;
-  return pubkey.slice(0, 6) + "…" + pubkey.slice(-4);
-}
-
 // ── Defaults ─────────────────────────────────────
 
 export const defaultSidebarLabels: Required<CommentSidebarLabels> = {
@@ -121,7 +116,7 @@ export const defaultSidebarLabels: Required<CommentSidebarLabels> = {
   resolvedToggle: (count, shown) =>
     `${shown ? "Hide" : "Show"} ${count} resolved`,
   formatAge: relativeAge,
-  formatAuthor: (pubkey, displayName) => displayName ?? truncatePubkey(pubkey),
+  formatAuthor: (_pubkey, displayName) => displayName ?? "Anonymous",
 };
 
 export const defaultPopoverLabels: Required<CommentPopoverLabels> = {
