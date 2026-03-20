@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "npm run dev --workspace @pokapali/example",
     "postinstall": "patch-package",
-    "build": "tsc --build && npm run build -w apps/example",
+    "build": "tsc --build && npm run build -w apps/example && npm run build-storybook -w @pokapali/storybook",
     "test": "POKAPALI_LOG_LEVEL=silent vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -24,7 +24,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm run build-storybook -w apps/storybook
       - uses: actions/cache/save@v4
         with:
           path: |
