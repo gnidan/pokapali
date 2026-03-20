@@ -4,11 +4,16 @@
  * - Signature verification
  * - Y.Map merge semantics across peers
  * - Multiple sessions produce distinct entries
+ * - setupParticipantAwareness dirty-flag behavior
  */
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { bytesToHex, hexToBytes, verifyBytes } from "@pokapali/crypto";
+import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
+import { createSubdocManager } from "@pokapali/subdocs";
+import { Awareness } from "y-protocols/awareness";
 import { signParticipant } from "./identity.js";
+import { setupParticipantAwareness } from "./doc-identity.js";
 import { createFeed } from "./sources.js";
 import type { WritableFeed } from "./sources.js";
 
@@ -434,4 +439,34 @@ describe("clientIdMapping Feed projection", () => {
 
     expect(feed.getSnapshot().size).toBe(0);
   });
+});
+
+// ── setupParticipantAwareness dirty-flag test ────
+
+describe("setupParticipantAwareness", () => {
+  it(
+    "identity registration does not mark " + "subdoc dirty (#357)",
+    async () => {
+      const seed = new Uint8Array(32);
+      crypto.getRandomValues(seed);
+      const kp = await ed25519KeyPairFromSeed(seed);
+
+      const sdm = createSubdocManager("test-ipns", ["content"]);
+      const doc = new Y.Doc();
+      const awareness = new Awareness(doc);
+
+      setupParticipantAwareness(kp, awareness, sdm.metaDoc, "test-ipns");
+
+      // Wait for the async signParticipant to
+      // resolve and the _meta write to complete.
+      await vi.waitFor(() => {
+        const map = sdm.metaDoc.getMap("clientIdentities");
+        expect(map.size).toBeGreaterThan(0);
+      });
+
+      // The identity write should NOT have marked
+      // the subdoc manager dirty.
+      expect(sdm.isDirty).toBe(false);
+    },
+  );
 });
