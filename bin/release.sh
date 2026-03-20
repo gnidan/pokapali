@@ -1,316 +1,177 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Release automation: changelog + version bump + tag push.
-#
-# Orchestrates the full release chain mechanically,
-# preventing the class of errors seen in every prior
-# release (alpha.3: batch tag push, alpha.5: wrong
-# tag format).
+# Release automation wrapping @changesets/cli.
 #
 # Usage:
-#   bin/release.sh <version>
-#   bin/release.sh 0.1.0-alpha.6
+#   bin/release.sh
+#   bin/release.sh --branch release/0.1.x
 #
 # Steps:
-#   1. Verify on main with clean tree
-#   2. Check CHANGELOG.md has unreleased content
-#   3. Commit CHANGELOG.md (if modified)
-#   4. Run version-bump.mjs --all <version>
-#   5. Squash changelog + bump into one commit
-#   6. Validate tag format against publish.yml
-#   7. Push commit to origin (Gitea) and github
-#   8. Push tags to github (GHA limitation)
+#   1. Verify branch and clean tree
+#   2. npx changeset version
+#   3. Show CHANGELOG diff, pause for review
+#   4. npm install (sync lockfile)
+#   5. Read core's new version from package.json
+#   6. git add -A && git commit
+#   7. git tag v<version>
+#   8. Push commit + tag to Gitea and GitHub
 #
 # Sets POKAPALI_RELEASE=1 so the pre-commit hook
-# allows commits on main while still running
-# lint-staged formatting.
+# allows commits on main/release/* while still
+# running lint-staged formatting.
 
 export POKAPALI_RELEASE=1
 
-VERSION="${1:-}"
+# --- Parse flags ---
 
-if [ -z "$VERSION" ]; then
-  echo "Usage: bin/release.sh <version>"
-  echo "Example: bin/release.sh 0.1.0-alpha.6"
-  exit 1
-fi
-
-# Basic version format check
-if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-  echo "ERROR: '$VERSION' doesn't look like a version"
-  exit 1
-fi
-
-echo "=== Release $VERSION ==="
-echo ""
+ALLOWED_BRANCH="main"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch)
+      ALLOWED_BRANCH="$2"
+      shift 2
+      ;;
+    *)
+      echo "Usage: bin/release.sh [--branch <name>]"
+      exit 1
+      ;;
+  esac
+done
 
 # --- 1. Verify preconditions ---
 
 BRANCH=$(git branch --show-current)
-if [ "$BRANCH" != "main" ]; then
-  echo "ERROR: must be on main (currently: $BRANCH)"
+if [ "$BRANCH" != "$ALLOWED_BRANCH" ]; then
+  echo "ERROR: must be on $ALLOWED_BRANCH" \
+    "(currently: $BRANCH)"
   exit 1
 fi
 
-# Allow CHANGELOG.md to be modified, nothing else
-CHANGELOG_DIRTY=false
-if ! git diff --quiet -- CHANGELOG.md 2>/dev/null; then
-  CHANGELOG_DIRTY=true
-fi
-
-OTHER_DIRTY=$(git diff --name-only | grep -v '^CHANGELOG.md$' || true)
-STAGED=$(git diff --cached --name-only || true)
-
-if [ -n "$OTHER_DIRTY" ] || [ -n "$STAGED" ]; then
+if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERROR: working tree has uncommitted changes"
-  echo "(only CHANGELOG.md modifications are allowed)"
-  echo ""
   git status --short
   exit 1
 fi
 
-echo "  branch: main"
+echo "=== Release from $BRANCH ==="
 echo "  tree: clean"
 
-# --- 2. Check CHANGELOG.md has release content ---
-#
-# Accepts two workflows:
-#   a) Content under [Unreleased] — renames heading
-#      to [<version>] with date, adds fresh [Unreleased]
-#   b) Content already under [<version>] — uses as-is
-#
-# This accommodates PM committing changelog under the
-# version heading before release.sh runs (#236).
+# --- 2. Run changeset version ---
 
-CHANGELOG_MODE=""
+echo ""
+echo "=== Running changeset version ==="
+npx changeset version
 
-# Check [Unreleased] first
-if grep -q '## \[Unreleased\]' CHANGELOG.md; then
-  UNRELEASED_CONTENT=$(
-    sed -n '/^## \[Unreleased\]/,/^## \[/{/^## \[/d;p;}' \
-      CHANGELOG.md | grep -cE '^### ' || true
-  )
-  if [ "$UNRELEASED_CONTENT" -gt 0 ]; then
-    CHANGELOG_MODE="unreleased"
-  fi
-fi
-
-# Fall back to [<version>] heading
-if [ -z "$CHANGELOG_MODE" ]; then
-  VERSION_CONTENT=$(
-    awk -v ver="$VERSION" '
-      $0 == "## [" ver "]" || index($0, "## [" ver "] ") == 1 {
-        found = 1; next
-      }
-      found && /^## \[/ { exit }
-      found && /^### / { count++ }
-      END { print count+0 }
-    ' CHANGELOG.md
-  )
-  if [ "$VERSION_CONTENT" -gt 0 ]; then
-    CHANGELOG_MODE="versioned"
-  fi
-fi
-
-if [ -z "$CHANGELOG_MODE" ]; then
+# Check that core's version actually changed
+CORE_VERSION=$(node -p \
+  "require('./packages/core/package.json').version")
+if git diff --quiet -- packages/core/package.json; then
   echo ""
-  echo "ERROR: CHANGELOG.md has no content under"
-  echo "  [Unreleased] or [$VERSION]."
-  echo "Add release notes before running release.sh."
+  echo "ERROR: changeset version made no changes to"
+  echo "  packages/core/package.json."
+  echo "  Are there any changeset files to consume?"
+  echo ""
+  echo "Restoring working tree..."
+  git checkout -- .
   exit 1
 fi
 
-echo "  changelog: $CHANGELOG_MODE (has content)"
+echo "  core version: $CORE_VERSION"
 
-# If content is under [Unreleased], rename to [version]
-# and add a fresh empty [Unreleased] above it.
-if [ "$CHANGELOG_MODE" = "unreleased" ]; then
-  DATE=$(date +%Y-%m-%d)
-  awk -v ver="$VERSION" -v date="$DATE" '
-    /^## \[Unreleased\]/ {
-      print "## [Unreleased]"
-      print ""
-      print "## [" ver "] — " date
-      next
-    }
-    { print }
-  ' CHANGELOG.md > CHANGELOG.md.tmp \
-    && mv CHANGELOG.md.tmp CHANGELOG.md
-  CHANGELOG_DIRTY=true
-  echo "  renamed [Unreleased] → [$VERSION] — $DATE"
-fi
-
-# --- 3. Commit CHANGELOG.md if modified ---
-
-COMMITS_TO_SQUASH=0
-
-if [ "$CHANGELOG_DIRTY" = true ]; then
-  echo ""
-  echo "=== Committing CHANGELOG.md ==="
-  git add CHANGELOG.md
-  COMMIT_MSG="docs: update changelog for $VERSION"
-  COMMIT_MSG="$COMMIT_MSG
-
-Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>"
-  git commit -m "$COMMIT_MSG"
-  COMMITS_TO_SQUASH=1
-  echo "  committed changelog"
-fi
-
-# --- 4. Run version-bump.mjs ---
+# --- 3. Show CHANGELOG diff for review ---
 
 echo ""
-echo "=== Running version-bump.mjs --all $VERSION ==="
-
-# version-bump.mjs checks main + clean tree internally,
-# creates commit + tags
-node bin/version-bump.mjs --all "$VERSION"
-
-COMMITS_TO_SQUASH=$((COMMITS_TO_SQUASH + 1))
-
-# --- 5. Squash into single release commit ---
-
-if [ "$COMMITS_TO_SQUASH" -eq 2 ]; then
-  echo ""
-  echo "=== Squashing changelog + bump commits ==="
-
-  # Collect tags before squash (they point at old HEAD)
-  TAGS=()
-  while IFS= read -r tag; do
-    TAGS+=("$tag")
-  done < <(git tag --points-at HEAD)
-
-  # Delete tags (they point at the pre-squash commit)
-  for tag in "${TAGS[@]}"; do
-    git tag -d "$tag" >/dev/null
-  done
-
-  # Squash: soft reset 2 commits, recommit
-  git reset --soft HEAD~2
-  SQUASH_MSG="chore: release $VERSION
-
-Updates CHANGELOG.md and bumps all packages to $VERSION.
-
-Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>"
-  git commit -m "$SQUASH_MSG"
-
-  # Recreate tags on squashed commit
-  for tag in "${TAGS[@]}"; do
-    git tag "$tag"
-  done
-
-  echo "  squashed into single commit: $(git rev-parse --short HEAD)"
-fi
-
-# --- 6. Validate tag format ---
-
+echo "=== Changelog review ==="
 echo ""
-echo "=== Validating tags ==="
-
-TAGS=()
-while IFS= read -r tag; do
-  TAGS+=("$tag")
-done < <(git tag --points-at HEAD)
-
-if [ "${#TAGS[@]}" -eq 0 ]; then
-  echo "ERROR: no tags on HEAD — version-bump.mjs"
-  echo "may have failed silently"
-  exit 1
-fi
-
-TAG_ERRORS=0
-for tag in "${TAGS[@]}"; do
-  # Must match publish/<dir>/<version>
-  # Must NOT be publish/packages/<dir>/... (alpha.5 bug)
-  if ! echo "$tag" | grep -qE '^publish/[a-z-]+/[0-9]'; then
-    echo "  INVALID: $tag"
-    echo "    Expected: publish/<dir>/<version>"
-    TAG_ERRORS=$((TAG_ERRORS + 1))
-  elif echo "$tag" | grep -q '^publish/packages/'; then
-    echo "  INVALID: $tag (contains packages/ prefix)"
-    echo "    Should be: ${tag/packages\//}"
-    TAG_ERRORS=$((TAG_ERRORS + 1))
-  else
-    echo "  OK: $tag"
-  fi
-done
-
-if [ "$TAG_ERRORS" -gt 0 ]; then
-  echo ""
-  echo "ERROR: $TAG_ERRORS invalid tag(s). Aborting push."
-  echo "Fix tags manually, then re-run or push by hand."
-  exit 1
-fi
-
+echo "The following CHANGELOG entries were generated."
+echo "Review for technical accuracy and completeness."
 echo ""
-echo "  ${#TAGS[@]} tags validated"
-
-# --- 7. Summary and confirmation ---
-
+git diff -- '**/CHANGELOG.md'
 echo ""
 echo "==============================="
-echo "Release $VERSION ready to push."
+echo "Sign-offs needed:"
+echo "  - architect (technical accuracy)"
+echo "  - PM (completeness/clarity)"
 echo ""
-echo "  commit: $(git rev-parse --short HEAD)"
-echo "  tags:   ${#TAGS[@]}"
-echo ""
-echo "This will:"
-echo "  1. Push commit to origin (Gitea) and github"
-echo "  2. Push ${#TAGS[@]} tags to github"
-echo "     (each triggers a publish workflow)"
-echo ""
-read -r -p "Proceed? [y/N] " CONFIRM
+read -r -p "Approve and continue? [y/N] " CONFIRM
 
 if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
   echo ""
-  echo "Aborted. Commit and tags are local only."
-  echo "To undo: git reset --hard HEAD~1"
-  echo "         git tag -d publish/..."
+  echo "Aborted. Restoring working tree..."
+  git checkout -- .
+  git clean -fd .changeset/ 2>/dev/null || true
   exit 0
 fi
 
-# --- 8. Push commit ---
-# Push to origin (Gitea, via push whitelist) and
-# github (GitHub, for GHA workflows).
+# --- 4. Sync lockfile ---
 
 echo ""
-echo "=== Pushing commit to origin (Gitea) ==="
-git push origin main
+echo "=== Syncing lockfile ==="
+npm install --ignore-scripts
+echo "  lockfile updated"
+
+# --- 5. Commit ---
 
 echo ""
-echo "=== Pushing commit to github ==="
-git push github main
+echo "=== Committing release ==="
+git add -A
+git commit -m "$(cat <<EOF
+chore: release $CORE_VERSION
 
-# --- 9. Push tags individually ---
-# GHA limitation: multiple tags in one push only
-# triggers one workflow run. Tags go to github
-# (where publish.yml runs).
+Computed by changeset version. Bumps changed packages,
+updates CHANGELOG.md entries, and syncs lockfile.
+
+Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>
+EOF
+)"
+
+echo "  committed: $(git rev-parse --short HEAD)"
+
+# --- 6. Tag ---
+
+TAG="v$CORE_VERSION"
+git tag "$TAG"
+echo "  tagged: $TAG"
+
+# --- 7. Push ---
 
 echo ""
-echo "=== Pushing tags to github (one at a time) ==="
-
-PUSH_ERRORS=0
-for tag in "${TAGS[@]}"; do
-  echo -n "  $tag ... "
-  if git push github "$tag" 2>/dev/null; then
-    echo "done"
-  else
-    echo "FAILED"
-    PUSH_ERRORS=$((PUSH_ERRORS + 1))
-  fi
-done
-
+echo "==============================="
+echo "Release $CORE_VERSION ready to push."
 echo ""
-if [ "$PUSH_ERRORS" -gt 0 ]; then
-  echo "WARNING: $PUSH_ERRORS tag(s) failed to push."
-  echo "Push remaining manually or use workflow_dispatch."
-else
-  echo "All ${#TAGS[@]} tags pushed successfully."
+echo "  commit: $(git rev-parse --short HEAD)"
+echo "  tag:    $TAG"
+echo ""
+echo "This will push to both origin (Gitea)"
+echo "and github (GitHub). The push to main on"
+echo "GitHub triggers publish.yml."
+echo ""
+read -r -p "Push? [y/N] " CONFIRM
+
+if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+  echo ""
+  echo "Aborted. Commit and tag are local only."
+  echo "To push later:"
+  echo "  git push origin $ALLOWED_BRANCH"
+  echo "  git push github $ALLOWED_BRANCH"
+  echo "  git push github $TAG"
+  exit 0
 fi
 
 echo ""
-echo "=== Release $VERSION complete ==="
+echo "=== Pushing to origin (Gitea) ==="
+git push origin "$ALLOWED_BRANCH"
+
 echo ""
-echo "Monitor publish workflows:"
-echo "  gh run list --workflow=publish.yml --limit=${#TAGS[@]}"
+echo "=== Pushing to github ==="
+git push github "$ALLOWED_BRANCH"
+git push github "$TAG"
+
+echo ""
+echo "=== Release $CORE_VERSION complete ==="
+echo ""
+echo "Next steps:"
+echo "  1. Wait for publish.yml to go green"
+echo "  2. Verify packages on npm"
+echo "  3. Create GitHub release (manual)"
