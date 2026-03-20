@@ -125,15 +125,42 @@ describe("identity persistence", () => {
 });
 
 describe("signParticipant", () => {
-  it("produces a hex signature", async () => {
+  it("produces a hex signature (v1)", async () => {
     const kp = await loadIdentity("sign-test");
-    const sig = await signParticipant(kp, "doc-123");
-    expect(typeof sig).toBe("string");
-    expect(sig.length).toBeGreaterThan(0);
-    // Should be hex (even-length, hex chars)
-    expect(sig.length % 2).toBe(0);
-    expect(/^[0-9a-f]+$/.test(sig)).toBe(true);
+    const result = await signParticipant(kp, "doc-123");
+    expect(typeof result.sig).toBe("string");
+    expect(result.sig.length).toBeGreaterThan(0);
+    expect(result.sig.length % 2).toBe(0);
+    expect(/^[0-9a-f]+$/.test(result.sig)).toBe(true);
+    // No clientId → no version marker
+    expect(result.v).toBeUndefined();
   });
+
+  it("returns v:2 when clientId is provided", async () => {
+    const kp = await loadIdentity("v2-test");
+    const result = await signParticipant(kp, "doc-123", 42);
+    expect(result.v).toBe(2);
+    expect(result.sig.length).toBeGreaterThan(0);
+  });
+
+  it(
+    "v2 payload includes clientId " + "(cross-clientID replay prevention)",
+    async () => {
+      const { signBytes } = await import("@pokapali/crypto");
+      const kp = await loadIdentity("replay-v2");
+
+      await signParticipant(kp, "doc-a", 100);
+      const call1Data = vi.mocked(signBytes).mock.calls.at(-1)![1];
+
+      await signParticipant(kp, "doc-a", 200);
+      const call2Data = vi.mocked(signBytes).mock.calls.at(-1)![1];
+
+      const dec = new TextDecoder();
+      expect(dec.decode(call1Data)).toContain(":100:");
+      expect(dec.decode(call2Data)).toContain(":200:");
+      expect(dec.decode(call1Data)).not.toBe(dec.decode(call2Data));
+    },
+  );
 
   it(
     "different docIds sign different " +
@@ -156,10 +183,13 @@ describe("signParticipant", () => {
     },
   );
 
-  it("same keypair + same docId produces " + "same signature", async () => {
-    const kp = await loadIdentity("stable-test");
-    const sig1 = await signParticipant(kp, "doc-x");
-    const sig2 = await signParticipant(kp, "doc-x");
-    expect(sig1).toBe(sig2);
-  });
+  it(
+    "same keypair + same docId + same clientId " + "produces same signature",
+    async () => {
+      const kp = await loadIdentity("stable-test");
+      const r1 = await signParticipant(kp, "doc-x", 99);
+      const r2 = await signParticipant(kp, "doc-x", 99);
+      expect(r1.sig).toBe(r2.sig);
+    },
+  );
 });
