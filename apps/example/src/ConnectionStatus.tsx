@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type {
   Doc,
   Diagnostics,
@@ -235,7 +235,7 @@ function entryStatusLabel(
   return "Queued";
 }
 
-function BlockRequestsDropdown({
+function BlockRequestsDrawer({
   versions,
   loading,
 }: {
@@ -247,7 +247,12 @@ function BlockRequestsDropdown({
   }
 
   return (
-    <div className="cs-block-dropdown">
+    <div
+      className="cs-block-drawer"
+      data-testid="cs-block-drawer"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="cs-block-drawer-header">Block requests</div>
       {versions.walking && (
         <div className="cs-block-row cs-block-walking">
           Walking version chain…
@@ -281,6 +286,8 @@ function BlockRequestsDropdown({
 function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
   const versions = useFeed(doc.versions);
   const loading = useFeed(doc.loading);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
 
   const behind =
     Math.max(info.maxPeerClockSum, info.latestAnnouncedSeq) - info.clockSum;
@@ -291,7 +298,22 @@ function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
 
   const hasPending = versions.entries.some((e) => e.status !== "available");
   const hasEntries = versions.entries.length > 0;
-  const showDropdown = hasEntries || hasPending || versions.walking;
+  const hasDrawer = hasEntries || hasPending || versions.walking;
+
+  // Click-away handler
+  const handleClickOutside = useCallback((e: MouseEvent) => {
+    if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+      setOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [open, handleClickOutside]);
 
   if (behind <= 0 && !isFailed && !isLoading && !hasEntries) {
     return null;
@@ -315,20 +337,23 @@ function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
     <>
       <span className="cs-divider" />
       <span
+        ref={wrapRef}
         className={
           "cs-section cs-sync-summary" +
           stateClass +
-          (showDropdown ? " cs-has-dropdown" : "")
+          (hasDrawer ? " cs-has-dropdown" : "")
         }
         title={
           `Local: ${info.clockSum}, ` +
           `peers: ${info.maxPeerClockSum}, ` +
           `announced: ${info.latestAnnouncedSeq}`
         }
+        onClick={hasDrawer ? () => setOpen((v) => !v) : undefined}
+        data-testid="cs-sync-summary"
       >
         {label}
-        {showDropdown && (
-          <BlockRequestsDropdown versions={versions} loading={loading} />
+        {hasDrawer && open && (
+          <BlockRequestsDrawer versions={versions} loading={loading} />
         )}
       </span>
     </>

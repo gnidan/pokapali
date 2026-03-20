@@ -1454,7 +1454,7 @@ body {
   opacity: 0.7;
 }
 
-/* Block requests dropdown */
+/* Block requests drawer */
 
 .cs-sync-summary {
   position: relative;
@@ -1465,45 +1465,52 @@ body {
   cursor: pointer;
 }
 
-.cs-block-dropdown {
-  display: none;
+.cs-block-drawer {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  min-width: 220px;
-  max-width: 320px;
-  max-height: 200px;
+  min-width: 240px;
+  max-width: 340px;
+  max-height: 240px;
   overflow-y: auto;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  padding: 0.35rem 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 0;
   z-index: 20;
   font-size: 0.7rem;
   color: #334155;
+  animation: cs-drawer-slide-up 150ms ease-out;
 }
 
-.cs-block-dropdown::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -6px;
-  height: 6px;
+@keyframes cs-drawer-slide-up {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
-.cs-sync-summary:hover .cs-block-dropdown,
-.cs-sync-summary:focus-within .cs-block-dropdown {
-  display: block;
+.cs-block-drawer-header {
+  font-weight: 600;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  padding: 0.4rem 0.6rem 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .cs-block-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.6rem;
   white-space: nowrap;
 }
 
