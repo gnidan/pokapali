@@ -41,10 +41,25 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
+    "@pokapali/comments": "^0.1.1",
     "@pokapali/core": "^0.1.1",
-    "react": ">=18"
+    "@tiptap/pm": "^2.0.0",
+    "react": ">=18",
+    "yjs": "^13.6.0"
+  },
+  "peerDependenciesMeta": {
+    "@pokapali/comments": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "yjs": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@pokapali/comments": "^0.1.1",
     "@pokapali/core": "^0.1.1",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
