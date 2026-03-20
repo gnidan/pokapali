@@ -14,6 +14,14 @@ export type { CommentSidebarProps } from "./comment-sidebar.js";
 export { CommentPopover } from "./comment-popover.js";
 export type { CommentPopoverProps } from "./comment-popover.js";
 
+export { SaveIndicator, LastUpdated } from "./save-indicator.js";
+export type {
+  SaveIndicatorProps,
+  LastUpdatedProps,
+  SaveIndicatorLabels,
+} from "./save-indicator.js";
+export { defaultSaveIndicatorLabels } from "./save-indicator.js";
+
 export { spatialLayout } from "./spatial-layout.js";
 export type { LayoutItem, PositionedItem } from "./spatial-layout.js";
 

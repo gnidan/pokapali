@@ -19,6 +19,7 @@ import {
   type CommentData,
 } from "@pokapali/react";
 import "@pokapali/react/comments.css";
+import "@pokapali/react/indicators.css";
 import {
   anchorFromSelection,
   CommentHighlight,

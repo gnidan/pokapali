@@ -1,0 +1,128 @@
+/**
+ * Indicator component styles — BEM with pkp- prefix.
+ *
+ * Import this stylesheet when using SaveIndicator,
+ * LastUpdated, or StatusIndicator from @pokapali/react.
+ */
+
+/* ── Save indicator ─────────────────────────── */
+
+.pkp-save-indicator {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.pkp-save-indicator--saved {
+  color: #22c55e;
+}
+
+.pkp-save-indicator--dirty,
+.pkp-save-indicator--unpublished {
+  color: #f97316;
+}
+
+.pkp-save-indicator--saving {
+  color: #eab308;
+}
+
+.pkp-save-indicator--save-error {
+  color: #ef4444;
+}
+
+.pkp-save-indicator--action {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.pkp-save-indicator--action:hover {
+  text-decoration-style: solid;
+}
+
+/* ── Last updated ───────────────────────────── */
+
+.pkp-last-updated {
+  font-size: 0.75rem;
+  color: #64748b;
+  transition: color 1s ease-out;
+}
+
+.pkp-last-updated--flashing {
+  color: #22c55e;
+  font-weight: 600;
+  transition: none;
+}
+
+/* ── Status indicator ───────────────────────── */
+
+.pkp-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pkp-status-indicator--degraded {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  padding: 2px 10px;
+}
+
+.pkp-status-indicator--degraded.pkp-status-indicator--offline {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+
+.pkp-status-indicator__text {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.pkp-status-indicator--degraded .pkp-status-indicator__text {
+  color: #92400e;
+  font-weight: 500;
+}
+
+.pkp-status-indicator--degraded.pkp-status-indicator--offline
+  .pkp-status-indicator__text {
+  color: #991b1b;
+}
+
+.pkp-status-indicator__warning {
+  font-size: 0.7rem;
+  color: #92400e;
+}
+
+.pkp-status-indicator--degraded.pkp-status-indicator--offline
+  .pkp-status-indicator__warning {
+  color: #991b1b;
+}
+
+.pkp-status-indicator__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.pkp-status-indicator__dot--synced {
+  background: #22c55e;
+}
+
+.pkp-status-indicator__dot--connecting {
+  background: #eab308;
+}
+
+.pkp-status-indicator__dot--receiving {
+  background: #06b6d4;
+}
+
+.pkp-status-indicator__dot--offline {
+  background: #ef4444;
+}

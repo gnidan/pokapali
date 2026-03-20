@@ -24,14 +24,16 @@
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
     },
-    "./comments.css": "./src/comments.css"
+    "./comments.css": "./src/comments.css",
+    "./indicators.css": "./src/indicators.css"
   },
   "files": [
     "dist/src/**/*.js",
     "dist/src/**/*.d.ts",
     "dist/src/**/*.js.map",
     "!dist/src/**/*.test.*",
-    "src/comments.css"
+    "src/comments.css",
+    "src/indicators.css"
   ],
   "license": "MIT",
   "publishConfig": {
