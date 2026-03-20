@@ -41,12 +41,19 @@ net.destroy();
 
 - **`createTestNetwork(options)`** — factory returning
   a `TestNetwork` instance
-- **`TestNetworkOptions`** — `channels: string[]`
+- **`TestNetworkOptions`** — `channels: string[]`,
+  `latency?: LatencyOptions`
+- **`LatencyOptions`** — `ms: number`,
+  `jitter?: number` (simulates network delay)
 - **`TestNetwork`** — `peer()`, `disconnect()`,
   `reconnect()`, `partition()`, `heal()`,
-  `isConverged()`, `destroy()`
+  `isConverged()`, `settle()`, `destroy()`
 - **`TestPeer`** — `name`, `channel(name)` (returns
   Y.Doc)
+- **`createTestRelay(options?)`** — async factory for
+  a minimal libp2p relay (E2E tests)
+- **`TestRelay`** — `multiaddr`, `peerId`, `stop()`
+- **`TestRelayOptions`** — `port?: number`
 
 ## Features
 
@@ -58,6 +65,8 @@ net.destroy();
   `heal()` reconnects everyone and merges state
 - **Convergence check** — `isConverged()` compares
   state vectors across all peers and channels
+- **Settle** — `settle()` waits for all pending
+  delayed updates when latency simulation is active
 - **Late join** — new peers receive existing state
   on creation
 - **Multi-channel** — each peer gets one Y.Doc per

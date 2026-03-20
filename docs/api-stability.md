@@ -192,9 +192,16 @@ not a module-level export.
 
 ## @pokapali/test-utils — All Experimental
 
-`createTestNetwork()`, `TestNetwork`, `TestPeer`,
-`TestNetworkOptions`, `LatencyOptions`,
-`createTestRelay()`, `TestRelay`, `TestRelayOptions`
+| Export                | Description                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `createTestNetwork()` | Factory — returns `TestNetwork`                                                                                    |
+| `TestNetwork`         | `.peer()`, `.disconnect()`, `.reconnect()`, `.partition()`, `.heal()`, `.isConverged()`, `.settle()`, `.destroy()` |
+| `TestPeer`            | `.name`, `.channel(name)` (returns `Y.Doc`)                                                                        |
+| `TestNetworkOptions`  | `channels: string[]`, `latency?: LatencyOptions`                                                                   |
+| `LatencyOptions`      | `ms: number`, `jitter?: number`                                                                                    |
+| `createTestRelay()`   | Async factory — minimal libp2p relay for E2E tests                                                                 |
+| `TestRelay`           | `.multiaddr`, `.peerId`, `.stop()`                                                                                 |
+| `TestRelayOptions`    | `port?: number`                                                                                                    |
 
 ## @pokapali/react
 
