@@ -15,7 +15,7 @@ import type {
 } from "d3-force";
 import type {
   TopologyNode,
-  TopologyGraphEdge,
+  TopologyEdge,
   TopologyGraph,
   Diagnostics,
   Feed,
@@ -86,7 +86,7 @@ const GRACE_MS = 12_000;
 
 interface DepartingNode {
   node: TopologyNode;
-  edges: TopologyGraphEdge[];
+  edges: TopologyEdge[];
   departedAt: number;
 }
 
@@ -110,7 +110,7 @@ function buildStableGraph(
 
   // Collect departing nodes still within grace
   const extraNodes: TopologyNode[] = [];
-  const extraEdges: TopologyGraphEdge[] = [];
+  const extraEdges: TopologyEdge[] = [];
   for (const dn of departing.values()) {
     // Mark as disconnected so it renders faded
     extraNodes.push({

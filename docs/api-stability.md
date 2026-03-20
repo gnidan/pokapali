@@ -91,7 +91,7 @@ These APIs work but may change shape:
 - `createAutoSaver()`, `AutoSaveOptions`
 - `Diagnostics`, `NodeInfo`, `GossipSubDiagnostic`
 - `TopologyGraph`, `TopologyNode`, `TopologyEdge`,
-  `TopologyGraphEdge`
+  `CapabilityEdge`
 - `AwarenessTopology`, `AwarenessKnownNode`
 - `Awareness` — re-exported from `y-protocols/awareness`
 - `doc.configuredChannels` — channels configured for

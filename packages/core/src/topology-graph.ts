@@ -21,7 +21,7 @@ export interface TopologyNode {
 }
 
 /** A connection between two topology nodes. */
-export interface TopologyGraphEdge {
+export interface TopologyEdge {
   source: string;
   target: string;
   connected: boolean;
@@ -34,12 +34,12 @@ export interface TopologyGraphEdge {
  */
 export interface TopologyGraph {
   nodes: TopologyNode[];
-  edges: TopologyGraphEdge[];
+  edges: TopologyEdge[];
 }
 
 /** Raw topology edge from node capability
  *  broadcasts. */
-export interface TopologyEdge {
+export interface CapabilityEdge {
   source: string;
   target: string;
   targetRole?: string;
@@ -66,7 +66,7 @@ export interface TopologyDiagnostics {
     ackedCurrentCid: boolean;
     browserCount: number | undefined;
   }>;
-  topology: TopologyEdge[];
+  topology: CapabilityEdge[];
 }
 
 /** Minimal awareness interface for graph building. */
@@ -90,7 +90,7 @@ export function buildTopologyGraph(
   awareness: TopologyAwareness,
 ): TopologyGraph {
   const graphNodes: TopologyNode[] = [];
-  const edges: TopologyGraphEdge[] = [];
+  const edges: TopologyEdge[] = [];
   const seenNodeIds = new Set<string>();
 
   // 1. Self node
