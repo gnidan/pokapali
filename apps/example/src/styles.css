@@ -1485,6 +1485,15 @@ body {
   color: #334155;
 }
 
+.cs-block-dropdown::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 6px;
+}
+
 .cs-sync-summary:hover .cs-block-dropdown,
 .cs-sync-summary:focus-within .cs-block-dropdown {
   display: block;
