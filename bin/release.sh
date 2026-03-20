@@ -9,13 +9,14 @@ set -euo pipefail
 #
 # Steps:
 #   1. Verify branch and clean tree
-#   2. npx changeset version
-#   3. Show CHANGELOG diff, pause for review
-#   4. npm install (sync lockfile)
-#   5. Read core's new version from package.json
-#   6. git add -A && git commit
-#   7. git tag v<version>
-#   8. Push commit + tag to Gitea and GitHub
+#   2. Capture internal changeset entries
+#   3. npx changeset version
+#   4. Inject internal entries into root CHANGELOG.md
+#   5. Show CHANGELOG diff, pause for review
+#   6. npm install (sync lockfile)
+#   7. git add -A && git commit
+#   8. git tag v<version>
+#   9. Push commit + tag to Gitea and GitHub
 #
 # Sets POKAPALI_RELEASE=1 so the pre-commit hook
 # allows commits on main/release/* while still
@@ -57,19 +58,78 @@ fi
 echo "=== Release from $BRANCH ==="
 echo "  tree: clean"
 
-# --- 2. Run changeset version ---
+# --- 2. Capture internal changeset entries ---
+#
+# Changesets with empty frontmatter (no package refs)
+# describe internal work (CI, docs, scripts). These
+# are consumed by `changeset version` but don't
+# appear in any per-package CHANGELOG. We capture
+# them here and inject into the root CHANGELOG.md.
+
+INTERNAL_ENTRIES=""
+for cs in .changeset/*.md; do
+  [ -f "$cs" ] || continue
+  [ "$(basename "$cs")" = "README.md" ] && continue
+
+  # Parse frontmatter (between the two --- markers)
+  FRONT=$(awk \
+    'BEGIN{n=0} /^---$/{n++;next} n==1{print}' \
+    "$cs")
+
+  # If frontmatter is empty (no package refs),
+  # capture the body as an internal entry
+  if [ -z "$(echo "$FRONT" | tr -d '[:space:]')" ]
+  then
+    BODY=$(awk \
+      'BEGIN{n=0} /^---$/{n++;next} n>=2' \
+      "$cs" | sed '/^$/d')
+    if [ -n "$BODY" ]; then
+      # Format each entry as a list item
+      FIRST_LINE=$(echo "$BODY" | head -1)
+      REST=$(echo "$BODY" | tail -n +2)
+      ENTRY="- $FIRST_LINE"
+      if [ -n "$REST" ]; then
+        ENTRY="$ENTRY
+$(echo "$REST" | sed 's/^/  /')"
+      fi
+      if [ -n "$INTERNAL_ENTRIES" ]; then
+        INTERNAL_ENTRIES="$INTERNAL_ENTRIES
+$ENTRY"
+      else
+        INTERNAL_ENTRIES="$ENTRY"
+      fi
+    fi
+  fi
+done
+
+if [ -n "$INTERNAL_ENTRIES" ]; then
+  echo "  internal entries: $(echo \
+    "$INTERNAL_ENTRIES" | grep -c '^-')"
+fi
+
+# --- 3. Run changeset version ---
 
 echo ""
 echo "=== Running changeset version ==="
 npx changeset version
 
-# Check that core's version actually changed
+# Read core's version (used for tag + commit msg)
 CORE_VERSION=$(node -p \
   "require('./packages/core/package.json').version")
-if git diff --quiet -- packages/core/package.json; then
+
+# Check that something actually changed — either
+# packages were bumped or internal entries exist
+HAS_PKG_CHANGES=0
+if ! git diff --quiet -- 'packages/*/package.json' \
+  'apps/*/package.json' 2>/dev/null; then
+  HAS_PKG_CHANGES=1
+fi
+
+if [ "$HAS_PKG_CHANGES" -eq 0 ] \
+  && [ -z "$INTERNAL_ENTRIES" ]; then
   echo ""
-  echo "ERROR: changeset version made no changes to"
-  echo "  packages/core/package.json."
+  echo "ERROR: changeset version made no changes"
+  echo "  and no internal entries found."
   echo "  Are there any changeset files to consume?"
   echo ""
   echo "Restoring working tree..."
@@ -78,8 +138,53 @@ if git diff --quiet -- packages/core/package.json; then
 fi
 
 echo "  core version: $CORE_VERSION"
+if [ "$HAS_PKG_CHANGES" -eq 1 ]; then
+  echo "  package changes: yes"
+else
+  echo "  package changes: no (internal only)"
+fi
 
-# --- 3. Show CHANGELOG diff for review ---
+# --- 4. Inject internal entries into CHANGELOG ---
+
+if [ -n "$INTERNAL_ENTRIES" ]; then
+  echo ""
+  echo "=== Injecting internal entries ==="
+
+  DATE=$(date +%Y-%m-%d)
+
+  node -e "
+    const fs = require('fs');
+    const ver = process.argv[1];
+    const date = process.argv[2];
+    const entries = process.argv[3];
+    const file = 'CHANGELOG.md';
+
+    let cl = fs.readFileSync(file, 'utf8');
+    const heading = '## [' + ver + '] — ' + date;
+    const section = '### Internal\n\n' + entries;
+
+    if (cl.includes(heading)) {
+      // Append internal section after the heading
+      cl = cl.replace(
+        heading,
+        heading + '\n\n' + section
+      );
+    } else {
+      // Insert new version after [Unreleased]
+      cl = cl.replace(
+        '## [Unreleased]',
+        '## [Unreleased]\n\n'
+          + heading + '\n\n' + section
+      );
+    }
+    fs.writeFileSync(file, cl);
+  " "$CORE_VERSION" "$DATE" "$INTERNAL_ENTRIES"
+
+  echo "  injected $(echo "$INTERNAL_ENTRIES" \
+    | grep -c '^-') entries into CHANGELOG.md"
+fi
+
+# --- 5. Show CHANGELOG diff for review ---
 
 echo ""
 echo "=== Changelog review ==="
@@ -104,14 +209,14 @@ if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
   exit 0
 fi
 
-# --- 4. Sync lockfile ---
+# --- 6. Sync lockfile ---
 
 echo ""
 echo "=== Syncing lockfile ==="
 npm install --ignore-scripts
 echo "  lockfile updated"
 
-# --- 5. Commit ---
+# --- 7. Commit ---
 
 echo ""
 echo "=== Committing release ==="
@@ -128,13 +233,13 @@ EOF
 
 echo "  committed: $(git rev-parse --short HEAD)"
 
-# --- 6. Tag ---
+# --- 8. Tag ---
 
 TAG="v$CORE_VERSION"
 git tag "$TAG"
 echo "  tagged: $TAG"
 
-# --- 7. Push ---
+# --- 9. Push ---
 
 echo ""
 echo "==============================="
