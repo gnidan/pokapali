@@ -9,11 +9,18 @@ set -euo pipefail
 # Usage:
 #   bin/verify-branch.sh          # run all checks
 #   bin/verify-branch.sh --quick  # build + format only
+#   bin/verify-branch.sh --base release/0.1.x
 
 QUICK=false
-if [ "${1:-}" = "--quick" ]; then
-  QUICK=true
-fi
+BASE_BRANCH="main"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --quick) QUICK=true; shift ;;
+    --base) BASE_BRANCH="$2"; shift 2 ;;
+    *) echo "Usage: bin/verify-branch.sh" \
+      "[--quick] [--base <branch>]"; exit 1 ;;
+  esac
+done
 
 PASS=0
 FAIL=0
@@ -55,19 +62,22 @@ echo "verify-branch: starting pre-merge checks..."
 echo "  branch: $(git branch --show-current)"
 echo "  commit: $(git rev-parse --short HEAD)"
 
-# Preflight: fail fast if branch is behind main
-git fetch origin main --quiet 2>/dev/null || true
-MAIN_SHA=$(git rev-parse origin/main 2>/dev/null || true)
-if [ -n "$MAIN_SHA" ]; then
+# Preflight: fail fast if branch is behind base
+git fetch origin "$BASE_BRANCH" --quiet \
+  2>/dev/null || true
+BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" \
+  2>/dev/null || true)
+if [ -n "$BASE_SHA" ]; then
   if ! git merge-base --is-ancestor \
-    "$MAIN_SHA" HEAD 2>/dev/null; then
+    "$BASE_SHA" HEAD 2>/dev/null; then
     echo ""
     echo "STALE BRANCH: not up to date with" \
-      "origin/main (${MAIN_SHA:0:7})"
-    echo "Run: git merge origin/main"
+      "origin/$BASE_BRANCH (${BASE_SHA:0:7})"
+    echo "Run: git merge origin/$BASE_BRANCH"
     exit 1
   fi
-  echo "  main:   ${MAIN_SHA:0:7} (merged)"
+  echo "  base:   ${BASE_SHA:0:7}" \
+    "(origin/$BASE_BRANCH merged)"
 fi
 
 # Policy checks (always run, even with --quick)
