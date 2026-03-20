@@ -146,8 +146,8 @@ const GUARANTEE_REQUERY_MS = 5 * 60_000;
 export const MAX_INTERPRETER_RETRIES = 3;
 
 /** Base delay between interpreter retry attempts.
- *  Exponential: BASE * 3^(attempt-1). */
-export const RETRY_BASE_MS = 10_000;
+ *  Exponential: BASE * 4^(attempt-1) → 2s, 8s, 32s. */
+export const RETRY_BASE_MS = 2_000;
 
 // Track scheduled wake-ups to avoid duplicates
 const scheduledWakeups = new WeakMap<
@@ -290,7 +290,7 @@ export async function runInterpreter(
         const timers = getTimers(feedback);
         const key = fact.cid.toString();
         if (!timers.blockRetries.has(key)) {
-          const delay = RETRY_BASE_MS * 3 ** (entry.fetchAttempt - 1);
+          const delay = RETRY_BASE_MS * 4 ** (entry.fetchAttempt - 1);
           timers.blockRetries.set(
             key,
             setTimeout(() => {

@@ -84,7 +84,7 @@ export function deriveLoadingState(state: DocState): LoadingState {
           cid: entry.cid.toString(),
           attempt: entry.fetchAttempt,
           nextRetryAt:
-            Date.now() + RETRY_BASE_MS * 3 ** (entry.fetchAttempt - 1),
+            Date.now() + RETRY_BASE_MS * 4 ** (entry.fetchAttempt - 1),
         };
       }
       return {
