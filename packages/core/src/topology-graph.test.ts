@@ -254,7 +254,7 @@ describe("buildTopologyGraph", () => {
     states.set(1, {}); // self
     // Simulate a cleared peer state — y-protocols
     // sets to null after timeout.
-     
+
     states.set(99, null as any);
 
     const graph = buildTopologyGraph(info, makeAwareness(states, 1));
