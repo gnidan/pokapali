@@ -92,6 +92,18 @@ jobs:
             exit 1
           fi
 
+  changeset-check:
+    name: Changeset Check
+    if: github.event_name == 'pull_request'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: npm ci
+      - name: Require changeset for package changes
+        run: npx changeset status --since=origin/main
+
   co-author-check:
     name: Co-authored-by Check
     if: github.event_name == 'pull_request'
