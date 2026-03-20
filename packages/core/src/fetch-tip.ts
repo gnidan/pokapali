@@ -12,6 +12,7 @@
  */
 
 import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 import { base64ToUint8 } from "./announce.js";
 import { createLogger } from "@pokapali/log";
 
@@ -77,6 +78,22 @@ export async function fetchTipFromPinners(
         continue;
       }
 
+      if (cid.multihash.code !== sha256.code) {
+        log.warn(
+          "pinner tip: unsupported hash algorithm",
+          cid.multihash.code,
+          "from",
+          baseUrl,
+        );
+        continue;
+      }
+
+      const computed = await sha256.digest(block);
+      if (!uint8Equal(computed.bytes, cid.multihash.bytes)) {
+        log.warn("pinner tip: CID hash mismatch from", baseUrl);
+        continue;
+      }
+
       const result: TipResult = {
         cid,
         block,
@@ -105,4 +122,12 @@ export async function fetchTipFromPinners(
   }
 
   return null;
+}
+
+function uint8Equal(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
