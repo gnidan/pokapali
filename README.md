@@ -3,6 +3,7 @@
 [![relays](https://img.shields.io/endpoint?url=https://gnidan.github.io/pokapali/badges/relays.json)](https://github.com/gnidan/pokapali/actions/workflows/health-check.yml)
 [![mesh](https://img.shields.io/endpoint?url=https://gnidan.github.io/pokapali/badges/mesh.json)](https://github.com/gnidan/pokapali/actions/workflows/health-check.yml)
 [![pinned docs](https://img.shields.io/endpoint?url=https://gnidan.github.io/pokapali/badges/pinned.json)](https://github.com/gnidan/pokapali/actions/workflows/health-check.yml)
+[![example app](https://img.shields.io/badge/example-app-blue)](https://gnidan.github.io/pokapali/)
 
 P2P collaborative document sync built on
 [Yjs](https://yjs.dev), WebRTC, and IPFS. Handles
