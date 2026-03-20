@@ -1,5 +1,5 @@
 ---
-"@pokapali/core": minor
+"@pokapali/core": patch
 ---
 
 #120 Rename TopologyGraphEdge → TopologyEdge

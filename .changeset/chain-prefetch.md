@@ -1,5 +1,5 @@
 ---
-"@pokapali/core": minor
+"@pokapali/core": patch
 ---
 
 #15 Add chain block prefetching after tip-advanced
