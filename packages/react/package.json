@@ -23,13 +23,15 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
-    }
+    },
+    "./comments.css": "./src/comments.css"
   },
   "files": [
     "dist/src/**/*.js",
     "dist/src/**/*.d.ts",
     "dist/src/**/*.js.map",
-    "!dist/src/**/*.test.*"
+    "!dist/src/**/*.test.*",
+    "src/comments.css"
   ],
   "license": "MIT",
   "publishConfig": {

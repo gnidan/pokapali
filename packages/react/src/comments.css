@@ -1,0 +1,349 @@
+/**
+ * Comment component styles — BEM with pkp- prefix.
+ *
+ * Import this stylesheet when using CommentSidebar
+ * and/or CommentPopover from @pokapali/react.
+ */
+
+/* ── Comment popover ─────────────────────────── */
+
+.pkp-comment-popover {
+  z-index: 20;
+  pointer-events: auto;
+  animation: pkp-popover-fade-in 0.1s ease-out;
+}
+
+@keyframes pkp-popover-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pkp-comment-popover__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: white;
+  cursor: pointer;
+  font-size: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+
+.pkp-comment-popover__btn:hover {
+  background: #f3f4f6;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.pkp-comment-popover__btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* ── Comment sidebar ──────────────────────────── */
+
+.pkp-comment-sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 340px;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  font-size: 0.8rem;
+}
+
+.pkp-comment-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pkp-comment-sidebar__header h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.pkp-comment-sidebar__close {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #64748b;
+  padding: 0 0.3rem;
+}
+
+.pkp-comment-sidebar__sync-warning {
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pkp-comment-sidebar__sync-warning--connecting {
+  background: #fef3c7;
+  color: #92400e;
+  border-bottom-color: #f59e0b;
+}
+
+.pkp-comment-sidebar__sync-warning--offline {
+  background: #fef2f2;
+  color: #991b1b;
+  border-bottom-color: #ef4444;
+}
+
+.pkp-comment-sidebar__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+/* ── New comment / hint / empty ───────────────── */
+
+.pkp-comment-sidebar__new-comment {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.pkp-comment-sidebar__hint {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-style: italic;
+  text-align: center;
+  padding: 0.6rem 0;
+  margin-bottom: 0.4rem;
+}
+
+.pkp-comment-sidebar__empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 1.5rem 0;
+  font-size: 0.78rem;
+}
+
+/* ── Comment input ────────────────────────────── */
+
+.pkp-comment-input textarea {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.pkp-comment-input textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.pkp-comment-input__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+/* ── Buttons ──────────────────────────────────── */
+
+.pkp-btn {
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0.25rem 0.5rem;
+  font-family: inherit;
+}
+
+.pkp-btn--submit {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.pkp-btn--submit:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pkp-btn--cancel {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.pkp-btn--sm {
+  background: none;
+  color: #64748b;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.68rem;
+}
+
+.pkp-btn--sm:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.pkp-btn--danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* ── Comment thread ───────────────────────────── */
+
+.pkp-comment-thread {
+  margin-bottom: 0.5rem;
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.pkp-comment-thread--resolved {
+  opacity: 0.6;
+}
+
+.pkp-comment-thread__reply-input {
+  padding: 0.4rem 0.6rem 0.4rem 1.2rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* ── Single comment ───────────────────────────── */
+
+.pkp-comment {
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.pkp-comment:hover {
+  background: #f8fafc;
+}
+
+.pkp-comment--selected {
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+}
+
+.pkp-comment--resolved {
+  opacity: 0.7;
+}
+
+.pkp-comment--orphaned {
+  border-left: 3px dashed #94a3b8;
+}
+
+.pkp-comment--reply {
+  padding-left: 1.2rem;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.76rem;
+}
+
+/* ── Comment header / author / timestamp ──────── */
+
+.pkp-comment__header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+}
+
+.pkp-comment__author {
+  font-weight: 600;
+  font-size: 0.72rem;
+  font-family: "SF Mono", "Fira Code", monospace;
+  color: #334155;
+}
+
+.pkp-comment__author--unverified {
+  color: #94a3b8;
+}
+
+.pkp-comment__unverified-badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  text-align: center;
+  line-height: 12px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.pkp-comment__timestamp {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  margin-left: auto;
+}
+
+.pkp-comment__body {
+  color: #334155;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pkp-comment__orphan-note {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  font-style: italic;
+  margin-top: 0.2rem;
+}
+
+.pkp-comment__actions {
+  display: flex;
+  gap: 0.2rem;
+  margin-top: 0.3rem;
+}
+
+/* ── Resolved toggle ──────────────────────────── */
+
+.pkp-comment-sidebar__resolved-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid #f1f5f9;
+  padding: 0.4rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  cursor: pointer;
+  text-align: center;
+}
+
+.pkp-comment-sidebar__resolved-toggle:hover {
+  background: #f8fafc;
+  color: #334155;
+}
+
+/* ── Mobile responsiveness ────────────────────── */
+
+@media (max-width: 600px) {
+  .pkp-comment-sidebar {
+    width: 100%;
+  }
+}
