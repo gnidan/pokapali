@@ -55,7 +55,15 @@ const app = pokapali({
 | `rtc`            | `object`   | No       | —               | WebRTC peer connection options passed to `simple-peer` (e.g. custom ICE servers).                                                                                                                  |
 | `signalingUrls`  | `string[]` | No       | `[]`            | Additional WebSocket signaling server URLs. Empty by default — signaling uses GossipSub via libp2p, not WebSocket servers.                                                                         |
 | `bootstrapPeers` | `string[]` | No       | libp2p defaults | Override libp2p bootstrap peer multiaddrs. Rarely needed — the defaults connect to the public libp2p network.                                                                                      |
-| `persistence`    | `boolean`  | No       | `true`          | Enable IndexedDB persistence for Yjs state and IPFS blocks. Set to `false` to disable (e.g. for testing without cache).                                                                            |
+| `persistence`    | `boolean`  | No       | `true`          | Enable IndexedDB persistence for Yjs state and IPFS blocks. Set to `false` for non-browser environments or testing (see below).                                                                    |
+
+**`persistence: false`** — Required when IndexedDB is
+unavailable (Node.js, SSR, test runners like Vitest with
+jsdom). Without it, pokapali attempts to open IndexedDB
+on startup and throws. Documents with persistence
+disabled keep all state in memory — data is lost when the
+page reloads or the process exits. Use `doc.publish()` to
+persist snapshots to pinners instead.
 
 ### 2. Create or open a document
 

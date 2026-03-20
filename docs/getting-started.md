@@ -33,6 +33,11 @@ use the same value across all clients of your app.
 `channels` declares named Yjs subdocs for your data.
 `origin` is the base URL for capability links.
 
+> **Non-browser environments:** Add `persistence: false`
+> to the config. Without it, pokapali tries to open
+> IndexedDB on startup and throws. See
+> [guide.md](guide.md) for details.
+
 ## Read and write content
 
 Each channel is a standard `Y.Doc`:
