@@ -1,5 +1,5 @@
 ---
-"@pokapali/react": minor
+"@pokapali/react": patch
 ---
 
 Extract TopologyMap component from example app to @pokapali/react
