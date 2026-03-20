@@ -13,7 +13,12 @@ import {
   useDocDestroy,
   useParticipants,
   useSnapshotFlash,
+  useComments,
+  CommentSidebar,
+  CommentPopover,
+  type CommentData,
 } from "@pokapali/react";
+import "@pokapali/react/comments.css";
 import {
   anchorFromSelection,
   CommentHighlight,
@@ -32,9 +37,6 @@ import { SharePanel } from "./SharePanel";
 import { VersionHistory } from "./VersionHistory";
 import { VersionPreviewOverlay } from "./VersionPreviewOverlay";
 import { useVersionHistory } from "./useVersionHistory";
-import { CommentSidebar } from "./CommentSidebar";
-import { CommentPopover } from "./CommentPopover";
-import { useComments } from "./useComments";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { updateRecentTitle } from "./recentDocs";
 import {
@@ -91,11 +93,26 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     comments: commentList,
     addComment,
     addReply,
-    resolveComment,
-    reopenComment,
+    updateComment,
     deleteComment,
     commentsDoc,
-  } = useComments(doc);
+  } = useComments<CommentData>(doc);
+
+  const resolveComment = useCallback(
+    (id: string) =>
+      updateComment(id, {
+        data: { status: "resolved" },
+      }),
+    [updateComment],
+  );
+
+  const reopenComment = useCallback(
+    (id: string) =>
+      updateComment(id, {
+        data: { status: "open" },
+      }),
+    [updateComment],
+  );
 
   // Build pubkey → displayName lookup from awareness
   const participantMap = useParticipants(doc);
@@ -312,7 +329,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const handleAddComment = useCallback(
     (content: string) => {
       if (!pendingAnchor) return;
-      addComment(content, pendingAnchor);
+      addComment(content, { status: "open" }, pendingAnchor);
       setPendingAnchor(null);
       if (editor?.view) {
         clearPendingAnchorDecoration(editor.view);
@@ -323,7 +340,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
   const handleAddReply = useCallback(
     (parentId: string, content: string) => {
-      addReply(parentId, content);
+      addReply(parentId, content, { status: "open" });
     },
     [addReply],
   );

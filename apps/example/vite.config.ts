@@ -75,12 +75,20 @@ export default defineConfig(({ command }) => ({
   plugins: [react()],
   resolve: useLocalPkgs
     ? {
-        alias: Object.fromEntries(
-          localPkgs.map((p) => [
-            `@pokapali/${p}`,
-            path.resolve(__dirname, `../../packages/${p}/src/index.ts`),
-          ]),
-        ),
+        alias: {
+          // CSS subpath export needs its own alias
+          // since the index.ts alias swallows it.
+          "@pokapali/react/comments.css": path.resolve(
+            __dirname,
+            "../../packages/react/src/comments.css",
+          ),
+          ...Object.fromEntries(
+            localPkgs.map((p) => [
+              `@pokapali/${p}`,
+              path.resolve(__dirname, `../../packages/${p}/src/index.ts`),
+            ]),
+          ),
+        },
       }
     : {},
 }));
