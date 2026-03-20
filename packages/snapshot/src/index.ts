@@ -8,12 +8,27 @@ import {
   verifyBytes,
 } from "@pokapali/crypto";
 
+/**
+ * A single node in the snapshot chain. Contains
+ * encrypted subdocument state, a back-pointer to
+ * the previous snapshot, and Ed25519 signatures
+ * for integrity verification.
+ */
 export interface SnapshotNode {
+  /** Encrypted Yjs updates keyed by channel name. */
   subdocs: Record<string, Uint8Array>;
+  /** CID of the previous snapshot, or null for the
+   *  first snapshot in the chain. */
   prev: CID | null;
+  /** Monotonically increasing sequence number. */
   seq: number;
+  /** Unix timestamp (ms) when the snapshot was
+   *  created. */
   ts: number;
+  /** The document's Ed25519 public key. */
   publicKey: Uint8Array;
+  /** Ed25519 signature over the CBOR-encoded
+   *  payload (all fields except `signature`). */
   signature: Uint8Array;
   /** Publisher's Ed25519 identity public key. */
   publisher?: Uint8Array;
@@ -40,6 +55,23 @@ interface PublisherSignablePayload {
   ts: number;
 }
 
+/**
+ * Encrypts subdocument state, signs the result with
+ * the document key (and optionally the publisher's
+ * identity key), and returns CBOR-encoded bytes
+ * suitable for storage as a block.
+ *
+ * @param plaintextSubdocs - Raw Yjs updates keyed
+ *   by channel name.
+ * @param readKey - AES-GCM-256 key for encryption.
+ * @param prev - CID of the previous snapshot, or
+ *   null for the first.
+ * @param seq - Sequence number for this snapshot.
+ * @param ts - Unix timestamp (ms).
+ * @param signingKey - The document's Ed25519 key.
+ * @param identityKey - Optional publisher identity
+ *   key for per-user attribution.
+ */
 export async function encodeSnapshot(
   plaintextSubdocs: Record<string, Uint8Array>,
   readKey: CryptoKey,
@@ -84,11 +116,22 @@ export async function encodeSnapshot(
   return dagCbor.encode(node);
 }
 
+/**
+ * Decodes CBOR bytes into a {@link SnapshotNode}.
+ * Does not verify signatures — use
+ * {@link validateSnapshot} for that.
+ */
 export function decodeSnapshot(bytes: Uint8Array): SnapshotNode {
   const decoded = dagCbor.decode<SnapshotNode>(bytes);
   return decoded;
 }
 
+/**
+ * Decrypts all subdocument payloads in a snapshot
+ * node using the document's read key.
+ *
+ * @returns Plaintext Yjs updates keyed by channel.
+ */
 export async function decryptSnapshot(
   node: SnapshotNode,
   readKey: CryptoKey,
@@ -100,6 +143,12 @@ export async function decryptSnapshot(
   return result;
 }
 
+/**
+ * Verifies both the document signature and the
+ * optional publisher signature on a raw snapshot
+ * block. Returns false (never throws) if the block
+ * is malformed or any signature is invalid.
+ */
 export async function validateSnapshot(block: Uint8Array): Promise<boolean> {
   try {
     const node = decodeSnapshot(block);
@@ -154,6 +203,10 @@ export async function validateSnapshot(block: Uint8Array): Promise<boolean> {
   }
 }
 
+/**
+ * Thrown by {@link walkChain} when a snapshot's
+ * `prev` pointer creates a cycle.
+ */
 export class ChainCycleError extends Error {
   override name = "ChainCycleError" as const;
   constructor(public readonly cid: string) {
@@ -161,19 +214,38 @@ export class ChainCycleError extends Error {
   }
 }
 
+/**
+ * Thrown by {@link walkChain} when the chain
+ * exceeds the configured maximum depth.
+ */
 export class ChainDepthExceededError extends Error {
   override name = "ChainDepthExceededError" as const;
   constructor(public readonly maxDepth: number) {
-    super(`Snapshot chain exceeded max depth of ${maxDepth}`);
+    super(`Snapshot chain exceeded max depth` + ` of ${maxDepth}`);
   }
 }
 
+/** Default maximum chain depth for
+ *  {@link walkChain}. */
 export const DEFAULT_MAX_CHAIN_DEPTH = 1000;
 
 export interface WalkChainOptions {
+  /** Maximum number of snapshots to traverse
+   *  before throwing {@link ChainDepthExceededError}.
+   *  Defaults to {@link DEFAULT_MAX_CHAIN_DEPTH}. */
   maxDepth?: number;
 }
 
+/**
+ * Walks the snapshot chain backwards from the tip,
+ * yielding each {@link SnapshotNode}. Detects
+ * cycles and enforces a maximum depth.
+ *
+ * @param tipCid - CID of the most recent snapshot.
+ * @param blockGetter - Async function that fetches
+ *   raw block bytes by CID.
+ * @param options - Optional chain walk limits.
+ */
 export async function* walkChain(
   tipCid: CID,
   blockGetter: (cid: CID) => Promise<Uint8Array>,
@@ -201,8 +273,12 @@ export async function* walkChain(
   }
 }
 
+/** Re-exported from `multiformats` for callers
+ *  that need to construct or compare CIDs. */
 export { CID } from "multiformats/cid";
+/** SHA-256 hasher for computing block CIDs. */
 export { sha256 } from "multiformats/hashes/sha2";
+/** CBOR codec identifier for CID creation. */
 export { code as dagCborCode } from "@ipld/dag-cbor";
 
 // Pure state machine for fetch coalescing
