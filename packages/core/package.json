@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "P2P collaborative document sync using Yjs, WebRTC, and IPFS",
   "keywords": [
     "pokapali",
