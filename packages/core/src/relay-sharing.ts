@@ -16,8 +16,10 @@ export interface RelaySharing {
 
 export function createRelaySharing(options: RelaySharingOptions): RelaySharing {
   const { awareness, roomDiscovery } = options;
+  let destroyed = false;
 
   const publishRelays = () => {
+    if (destroyed) return;
     const entries = roomDiscovery.relayEntries();
     if (entries.length > 0) {
       awareness.setLocalStateField("relays", entries);
@@ -25,6 +27,7 @@ export function createRelaySharing(options: RelaySharingOptions): RelaySharing {
   };
 
   const onAwarenessUpdate = () => {
+    if (destroyed) return;
     const states = awareness.getStates();
     for (const [clientId, state] of states) {
       if (clientId === awareness.clientID) continue;
@@ -42,6 +45,7 @@ export function createRelaySharing(options: RelaySharingOptions): RelaySharing {
 
   return {
     destroy() {
+      destroyed = true;
       clearInterval(publishTimer);
       clearTimeout(initialTimer);
       awareness.off("update", onAwarenessUpdate);
