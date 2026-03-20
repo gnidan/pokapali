@@ -65,6 +65,25 @@ disabled keep all state in memory — data is lost when the
 page reloads or the process exits. Use `doc.publish()` to
 persist snapshots to pinners instead.
 
+**`origin` in non-browser environments** — In a browser
+you typically pass `window.location.origin`. In tests,
+SSR, or any context where `window` is unavailable, pass
+your app's deployment URL as a string:
+
+```ts
+const app = pokapali({
+  appId: "my-app",
+  channels: ["content"],
+  origin: "https://my-app.example.com",
+  persistence: false,
+});
+```
+
+The `origin` value is only used to construct capability
+URLs (for `doc.urls` and `doc.invite()`). It does not
+need to resolve — the generated URLs will work as long
+as the origin matches what your frontend serves.
+
 ### 2. Create or open a document
 
 ```ts

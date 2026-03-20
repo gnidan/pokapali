@@ -34,7 +34,19 @@ use the same value across all clients of your app.
 `origin` is the base URL for capability links.
 
 > **Non-browser environments:** Add `persistence: false`
-> to the config. Without it, pokapali tries to open
+> to the config and pass your deployment URL as `origin`
+> (since `window.location.origin` is unavailable):
+>
+> ```ts
+> const app = pokapali({
+>   appId: "my-app",
+>   channels: ["content"],
+>   origin: "https://my-app.example.com",
+>   persistence: false,
+> });
+> ```
+>
+> Without `persistence: false`, pokapali tries to open
 > IndexedDB on startup and throws. See
 > [guide.md](guide.md) for details.
 
