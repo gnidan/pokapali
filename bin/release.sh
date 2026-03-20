@@ -90,7 +90,7 @@ for cs in .changeset/*.md; do
       ENTRY="- $FIRST_LINE"
       if [ -n "$REST" ]; then
         ENTRY="$ENTRY
-$(echo "$REST" | sed 's/^/  /')"
+$(echo "$REST" | awk '{print "  " $0}')"
       fi
       if [ -n "$INTERNAL_ENTRIES" ]; then
         INTERNAL_ENTRIES="$INTERNAL_ENTRIES
