@@ -1465,6 +1465,7 @@ export function createDoc(params: DocParams): Doc {
       }
     },
 
+    /** @deprecated Use doc.awareness directly. */
     get provider() {
       return providerObj;
     },
@@ -1521,6 +1522,7 @@ export function createDoc(params: DocParams): Doc {
     status: statusFeed as Feed<DocStatus>,
     saveState: saveStateFeed as Feed<SaveState>,
 
+    /** @deprecated Use tip.getSnapshot()?.ackedBy. */
     get ackedBy(): ReadonlySet<string> {
       if (!interpreterState?.chain.tip) {
         return EMPTY_SET;
@@ -1531,22 +1533,26 @@ export function createDoc(params: DocParams): Doc {
       return entry?.ackedBy ?? EMPTY_SET;
     },
 
+    /** @deprecated Use tip.getSnapshot()?.guaranteeUntil. */
     get guaranteeUntil(): number | null {
       if (!interpreterState) return null;
       const g = bestGuarantee(interpreterState.chain);
       return g.guaranteeUntil || null;
     },
 
+    /** @deprecated Use tip.getSnapshot()?.retainUntil. */
     get retainUntil(): number | null {
       if (!interpreterState) return null;
       const g = bestGuarantee(interpreterState.chain);
       return g.retainUntil || null;
     },
 
+    /** @deprecated Use tip.getSnapshot()?.cid. */
     get tipCid(): CID | null {
       return snapshotLC.prev;
     },
 
+    /** @deprecated Use loading.getSnapshot(). */
     get loadingState(): LoadingState {
       return loadingFeed.getSnapshot();
     },
@@ -1744,6 +1750,7 @@ export function createDoc(params: DocParams): Doc {
     },
 
     /* eslint-disable @typescript-eslint/no-explicit-any */
+    /** @deprecated Use Feed subscriptions instead. */
     on(event: string, cb: (...args: any[]) => void) {
       if (!eventSubs.has(event)) {
         eventSubs.set(event, new Map());
@@ -1794,6 +1801,7 @@ export function createDoc(params: DocParams): Doc {
       map.set(cb, unsub);
     },
 
+    /** @deprecated Use Feed subscriptions instead. */
     off(event: string, cb: (...args: any[]) => void) {
       const unsub = eventSubs.get(event)?.get(cb);
       if (unsub) {
