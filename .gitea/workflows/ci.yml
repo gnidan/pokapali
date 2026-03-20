@@ -18,6 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: npm ci
       - run: npm run build
+      - run: npm run build-storybook -w apps/storybook
       - run: npm test
         env:
           POKAPALI_LOG_LEVEL: silent

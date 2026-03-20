@@ -18,7 +18,10 @@ const localPkgs = [
 ];
 
 const config: StorybookConfig = {
-  stories: ["../src/**/*.stories.@(ts|tsx)"],
+  stories: [
+    "../src/**/*.stories.@(ts|tsx)",
+    "../../../packages/react/src/**/*.stories.@(ts|tsx)",
+  ],
   framework: {
     name: "@storybook/react-vite",
     options: {},
