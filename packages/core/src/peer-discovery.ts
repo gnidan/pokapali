@@ -4,6 +4,7 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { createLogger } from "@pokapali/log";
 import { loadCachedRelays, upsertCachedRelay } from "./relay-cache.js";
+import { createThrottledInterval } from "./throttled-interval.js";
 
 const RAW_CODEC = 0x55;
 const DISCOVERY_INTERVAL_MS = 30_000;
@@ -419,10 +420,14 @@ export function startRoomDiscovery(
     if (!stopped) discoverRelays();
   }, 15_000);
 
-  // Periodic re-discovery
-  const discoverInterval = setInterval(() => {
-    if (!stopped) discoverRelays();
-  }, DISCOVERY_INTERVAL_MS);
+  // Periodic re-discovery — paused when hidden.
+  const discoverInterval = createThrottledInterval(
+    () => {
+      if (!stopped) discoverRelays();
+    },
+    DISCOVERY_INTERVAL_MS,
+    { backgroundMs: 0, fireOnResume: true },
+  );
 
   // Periodic status logging
   const logInterval = setInterval(() => {
@@ -478,7 +483,7 @@ export function startRoomDiscovery(
       stopped = true;
       cycleController?.abort();
       clearTimeout(secondDiscoveryTimer);
-      clearInterval(discoverInterval);
+      discoverInterval.destroy();
       clearInterval(logInterval);
       for (const timer of reconnectTimers.values()) {
         clearTimeout(timer);

@@ -1,6 +1,7 @@
 import type { PubSubLike } from "@pokapali/sync";
 import type { Helia } from "helia";
 import { createLogger } from "@pokapali/log";
+import { createThrottledInterval } from "./throttled-interval.js";
 
 const log = createLogger("node-registry");
 
@@ -244,53 +245,59 @@ export function createNodeRegistry(
 
   pubsub.addEventListener("message", messageHandler);
 
-  // Prune stale entries and refresh connected state
-  const pruneTimer = setInterval(() => {
-    const now = Date.now();
-    const connectedPids = getConnectedPeerIds();
-    let changed = false;
-    for (const [pid, node] of nodes) {
-      const age = now - node.lastSeenAt;
+  // Prune stale entries and refresh connected state.
+  // Paused when the tab is hidden — no point pruning
+  // an invisible graph.
+  const pruneTimer = createThrottledInterval(
+    () => {
+      const now = Date.now();
+      const connectedPids = getConnectedPeerIds();
+      let changed = false;
+      for (const [pid, node] of nodes) {
+        const age = now - node.lastSeenAt;
 
-      // Hard-remove: no caps for REMOVE_MS
-      if (age > REMOVE_MS) {
-        nodes.delete(pid);
-        disconnectCounts.delete(pid);
-        log.debug("removed node:", pid.slice(-8));
-        changed = true;
-        continue;
-      }
+        // Hard-remove: no caps for REMOVE_MS
+        if (age > REMOVE_MS) {
+          nodes.delete(pid);
+          disconnectCounts.delete(pid);
+          log.debug("removed node:", pid.slice(-8));
+          changed = true;
+          continue;
+        }
 
-      // Mark stale (greyed in graph, still visible)
-      if (age > STALE_MS && !node.stale) {
-        node.stale = true;
-        log.debug("stale node:", pid.slice(-8));
-        changed = true;
-      }
-
-      // Connected state with hysteresis
-      const isConnected = connectedPids.has(pid);
-      if (isConnected) {
-        // Connection confirmed — reset counter
-        disconnectCounts.delete(pid);
-        if (!node.connected) {
-          node.connected = true;
+        // Mark stale (greyed in graph, still visible)
+        if (age > STALE_MS && !node.stale) {
+          node.stale = true;
+          log.debug("stale node:", pid.slice(-8));
           changed = true;
         }
-      } else if (node.connected) {
-        // Not connected — increment counter,
-        // only flip after DISCONNECT_HYSTERESIS
-        // consecutive checks.
-        const count = (disconnectCounts.get(pid) ?? 0) + 1;
-        disconnectCounts.set(pid, count);
-        if (count >= DISCONNECT_HYSTERESIS) {
-          node.connected = false;
-          changed = true;
+
+        // Connected state with hysteresis
+        const isConnected = connectedPids.has(pid);
+        if (isConnected) {
+          // Connection confirmed — reset counter
+          disconnectCounts.delete(pid);
+          if (!node.connected) {
+            node.connected = true;
+            changed = true;
+          }
+        } else if (node.connected) {
+          // Not connected — increment counter,
+          // only flip after DISCONNECT_HYSTERESIS
+          // consecutive checks.
+          const count = (disconnectCounts.get(pid) ?? 0) + 1;
+          disconnectCounts.set(pid, count);
+          if (count >= DISCONNECT_HYSTERESIS) {
+            node.connected = false;
+            changed = true;
+          }
         }
       }
-    }
-    if (changed) notifyChange();
-  }, PRUNE_INTERVAL_MS);
+      if (changed) notifyChange();
+    },
+    PRUNE_INTERVAL_MS,
+    { backgroundMs: 0, fireOnResume: true },
+  );
 
   return {
     get nodes(): ReadonlyMap<string, KnownNode> {
@@ -306,7 +313,7 @@ export function createNodeRegistry(
     },
 
     destroy() {
-      clearInterval(pruneTimer);
+      pruneTimer.destroy();
       changeListeners.clear();
       pubsub.removeEventListener("message", messageHandler);
     },

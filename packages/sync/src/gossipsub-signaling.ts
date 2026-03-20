@@ -4,6 +4,8 @@ import {
   setupSignalingHandlers,
 } from "./y-webrtc-internals.js";
 import { createLogger } from "@pokapali/log";
+import type { ThrottledInterval } from "./throttled-interval.js";
+import { createThrottledInterval } from "./throttled-interval.js";
 
 /**
  * Minimal subset of @libp2p/interface PubSub needed by
@@ -31,7 +33,7 @@ export class GossipSubSignaling extends Observable<string> {
   private readonly pubsub: PubSubLike;
   private readonly subscribedTopics = new Set<string>();
   private readonly gossipHandler: (evt: CustomEvent) => void;
-  private announceInterval: ReturnType<typeof setInterval> | null = null;
+  private announceInterval: ThrottledInterval | null = null;
 
   constructor(pubsub: PubSubLike) {
     super();
@@ -110,31 +112,35 @@ export class GossipSubSignaling extends Observable<string> {
 
   startAnnounceInterval(): void {
     if (this.announceInterval) return;
-    this.announceInterval = setInterval(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ps = this.pubsub as any;
-      const gsPeers = ps.getPeers?.() ?? [];
-      const topics = ps.getTopics?.() ?? [];
-      const subs = topics.flatMap((t: string) =>
-        (ps.getSubscribers?.(t) ?? []).map(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (p: any) => `${t}:${p.toString().slice(-8)}`,
-        ),
-      );
-      log.debug(
-        "re-announce,",
-        `gs-peers: ${gsPeers.length},`,
-        `topics: ${topics},`,
-        `subs: ${subs.length}`,
-        subs.length > 0 ? subs : "",
-      );
-      this.emit("connect", []);
-    }, 15_000);
+    this.announceInterval = createThrottledInterval(
+      () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ps = this.pubsub as any;
+        const gsPeers = ps.getPeers?.() ?? [];
+        const topics = ps.getTopics?.() ?? [];
+        const subs = topics.flatMap((t: string) =>
+          (ps.getSubscribers?.(t) ?? []).map(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (p: any) => `${t}:${p.toString().slice(-8)}`,
+          ),
+        );
+        log.debug(
+          "re-announce,",
+          `gs-peers: ${gsPeers.length},`,
+          `topics: ${topics},`,
+          `subs: ${subs.length}`,
+          subs.length > 0 ? subs : "",
+        );
+        this.emit("connect", []);
+      },
+      15_000,
+      { backgroundMs: 0, fireOnResume: true },
+    );
   }
 
   destroy(): void {
     if (this.announceInterval) {
-      clearInterval(this.announceInterval);
+      this.announceInterval.destroy();
       this.announceInterval = null;
     }
     if (this.subscribedTopics.has(SIGNALING_TOPIC)) {
