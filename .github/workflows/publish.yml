@@ -2,47 +2,23 @@ name: Publish
 
 on:
   push:
-    tags: ["publish/**"]
-  workflow_dispatch:
-    inputs:
-      package:
-        description: "Package directory name (e.g. core, crypto)"
-        required: true
-        type: string
-      version:
-        description: "Version to verify (e.g. 0.1.0-alpha.2)"
-        required: true
-        type: string
+    branches: [main]
+    paths: ["packages/*/package.json"]
+  workflow_dispatch: {}
 
 concurrency:
-  group: publish-${{ inputs.package || github.ref }}
+  group: publish
   cancel-in-progress: false
 
 jobs:
   publish:
+    name: Publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Parse inputs
-        id: pkg
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            # Tag format: publish/<dir>/<version>
-            TAG="${GITHUB_REF#refs/tags/publish/}"
-            DIR="${TAG%%/*}"
-            VERSION="${TAG#*/}"
-          else
-            # workflow_dispatch
-            DIR="${{ inputs.package }}"
-            VERSION="${{ inputs.version }}"
-          fi
-          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Publishing @pokapali/$DIR@$VERSION"
 
       - uses: actions/setup-node@v4
         with:
@@ -58,15 +34,99 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Verify version
+      - name: Publish packages
+        id: publish
         run: |
-          ACTUAL=$(node -p "require('./packages/${{ steps.pkg.outputs.dir }}/package.json').version")
-          if [ "$ACTUAL" != "${{ steps.pkg.outputs.version }}" ]; then
-            echo "Version mismatch: package.json=$ACTUAL tag=${{ steps.pkg.outputs.version }}"
+          OUTPUT=$(npx changeset publish 2>&1) || {
+            echo "$OUTPUT"
             exit 1
-          fi
+          }
+          echo "$OUTPUT"
 
-      - name: Publish
-        run: npm publish -w packages/${{ steps.pkg.outputs.dir }} --access public
+          # Extract published packages for verification
+          PUBLISHED=$(echo "$OUTPUT" \
+            | grep "^New tag: " \
+            | sed 's/^New tag:  *//' \
+            || true)
+
+          if [ -z "$PUBLISHED" ]; then
+            echo "No packages to publish"
+            echo "published=none" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=yes" >> "$GITHUB_OUTPUT"
+            # Save list for verification step
+            echo "$PUBLISHED" > /tmp/published.txt
+            cat /tmp/published.txt
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published packages
+        if: steps.publish.outputs.published == 'yes'
+        run: |
+          FAIL=0
+          while IFS= read -r tag; do
+            # tag format: @pokapali/name@version
+            # Last @ separates package from version
+            VER="${tag##*@}"
+            PKG="${tag%@"$VER"}"
+
+            echo "Verifying $PKG@$VER ..."
+
+            # Poll npm for up to 2 minutes
+            FOUND=0
+            for i in $(seq 1 12); do
+              ACTUAL=$(npm view "$PKG" version \
+                2>/dev/null || true)
+              if [ "$ACTUAL" = "$VER" ]; then
+                FOUND=1
+                break
+              fi
+              echo "  attempt $i: got '$ACTUAL'," \
+                "want '$VER'"
+              sleep 10
+            done
+
+            if [ "$FOUND" -ne 1 ]; then
+              echo "FAIL: $PKG@$VER not found on npm"
+              FAIL=1
+              continue
+            fi
+
+            # Verify dist-tag
+            TAGS=$(npm view "$PKG" dist-tags \
+              --json 2>/dev/null || echo "{}")
+            case "$VER" in
+              *-next.*)
+                EXPECTED_TAG="next" ;;
+              *-*)
+                EXPECTED_TAG="next" ;;
+              *)
+                EXPECTED_TAG="latest" ;;
+            esac
+
+            TAG_VER=$(echo "$TAGS" \
+              | node -e "
+                const d = require('fs')
+                  .readFileSync(0,'utf8');
+                const t = JSON.parse(d);
+                console.log(t['$EXPECTED_TAG']||'')
+              ")
+
+            if [ "$TAG_VER" = "$VER" ]; then
+              echo "  OK: $PKG@$VER ($EXPECTED_TAG)"
+            else
+              echo "  FAIL: $PKG@$VER expected" \
+                "dist-tag '$EXPECTED_TAG' but got" \
+                "'$TAG_VER'"
+              FAIL=1
+            fi
+          done < /tmp/published.txt
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo ""
+            echo "Post-publish verification failed"
+            exit 1
+          fi
+          echo ""
+          echo "All packages verified"
