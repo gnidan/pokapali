@@ -183,7 +183,7 @@ export function CommentPopover({
       className="pkp-comment-popover"
       data-testid="comment-popover"
       role="toolbar"
-      aria-label="Comment actions"
+      aria-label={labels.toolbarAriaLabel}
       style={{
         position: "fixed",
         top: position.top,
