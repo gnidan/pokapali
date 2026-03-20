@@ -135,12 +135,14 @@ export const ActiveConversation: Story = {
     ...baseProps,
     comments: [
       makeComment({
+        id: "active-1",
         author: BOB_KEY,
         content: "This contradicts what we said in section 2.",
         ts: AGO_1D,
         anchor: { status: "resolved", start: 5, end: 25 },
       }),
       makeComment({
+        id: "active-2",
         author: ALICE_KEY,
         content: "+1, but maybe add an example here.",
         ts: AGO_2H,
@@ -151,6 +153,7 @@ export const ActiveConversation: Story = {
         },
       }),
       makeComment({
+        id: "active-3",
         author: CAROL_KEY,
         content: "Looks good to me.",
         ts: AGO_20M,
@@ -161,6 +164,7 @@ export const ActiveConversation: Story = {
         },
       }),
       makeComment({
+        id: "active-4",
         author: DAVE_KEY,
         content: "Should we mention the deadline here?",
         ts: AGO_5M,
@@ -171,6 +175,7 @@ export const ActiveConversation: Story = {
         },
       }),
       makeComment({
+        id: "active-5",
         author: BOB_KEY,
         content: "I updated the intro — let me know what " + "you think.",
         ts: AGO_JUST_NOW,
@@ -181,10 +186,7 @@ export const ActiveConversation: Story = {
         },
       }),
     ],
-    selectedId: (() => {
-      // Select the 3rd comment (Carol's)
-      return undefined;
-    })(),
+    selectedId: "active-3",
   },
 };
 
@@ -370,6 +372,9 @@ export const AnonymousAuthors: Story = {
   args: {
     ...baseProps,
     displayNames: new Map<string, string>(),
+    labels: {
+      formatAuthor: () => "Anonymous",
+    },
     comments: [
       makeComment({
         author: ALICE_KEY,
