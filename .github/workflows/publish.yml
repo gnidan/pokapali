@@ -15,7 +15,7 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -130,3 +130,7 @@ jobs:
           fi
           echo ""
           echo "All packages verified"
+
+      - name: Push per-package tags
+        if: steps.publish.outputs.published == 'yes'
+        run: git push --follow-tags
