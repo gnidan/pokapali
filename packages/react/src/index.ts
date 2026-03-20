@@ -29,6 +29,14 @@ export type {
 } from "./status-indicator.js";
 export { defaultStatusIndicatorLabels } from "./status-indicator.js";
 
+export { TopologyMap } from "./topology-map.js";
+export type {
+  TopologyMapProps,
+  TopologyMapDoc,
+  TopologyMapLabels,
+} from "./topology-map.js";
+export { defaultTopologyMapLabels } from "./topology-map.js";
+
 export { spatialLayout } from "./spatial-layout.js";
 export type { LayoutItem, PositionedItem } from "./spatial-layout.js";
 

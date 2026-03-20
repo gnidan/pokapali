@@ -25,7 +25,8 @@
       "default": "./dist/src/index.js"
     },
     "./comments.css": "./src/comments.css",
-    "./indicators.css": "./src/indicators.css"
+    "./indicators.css": "./src/indicators.css",
+    "./topology-map.css": "./src/topology-map.css"
   },
   "files": [
     "dist/src/**/*.js",
@@ -33,7 +34,8 @@
     "dist/src/**/*.js.map",
     "!dist/src/**/*.test.*",
     "src/comments.css",
-    "src/indicators.css"
+    "src/indicators.css",
+    "src/topology-map.css"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -47,6 +49,7 @@
   "peerDependencies": {
     "@pokapali/comments": "^0.1.1",
     "@pokapali/core": "^0.1.4",
+    "d3-force": "^3.0.0",
     "@tiptap/pm": "^2.0.0",
     "react": ">=18",
     "yjs": "^13.6.0"
@@ -57,11 +60,16 @@
     },
     "yjs": {
       "optional": true
+    },
+    "d3-force": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@pokapali/comments": "^0.1.1",
     "@pokapali/core": "^0.1.4",
+    "@types/d3-force": "^3.0.10",
+    "d3-force": "^3.0.0",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.2.3",
