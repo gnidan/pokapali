@@ -15,7 +15,7 @@ export interface SaveIndicatorLabels {
 
 export const defaultSaveIndicatorLabels: SaveIndicatorLabels = {
   saved: "Saved",
-  savedWithAcks: (n) => `Saved to ${n} ${n === 1 ? "server" : "servers"}`,
+  savedWithAcks: (n) => `Saved to ${n} ${n === 1 ? "pinner" : "pinners"}`,
   dirty: "Save changes",
   saving: "Saving\u2026",
   unpublished: "Save now",
