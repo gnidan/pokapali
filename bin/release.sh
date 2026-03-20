@@ -11,7 +11,7 @@ set -euo pipefail
 #   1. Verify branch and clean tree
 #   2. Capture internal changeset entries
 #   3. npx changeset version
-#   4. Inject internal entries into root CHANGELOG.md
+#   4. Aggregate entries into root CHANGELOG.md
 #   5. Show CHANGELOG diff, pause for review
 #   6. npm install (sync lockfile)
 #   7. git add -A && git commit
@@ -171,42 +171,193 @@ else
   echo "  package changes: no (internal only)"
 fi
 
-# --- 4. Inject internal entries into CHANGELOG ---
+# --- 4. Aggregate entries into root CHANGELOG ---
+#
+# Build a release section for the root CHANGELOG.md
+# that includes per-package entries (extracted from
+# their individual CHANGELOGs) and internal entries.
 
-if [ -n "$INTERNAL_ENTRIES" ]; then
-  echo ""
-  echo "=== Injecting internal entries ==="
+echo ""
+echo "=== Aggregating root CHANGELOG ==="
 
-  node -e "
-    const fs = require('fs');
-    const date = process.argv[1];
-    const entries = process.argv[2];
-    const file = 'CHANGELOG.md';
+node -e "
+  const fs = require('fs');
+  const path = require('path');
 
-    let cl = fs.readFileSync(file, 'utf8');
-    const heading = '## ' + date;
-    const section = '### Internal\n\n' + entries;
+  const date = process.argv[1];
+  const internal = process.argv[2] || '';
+  const bumped = process.argv[3] || '';
 
-    // Guard against duplicate injection
-    if (cl.includes(heading + '\n')) {
-      if (!cl.includes('### Internal')) {
-        cl = cl.replace(
+  // --- Collect per-package entries ---
+  const pkgSections = [];
+
+  for (const line of bumped.split('\n')) {
+    if (!line.trim()) continue;
+    // Format: @pokapali/name@version
+    const ver = line.slice(line.lastIndexOf('@') + 1);
+    const pkg = line.slice(0, line.lastIndexOf('@'));
+
+    // Resolve package directory
+    let dir = '';
+    for (const base of ['packages', 'apps']) {
+      if (!fs.existsSync(base)) continue;
+      for (const d of fs.readdirSync(base)) {
+        const p = path.join(base, d, 'package.json');
+        if (!fs.existsSync(p)) continue;
+        const meta = JSON.parse(
+          fs.readFileSync(p, 'utf8'));
+        if (meta.name === pkg) { dir = path.join(base, d); break; }
+      }
+      if (dir) break;
+    }
+    if (!dir) continue;
+
+    const clPath = path.join(dir, 'CHANGELOG.md');
+    if (!fs.existsSync(clPath)) continue;
+
+    const cl = fs.readFileSync(clPath, 'utf8');
+    const lines = cl.split('\n');
+
+    // Find the new version section
+    let start = -1;
+    let end = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === '## ' + ver) {
+        start = i + 1;
+      } else if (start >= 0 && lines[i].startsWith('## ')) {
+        end = i;
+        break;
+      }
+    }
+    if (start < 0) continue;
+
+    // Extract entries, filtering out sub-headings
+    // and 'Updated dependencies' blocks
+    const entries = [];
+    let inDepBlock = false;
+    for (let i = start; i < end; i++) {
+      const l = lines[i];
+      // Skip sub-headings like '### Patch Changes'
+      if (l.startsWith('### ')) continue;
+      // Detect 'Updated dependencies' list items
+      if (l.startsWith('- Updated dependencies')) {
+        inDepBlock = true;
+        continue;
+      }
+      // Continuation of dep block (indented)
+      if (inDepBlock) {
+        if (l.startsWith('  ') && !l.startsWith('- ')) {
+          continue;
+        }
+        inDepBlock = false;
+      }
+      // New list item resets dep block
+      if (l.startsWith('- ')) {
+        inDepBlock = false;
+      }
+      entries.push(l);
+    }
+
+    // Trim leading/trailing blank lines
+    while (entries.length && !entries[0].trim()) {
+      entries.shift();
+    }
+    while (entries.length
+      && !entries[entries.length - 1].trim()) {
+      entries.pop();
+    }
+
+    if (entries.length > 0) {
+      pkgSections.push({
+        pkg, ver,
+        body: entries.join('\n')
+      });
+    }
+  }
+
+  // --- Build the release section ---
+  const parts = [];
+
+  for (const s of pkgSections) {
+    parts.push('### ' + s.pkg + ' (' + s.ver + ')\n\n'
+      + s.body);
+  }
+
+  if (internal.trim()) {
+    parts.push('### Internal\n\n' + internal);
+  }
+
+  if (parts.length === 0) {
+    process.exit(0);
+  }
+
+  const heading = '## ' + date;
+  const section = parts.join('\n\n');
+
+  // --- Inject into root CHANGELOG.md ---
+  const file = 'CHANGELOG.md';
+  let root = fs.readFileSync(file, 'utf8');
+
+  // Guard against duplicate injection
+  if (root.includes(heading + '\n')) {
+    // Date heading exists — only add if no package
+    // sections present yet (idempotency)
+    const headingIdx = root.indexOf(heading);
+    const nextH2 = root.indexOf('\n## ',
+      headingIdx + 1);
+    const existing = nextH2 >= 0
+      ? root.slice(headingIdx, nextH2)
+      : root.slice(headingIdx);
+    // Check if any package heading already present
+    const hasPkgHeading = pkgSections.some(
+      s => existing.includes('### ' + s.pkg));
+    if (!hasPkgHeading && pkgSections.length > 0) {
+      // Add package sections before Internal
+      const internalIdx = existing
+        .indexOf('### Internal');
+      if (internalIdx >= 0) {
+        const pkgPart = pkgSections
+          .map(s => '### ' + s.pkg
+            + ' (' + s.ver + ')\n\n' + s.body)
+          .join('\n\n');
+        root = root.replace(
+          heading + existing.slice(
+            0, internalIdx),
+          heading + existing.slice(0, internalIdx)
+            + pkgPart + '\n\n'
+        );
+      } else {
+        root = root.replace(
           heading,
           heading + '\n\n' + section
         );
       }
-    } else {
-      cl = cl.replace(
-        '## [Unreleased]',
-        '## [Unreleased]\n\n'
-          + heading + '\n\n' + section
+    } else if (!existing.includes('### Internal')
+      && internal.trim()) {
+      // Only internal entries to add
+      root = root.replace(
+        heading,
+        heading + '\n\n### Internal\n\n' + internal
       );
     }
-    fs.writeFileSync(file, cl);
-  " "$RELEASE_DATE" "$INTERNAL_ENTRIES"
+  } else {
+    root = root.replace(
+      '## [Unreleased]',
+      '## [Unreleased]\n\n'
+        + heading + '\n\n' + section
+    );
+  }
 
+  fs.writeFileSync(file, root);
+" "$RELEASE_DATE" "$INTERNAL_ENTRIES" "$BUMPED"
+
+if [ -n "$BUMPED" ]; then
+  echo "  aggregated $(echo "$BUMPED" \
+    | wc -l | tr -d ' ') package(s)"
+fi
+if [ -n "$INTERNAL_ENTRIES" ]; then
   echo "  injected $(echo "$INTERNAL_ENTRIES" \
-    | grep -c '^-') entries into CHANGELOG.md"
+    | grep -c '^-') internal entries"
 fi
 
 # --- 5. Show CHANGELOG diff for review ---
