@@ -44,13 +44,37 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun1.l.google.com:19302" },
 ];
 
+/**
+ * Configuration for a pokapali application instance.
+ * Passed to {@link pokapali} to create an app that
+ * can create and open collaborative documents.
+ */
 export interface PokapaliConfig {
+  /**
+   * Application identifier. Documents created by
+   * different appIds are independent even on the
+   * same origin. Defaults to `""`.
+   */
   appId?: string;
+  /** Named channels (Yjs subdocs) for this app's
+   *  documents. At least one is required. */
   channels: string[];
+  /** Channel to treat as the primary document
+   *  content. Defaults to the first channel. */
   primaryChannel?: string;
+  /** Base URL for capability links (e.g.
+   *  `https://example.com`). Used to build
+   *  shareable document URLs. */
   origin: string;
+  /** Additional WebSocket signaling server URLs.
+   *  Empty by default — signaling uses GossipSub
+   *  via libp2p. */
   signalingUrls?: string[];
+  /** Override libp2p bootstrap peer multiaddrs.
+   *  Rarely needed. */
   bootstrapPeers?: string[];
+  /** WebRTC peer connection options passed to
+   *  simple-peer (e.g. custom ICE servers). */
   rtc?: SyncOptions["peerOpts"];
   /**
    * Enable IndexedDB persistence for Yjs state and
@@ -61,11 +85,22 @@ export interface PokapaliConfig {
   persistence?: boolean;
 }
 
+/**
+ * A configured pokapali application. Use
+ * {@link create} to make a new document or
+ * {@link open} to join an existing one via URL.
+ */
 export interface PokapaliApp {
+  /** Creates a new document with admin access. */
   create(): Promise<Doc>;
+  /** Opens an existing document from a capability
+   *  URL. The URL's fragment determines the access
+   *  level (admin, write, or read). */
   open(url: string): Promise<Doc>;
   /** Check if a URL matches this app's doc format. */
   isDocUrl(url: string): boolean;
+  /** Extracts the document's IPNS name from a
+   *  capability URL. */
   docIdFromUrl(url: string): string;
 }
 
@@ -85,6 +120,16 @@ interface DocInit {
   afterSubdocSetup?: (metaDoc: import("yjs").Doc) => void;
 }
 
+/**
+ * Creates a pokapali application instance. This is
+ * the main entry point for the library.
+ *
+ * @param options - Application configuration.
+ * @returns A {@link PokapaliApp} that can create
+ *   and open collaborative documents.
+ * @throws In non-browser environments. Use
+ *   `@pokapali/node` for Node.js.
+ */
 export function pokapali(options: PokapaliConfig): PokapaliApp {
   if (typeof window === "undefined") {
     throw new Error(

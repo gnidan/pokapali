@@ -10,6 +10,8 @@
  *   }
  */
 
+/** Base error class for all pokapali errors.
+ *  Catch this for a convenient catch-all. */
 export class PokapaliError extends Error {
   constructor(message: string) {
     super(message);

@@ -27,8 +27,16 @@ import type { Doc, DocParams } from "./create-doc.js";
 
 const log = createLogger("core:rotate");
 
+/**
+ * Returned by {@link Doc.rotate}. Contains the new
+ * document and a signed forwarding record that
+ * redirects the old IPNS name to the new one.
+ */
 export interface RotateResult {
+  /** The rotated document (new keys, new IPNS name). */
   newDoc: Doc;
+  /** CBOR-encoded signed forwarding record. Store
+   *  this to redirect old URLs to the new doc. */
   forwardingRecord: Uint8Array;
 }
 

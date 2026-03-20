@@ -4,6 +4,7 @@ import { createLogger } from "@pokapali/log";
 
 const log = createLogger("node-registry");
 
+/** GossipSub topic for node capability broadcasts. */
 export const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
 /** Node becomes stale (greyed out) after this long
  *  without a caps broadcast. 5x the 30s caps interval
@@ -18,11 +19,14 @@ const PRUNE_INTERVAL_MS = 30_000;
  *  single-check flicker from transient hiccups. */
 const DISCONNECT_HYSTERESIS = 2;
 
+/** A neighbor reported by a relay node in v2 caps. */
 export interface Neighbor {
   peerId: string;
   role?: string;
 }
 
+/** A relay or pinner node discovered via GossipSub
+ *  capability broadcasts. */
 export interface KnownNode {
   peerId: string;
   roles: string[];
@@ -41,10 +45,15 @@ export interface KnownNode {
   httpUrl: string | undefined;
 }
 
+/** Events emitted by {@link NodeRegistry}. */
 export interface NodeRegistryEvents {
   change: [];
 }
 
+/**
+ * Tracks known relay and pinner nodes via GossipSub
+ * capability broadcasts. Per-Helia singleton.
+ */
 export interface NodeRegistry {
   /** All known non-stale nodes. */
   readonly nodes: ReadonlyMap<string, KnownNode>;

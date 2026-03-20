@@ -15,6 +15,7 @@ interface GossipSubLike extends PubSub {
   getMeshPeers(topic: string): PeerId[];
 }
 
+/** Information about a known relay or pinner node. */
 export interface NodeInfo {
   peerId: string;
   short: string;
@@ -30,12 +31,17 @@ export interface NodeInfo {
   browserCount: number | undefined;
 }
 
+/** GossipSub mesh statistics. */
 export interface GossipSubDiagnostic {
   peers: number;
   topics: number;
   meshPeers: number;
 }
 
+/**
+ * Snapshot of the document's P2P state. Returned
+ * by {@link Doc.diagnostics}.
+ */
 export interface Diagnostics {
   ipfsPeers: number;
   nodes: NodeInfo[];

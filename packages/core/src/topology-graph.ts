@@ -7,6 +7,7 @@
 
 import { awarenessField } from "./awareness-state.js";
 
+/** A node in the topology graph visualization. */
 export interface TopologyNode {
   id: string;
   kind: "self" | "relay" | "pinner" | "relay+pinner" | "browser";
@@ -19,17 +20,25 @@ export interface TopologyNode {
   browserCount?: number;
 }
 
+/** A connection between two topology nodes. */
 export interface TopologyGraphEdge {
   source: string;
   target: string;
   connected: boolean;
 }
 
+/**
+ * Full topology graph merging own connections,
+ * peer awareness data, and relay-relay edges.
+ * Returned by {@link Doc.topologyGraph}.
+ */
 export interface TopologyGraph {
   nodes: TopologyNode[];
   edges: TopologyGraphEdge[];
 }
 
+/** Raw topology edge from node capability
+ *  broadcasts. */
 export interface TopologyEdge {
   source: string;
   target: string;
