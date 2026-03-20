@@ -149,6 +149,10 @@ export const MAX_INTERPRETER_RETRIES = 3;
  *  Exponential: BASE * 4^(attempt-1) → 2s, 8s, 32s. */
 export const RETRY_BASE_MS = 2_000;
 
+/** Default depth for chain prefetching after
+ *  tip-advanced. Set to 0 to disable. */
+export const DEFAULT_PREFETCH_DEPTH = 3;
+
 // Track scheduled wake-ups to avoid duplicates
 const scheduledWakeups = new WeakMap<
   AsyncQueue<Fact>,
@@ -226,12 +230,21 @@ export interface ScanOutput {
   fact: Fact;
 }
 
+export interface InterpreterOptions {
+  /** How many parent blocks to prefetch after
+   *  tip-advanced. Default: {@link DEFAULT_PREFETCH_DEPTH}.
+   *  Set to 0 to disable. */
+  prefetchDepth?: number;
+}
+
 export async function runInterpreter(
   stateStream: AsyncIterable<ScanOutput>,
   effects: EffectHandlers,
   feedback: AsyncQueue<Fact>,
   signal: AbortSignal,
+  options?: InterpreterOptions,
 ): Promise<void> {
+  const prefetchDepth = options?.prefetchDepth ?? DEFAULT_PREFETCH_DEPTH;
   signal.addEventListener("abort", () => clearAllWakeups(feedback), {
     once: true,
   });
@@ -380,6 +393,33 @@ export async function runInterpreter(
             }
           }
         }
+      }
+    }
+
+    // --- Prefetch parent blocks after tip-advanced ---
+    // Walk prev links from the new tip to dispatch
+    // fetches for parent blocks that haven't been
+    // fetched yet. This catches pinner-index and
+    // cache-sourced entries that shouldAutoFetch
+    // would skip, and avoids waiting for each block
+    // to decode before discovering the next.
+    if (fact.type === "tip-advanced" && prefetchDepth > 0) {
+      let walkCid: CID | undefined = fact.cid;
+      let remaining = prefetchDepth;
+      while (walkCid && remaining > 0) {
+        const walkEntry = next.chain.entries.get(walkCid.toString());
+        if (!walkEntry?.prev) break;
+        const prevCid = walkEntry.prev;
+        const prevEntry = next.chain.entries.get(prevCid.toString());
+        if (
+          prevEntry &&
+          prevEntry.blockStatus === "unknown" &&
+          !effects.getBlock(prevCid)
+        ) {
+          dispatchFetch(prevCid, prevEntry, effects, feedback);
+        }
+        walkCid = prevCid;
+        remaining--;
       }
     }
 

@@ -344,6 +344,9 @@ export interface DocParams {
    *  Rejection is handled gracefully — doc continues
    *  in local-only mode. */
   p2pReady?: Promise<P2PDeps>;
+  /** How many parent blocks to prefetch after
+   *  tip-advanced. Default 3, set 0 to disable. */
+  prefetchDepth?: number;
 }
 
 // Pure status derivation functions extracted to
@@ -1147,17 +1150,17 @@ export function createDoc(params: DocParams): Doc {
     };
 
     // --- Run interpreter ---
-    runInterpreter(captureState(stateStream), effects, factQueue, signal).catch(
-      (err) => {
-        if (!signal.aborted) {
-          log.warn("interpreter error:", err);
-          // Ensure ready() resolves even if the
-          // interpreter crashes — otherwise the doc
-          // hangs permanently with no recovery path.
-          markReady();
-        }
-      },
-    );
+    runInterpreter(captureState(stateStream), effects, factQueue, signal, {
+      prefetchDepth: params.prefetchDepth,
+    }).catch((err) => {
+      if (!signal.aborted) {
+        log.warn("interpreter error:", err);
+        // Ensure ready() resolves even if the
+        // interpreter crashes — otherwise the doc
+        // hangs permanently with no recovery path.
+        markReady();
+      }
+    });
 
     // --- HTTP tip fetch (fastest path) ---
     // Fire in parallel with IPNS — whichever
