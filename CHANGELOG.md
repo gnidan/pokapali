@@ -88,6 +88,20 @@ The format is based on
 
 ## 2026-03-19
 
+### @pokapali/react (0.1.2)
+
+- [#314](https://github.com/gnidan/pokapali/issues/314)
+  [`ca36041`](https://github.com/gnidan/pokapali/commit/ca36041bf3e5da46e6b6829a44b5204f47fbbf25)
+  Fix package.json metadata: add missing engines
+  field to react.
+
+### @pokapali/test-utils (0.1.2)
+
+- [#314](https://github.com/gnidan/pokapali/issues/314)
+  [`ca36041`](https://github.com/gnidan/pokapali/commit/ca36041bf3e5da46e6b6829a44b5204f47fbbf25)
+  Fix package.json metadata: update test-utils
+  description to reflect consumer-facing status.
+
 ### Internal
 
 - Add changeset enforcement to PR CI checks on both
