@@ -8,16 +8,36 @@ import { base64urlEncode } from "@pokapali/crypto";
  * grant write or admin access.
  */
 export interface CapabilityKeys {
+  /** AES-GCM-256 key for encrypting/decrypting
+   *  snapshots. Present at all permission levels. */
   readKey?: CryptoKey;
+  /** Ed25519 private key bytes for IPNS publishing.
+   *  Present for writers and admins. */
   ipnsKeyBytes?: Uint8Array;
+  /** Key used for document rotation (re-keying).
+   *  Present for admins only. */
   rotationKey?: Uint8Array;
+  /** Shared password for the awareness (cursor/
+   *  presence) room. */
   awarenessRoomPassword?: string;
+  /** Per-channel symmetric keys, keyed by channel
+   *  name. Writers receive keys for their permitted
+   *  channels; admins derive all keys via HKDF. */
   channelKeys?: Record<string, Uint8Array>;
 }
 
+/**
+ * Describes the permissions derived from a set of
+ * {@link CapabilityKeys}. Returned by
+ * {@link inferCapability}.
+ */
 export interface Capability {
+  /** Channel names the holder can write to. */
   channels: Set<string>;
+  /** True if the holder has the IPNS key needed
+   *  to publish snapshots. */
   canPushSnapshots: boolean;
+  /** True if the holder has the rotation key. */
   isAdmin: boolean;
 }
 
@@ -35,6 +55,11 @@ export interface Capability {
 
 const VERSION = 0x00;
 
+/**
+ * Serializes capability keys into a base64url string
+ * suitable for a URL fragment. The wire format is a
+ * version byte followed by sorted label–value pairs.
+ */
 export async function encodeFragment(keys: CapabilityKeys): Promise<string> {
   const entries: Array<[string, Uint8Array]> = [];
 
@@ -97,6 +122,14 @@ export async function encodeFragment(keys: CapabilityKeys): Promise<string> {
   return base64urlEncode(buf);
 }
 
+/**
+ * Parses a base64url-encoded capability fragment
+ * back into {@link CapabilityKeys}. Unknown labels
+ * are silently ignored for forward compatibility.
+ *
+ * @throws If the fragment is truncated or uses an
+ *   unknown version byte.
+ */
 export async function decodeFragment(
   fragment: string,
 ): Promise<CapabilityKeys> {
@@ -192,6 +225,14 @@ export async function decodeFragment(
   return keys;
 }
 
+/**
+ * Derives a {@link Capability} from a set of keys
+ * and the document's configured channel list.
+ *
+ * @param keys - The holder's capability keys.
+ * @param channels - All channel names configured
+ *   for the document.
+ */
 export function inferCapability(
   keys: CapabilityKeys,
   channels: string[],
@@ -212,12 +253,27 @@ export function inferCapability(
   };
 }
 
+/** Result of parsing a pokapali capability URL. */
 export interface ParsedUrl {
+  /** Origin + path prefix before `/doc/`. */
   base: string;
+  /** The document's IPNS name (public identifier). */
   ipnsName: string;
+  /** Decoded capability keys from the fragment. */
   keys: CapabilityKeys;
 }
 
+/**
+ * Builds a full pokapali capability URL.
+ *
+ * @param base - Origin and optional path prefix
+ *   (e.g. `https://example.com`).
+ * @param ipnsName - The document's IPNS name.
+ * @param keys - Capability keys to encode in the
+ *   URL fragment.
+ * @returns A URL of the form
+ *   `{base}/doc/{ipnsName}#{fragment}`.
+ */
 export async function buildUrl(
   base: string,
   ipnsName: string,
@@ -228,6 +284,13 @@ export async function buildUrl(
   return `${b}/doc/${ipnsName}#${fragment}`;
 }
 
+/**
+ * Parses a pokapali capability URL into its
+ * components: base, IPNS name, and decoded keys.
+ *
+ * @throws If the URL is missing a fragment or the
+ *   `/doc/` path segment.
+ */
 export async function parseUrl(url: string): Promise<ParsedUrl> {
   const hashIdx = url.indexOf("#");
   if (hashIdx === -1) {
@@ -257,11 +320,31 @@ export async function parseUrl(url: string): Promise<ParsedUrl> {
   return { base, ipnsName, keys };
 }
 
+/**
+ * Describes the permissions to grant when narrowing
+ * a capability via {@link narrowCapability}.
+ */
 export interface CapabilityGrant {
+  /** Channels to include. `undefined` preserves all
+   *  source channels; `[]` removes all. */
   channels?: string[];
+  /** Whether to include the IPNS key (snapshot
+   *  publishing). Defaults to false. */
   canPushSnapshots?: boolean;
 }
 
+/**
+ * Creates a narrowed copy of capability keys that
+ * grants only the permissions specified in the
+ * grant. The rotation key is never included
+ * (admin-only). Read key and awareness password
+ * are always preserved.
+ *
+ * @param keys - The source (admin) capability keys.
+ * @param grant - The permissions to include.
+ * @throws If the grant requests channels not present
+ *   in the source keys.
+ */
 export function narrowCapability(
   keys: CapabilityKeys,
   grant: CapabilityGrant,
@@ -313,7 +396,11 @@ export function narrowCapability(
   return result;
 }
 
-// Re-export DocKeys for convenience
+/**
+ * Re-exported from `@pokapali/crypto` for
+ * convenience. Contains all key material for a
+ * document.
+ */
 export type { DocKeys };
 
 // --- Encoding utilities ---
