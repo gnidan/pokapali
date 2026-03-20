@@ -55,7 +55,15 @@ const app = pokapali({
 | `rtc`            | `object`   | No       | —               | WebRTC peer connection options passed to `simple-peer` (e.g. custom ICE servers).                                                                                                                  |
 | `signalingUrls`  | `string[]` | No       | `[]`            | Additional WebSocket signaling server URLs. Empty by default — signaling uses GossipSub via libp2p, not WebSocket servers.                                                                         |
 | `bootstrapPeers` | `string[]` | No       | libp2p defaults | Override libp2p bootstrap peer multiaddrs. Rarely needed — the defaults connect to the public libp2p network.                                                                                      |
-| `persistence`    | `boolean`  | No       | `true`          | Enable IndexedDB persistence for Yjs state and IPFS blocks. Set to `false` to disable (e.g. for testing without cache).                                                                            |
+| `persistence`    | `boolean`  | No       | `true`          | Enable IndexedDB persistence for Yjs state and IPFS blocks. Set to `false` for non-browser environments or testing (see below).                                                                    |
+
+**`persistence: false`** — Required when IndexedDB is
+unavailable (Node.js, SSR, test runners like Vitest with
+jsdom). Without it, pokapali attempts to open IndexedDB
+on startup and throws. Documents with persistence
+disabled keep all state in memory — data is lost when the
+page reloads or the process exits. Use `doc.publish()` to
+persist snapshots to pinners instead.
 
 ### 2. Create or open a document
 
@@ -121,7 +129,14 @@ levels:
 doc.urls.admin; // full control (null if not admin)
 doc.urls.write; // edit + publish (null if read-only)
 doc.urls.read; // view only (always available)
+doc.urls.best; // highest-privilege URL available
 ```
+
+`doc.urls.best` returns the highest-privilege URL the
+current capability allows: admin if available,
+otherwise write, otherwise read. Use it for shareable
+links or URL bar updates where you want to preserve
+the user's full access level.
 
 URLs are self-contained capability tokens — the hash
 fragment encodes encrypted keys. Anyone with the URL can
@@ -315,7 +330,17 @@ the background. Local content from IndexedDB is
 available right away — the editor can mount and accept
 input before any network connection is established.
 Use `doc.ready()` to wait for the first remote state
-if you need it.
+if you need it. Pass `{ timeoutMs }` to reject with a
+`TimeoutError` if initial sync takes too long:
+
+```ts
+await doc.ready({ timeoutMs: 60_000 });
+```
+
+Without a timeout, `ready()` waits indefinitely — if
+no pinner or peers are reachable, it never resolves.
+See [integration-guide.md](integration-guide.md) for
+the full ready() pattern.
 
 **Connectivity** — `doc.status` tells you whether the
 document is connected to peers:
@@ -648,7 +673,10 @@ to you.
 
 The `createAutoSaver` utility handles snapshot publishing
 automatically on visibility change, beforeunload, and
-debounced `publish-needed` events:
+debounced `publish-needed` events. **Browser only** —
+it uses `window.addEventListener("beforeunload")` and
+`document.addEventListener("visibilitychange")`. For
+non-browser environments, call `doc.publish()` directly.
 
 ```ts
 import { createAutoSaver } from "@pokapali/core";
