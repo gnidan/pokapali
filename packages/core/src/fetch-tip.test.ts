@@ -261,6 +261,68 @@ describe("fetchTipFromPinners", () => {
     expect(result!.retainUntil).toBeUndefined();
   });
 
+  it("rejects block with CID hash mismatch", async () => {
+    const block = new Uint8Array([1, 2, 3, 4]);
+    const cid = await makeCid(block);
+    const tampered = new Uint8Array([5, 6, 7, 8]);
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        cid: cid.toString(),
+        block: uint8ToBase64(tampered),
+        peerId: "12D3KooW-evil",
+        seq: 1,
+        ts: 1000,
+      }),
+    });
+
+    const result = await fetchTipFromPinners(
+      ["https://pinner1.example.com"],
+      "abc123",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("skips tampered block and " + "succeeds on next pinner", async () => {
+    const block = new Uint8Array([1, 2, 3]);
+    const cid = await makeCid(block);
+    const tampered = new Uint8Array([9, 9, 9]);
+
+    // First pinner returns tampered block
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        cid: cid.toString(),
+        block: uint8ToBase64(tampered),
+        peerId: "12D3KooW-bad",
+        seq: 1,
+        ts: 1000,
+      }),
+    });
+    // Second pinner returns correct block
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        cid: cid.toString(),
+        block: uint8ToBase64(block),
+        peerId: "12D3KooW-good",
+        seq: 1,
+        ts: 1000,
+      }),
+    });
+
+    const result = await fetchTipFromPinners(
+      ["https://evil.example.com", "https://good.example.com"],
+      "abc123",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.peerId).toBe("12D3KooW-good");
+    expect(result!.block).toEqual(block);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("respects abort signal", async () => {
     const ac = new AbortController();
     ac.abort();
