@@ -1377,7 +1377,7 @@ describe("interpreter block retry scheduling", () => {
   });
 
   it("exports RETRY_BASE_MS", () => {
-    expect(RETRY_BASE_MS).toBe(10_000);
+    expect(RETRY_BASE_MS).toBe(2_000);
   });
 
   it(
