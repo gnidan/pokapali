@@ -221,15 +221,13 @@ echo "  lockfile updated"
 echo ""
 echo "=== Committing release ==="
 git add -A
-git commit -m "$(cat <<EOF
-chore: release $CORE_VERSION
+COMMIT_MSG="chore: release $CORE_VERSION
 
 Computed by changeset version. Bumps changed packages,
 updates CHANGELOG.md entries, and syncs lockfile.
 
-Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>
-EOF
-)"
+Co-authored-by: g. nicholas d'andrea <nick@gnidan.org>"
+git commit -m "$COMMIT_MSG"
 
 echo "  committed: $(git rev-parse --short HEAD)"
 
