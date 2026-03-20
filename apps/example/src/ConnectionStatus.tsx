@@ -242,9 +242,7 @@ function BlockRequestsDropdown({
   versions: VersionHistory;
   loading: LoadingState;
 }) {
-  const pending = versions.entries.filter((e) => e.status !== "available");
-
-  if (pending.length === 0 && !versions.walking) {
+  if (versions.entries.length === 0 && !versions.walking) {
     return null;
   }
 
@@ -252,16 +250,18 @@ function BlockRequestsDropdown({
     <div className="cs-block-dropdown">
       {versions.walking && (
         <div className="cs-block-row cs-block-walking">
-          Walking version chain\u2026
+          Walking version chain…
         </div>
       )}
-      {pending.map((e) => {
+      {versions.entries.map((e) => {
         const cid = e.cid.toString();
         return (
           <div
             key={cid}
             className={
-              "cs-block-row" + (e.status === "failed" ? " cs-block-failed" : "")
+              "cs-block-row" +
+              (e.status === "failed" ? " cs-block-failed" : "") +
+              (e.status === "available" ? " cs-block-available" : "")
             }
           >
             <span className="cs-block-cid" title={cid}>
@@ -290,17 +290,26 @@ function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
   const isFailed = fs.status === "failed";
 
   const hasPending = versions.entries.some((e) => e.status !== "available");
-  const showDropdown = hasPending || versions.walking;
+  const hasEntries = versions.entries.length > 0;
+  const showDropdown = hasEntries || hasPending || versions.walking;
 
-  if (behind <= 0 && !isFailed && !isLoading) {
+  if (behind <= 0 && !isFailed && !isLoading && !hasEntries) {
     return null;
   }
 
   const label = isLoading
-    ? "Loading\u2026"
+    ? "Loading…"
     : isFailed
       ? "Load failed"
-      : `~${behind} edits behind`;
+      : behind > 0
+        ? `~${behind} edits behind`
+        : `${versions.entries.length} versions loaded`;
+
+  const stateClass = isFailed
+    ? " cs-fetch-failed"
+    : behind > 0 || isLoading
+      ? " cs-behind"
+      : " cs-synced";
 
   return (
     <>
@@ -308,7 +317,7 @@ function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
       <span
         className={
           "cs-section cs-sync-summary" +
-          (isFailed ? " cs-fetch-failed" : " cs-behind") +
+          stateClass +
           (showDropdown ? " cs-has-dropdown" : "")
         }
         title={
