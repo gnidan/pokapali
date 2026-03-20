@@ -82,6 +82,10 @@ export default defineConfig(({ command }) => ({
             __dirname,
             "../../packages/react/src/comments.css",
           ),
+          "@pokapali/react/indicators.css": path.resolve(
+            __dirname,
+            "../../packages/react/src/indicators.css",
+          ),
           ...Object.fromEntries(
             localPkgs.map((p) => [
               `@pokapali/${p}`,
