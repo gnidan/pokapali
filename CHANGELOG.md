@@ -88,6 +88,29 @@ The format is based on
 
 ## 2026-03-19
 
+### @pokapali/react (0.1.2)
+
+- [#314](https://github.com/gnidan/pokapali/issues/314)
+  [`ca36041`](https://github.com/gnidan/pokapali/commit/ca36041bf3e5da46e6b6829a44b5204f47fbbf25)
+  Fix package.json metadata: add missing engines
+  field to react.
+
+### @pokapali/test-utils (0.1.2)
+
+- [#314](https://github.com/gnidan/pokapali/issues/314)
+  [`ca36041`](https://github.com/gnidan/pokapali/commit/ca36041bf3e5da46e6b6829a44b5204f47fbbf25)
+  Fix package.json metadata: update test-utils
+  description to reflect consumer-facing status.
+
+### @pokapali/example (0.0.1)
+
+- [#332](https://github.com/gnidan/pokapali/issues/332)
+  [`d969b45`](https://github.com/gnidan/pokapali/commit/d969b45e5b57f5296e31eca73e491aa7c5129cdc)
+  Keep block request details visible after load.
+  Block request dropdown now shows all version entries
+  including loaded ones (dimmed). SyncSummary persists
+  with "N versions loaded" label.
+
 ### Internal
 
 - Add changeset enforcement to PR CI checks on both
