@@ -12,6 +12,7 @@
     { "path": "packages/core" },
     { "path": "packages/node" },
     { "path": "packages/load-test" },
-    { "path": "apps/example" }
+    { "path": "apps/example" },
+    { "path": "apps/storybook" }
   ]
 }
