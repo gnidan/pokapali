@@ -454,8 +454,6 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       let block: Uint8Array;
       if (blockData) {
         block = blockData;
-        // Store inline block for future use
-        await helia.blockstore.put(cid, blockData);
       } else {
         block = await helia.blockstore.get(cid, {
           signal: AbortSignal.timeout(30_000),
@@ -500,6 +498,11 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
             ` got=${bytesToHex(node.publicKey).slice(0, 16)}`,
         );
         return false;
+      }
+
+      // Store block only after validation passes
+      if (blockData) {
+        await helia.blockstore.put(cid, blockData);
       }
 
       knownNames.add(ipnsName);

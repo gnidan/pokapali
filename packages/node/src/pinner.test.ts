@@ -232,6 +232,32 @@ describe("pinner with mock helia", () => {
       await pinner.stop();
     });
 
+    it("does not store invalid inline block " + "in blockstore", async () => {
+      const garbage = new Uint8Array(256);
+      crypto.getRandomValues(garbage);
+      const hash = await sha256.digest(garbage);
+      const cid = CID.create(1, dagCborCode, hash);
+      const mockHelia = createMockHelia();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+      });
+      await pinner.start();
+
+      // Pass garbage as inline blockData
+      pinner.onAnnouncement(testIpnsName, cid.toString(), "test-app", garbage);
+      await pinner.flush();
+
+      // Block should NOT be stored
+      expect(mockHelia.blockstore.put).not.toHaveBeenCalled();
+      const tip = pinner.history.getTip(testIpnsName);
+      expect(tip).toBeNull();
+
+      await pinner.stop();
+    });
+
     it("handles blockstore fetch errors gracefully", async () => {
       // Empty blockstore — get() will throw
       const mockHelia = createMockHelia();
