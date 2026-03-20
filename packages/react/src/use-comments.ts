@@ -20,6 +20,16 @@ import {
 
 import { useFeed } from "./use-feed.js";
 
+// ── Default comment data ────────────────────────
+
+/**
+ * Default comment data shape with open/resolved
+ * status. Used by CommentSidebar for filtering.
+ */
+export interface CommentData {
+  status: "open" | "resolved";
+}
+
 // ── Helpers ─────────────────────────────────────
 
 function tryChannel(doc: Doc, name: string): ReturnType<Doc["channel"]> | null {

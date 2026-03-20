@@ -6,7 +6,13 @@ export { useParticipants } from "./use-participants.js";
 export { useSnapshotFlash } from "./use-snapshot-flash.js";
 
 export { useComments } from "./use-comments.js";
-export type { UseCommentsOptions } from "./use-comments.js";
+export type { CommentData, UseCommentsOptions } from "./use-comments.js";
+
+export { CommentSidebar } from "./CommentSidebar.js";
+export type { CommentSidebarProps } from "./CommentSidebar.js";
+
+export { CommentPopover } from "./CommentPopover.js";
+export type { CommentPopoverProps } from "./CommentPopover.js";
 
 export { spatialLayout } from "./spatial-layout.js";
 export type { LayoutItem, PositionedItem } from "./spatial-layout.js";
