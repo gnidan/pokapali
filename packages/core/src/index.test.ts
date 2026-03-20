@@ -57,6 +57,9 @@ vi.mock("./announce.js", () => ({
 
 vi.mock("./peer-discovery.js", () => ({
   startRoomDiscovery: vi.fn(() => ({
+    relayPeerIds: new Set(),
+    relayEntries: vi.fn(() => []),
+    addExternalRelays: vi.fn(),
     stop: vi.fn(),
   })),
 }));
