@@ -67,43 +67,54 @@ echo "  tree: clean"
 # describe internal work (CI, docs, scripts). These
 # are consumed by `changeset version` but don't
 # appear in any per-package CHANGELOG. We capture
-# them here and inject into the root CHANGELOG.md.
+# them here and format them through the same
+# changelog generator used for package entries,
+# giving them issue links and commit SHA links.
 
-INTERNAL_ENTRIES=""
-for cs in .changeset/*.md; do
-  [ -f "$cs" ] || continue
-  [ "$(basename "$cs")" = "README.md" ] && continue
+INTERNAL_ENTRIES=$(node -e "
+  import { readFileSync, readdirSync } from 'fs';
+  import { execSync } from 'child_process';
+  import { resolve } from 'path';
+  import generator from './.changeset/changelog-generator.mjs';
 
-  # Parse frontmatter (between the two --- markers)
-  FRONT=$(awk \
-    'BEGIN{n=0} /^---$/{n++;next} n==1{print}' \
-    "$cs")
+  const files = readdirSync('.changeset')
+    .filter(f => f.endsWith('.md') && f !== 'README.md')
+    .map(f => '.changeset/' + f);
 
-  # If frontmatter is empty (no package refs),
-  # capture the body as an internal entry
-  if [ -z "$(echo "$FRONT" | tr -d '[:space:]')" ]
-  then
-    BODY=$(awk \
-      'BEGIN{n=0} /^---$/{n++;next} n>=2' \
-      "$cs" | sed '/^$/d')
-    if [ -n "$BODY" ]; then
-      # Format each entry as a list item
-      FIRST_LINE=$(echo "$BODY" | head -1)
-      REST=$(echo "$BODY" | tail -n +2)
-      ENTRY="- $FIRST_LINE"
-      if [ -n "$REST" ]; then
-        ENTRY="$ENTRY
-$(echo "$REST" | awk '{print "  " $0}')"
-      fi
-      if [ -n "$INTERNAL_ENTRIES" ]; then
-        INTERNAL_ENTRIES="$INTERNAL_ENTRIES
-$ENTRY"
-      else
-        INTERNAL_ENTRIES="$ENTRY"
-      fi
-    fi
-  fi
-done
+  const entries = [];
+  for (const file of files) {
+    const raw = readFileSync(file, 'utf8');
+    const parts = raw.split('---');
+    if (parts.length < 3) continue;
+
+    // Empty frontmatter = internal entry
+    const front = parts[1].trim();
+    if (front) continue;
+
+    const body = parts.slice(2).join('---').trim();
+    if (!body) continue;
+
+    // Look up commit SHA that added this file
+    let commit = '';
+    try {
+      commit = execSync(
+        'git log --diff-filter=A --format=%H -- ' + file,
+        { encoding: 'utf8' }
+      ).trim().split('\n')[0] || '';
+    } catch {}
+
+    // Format through the changelog generator
+    const formatted = await generator.getReleaseLine(
+      { summary: body, commit },
+      'patch'
+    );
+    if (formatted.trim()) entries.push(formatted.trim());
+  }
+
+  if (entries.length > 0) {
+    process.stdout.write(entries.join('\n'));
+  }
+" --input-type=module 2>&1)
 
 if [ -n "$INTERNAL_ENTRIES" ]; then
   echo "  internal entries: $(echo \
