@@ -623,51 +623,6 @@ body {
   margin-top: 0.3rem;
 }
 
-/* Save indicator */
-
-.save-state {
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-.save-state.saved {
-  color: #22c55e;
-}
-
-.save-state.dirty,
-.save-state.unpublished {
-  color: #f97316;
-}
-
-.save-state.saving {
-  color: #eab308;
-}
-
-.save-action {
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 2px;
-}
-
-.save-action:hover {
-  text-decoration-style: solid;
-}
-
-.last-updated {
-  font-size: 0.75rem;
-  color: #64748b;
-  transition: color 1s ease-out;
-}
-
-.last-updated.flashing {
-  color: #22c55e;
-  font-weight: 600;
-  transition: none;
-}
-
 .loading-doc {
   display: flex;
   align-items: center;
@@ -1934,8 +1889,8 @@ body {
     padding: 0.25rem 0.4rem;
   }
 
-  .save-state,
-  .last-updated {
+  .pkp-save-indicator,
+  .pkp-last-updated {
     font-size: 0.65rem;
   }
 
