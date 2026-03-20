@@ -44,9 +44,10 @@ jobs:
           echo "$OUTPUT"
 
           # Extract published packages for verification
+          # changeset publish prefixes lines with 🦋
           PUBLISHED=$(echo "$OUTPUT" \
-            | grep "^New tag: " \
-            | sed 's/^New tag:  *//' \
+            | grep "New tag: " \
+            | sed 's/.*New tag:  *//' \
             || true)
 
           if [ -z "$PUBLISHED" ]; then
