@@ -155,6 +155,14 @@ export type Fact =
 // source modules; we re-export for convenience)
 // ------------------------------------------------
 
+/**
+ * Document connectivity status.
+ *
+ * - `"connecting"` — establishing P2P connections
+ * - `"synced"` — connected and syncing with peers
+ * - `"receiving"` — receiving data (read-only peer)
+ * - `"offline"` — no peer connections
+ */
 export type DocStatus = "connecting" | "synced" | "receiving" | "offline";
 
 /**
@@ -173,23 +181,46 @@ export type SaveState =
   | "dirty"
   | "save-error";
 
+/** Permission level derived from capability keys. */
 export type DocRole = "admin" | "writer" | "reader";
 
 export type SyncStatus = "connecting" | "connected" | "disconnected";
 
+/**
+ * GossipSub subscription state for the document's
+ * announce topic.
+ *
+ * - `"inactive"` — not yet subscribed
+ * - `"subscribed"` — subscribed, no messages yet
+ * - `"receiving"` — actively receiving messages
+ */
 export type GossipActivity = "inactive" | "subscribed" | "receiving";
 
+/**
+ * Discriminated union representing the document's
+ * initial load progress. Transitions: idle →
+ * resolving → fetching → (retrying →)* applied
+ * or failed.
+ */
 export type LoadingState =
   | { status: "idle" }
   | { status: "resolving"; startedAt: number }
-  | { status: "fetching"; cid: string; startedAt: number }
+  | {
+      status: "fetching";
+      cid: string;
+      startedAt: number;
+    }
   | {
       status: "retrying";
       cid: string;
       attempt: number;
       nextRetryAt: number;
     }
-  | { status: "failed"; cid: string; error: string };
+  | {
+      status: "failed";
+      cid: string;
+      error: string;
+    };
 
 // ------------------------------------------------
 // State interfaces
@@ -378,12 +409,19 @@ export function versionHistory(chain: ChainState): VersionSummary[] {
 // Reactive version history (Feed-oriented)
 // ------------------------------------------------
 
+/** Fetch status of a single version entry. */
 export type VersionEntryStatus = "available" | "loading" | "failed";
 
+/** A single entry in the reactive version history
+ *  feed. */
 export interface VersionHistoryEntry {
+  /** Content identifier for this snapshot. */
   cid: CID;
+  /** Sequence number in the chain. */
   seq: number;
+  /** Unix timestamp (ms) when created. */
   ts: number;
+  /** Whether the block has been fetched. */
   status: VersionEntryStatus;
 }
 

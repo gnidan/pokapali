@@ -20,6 +20,8 @@ import { ValidationError } from "./errors.js";
 
 const log = createLogger("snapshot-ops");
 
+/** Thrown when a snapshot block fails Ed25519
+ *  signature validation. */
 export class SnapshotValidationError extends ValidationError {
   override name = "SnapshotValidationError" as const;
   constructor(public readonly cid: string) {

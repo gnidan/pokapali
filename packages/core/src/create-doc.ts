@@ -274,13 +274,23 @@ export interface Doc {
   off(event: "node-change", cb: () => void): void;
 }
 
+/** A peer currently visible via awareness. */
 export interface ParticipantInfo {
+  /** The participant's Ed25519 identity public key
+   *  (hex-encoded). */
   pubkey: string;
+  /** Optional display name from awareness state. */
   displayName?: string;
 }
 
+/**
+ * A registered client identity from the `_meta`
+ * subdocument. Maps a Yjs clientID to a public key.
+ */
 export interface ClientIdentityInfo {
+  /** Ed25519 public key (hex-encoded). */
   pubkey: string;
+  /** True if the signature was verified. */
   verified: boolean;
 }
 

@@ -7,8 +7,12 @@ const HTTP_TIMEOUT_MS = 10_000;
 
 const validTiers = new Set(["tip", "full", "hourly", "daily"]);
 
+/** Retention tier assigned by the pinner's
+ *  time-based decay policy. */
 export type VersionTier = "tip" | "full" | "hourly" | "daily";
 
+/** A version entry returned by pinner HTTP history
+ *  or local chain walk. */
 export interface VersionEntry {
   cid: CID;
   seq: number;

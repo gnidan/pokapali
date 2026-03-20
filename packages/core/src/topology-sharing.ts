@@ -40,6 +40,8 @@ export interface TopologySharing {
 }
 
 /** Per-node entry published via awareness. */
+/** Node info shared via awareness for topology
+ *  graph construction by remote peers. */
 export interface AwarenessKnownNode {
   peerId: string;
   roles: string[];
@@ -47,6 +49,11 @@ export interface AwarenessKnownNode {
   browserCount?: number;
 }
 
+/**
+ * Topology data published via awareness state so
+ * peers can build a full network graph. Updated on
+ * peer connect/disconnect and periodically.
+ */
 export interface AwarenessTopology {
   connectedRelays: string[];
   relayRoles: Record<string, string[]>;

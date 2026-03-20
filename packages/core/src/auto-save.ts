@@ -4,7 +4,10 @@ import { createLogger } from "@pokapali/log";
 const log = createLogger("auto-save");
 const DEFAULT_DEBOUNCE_MS = 5_000;
 
+/** Options for {@link createAutoSaver}. */
 export interface AutoSaveOptions {
+  /** Debounce interval for publish-needed events.
+   *  Defaults to 5000ms. */
   debounceMs?: number;
 }
 
