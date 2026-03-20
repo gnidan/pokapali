@@ -143,7 +143,7 @@ function CommentItemView({
           title={
             comment.authorVerified
               ? comment.author
-              : `${comment.author} (unverified)`
+              : `${comment.author} ${labels.unverifiedSuffix}`
           }
           data-testid="comment-author"
         >

@@ -50,6 +50,9 @@ export interface CommentSidebarLabels {
   reopenButton?: string;
   /** Delete button. Default: "Delete" */
   deleteButton?: string;
+  /** Unverified author title suffix.
+   *  Default: "(unverified)" */
+  unverifiedSuffix?: string;
   /** Resolved toggle template. Receives count and
    *  shown state. */
   resolvedToggle?: (count: number, shown: boolean) => string;
@@ -63,6 +66,9 @@ export interface CommentSidebarLabels {
 // ── Popover labels ───────────────────────────────
 
 export interface CommentPopoverLabels {
+  /** Toolbar aria-label.
+   *  Default: "Comment actions" */
+  toolbarAriaLabel?: string;
   /** Button aria-label.
    *  Default: "Add comment" */
   addCommentAriaLabel?: string;
@@ -111,6 +117,7 @@ export const defaultSidebarLabels: Required<CommentSidebarLabels> = {
   resolveButton: "Resolve",
   reopenButton: "Reopen",
   deleteButton: "Delete",
+  unverifiedSuffix: "(unverified)",
   resolvedToggle: (count, shown) =>
     `${shown ? "Hide" : "Show"} ${count} resolved`,
   formatAge: relativeAge,
@@ -118,6 +125,7 @@ export const defaultSidebarLabels: Required<CommentSidebarLabels> = {
 };
 
 export const defaultPopoverLabels: Required<CommentPopoverLabels> = {
+  toolbarAriaLabel: "Comment actions",
   addCommentAriaLabel: "Add comment",
   addCommentTitle: "Add comment",
   addCommentIcon: "💬",
