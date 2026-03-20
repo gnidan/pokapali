@@ -50,9 +50,6 @@
     "yjs": "^13.6.0"
   },
   "peerDependenciesMeta": {
-    "@pokapali/comments": {
-      "optional": true
-    },
     "@tiptap/pm": {
       "optional": true
     },

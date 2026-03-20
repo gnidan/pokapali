@@ -391,6 +391,8 @@ export interface CommentSidebarProps {
    * display name for known authors.
    */
   displayNames?: Map<string, string>;
+  /** Additional CSS class for the root element. */
+  className?: string;
 }
 
 // ── Main sidebar ─────────────────────────────────
@@ -412,6 +414,7 @@ export function CommentSidebar({
   onSelect,
   labels: labelOverrides,
   displayNames,
+  className,
 }: CommentSidebarProps) {
   const labels = resolveSidebarLabels(labelOverrides);
 
@@ -502,7 +505,7 @@ export function CommentSidebar({
 
   return (
     <div
-      className="pkp-comment-sidebar"
+      className={"pkp-comment-sidebar" + (className ? ` ${className}` : "")}
       role="complementary"
       aria-label={labels.title}
       data-testid="comment-sidebar"
