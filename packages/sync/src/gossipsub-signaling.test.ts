@@ -1,19 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockSignalingConns, mockSetupSignalingHandlers } = vi.hoisted(() => {
-  const mockSignalingConns = new Map<string, unknown>();
-  const mockSetupSignalingHandlers = vi.fn();
-  return {
-    mockSignalingConns,
-    mockSetupSignalingHandlers,
-  };
+const { MockWebrtcProvider } = vi.hoisted(() => {
+  // Use a function constructor (not class) so that
+  // prototype is writable — the production code
+  // monkey-patches WebrtcProvider.prototype.connect.
+  function MockWebrtcProvider(this: any) {
+    this.signalingUrls = [];
+    this.signalingConns = [];
+    this.room = null;
+    this.shouldConnect = false;
+  }
+  MockWebrtcProvider.prototype.connect = function () {};
+  MockWebrtcProvider.prototype.disconnect = function () {};
+  return { MockWebrtcProvider };
 });
 
 vi.mock("y-webrtc", () => ({
-  signalingConns: mockSignalingConns,
-  setupSignalingHandlers: mockSetupSignalingHandlers,
-  WebrtcProvider: class {},
-  SignalingConn: class {},
+  WebrtcProvider: MockWebrtcProvider,
+  WebrtcConn: function MockWebrtcConn() {},
 }));
 
 import {
@@ -63,7 +67,9 @@ function createMockPubSub(): PubSubLike & {
     },
     simulateMessage(topic: string, data: Uint8Array) {
       const detail = { topic, data };
-      const evt = new CustomEvent("message", { detail });
+      const evt = new CustomEvent("message", {
+        detail,
+      });
       const set = handlers.get("message");
       if (set) {
         for (const h of set) {
@@ -79,8 +85,6 @@ describe("GossipSubSignaling", () => {
   let adapter: GossipSubSignaling;
 
   beforeEach(() => {
-    mockSignalingConns.clear();
-    mockSetupSignalingHandlers.mockReset();
     pubsub = createMockPubSub();
   });
 
@@ -91,29 +95,20 @@ describe("GossipSubSignaling", () => {
   });
 
   describe("createGossipSubSignaling", () => {
-    it("registers adapter in signalingConns", () => {
+    it("returns same adapter on duplicate call", () => {
       adapter = createGossipSubSignaling(pubsub);
-      expect(mockSignalingConns.has("libp2p:gossipsub")).toBe(true);
-      expect(mockSignalingConns.get("libp2p:gossipsub")).toBe(adapter);
-    });
-
-    it("calls setupSignalingHandlers", () => {
-      adapter = createGossipSubSignaling(pubsub);
-      expect(mockSetupSignalingHandlers).toHaveBeenCalledOnce();
-      expect(mockSetupSignalingHandlers).toHaveBeenCalledWith(adapter);
+      const second = createGossipSubSignaling(pubsub);
+      expect(second).toBe(adapter);
     });
 
     it("emits connect after creation", () => {
       const connectSpy = vi.fn();
-      // Create adapter manually so we can listen before
-      // the connect event fires
+      // Create adapter manually so we can listen
+      // before the connect event fires
       adapter = new GossipSubSignaling(pubsub);
       adapter.on("connect", connectSpy);
 
       // Simulate what createGossipSubSignaling does
-      // after construction
-      mockSignalingConns.set("libp2p:gossipsub", adapter);
-      mockSetupSignalingHandlers(adapter);
       adapter.connected = true;
       adapter.emit("connect", []);
 
@@ -144,23 +139,25 @@ describe("GossipSubSignaling", () => {
         type: "subscribe",
         topics: ["room1", "room2"],
       });
-      // All rooms share one GossipSub topic
       expect(pubsub._subscribed.has("/pokapali/signaling")).toBe(true);
       expect(pubsub._subscribed.size).toBe(1);
     });
 
     it("does not double-subscribe", () => {
       adapter = createGossipSubSignaling(pubsub);
+      // First explicit subscribe — may be a no-op if
+      // the connect handler already subscribed
+      adapter.send({
+        type: "subscribe",
+        topics: ["room1"],
+      });
       const subscribeSpy = vi.spyOn(pubsub, "subscribe");
+      // Second subscribe should definitely be a no-op
       adapter.send({
         type: "subscribe",
         topics: ["room1"],
       });
-      adapter.send({
-        type: "subscribe",
-        topics: ["room1"],
-      });
-      expect(subscribeSpy).toHaveBeenCalledTimes(1);
+      expect(subscribeSpy).toHaveBeenCalledTimes(0);
     });
   });
 
@@ -179,9 +176,7 @@ describe("GossipSubSignaling", () => {
 
       expect(pubsub._published).toHaveLength(1);
       const pub = pubsub._published[0]!;
-      // All publishes go to the shared topic
       expect(pub.topic).toBe("/pokapali/signaling");
-      // Room name is in the payload
       const decoded = JSON.parse(new TextDecoder().decode(pub.data));
       expect(decoded).toEqual({
         type: "publish",
@@ -202,8 +197,6 @@ describe("GossipSubSignaling", () => {
         });
         expect(pubsub._subscribed.has("/pokapali/signaling")).toBe(true);
 
-        // Unsubscribe is a no-op — other rooms may
-        // still need the shared topic
         adapter.send({
           type: "unsubscribe",
           topics: ["room1"],
@@ -276,12 +269,15 @@ describe("GossipSubSignaling", () => {
       expect(pubsub._subscribed.size).toBe(0);
     });
 
-    it("removes from signalingConns", () => {
+    it("removes from internal adapter registry", () => {
       adapter = createGossipSubSignaling(pubsub);
-      expect(mockSignalingConns.has("libp2p:gossipsub")).toBe(true);
+      expect(createGossipSubSignaling(pubsub)).toBe(adapter);
 
       adapter.destroy();
-      expect(mockSignalingConns.has("libp2p:gossipsub")).toBe(false);
+      // After destroy, a new call creates fresh
+      const fresh = createGossipSubSignaling(pubsub);
+      expect(fresh).not.toBe(adapter);
+      fresh.destroy();
     });
 
     it("sets connected to false", () => {
@@ -307,8 +303,6 @@ describe("GossipSubSignaling", () => {
       adapter.destroy();
 
       const messageSpy = vi.fn();
-      // Re-register listener — should not fire
-      // because the pubsub handler was removed
       adapter.on("message", messageSpy);
 
       const encoded = new TextEncoder().encode(
