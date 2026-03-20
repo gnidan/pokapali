@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/subdocs",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Multi-channel Yjs subdocument management for pokapali",
   "keywords": [
     "pokapali",
