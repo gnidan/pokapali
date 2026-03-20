@@ -61,7 +61,7 @@ function VersionListItem({
   entry,
   selected,
   current,
-  unavailable,
+  fetchStatus,
   retrying,
   delta,
   onSelect,
@@ -69,31 +69,37 @@ function VersionListItem({
   entry: VersionEntry;
   selected: boolean;
   current: boolean;
-  unavailable: boolean;
+  /** null = available, "archived" = thinned by
+   *  pinner, "unavailable" = genuinely failed */
+  fetchStatus: "archived" | "unavailable" | null;
   retrying: boolean;
   delta: number | undefined;
   onSelect: () => void;
 }) {
+  const disabled = fetchStatus != null;
   return (
     <button
       className={
         "vh-item" +
         (selected ? " selected" : "") +
-        (unavailable ? " unavailable" : "") +
+        (fetchStatus === "archived" ? " archived" : "") +
+        (fetchStatus === "unavailable" ? " unavailable" : "") +
         (retrying ? " retrying" : "")
       }
       data-testid="vh-entry"
-      onClick={unavailable ? undefined : onSelect}
-      disabled={unavailable}
+      onClick={disabled ? undefined : onSelect}
+      disabled={disabled}
       aria-current={selected ? "true" : undefined}
       title={
-        unavailable
-          ? "Version unavailable"
-          : retrying
-            ? "Retrying…"
-            : current
-              ? "Current version"
-              : `Version ${entry.seq}`
+        fetchStatus === "archived"
+          ? "Version archived"
+          : fetchStatus === "unavailable"
+            ? "Version unavailable"
+            : retrying
+              ? "Retrying…"
+              : current
+                ? "Current version"
+                : `Version ${entry.seq}`
       }
     >
       <span className="vh-item-seq">
@@ -157,7 +163,9 @@ export function VersionHistory({
 
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
-  const [unavailable, setUnavailable] = useState<Set<number>>(new Set());
+  const [unavailable, setUnavailable] = useState<
+    Map<number, "archived" | "unavailable">
+  >(new Map());
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
   const cancelRef = useRef(false);
   // Monotonic counter — only the latest request
@@ -251,9 +259,11 @@ export function VersionHistory({
           } else {
             // Exhausted retries or non-transient error
             if (transient) {
+              const reason =
+                entry.tier && entry.tier !== "tip" ? "archived" : "unavailable";
               setUnavailable((prev) => {
-                const next = new Set(prev);
-                next.add(entry.seq);
+                const next = new Map(prev);
+                next.set(entry.seq, reason);
                 return next;
               });
             }
@@ -277,7 +287,10 @@ export function VersionHistory({
     [doc, onPreview],
   );
 
-  const unavailableCount = unavailable.size;
+  const archivedCount = [...unavailable.values()].filter(
+    (r) => r === "archived",
+  ).length;
+  const unavailableCount = unavailable.size - archivedCount;
 
   return (
     <div
@@ -322,7 +335,7 @@ export function VersionHistory({
                   current={
                     tipCidStr != null && entry.cid.toString() === tipCidStr
                   }
-                  unavailable={unavailable.has(entry.seq)}
+                  fetchStatus={unavailable.get(entry.seq) ?? null}
                   retrying={retrying.has(entry.seq)}
                   delta={deltas.get(entry.seq)}
                   onSelect={() => {
@@ -338,6 +351,13 @@ export function VersionHistory({
                   }}
                 />
               ))}
+            </div>
+          )}
+
+          {archivedCount > 0 && (
+            <div className="vh-archived-note">
+              {archivedCount} {archivedCount === 1 ? "version" : "versions"}{" "}
+              archived
             </div>
           )}
 
@@ -370,7 +390,11 @@ export function VersionHistory({
                   </span>
                 </>
               ) : isTransientError(loadState.message) ? (
-                "Version unavailable"
+                unavailable.get(loadState.seq) === "archived" ? (
+                  "Version archived"
+                ) : (
+                  "Version unavailable"
+                )
               ) : (
                 loadState.message
               )}

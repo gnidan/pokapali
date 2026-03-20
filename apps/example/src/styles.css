@@ -950,6 +950,12 @@ body {
   font-weight: 500;
 }
 
+.vh-item.archived {
+  opacity: 0.5;
+  cursor: default;
+  font-style: italic;
+}
+
 .vh-item.unavailable {
   opacity: 0.4;
   cursor: default;
@@ -1059,6 +1065,14 @@ body {
 .vh-item.selected .vh-tier-daily {
   background: rgba(153, 27, 27, 0.2);
   color: #7f1d1d;
+}
+
+.vh-archived-note {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  padding: 0.4rem 0.75rem;
+  text-align: center;
+  font-style: italic;
 }
 
 .vh-unavailable-note {
