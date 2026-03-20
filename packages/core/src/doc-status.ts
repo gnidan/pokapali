@@ -94,6 +94,19 @@ export function deriveLoadingState(state: DocState): LoadingState {
       };
     }
   }
+  // IPNS resolved with a CID but fetch hasn't
+  // started yet — still "resolving" to prevent
+  // premature markReady.
+  if (state.ipnsStatus.phase === "resolved" && state.chain.entries.size > 0) {
+    for (const entry of state.chain.entries.values()) {
+      if (entry.blockStatus === "unknown") {
+        return {
+          status: "resolving",
+          startedAt: state.ipnsStatus.at,
+        };
+      }
+    }
+  }
   return { status: "idle" };
 }
 
