@@ -2,8 +2,8 @@
  * Custom changelog generator for pokapali.
  *
  * - Wraps lines at ~72 chars (with 2-char indent = ~74)
- * - Converts #NNN to full GitHub issue/PR links
- * - Shows bump type in version heading
+ * - Converts #NNN to full GitHub issue links
+ * - Prefixes entries with issue link + commit SHA
  */
 
 const REPO = "https://github.com/gnidan/pokapali";
@@ -70,13 +70,39 @@ function linkIssues(text) {
   return text.replace(/(?<!\[)#(\d+)(?!\])/g, `[#$1](${REPO}/issues/$1)`);
 }
 
+/**
+ * Format a commit SHA as a linked code span.
+ */
+function commitLink(sha) {
+  const short = sha.slice(0, 7);
+  return `[\`${short}\`](${REPO}/commit/${sha})`;
+}
+
 /** @type {import("@changesets/types").ChangelogFunctions} */
 const changelogFunctions = {
   async getReleaseLine(changeset, _type) {
-    const linked = linkIssues(changeset.summary);
+    const summary = changeset.summary.trim();
+
+    // Extract leading #NNN issue reference if present
+    const issueMatch = summary.match(/^#(\d+)\s+/);
+    let issueRef = "";
+    let desc = summary;
+    if (issueMatch) {
+      const num = issueMatch[1];
+      issueRef = `[#${num}](${REPO}/issues/${num}) `;
+      desc = summary.slice(issueMatch[0].length);
+    }
+
+    // Build commit prefix
+    const commitRef = changeset.commit
+      ? commitLink(changeset.commit) + " "
+      : "";
+
+    // Link remaining issue refs in description
+    const linked = linkIssues(desc);
     const [firstLine, ...rest] = linked.split("\n").map((l) => l.trimEnd());
 
-    let entry = `- ${firstLine}`;
+    let entry = `- ${issueRef}${commitRef}${firstLine}`;
     if (rest.length > 0) {
       entry += "\n" + rest.map((l) => (l === "" ? "" : `  ${l}`)).join("\n");
     }
