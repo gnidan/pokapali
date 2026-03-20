@@ -13,6 +13,7 @@
 
 import type { Awareness } from "y-protocols/awareness";
 import type { NodeRegistry, Neighbor } from "./node-registry.js";
+import { createThrottledInterval } from "./throttled-interval.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("topology-sharing");
@@ -136,7 +137,10 @@ export function createTopologySharing(
   libp2p.addEventListener("peer:disconnect", disconnectHandler);
   registry.on("change", nodeChangeHandler);
 
-  const periodicTimer = setInterval(publish, PERIODIC_MS);
+  const periodicTimer = createThrottledInterval(publish, PERIODIC_MS, {
+    backgroundMs: 0,
+    fireOnResume: true,
+  });
 
   // Initial publish after a short delay to let
   // connections stabilize.
@@ -164,7 +168,7 @@ export function createTopologySharing(
         clearTimeout(nodeDebounceTimer);
         nodeDebounceTimer = null;
       }
-      clearInterval(periodicTimer);
+      periodicTimer.destroy();
       clearTimeout(initialTimer);
       libp2p.removeEventListener("peer:connect", connectHandler);
       libp2p.removeEventListener("peer:disconnect", disconnectHandler);

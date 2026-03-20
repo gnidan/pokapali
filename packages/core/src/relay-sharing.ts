@@ -1,6 +1,7 @@
 import type { Awareness } from "y-protocols/awareness";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { awarenessField } from "./awareness-state.js";
+import { createThrottledInterval } from "./throttled-interval.js";
 
 const PUBLISH_INTERVAL_MS = 30_000;
 const INITIAL_DELAY_MS = 5_000;
@@ -40,13 +41,17 @@ export function createRelaySharing(options: RelaySharingOptions): RelaySharing {
 
   awareness.on("update", onAwarenessUpdate);
 
-  const publishTimer = setInterval(publishRelays, PUBLISH_INTERVAL_MS);
+  const publishTimer = createThrottledInterval(
+    publishRelays,
+    PUBLISH_INTERVAL_MS,
+    { backgroundMs: 0, fireOnResume: true },
+  );
   const initialTimer = setTimeout(publishRelays, INITIAL_DELAY_MS);
 
   return {
     destroy() {
       destroyed = true;
-      clearInterval(publishTimer);
+      publishTimer.destroy();
       clearTimeout(initialTimer);
       awareness.off("update", onAwarenessUpdate);
     },
