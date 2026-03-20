@@ -90,8 +90,26 @@ export function buildTopologyGraph(
   awareness: TopologyAwareness,
 ): TopologyGraph {
   const graphNodes: TopologyNode[] = [];
-  const edges: TopologyEdge[] = [];
   const seenNodeIds = new Set<string>();
+
+  // Edge deduplication: normalized key (sorted
+  // endpoints) → edge. "connected" wins over
+  // "disconnected" if the same edge appears from
+  // multiple sources.
+  const edgeMap = new Map<string, TopologyEdge>();
+  function addEdge(source: string, target: string, connected: boolean) {
+    const key =
+      source < target ? `${source}\0${target}` : `${target}\0${source}`;
+    const prev = edgeMap.get(key);
+    if (prev) {
+      // Upgrade to connected if any source says so
+      if (connected && !prev.connected) {
+        prev.connected = true;
+      }
+      return;
+    }
+    edgeMap.set(key, { source, target, connected });
+  }
 
   // 1. Self node
   graphNodes.push({
@@ -114,20 +132,12 @@ export function buildTopologyGraph(
       ackedCurrentCid: n.ackedCurrentCid,
       browserCount: n.browserCount,
     });
-    edges.push({
-      source: "_self",
-      target: n.peerId,
-      connected: n.connected,
-    });
+    addEdge("_self", n.peerId, n.connected);
   }
 
   // 3. Relay-relay edges from node-registry
   for (const te of info.topology) {
-    edges.push({
-      source: te.source,
-      target: te.target,
-      connected: true,
-    });
+    addEdge(te.source, te.target, true);
   }
 
   // 4. Merge knownNodes from all peers'
@@ -139,6 +149,8 @@ export function buildTopologyGraph(
 
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
+    // Skip cleared awareness states (peer left)
+    if (!state) continue;
     const topo = awarenessField(state, "topology");
     if (!topo?.knownNodes) continue;
     for (const kn of topo.knownNodes) {
@@ -162,6 +174,7 @@ export function buildTopologyGraph(
   //    from awareness topology state.
   for (const [clientId, state] of states) {
     if (clientId === myClientId) continue;
+    if (!state) continue;
     const topo = awarenessField(state, "topology");
 
     const peerId = `awareness:${clientId}`;
@@ -189,14 +202,13 @@ export function buildTopologyGraph(
             roles: relayRoles,
           });
         }
-        edges.push({
-          source: peerId,
-          target: relayPid,
-          connected: true,
-        });
+        addEdge(peerId, relayPid, true);
       }
     }
   }
 
-  return { nodes: graphNodes, edges };
+  return {
+    nodes: graphNodes,
+    edges: [...edgeMap.values()],
+  };
 }
