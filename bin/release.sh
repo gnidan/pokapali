@@ -12,6 +12,7 @@ set -euo pipefail
 #   2. Capture internal changeset entries
 #   3. npx changeset version
 #   4. Aggregate entries into root CHANGELOG.md
+#   4b. Warn on stale version strings in docs
 #   5. Show CHANGELOG diff, pause for review
 #   6. npm install (sync lockfile)
 #   7. git add -A && git commit
@@ -358,6 +359,70 @@ fi
 if [ -n "$INTERNAL_ENTRIES" ]; then
   echo "  injected $(echo "$INTERNAL_ENTRIES" \
     | grep -c '^-') internal entries"
+fi
+
+# --- 4b. Warn on stale version strings (#327) ---
+#
+# When releasing stable versions (no prerelease suffix),
+# check docs and examples for leftover alpha/prerelease
+# references that should be updated.
+
+IS_STABLE=true
+if [ -n "$BUMPED" ]; then
+  while IFS= read -r line; do
+    VER="${line##*@}"
+    case "$VER" in *-*) IS_STABLE=false ;; esac
+  done <<< "$BUMPED"
+fi
+
+if [ "$IS_STABLE" = true ] && [ -n "$BUMPED" ]; then
+  STALE_HITS=""
+
+  # Check README.md for alpha/prerelease mentions
+  if [ -f README.md ]; then
+    HITS=$(grep -n \
+      -iE '(alpha|beta|pre-?release|rc\.)' \
+      README.md 2>/dev/null \
+      | grep -iv 'changelog\|CHANGELOG' || true)
+    if [ -n "$HITS" ]; then
+      STALE_HITS="$STALE_HITS
+  README.md:
+$(echo "$HITS" | awk '{print "    " $0}')"
+    fi
+  fi
+
+  # Check example app deps for prerelease ranges
+  for pkg_json in apps/*/package.json; do
+    [ -f "$pkg_json" ] || continue
+    HITS=$(grep -n '@pokapali/.*-' \
+      "$pkg_json" 2>/dev/null || true)
+    if [ -n "$HITS" ]; then
+      STALE_HITS="$STALE_HITS
+  $pkg_json:
+$(echo "$HITS" | awk '{print "    " $0}')"
+    fi
+  done
+
+  # Check docs/ for hardcoded prerelease versions
+  if [ -d docs ]; then
+    HITS=$(grep -rn \
+      -E '@pokapali/[a-z-]+@[0-9]+\.[0-9]+\.[0-9]+-' \
+      docs/ 2>/dev/null || true)
+    if [ -n "$HITS" ]; then
+      STALE_HITS="$STALE_HITS
+  docs/:
+$(echo "$HITS" | awk '{print "    " $0}')"
+    fi
+  fi
+
+  if [ -n "$STALE_HITS" ]; then
+    echo ""
+    echo "WARNING: stale prerelease references found"
+    echo "  in docs/examples (stable release):"
+    echo "$STALE_HITS"
+    echo ""
+    echo "  Consider updating before releasing."
+  fi
 fi
 
 # --- 5. Show CHANGELOG diff for review ---
