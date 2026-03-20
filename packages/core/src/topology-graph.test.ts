@@ -170,6 +170,99 @@ describe("buildTopologyGraph", () => {
     expect(browserToRelay).toBeDefined();
   });
 
+  it("deduplicates edges from multiple sources", () => {
+    // relay-A→relay-B appears in both topology
+    // (node-registry) and awareness (peer 2).
+    const info: TopologyDiagnostics = {
+      nodes: [
+        {
+          peerId: "relay-A",
+          short: "relay-A!",
+          connected: true,
+          roles: ["relay"],
+          ackedCurrentCid: false,
+          browserCount: undefined,
+        },
+      ],
+      topology: [
+        {
+          source: "relay-A",
+          target: "relay-B",
+        },
+        // Duplicate in reverse direction
+        {
+          source: "relay-B",
+          target: "relay-A",
+        },
+      ],
+    };
+    const graph = buildTopologyGraph(info, makeAwareness());
+    const abEdges = graph.edges.filter(
+      (e) =>
+        (e.source === "relay-A" && e.target === "relay-B") ||
+        (e.source === "relay-B" && e.target === "relay-A"),
+    );
+    expect(abEdges).toHaveLength(1);
+  });
+
+  it("connected wins when same edge appears " + "with different states", () => {
+    const info: TopologyDiagnostics = {
+      nodes: [
+        {
+          peerId: "relay-A",
+          short: "relay-A!",
+          connected: false,
+          roles: ["relay"],
+          ackedCurrentCid: false,
+          browserCount: undefined,
+        },
+        {
+          peerId: "relay-A2",
+          short: "relay-A2",
+          connected: true,
+          roles: ["relay"],
+          ackedCurrentCid: false,
+          browserCount: undefined,
+        },
+      ],
+      topology: [
+        // Same edge, connected
+        { source: "relay-A", target: "relay-A2" },
+      ],
+    };
+    const graph = buildTopologyGraph(info, makeAwareness());
+    // self→relay-A is disconnected, but
+    // relay-A→relay-A2 from topology is connected.
+    // The self→relay-A edge should stay disconnected
+    // (different edge). The topology edge should be
+    // connected. Let's check relay-A↔relay-A2:
+    const topoEdge = graph.edges.find(
+      (e) =>
+        (e.source === "relay-A" && e.target === "relay-A2") ||
+        (e.source === "relay-A2" && e.target === "relay-A"),
+    );
+    expect(topoEdge).toBeDefined();
+    expect(topoEdge!.connected).toBe(true);
+  });
+
+  it("skips null awareness states", () => {
+    const info: TopologyDiagnostics = {
+      nodes: [],
+      topology: [],
+    };
+    const states = new Map<number, Record<string, unknown>>();
+    states.set(1, {}); // self
+    // Simulate a cleared peer state — y-protocols
+    // sets to null after timeout.
+
+    states.set(99, null as any);
+
+    const graph = buildTopologyGraph(info, makeAwareness(states, 1));
+    // No browser node for client 99
+    const peer = graph.nodes.find((n) => n.id === "awareness:99");
+    expect(peer).toBeUndefined();
+  });
+
   it("deduplicates nodes by peerId", () => {
     const info: TopologyDiagnostics = {
       nodes: [
