@@ -13,7 +13,9 @@ import {
   shouldAutoFetch,
   MAX_INTERPRETER_RETRIES,
   RETRY_BASE_MS,
+  DEFAULT_PREFETCH_DEPTH,
 } from "./interpreter.js";
+import type { InterpreterOptions } from "./interpreter.js";
 import { SnapshotValidationError } from "./snapshot-ops.js";
 import type { EffectHandlers, ScanOutput } from "./interpreter.js";
 import {
@@ -2003,5 +2005,262 @@ describe("shouldAutoFetch http-tip source", () => {
       ackedBy: new Set(),
     };
     expect(shouldAutoFetch(entry)).toBe(false);
+  });
+});
+
+// --- Chain prefetch tests ---
+
+describe("interpreter chain prefetch", () => {
+  it("DEFAULT_PREFETCH_DEPTH is 3", () => {
+    expect(DEFAULT_PREFETCH_DEPTH).toBe(3);
+  });
+
+  it(
+    "prefetches parent block after tip-advanced " +
+      "when entry exists but was not auto-fetched",
+    async () => {
+      const cidA = await fakeCid(200);
+      const cidB = await fakeCid(201);
+      const blockA = fakeBlock(200);
+
+      // Start with CID-B already discovered via
+      // pinner-index (blockStatus "unknown", won't
+      // be auto-fetched by normal logic).
+      const init = initial();
+      const initEntries = new Map<string, ChainEntry>();
+      initEntries.set(cidB.toString(), {
+        cid: cidB,
+        discoveredVia: new Set<any>(["pinner-index"]),
+        blockStatus: "unknown",
+        fetchAttempt: 0,
+        guarantees: new Map(),
+        ackedBy: new Set(),
+      });
+      const initState: DocState = {
+        ...init,
+        chain: {
+          ...INITIAL_CHAIN,
+          entries: initEntries,
+        },
+      };
+
+      const effects = mockEffects({
+        getBlock: vi.fn((cid: CID) => (cid.equals(cidA) ? blockA : null)),
+        decodeBlock: vi.fn().mockReturnValue({
+          seq: 2,
+          prev: cidB,
+        }),
+        applySnapshot: vi.fn().mockResolvedValue({
+          seq: 2,
+        }),
+      });
+
+      const ac = new AbortController();
+      const feedbackQueue = createAsyncQueue<Fact>(ac.signal);
+      const collected: Fact[] = [];
+      const collector = (async () => {
+        for await (const f of feedbackQueue) {
+          collected.push(f);
+        }
+      })();
+
+      // tip-advanced must appear as an input fact
+      // because the interpreter emits it to feedback
+      // (not re-consumed in this test harness).
+      const facts: Fact[] = [
+        {
+          type: "cid-discovered",
+          ts: 1,
+          cid: cidA,
+          source: "gossipsub",
+          seq: 2,
+        },
+        {
+          type: "block-fetched",
+          ts: 2,
+          cid: cidA,
+          block: blockA,
+          prev: cidB,
+          seq: 2,
+        },
+        {
+          type: "tip-advanced",
+          ts: 3,
+          cid: cidA,
+          seq: 2,
+        },
+      ];
+      const stream = factsToStream(facts, initState);
+      await runInterpreter(stream, effects, feedbackQueue, ac.signal);
+
+      ac.abort();
+      await collector;
+
+      // fetchBlock should be called for CID-B
+      // (prefetch after tip-advanced).
+      expect(effects.fetchBlock).toHaveBeenCalledWith(cidB);
+    },
+  );
+
+  it("skips prefetch when block is already cached", async () => {
+    const cidA = await fakeCid(210);
+    const cidB = await fakeCid(211);
+    const blockA = fakeBlock(210);
+    const blockB = fakeBlock(211);
+
+    const init = initial();
+    const initEntries = new Map<string, ChainEntry>();
+    initEntries.set(cidB.toString(), {
+      cid: cidB,
+      discoveredVia: new Set<any>(["pinner-index"]),
+      blockStatus: "unknown",
+      fetchAttempt: 0,
+      guarantees: new Map(),
+      ackedBy: new Set(),
+    });
+    const initState: DocState = {
+      ...init,
+      chain: {
+        ...INITIAL_CHAIN,
+        entries: initEntries,
+      },
+    };
+
+    const effects = mockEffects({
+      // CID-B is already cached → skip prefetch
+      getBlock: vi.fn((cid: CID) => {
+        if (cid.equals(cidA)) return blockA;
+        if (cid.equals(cidB)) return blockB;
+        return null;
+      }),
+      decodeBlock: vi.fn().mockReturnValue({
+        seq: 2,
+        prev: cidB,
+      }),
+      applySnapshot: vi.fn().mockResolvedValue({
+        seq: 2,
+      }),
+    });
+
+    const ac = new AbortController();
+    const feedbackQueue = createAsyncQueue<Fact>(ac.signal);
+    const collected: Fact[] = [];
+    const collector = (async () => {
+      for await (const f of feedbackQueue) {
+        collected.push(f);
+      }
+    })();
+
+    const facts: Fact[] = [
+      {
+        type: "cid-discovered",
+        ts: 1,
+        cid: cidA,
+        source: "gossipsub",
+        seq: 2,
+      },
+      {
+        type: "block-fetched",
+        ts: 2,
+        cid: cidA,
+        block: blockA,
+        prev: cidB,
+        seq: 2,
+      },
+      {
+        type: "tip-advanced",
+        ts: 3,
+        cid: cidA,
+        seq: 2,
+      },
+    ];
+    const stream = factsToStream(facts, initState);
+    await runInterpreter(stream, effects, feedbackQueue, ac.signal);
+
+    ac.abort();
+    await collector;
+
+    // fetchBlock should NOT be called for CID-B
+    // because it's already in the cache.
+    expect(effects.fetchBlock).not.toHaveBeenCalled();
+  });
+
+  it("respects prefetchDepth: 0 to disable", async () => {
+    const cidA = await fakeCid(220);
+    const cidB = await fakeCid(221);
+    const blockA = fakeBlock(220);
+
+    const init = initial();
+    const initEntries = new Map<string, ChainEntry>();
+    initEntries.set(cidB.toString(), {
+      cid: cidB,
+      discoveredVia: new Set<any>(["pinner-index"]),
+      blockStatus: "unknown",
+      fetchAttempt: 0,
+      guarantees: new Map(),
+      ackedBy: new Set(),
+    });
+    const initState: DocState = {
+      ...init,
+      chain: {
+        ...INITIAL_CHAIN,
+        entries: initEntries,
+      },
+    };
+
+    const effects = mockEffects({
+      getBlock: vi.fn((cid: CID) => (cid.equals(cidA) ? blockA : null)),
+      decodeBlock: vi.fn().mockReturnValue({
+        seq: 2,
+        prev: cidB,
+      }),
+      applySnapshot: vi.fn().mockResolvedValue({
+        seq: 2,
+      }),
+    });
+
+    const ac = new AbortController();
+    const feedbackQueue = createAsyncQueue<Fact>(ac.signal);
+    const collected: Fact[] = [];
+    const collector = (async () => {
+      for await (const f of feedbackQueue) {
+        collected.push(f);
+      }
+    })();
+
+    const facts: Fact[] = [
+      {
+        type: "cid-discovered",
+        ts: 1,
+        cid: cidA,
+        source: "gossipsub",
+        seq: 2,
+      },
+      {
+        type: "block-fetched",
+        ts: 2,
+        cid: cidA,
+        block: blockA,
+        prev: cidB,
+        seq: 2,
+      },
+      {
+        type: "tip-advanced",
+        ts: 3,
+        cid: cidA,
+        seq: 2,
+      },
+    ];
+    const stream = factsToStream(facts, initState);
+    await runInterpreter(stream, effects, feedbackQueue, ac.signal, {
+      prefetchDepth: 0,
+    });
+
+    ac.abort();
+    await collector;
+
+    // fetchBlock should NOT be called — prefetch
+    // is disabled.
+    expect(effects.fetchBlock).not.toHaveBeenCalled();
   });
 });
