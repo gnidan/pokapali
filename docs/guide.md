@@ -434,6 +434,101 @@ interface Feed<T> {
 No wrapper hook needed. The interface is designed to
 match `useSyncExternalStore` exactly.
 
+**Vanilla JavaScript:**
+
+Feeds work without React or any framework. Call
+`subscribe` to listen for changes and `getSnapshot`
+to read the current value:
+
+```ts
+// Subscribe to a single feed
+const unsub = doc.status.subscribe(() => {
+  const status = doc.status.getSnapshot();
+  statusEl.textContent = status;
+});
+
+// Read the current value at any time
+console.log("Status:", doc.status.getSnapshot());
+
+// Unsubscribe when done
+unsub();
+```
+
+**Updating the DOM:**
+
+```ts
+function bindFeed<T>(
+  feed: Feed<T>,
+  el: HTMLElement,
+  render: (value: T) => string,
+): () => void {
+  const update = () => {
+    el.textContent = render(feed.getSnapshot());
+  };
+  update(); // initial render
+  return feed.subscribe(update);
+}
+
+// Usage
+const unsub = bindFeed(
+  doc.saveState,
+  document.getElementById("save-indicator")!,
+  (state) => {
+    switch (state) {
+      case "saved":
+        return "All changes saved";
+      case "dirty":
+        return "Unsaved changes";
+      case "saving":
+        return "Saving…";
+      case "unpublished":
+        return "Not yet published";
+    }
+  },
+);
+```
+
+**Combining multiple feeds:**
+
+```ts
+// Watch several feeds, update when any changes
+function watchFeeds(feeds: Feed<unknown>[], cb: () => void): () => void {
+  const unsubs = feeds.map((f) => f.subscribe(cb));
+  return () => unsubs.forEach((u) => u());
+}
+
+const unsub = watchFeeds([doc.status, doc.saveState, doc.backedUp], () => {
+  const status = doc.status.getSnapshot();
+  const save = doc.saveState.getSnapshot();
+  const backed = doc.backedUp.getSnapshot();
+  console.log(`${status} | ${save} | ` + `backed up: ${backed}`);
+});
+```
+
+**Waiting for a specific value:**
+
+```ts
+function waitFor<T>(
+  feed: Feed<T>,
+  predicate: (value: T) => boolean,
+): Promise<T> {
+  const current = feed.getSnapshot();
+  if (predicate(current)) return Promise.resolve(current);
+  return new Promise((resolve) => {
+    const unsub = feed.subscribe(() => {
+      const value = feed.getSnapshot();
+      if (predicate(value)) {
+        unsub();
+        resolve(value);
+      }
+    });
+  });
+}
+
+// Wait until connected
+await waitFor(doc.status, (s) => s === "synced");
+```
+
 **Persistence errors:**
 
 `doc.lastPersistenceError` reports IndexedDB write
