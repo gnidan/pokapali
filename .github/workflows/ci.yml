@@ -88,6 +88,44 @@ jobs:
           key: build-${{ github.sha }}
       - run: npm run format:check
 
+  changeset-check:
+    name: Changeset Check
+    needs: build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/dist
+            apps/*/dist
+          key: build-${{ github.sha }}
+      - name: Require changeset for package changes
+        run: npx changeset status --since=origin/main
+      - name: Require changeset file in PR
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          FILES=$(git diff --name-only "$BASE"..HEAD \
+            -- '.changeset/*.md' \
+            | grep -v README.md || true)
+          if [ -z "$FILES" ]; then
+            echo "No changeset file found in this PR."
+            echo "Run: npx changeset"
+            echo ""
+            echo "For non-package changes, use empty"
+            echo "frontmatter with a description."
+            exit 1
+          fi
+          echo "Changeset file(s) found:"
+          echo "$FILES"
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
