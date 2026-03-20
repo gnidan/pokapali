@@ -24,6 +24,10 @@
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
     },
+    "./topology": {
+      "types": "./dist/src/topology.d.ts",
+      "default": "./dist/src/topology.js"
+    },
     "./comments.css": "./src/comments.css",
     "./indicators.css": "./src/indicators.css",
     "./topology-map.css": "./src/topology-map.css"

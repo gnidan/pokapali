@@ -1,1 +1,1 @@
-export { TopologyMap } from "@pokapali/react";
+export { TopologyMap } from "@pokapali/react/topology";
