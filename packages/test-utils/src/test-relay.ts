@@ -24,7 +24,14 @@ export interface TestRelay {
 export interface TestRelayOptions {
   /** Port to listen on. Default: 0 (random). */
   port?: number;
+  /** If provided, the relay publishes a v2 node-caps
+   *  GossipSub message advertising this HTTP URL.
+   *  Browsers that discover the relay will treat it
+   *  as a pinner with an HTTP history endpoint. */
+  httpUrl?: string;
 }
+
+const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
 
 export async function createTestRelay(
   options?: TestRelayOptions,
@@ -67,6 +74,33 @@ export async function createTestRelay(
 
   const addr = wsAddr.toString();
   let stopped = false;
+  let capsInterval: ReturnType<typeof setInterval> | undefined;
+
+  // If httpUrl is provided, publish v2 node-caps so
+  // browsers discover the relay as a pinner with an
+  // HTTP history endpoint.
+  if (options?.httpUrl) {
+    const pubsub = node.services.pubsub;
+    pubsub.subscribe(NODE_CAPS_TOPIC);
+
+    const capsMsg = new TextEncoder().encode(
+      JSON.stringify({
+        version: 2,
+        peerId: pid,
+        roles: ["relay"],
+        httpUrl: options.httpUrl,
+      }),
+    );
+
+    const publishCaps = () => {
+      pubsub.publish(NODE_CAPS_TOPIC, capsMsg).catch(() => {});
+    };
+
+    // Publish immediately then every 10s so late
+    // joiners discover the httpUrl.
+    publishCaps();
+    capsInterval = setInterval(publishCaps, 10_000);
+  }
 
   return {
     multiaddr: addr,
@@ -74,6 +108,7 @@ export async function createTestRelay(
     async stop() {
       if (stopped) return;
       stopped = true;
+      if (capsInterval) clearInterval(capsInterval);
       await node.stop();
     },
   };
