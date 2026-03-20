@@ -9,6 +9,12 @@ Bridges Y.RelativePosition anchors to ProseMirror
 document positions and provides editor extensions
 for comment highlighting.
 
+> **React apps:** `@pokapali/react` provides
+> ready-made `useComments`, `CommentSidebar`, and
+> `CommentPopover` components. Use them alongside
+> the Tiptap extensions from this package — see
+> [React integration](#react-integration) below.
+
 ## Quick Start
 
 ```typescript
@@ -87,6 +93,87 @@ if (anchor) {
 ### Re-exports
 
 - **`Anchor`** — re-exported from `@pokapali/comments`
+
+## React Integration
+
+For React + Tiptap apps, combine the extensions from
+this package with the high-level components from
+`@pokapali/react`:
+
+```sh
+npm install @pokapali/comments-tiptap \
+  @pokapali/react @pokapali/comments
+```
+
+**This package** provides the Tiptap-specific parts:
+
+- `CommentHighlight` / `PendingAnchorHighlight` —
+  editor extensions for anchor highlighting
+- `anchorFromSelection(editor)` — create anchors
+  from the current editor selection
+- `resolveAnchors()` / `getSyncState()` — map
+  comment IDs to ProseMirror positions
+
+**`@pokapali/react`** provides the data and UI layer:
+
+- `useComments(doc)` — reactive comment list with
+  CRUD actions (`addComment`, `addReply`,
+  `updateComment`, `deleteComment`)
+- `CommentSidebar` — threaded comment list with
+  spatial anchoring, i18n labels, and
+  resolve/reopen/delete actions
+- `CommentPopover` — floating button that appears
+  on text selection
+
+Wire them together by passing this package's
+extensions to the editor and `@pokapali/react`'s
+components to the UI:
+
+```typescript
+import {
+  CommentHighlight,
+  PendingAnchorHighlight,
+  anchorFromSelection,
+  resolveAnchors,
+  getSyncState,
+} from "@pokapali/comments-tiptap";
+import { useComments, CommentSidebar, CommentPopover } from "@pokapali/react";
+
+// 1. useComments() handles the data layer
+const { comments, addComment, commentsDoc } = useComments(doc);
+
+// 2. Pass extensions to useEditor()
+const editor = useEditor(
+  {
+    extensions: [
+      Collaboration.configure({
+        document: doc.channel("content"),
+      }),
+      CommentHighlight.configure({
+        commentsDoc,
+        contentDoc: doc.channel("content"),
+        activeCommentId: null,
+      }),
+      PendingAnchorHighlight,
+    ],
+  },
+  [doc],
+);
+
+// 3. Create anchors via anchorFromSelection()
+const anchor = anchorFromSelection(editor);
+
+// 4. Resolve positions for spatial layout
+const syncState = getSyncState(editor);
+const positions = resolveAnchors(
+  commentsDoc,
+  doc.channel("content"),
+  syncState,
+);
+```
+
+See `apps/example/` for a complete working
+integration with all props wired up.
 
 ## Peer Dependencies
 
