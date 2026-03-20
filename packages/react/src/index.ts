@@ -22,6 +22,13 @@ export type {
 } from "./save-indicator.js";
 export { defaultSaveIndicatorLabels } from "./save-indicator.js";
 
+export { StatusIndicator } from "./status-indicator.js";
+export type {
+  StatusIndicatorProps,
+  StatusIndicatorLabels,
+} from "./status-indicator.js";
+export { defaultStatusIndicatorLabels } from "./status-indicator.js";
+
 export { spatialLayout } from "./spatial-layout.js";
 export type { LayoutItem, PositionedItem } from "./spatial-layout.js";
 
