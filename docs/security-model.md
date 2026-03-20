@@ -64,7 +64,8 @@ doc.capability.channels; // Set<string>
 ### What's NOT encrypted
 
 - **IPNS records** — these are public pointers from
-  document name to latest snapshot CID. They reveal
+  document name to latest snapshot CID (content
+  identifier — a hash-based address). They reveal
   that a document exists and when it was last updated,
   but not its content.
 - **IndexedDB storage** — local persistence is
@@ -78,7 +79,7 @@ doc.capability.channels; // Set<string>
 ### Key derivation
 
 All keys are derived from a single admin secret using
-HKDF-SHA256:
+HKDF-SHA256 (HMAC-based key derivation function):
 
 ```
 adminSecret (random, base64url)

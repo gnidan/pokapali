@@ -138,11 +138,13 @@ into an append-only chain. Any single snapshot is sufficient
 to recover the entire document.
 
 **GossipSub signaling** — WebRTC connections are brokered
-via GossipSub over the libp2p mesh. No external signaling
-servers required.
+via [GossipSub](https://docs.libp2p.io/concepts/pubsub/overview/)
+(a peer-to-peer pub/sub protocol) over the libp2p mesh.
+No external signaling servers required.
 
 **Zero-knowledge pinners** — relay/pinner nodes store and
-serve encrypted blocks they cannot read. Anyone can run one.
+serve encrypted blocks they cannot read (they persist data
+without knowing its content). Anyone can run one.
 
 See [Internals](docs/internals/) for the full design.
 
