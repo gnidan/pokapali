@@ -39,6 +39,127 @@ The format is based on
   doc.urls.best tier selection logic
   (admin > write > read fallback) in guide.md.
 
+### @pokapali/core (0.1.3)
+
+- [#15](https://github.com/gnidan/pokapali/issues/15)
+  [`e122e88`](https://github.com/gnidan/pokapali/commit/e122e8850223f45a4b8d5474856533a113ac8716)
+  Add chain block prefetching after tip-advanced.
+  After the tip advances, the interpreter now walks
+  `prev` links and dispatches fetches for up to
+  `prefetchDepth` (default 3) parent blocks. This
+  catches pinner-index and cache-sourced entries that
+  the normal auto-fetch policy skips, reducing
+  sequential fetch latency during chain walks. Set
+  `prefetchDepth: 0` in DocParams to disable.
+- [#40](https://github.com/gnidan/pokapali/issues/40)
+  [`fcebbcb`](https://github.com/gnidan/pokapali/commit/fcebbcb5f43d27bf539d41b8be9cad3ff513d3c5)
+  Tune fetch retry backoff from 10s/30s/90s to
+  2s/8s/32s for faster recovery from transient
+  network failures.
+- [#289](https://github.com/gnidan/pokapali/issues/289)
+  [`9f5fd77`](https://github.com/gnidan/pokapali/commit/9f5fd77d715fcb9f05cae40238f8a3556e11074b)
+  Verify CID hash of inline blocks received via
+  GossipSub before storing in blockstore. Prevents
+  acceptance of tampered or corrupted blocks from the
+  gossip network. Shared verifyCid() utility extracted
+  for reuse across fetch-tip and gossip bridge.
+- [#116](https://github.com/gnidan/pokapali/issues/116)
+  [`923f5f4`](https://github.com/gnidan/pokapali/commit/923f5f47a66d3a404ff49647d8c651df18da2312)
+  Add JSDoc to all public exports across 13 source
+  files: PokapaliConfig, PokapaliApp, pokapali(),
+  Doc-related types (DocStatus, DocRole, LoadingState,
+  GossipActivity, VersionHistoryEntry), diagnostics
+  types (NodeInfo, Diagnostics, TopologyGraph), error
+  classes, forwarding, auto-save, node-registry,
+  topology-sharing, RotateResult, and version history.
+- [#38](https://github.com/gnidan/pokapali/issues/38)
+  [`bb15692`](https://github.com/gnidan/pokapali/commit/bb156928f657a1ffdaeea8ef8d375ed9d1620567)
+  Fix markReady race when IPNS resolves before fetch
+  starts. `deriveLoadingState` now returns `"resolving"`
+  (instead of `"idle"`) when IPNS has resolved a CID
+  but the corresponding chain entry still has
+  `blockStatus: "unknown"`. This prevents `markReady`
+  from firing before the first snapshot is applied.
+- [#120](https://github.com/gnidan/pokapali/issues/120)
+  [`9ddd7e3`](https://github.com/gnidan/pokapali/commit/9ddd7e3c6501f9c7a13d0059baf52071d3e7b8f9)
+  Rename TopologyGraphEdge → TopologyEdge for
+  consistency with the TopologyGraph and TopologyNode
+  naming convention. The internal raw edge type (from
+  node capability broadcasts) is renamed from
+  TopologyEdge to CapabilityEdge.
+
+### @pokapali/core (0.1.4)
+
+- [#55](https://github.com/gnidan/pokapali/issues/55)
+  [`914d7e7`](https://github.com/gnidan/pokapali/commit/914d7e74c801467b6350dcc2e86d2f4a5ee27c5a)
+  Pause periodic timers when browser tab is hidden.
+  Adds `createThrottledInterval`, a visibility-aware
+  `setInterval` wrapper that pauses (or throttles) when
+  the tab is backgrounded and optionally fires
+  immediately on resume. Integrated into
+  topology-sharing, relay-sharing, node-registry,
+  peer-discovery, and gossipsub-signaling to eliminate
+  unnecessary background CPU, network, and battery
+  usage.
+- [#252](https://github.com/gnidan/pokapali/issues/252)
+  [`6bb6ae0`](https://github.com/gnidan/pokapali/commit/6bb6ae004b242383c738d7bcf8f92623ad0396bc)
+  Bind clientID into identity signature payload. v2
+  signature format signs `pubkey:clientID:ipnsName`
+  instead of `pubkey:ipnsName`, preventing replay of a
+  valid identity entry under a different clientID.
+  Entries gain an optional `v: 2` field for dual
+  verification — old clients degrade gracefully (show
+  v2 entries as unverified).
+- [`88d49f1`](https://github.com/gnidan/pokapali/commit/88d49f1d8697bd8141b3c9127034d00dde6b468c)
+  Fix relay-sharing timer firing after test cleanup.
+  Add destroyed guard to publishRelays and
+  onAwarenessUpdate callbacks so they no-op after
+  destroy().
+
+### @pokapali/react (0.1.3)
+
+- [`4453b8a`](https://github.com/gnidan/pokapali/commit/4453b8a17dd817e15f08022e5abadc8b434c274e)
+  Add comment UI components: CommentSidebar,
+  CommentPopover, useComments hook, spatialLayout
+  utility, i18n label interfaces with English defaults,
+  and comments.css stylesheet with BEM pkp- naming.
+  ([#328](https://github.com/gnidan/pokapali/issues/328))
+- [`f09a9f2`](https://github.com/gnidan/pokapali/commit/f09a9f2a804bd4cb7c80849306caee1ca8aa994c)
+  Make remaining hardcoded English strings configurable
+  via labels: add toolbarAriaLabel to
+  CommentPopoverLabels and unverifiedSuffix to
+  CommentSidebarLabels.
+  ([#329](https://github.com/gnidan/pokapali/issues/329))
+- [#350](https://github.com/gnidan/pokapali/issues/350)
+  [`9e0a14f`](https://github.com/gnidan/pokapali/commit/9e0a14f3d5403de5a0652f9e7d57f36f3b866a08)
+  Update README with comment component docs:
+  useComments hook, CommentSidebar, CommentPopover,
+  labels/i18n system, CSS import, spatialLayout
+  utility, and updated peer dependencies.
+
+### @pokapali/sync (0.1.2)
+
+- [#55](https://github.com/gnidan/pokapali/issues/55)
+  [`914d7e7`](https://github.com/gnidan/pokapali/commit/914d7e74c801467b6350dcc2e86d2f4a5ee27c5a)
+  Pause periodic timers when browser tab is hidden.
+  Adds `createThrottledInterval`, a visibility-aware
+  `setInterval` wrapper that pauses (or throttles) when
+  the tab is backgrounded and optionally fires
+  immediately on resume.
+- Remove dependency on patched y-webrtc internal
+  exports. Replaces import of signalingConns and
+  setupSignalingHandlers with self-contained
+  monkey-patch of WebrtcProvider.connect() and inline
+  signal routing.
+
+### @pokapali/comments-tiptap (0.1.2)
+
+- [`b532ced`](https://github.com/gnidan/pokapali/commit/b532cedaf454670f90a0cb3e3f12316ed3e9380e)
+  Add React integration section to comments-tiptap
+  README showing how to combine @pokapali/react's
+  useComments, CommentSidebar, and CommentPopover
+  with the Tiptap extensions from this package.
+
 ### @pokapali/test-utils (0.1.3)
 
 - [#313](https://github.com/gnidan/pokapali/issues/313)
@@ -47,6 +168,14 @@ The format is based on
   (createTestRelay, TestRelay, TestRelayOptions,
   LatencyOptions) and update test-utils README with
   settle() method and createTestRelay section.
+
+### @pokapali/test-utils (0.1.4)
+
+- [`0d0379c`](https://github.com/gnidan/pokapali/commit/0d0379c2d6098c7bbe49898e285e612dc90e0fd6)
+  Add optional `httpUrl` parameter to
+  `createTestRelay()` that publishes v2 node-caps via
+  GossipSub, enabling E2E tests for tier badges and
+  expiry countdowns.
 
 ### Internal
 

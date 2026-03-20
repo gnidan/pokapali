@@ -320,18 +320,26 @@ node -e "
     const existing = nextH2 >= 0
       ? root.slice(headingIdx, nextH2)
       : root.slice(headingIdx);
-    // Check if any package heading already present
-    const hasPkgHeading = pkgSections.some(
-      s => existing.includes('### ' + s.pkg));
-    if (!hasPkgHeading && pkgSections.length > 0) {
-      // Add package sections before Internal
+    // Filter to sections not yet present (check
+    // package name AND version to allow multiple
+    // releases of the same package on one date)
+    const newSections = pkgSections.filter(
+      s => !existing.includes(
+        '### ' + s.pkg + ' (' + s.ver + ')'));
+    const hasNewPkgs = newSections.length > 0;
+    const hasNewInternal = internal.trim()
+      && !existing.includes('### Internal');
+
+    if (hasNewPkgs) {
+      const pkgPart = newSections
+        .map(s => '### ' + s.pkg
+          + ' (' + s.ver + ')\n\n' + s.body)
+        .join('\n\n');
       const internalIdx = existing
         .indexOf('### Internal');
       if (internalIdx >= 0) {
-        const pkgPart = pkgSections
-          .map(s => '### ' + s.pkg
-            + ' (' + s.ver + ')\n\n' + s.body)
-          .join('\n\n');
+        // Insert new package sections before
+        // existing Internal heading
         root = root.replace(
           heading + existing.slice(
             0, internalIdx),
@@ -339,14 +347,20 @@ node -e "
             + pkgPart + '\n\n'
         );
       } else {
-        root = root.replace(
-          heading,
-          heading + '\n\n' + section
-        );
+        // No Internal heading — append after
+        // existing content
+        const endSlice = nextH2 >= 0
+          ? root.slice(0, nextH2)
+          : root;
+        root = root.slice(0, nextH2 >= 0
+          ? nextH2 : root.length)
+          .trimEnd()
+          + '\n\n' + pkgPart + '\n\n'
+          + (nextH2 >= 0
+            ? root.slice(nextH2) : '');
       }
-    } else if (!existing.includes('### Internal')
-      && internal.trim()) {
-      // Only internal entries to add
+    }
+    if (hasNewInternal) {
       root = root.replace(
         heading,
         heading + '\n\n### Internal\n\n' + internal
