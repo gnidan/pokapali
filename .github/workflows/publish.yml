@@ -134,4 +134,11 @@ jobs:
 
       - name: Push per-package tags
         if: steps.publish.outputs.published == 'yes'
-        run: git push --follow-tags
+        run: |
+          # changeset publish creates lightweight tags;
+          # --follow-tags only pushes annotated ones.
+          # Push each tag explicitly instead.
+          while IFS= read -r tag; do
+            echo "Pushing tag: $tag"
+            git push origin "refs/tags/$tag"
+          done < /tmp/published.txt
