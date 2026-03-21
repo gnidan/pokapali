@@ -66,6 +66,17 @@ const SCHEDULE_TICK_MS = 5_000;
 // activity AND no successful IPNS resolve for 3 days.
 const DEFAULT_STALE_RESOLVE_MS = 3 * 24 * 60 * 60_000;
 
+// Skip stale-resolve pruning for the first 10 minutes
+// after startup. On restart, lastResolvedAt is stale
+// (resolveAll() hasn't run yet), so stale-resolve would
+// incorrectly mass-delete docs. See #376.
+const STARTUP_GRACE_MS = 10 * 60_000;
+
+// Periodic pruning interval (1 hour). Stale-resolve
+// pruning only fires after STARTUP_GRACE_MS, so we
+// need periodic runs — not just the startup prune.
+const PRUNE_INTERVAL_MS = 60 * 60_000;
+
 // Self-tuning capacity
 const INITIAL_PER_DOC_MS = 50;
 const EMA_ALPHA = 0.3;
@@ -372,6 +383,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     p.finally(() => pending.delete(p));
   }
   let phase: PinnerPhase = "created";
+  let startedAt = 0;
   const shutdownCtrl = new AbortController();
   let resolveInterval: ReturnType<typeof setInterval> | null = null;
   let republishInterval: ReturnType<typeof setInterval> | null = null;
@@ -380,6 +392,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   let persistInterval: ReturnType<typeof setInterval> | null = null;
   let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let thinSweepInterval: ReturnType<typeof setInterval> | null = null;
+  let pruneInterval: ReturnType<typeof setInterval> | null = null;
   let dirty = false;
 
   // Counters for /metrics endpoint
@@ -881,6 +894,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     // window but with no GossipSub activity AND no
     // successful IPNS resolve for staleResolveMs.
     //
+    // Startup grace (#376): skip stale-resolve for the
+    // first STARTUP_GRACE_MS after start(). On restart,
+    // lastResolvedAt is stale because resolveAll() runs
+    // async after pruneIfNeeded(). Without this grace,
+    // every doc looks stale on restart and gets deleted.
+    //
     // First-run grace: names that have NEVER been
     // resolved (lastResolvedAt=0, new field) use a
     // shorter 12h threshold. This handles the initial
@@ -888,7 +907,16 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     // populated yet but stale names have recent
     // lastSeenAt from pre-fromPinner re-announces.
     const NEVER_RESOLVED_GRACE_MS = 12 * 60 * 60_000;
-    if (staleResolveMs > 0) {
+    const withinStartupGrace =
+      startedAt > 0 && now - startedAt < STARTUP_GRACE_MS;
+    if (withinStartupGrace && staleResolveMs > 0) {
+      log.info(
+        "startup grace: skipping stale-resolve pruning" +
+          ` (${Math.round((now - startedAt) / 1000)}s` +
+          ` since start, grace=${STARTUP_GRACE_MS / 1000}s)`,
+      );
+    }
+    if (staleResolveMs > 0 && !withinStartupGrace) {
       const pruneSet = new Set(toPrune);
       for (const name of knownNames) {
         if (pruneSet.has(name)) continue;
@@ -1396,6 +1424,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         });
         throw err;
       }
+      startedAt = Date.now();
       await pruneIfNeeded();
 
       // Backfill history index from blockstore
@@ -1443,6 +1472,13 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         track(thinSweep());
       }, THIN_SWEEP_INTERVAL_MS);
 
+      // Periodic pruning — stale-resolve only fires
+      // after startup grace, so periodic runs are needed
+      // to clean up stale names. See #376.
+      pruneInterval = setInterval(() => {
+        track(pruneIfNeeded());
+      }, PRUNE_INTERVAL_MS);
+
       // Schedule queue processor
       if (config.pubsub) {
         scheduleInterval = setInterval(() => {
@@ -1475,6 +1511,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       }
       if (thinSweepInterval) {
         clearInterval(thinSweepInterval);
+      }
+      if (pruneInterval) {
+        clearInterval(pruneInterval);
       }
       await persistHistoryIndex();
       try {
