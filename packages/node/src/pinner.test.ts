@@ -1585,6 +1585,232 @@ describe("pinner with mock helia", () => {
         vi.useRealTimers();
       },
     );
+
+    // --- Multi-doc regression tests (#376) ---
+    // The original production bug mass-deleted many
+    // docs on restart. These tests reproduce that
+    // scenario with 10+ unique docs.
+
+    it(
+      "multi-doc: startup grace prevents" + " mass-deletion on restart (#376)",
+      async () => {
+        vi.useFakeTimers();
+        const DOC_COUNT = 12;
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest 12 unique docs
+        const docs = [];
+        for (let i = 0; i < DOC_COUNT; i++) {
+          const doc = await generateTestDoc();
+          const block = await makeSnapshotWith(doc, {
+            ts: Date.now() + i,
+          });
+          await pinner.ingest(doc.ipnsName, block);
+          docs.push(doc);
+        }
+
+        expect(pinner.metrics().knownNames).toBe(DOC_COUNT);
+
+        // Stop, advance 4 days (past stale threshold)
+        await pinner.stop();
+        await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+
+        // Restart — startup grace should protect ALL
+        // docs from stale-resolve pruning
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        const m = pinner2.metrics();
+        expect(m.knownNames).toBe(DOC_COUNT);
+        expect(m.deactivatedNames).toBe(0);
+        expect(m.stalePruned).toBe(0);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "multi-doc: periodic prune deactivates" +
+        " all stale docs, deletes none (#376)",
+      async () => {
+        vi.useFakeTimers();
+        const DOC_COUNT = 10;
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest 10 unique docs
+        const docs = [];
+        for (let i = 0; i < DOC_COUNT; i++) {
+          const doc = await generateTestDoc();
+          const block = await makeSnapshotWith(doc, {
+            ts: Date.now() + i,
+          });
+          await pinner.ingest(doc.ipnsName, block);
+          docs.push(doc);
+        }
+
+        // Stop, advance 4 days, restart
+        await pinner.stop();
+        await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        // All survive startup grace
+        expect(pinner2.metrics().knownNames).toBe(DOC_COUNT);
+
+        // Advance past startup grace (10 min) + prune
+        // interval (1 hour). Periodic prune fires with
+        // stale-resolve enabled.
+        await vi.advanceTimersByTimeAsync(61 * 60_000);
+
+        // All docs should be deactivated (blocks
+        // retained), none deleted
+        const m = pinner2.metrics();
+        expect(m.knownNames).toBe(DOC_COUNT);
+        expect(m.deactivatedNames).toBe(DOC_COUNT);
+        expect(m.staleDeactivated).toBeGreaterThanOrEqual(DOC_COUNT);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "multi-doc: mix of stale and active" +
+        " docs — only stale deactivated (#376)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest 6 docs that will become stale
+        const staleDocs = [];
+        for (let i = 0; i < 6; i++) {
+          const doc = await generateTestDoc();
+          const block = await makeSnapshotWith(doc, {
+            ts: Date.now() + i,
+          });
+          await pinner.ingest(doc.ipnsName, block);
+          staleDocs.push(doc);
+        }
+
+        // Advance 3 days + 11 hours — past 3-day stale
+        // threshold for the first batch. The second
+        // batch (ingested here) will only be ~1 hour
+        // old at prune time, well within the 12h
+        // never-resolved grace.
+        await vi.advanceTimersByTimeAsync(
+          3 * 24 * 60 * 60_000 + 11 * 60 * 60_000,
+        );
+
+        // Ingest 4 docs that will remain active
+        const activeDocs = [];
+        for (let i = 0; i < 4; i++) {
+          const doc = await generateTestDoc();
+          const block = await makeSnapshotWith(doc, {
+            ts: Date.now() + i,
+          });
+          await pinner.ingest(doc.ipnsName, block);
+          activeDocs.push(doc);
+        }
+
+        expect(pinner.metrics().knownNames).toBe(10);
+
+        // Advance 1 more hour — past the prune
+        // interval. Active docs are ~1 hour old
+        // (within 12h never-resolved grace).
+        await vi.advanceTimersByTimeAsync(60 * 60_000);
+        await pinner.flush();
+
+        const m = pinner.metrics();
+        // All 10 docs still known (blocks retained)
+        expect(m.knownNames).toBe(10);
+        // Only the 6 stale docs deactivated
+        expect(m.deactivatedNames).toBe(6);
+
+        await pinner.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "multi-doc: deactivated docs survive" +
+        " restart, reactivate on activity (#376)",
+      async () => {
+        vi.useFakeTimers();
+        const DOC_COUNT = 8;
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        const docs = [];
+        for (let i = 0; i < DOC_COUNT; i++) {
+          const doc = await generateTestDoc();
+          const block = await makeSnapshotWith(doc, {
+            ts: Date.now() + i,
+          });
+          await pinner.ingest(doc.ipnsName, block);
+          docs.push(doc);
+        }
+
+        // Deactivate all via stale-resolve
+        await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+        await pinner.flush();
+        expect(pinner.metrics().deactivatedNames).toBe(DOC_COUNT);
+
+        // Restart — deactivated state persists
+        await pinner.stop();
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        expect(pinner2.metrics().knownNames).toBe(DOC_COUNT);
+        expect(pinner2.metrics().deactivatedNames).toBe(DOC_COUNT);
+
+        // Reactivate half the docs via recordActivity
+        for (let i = 0; i < 4; i++) {
+          pinner2.recordActivity(docs[i]!.ipnsName);
+        }
+
+        expect(pinner2.metrics().deactivatedNames).toBe(4);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
   });
 
   describe("IPNS rate limiting", () => {
