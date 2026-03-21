@@ -50,6 +50,11 @@ const RETENTION_DURATION_MS = 14 * 24 * 60 * 60_000;
 // Version thinning sweep interval (6 hours)
 const THIN_SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
 
+// Periodic prune interval (1 hour). Runs
+// pruneIfNeeded() to deactivate stale docs and
+// delete retention-expired docs (#376).
+const PRUNE_INTERVAL_MS = 60 * 60_000;
+
 const DEFAULT_RETENTION: RetentionConfig = {
   fullResolutionMs: 7 * 24 * 60 * 60_000,
   hourlyRetentionMs: 14 * 24 * 60 * 60_000,
@@ -71,11 +76,6 @@ const DEFAULT_STALE_RESOLVE_MS = 3 * 24 * 60 * 60_000;
 // (resolveAll() hasn't run yet), so stale-resolve would
 // incorrectly mass-delete docs. See #376.
 const STARTUP_GRACE_MS = 10 * 60_000;
-
-// Periodic pruning interval (1 hour). Stale-resolve
-// pruning only fires after STARTUP_GRACE_MS, so we
-// need periodic runs — not just the startup prune.
-const PRUNE_INTERVAL_MS = 60 * 60_000;
 
 // Self-tuning capacity
 const INITIAL_PER_DOC_MS = 50;
@@ -132,6 +132,8 @@ export interface PinnerMetrics {
   ipnsThrottleAcquired: number;
   ipnsThrottleRejected: number;
   stalePruned: number;
+  staleDeactivated: number;
+  deactivatedNames: number;
 }
 
 export interface TipData {
@@ -234,6 +236,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       ? 0
       : (config.staleResolveDays ?? 3) * 24 * 60 * 60_000;
   const maxNames = config.maxNames ?? DEFAULT_MAX_NAMES;
+  // Names in passive phase — blocks retained,
+  // announcements stopped. Persisted in LevelDB (#376).
+  const deactivatedNames = new Set<string>();
 
   // Self-tuning capacity measurement
   let perDocEma = INITIAL_PER_DOC_MS;
@@ -405,6 +410,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   let lastPersistMs = 0;
   let stateWriteCount = 0;
   let stalePruned = 0;
+  let staleDeactivated = 0;
 
   /** Write-through: persist a state mutation to
    * LevelDB. Fire-and-forget safe for sync callers
@@ -589,7 +595,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   async function resolveAll(): Promise<void> {
     const now = Date.now();
     const names = [...knownNames].filter(
-      (n) => reannounceInterval(n, now) < MAX_INTERVAL_MS,
+      (n) =>
+        !deactivatedNames.has(n) &&
+        reannounceInterval(n, now) < MAX_INTERVAL_MS,
     );
     if (names.length === 0) return;
     log.debug(
@@ -672,6 +680,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     const candidates: string[] = [];
 
     for (const ipnsName of knownNames) {
+      // Skip deactivated names (passive phase)
+      if (deactivatedNames.has(ipnsName)) continue;
       const seen = lastSeenAt.get(ipnsName) ?? 0;
       // Skip names past retention
       if (seen + RETENTION_DURATION_MS <= now) continue;
@@ -791,8 +801,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
       heapPop();
 
-      // Skip if doc was removed or is stale
-      if (!knownNames.has(top.ipnsName)) {
+      // Skip if doc was removed, stale, or
+      // deactivated (passive phase)
+      if (!knownNames.has(top.ipnsName) || deactivatedNames.has(top.ipnsName)) {
         inHeap.delete(top.ipnsName);
         continue;
       }
@@ -871,96 +882,110 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   }
 
   /**
+   * Deactivate a name: stop announcing and
+   * republishing, but keep blocks and metadata.
+   * The doc enters "passive" phase (#376).
+   */
+  function deactivateName(name: string): void {
+    deactivatedNames.add(name);
+    inHeap.delete(name);
+    guaranteedUntil.delete(name);
+    persistMutation(() => store.setDeactivated(name));
+    log.info(`deactivated ${name.slice(0, 12)}...` + ` (passive retention)`);
+  }
+
+  /**
    * Prune docs past retention (14 days of inactivity).
-   * Also prune stale names: no GossipSub activity AND
-   * no successful IPNS resolve for staleResolveMs.
-   * Capacity backstop: if tracking > capacity * 10,
-   * prune oldest by lastSeenAt even if < 14 days.
+   * Stale names within retention are deactivated, not
+   * deleted (#376). Capacity backstop still deletes
+   * (OOM protection).
    */
   async function pruneIfNeeded(): Promise<void> {
     const now = Date.now();
-    const toPrune: string[] = [];
-    let staleCount = 0;
+    const toDelete: string[] = [];
+    const toDeactivate: string[] = [];
 
-    // Primary: time-based retention pruning
+    // Primary: time-based retention pruning → DELETE
     for (const name of knownNames) {
       const seen = lastSeenAt.get(name) ?? 0;
       if (seen + RETENTION_DURATION_MS < now) {
-        toPrune.push(name);
+        toDelete.push(name);
       }
     }
 
-    // Stale-resolve pruning: names within retention
-    // window but with no GossipSub activity AND no
-    // successful IPNS resolve for staleResolveMs.
+    // Stale-resolve pruning → DEACTIVATE (not delete)
     //
     // Startup grace (#376): skip stale-resolve for the
     // first STARTUP_GRACE_MS after start(). On restart,
     // lastResolvedAt is stale because resolveAll() runs
     // async after pruneIfNeeded(). Without this grace,
-    // every doc looks stale on restart and gets deleted.
+    // every doc looks stale on restart and gets
+    // deactivated.
     //
     // First-run grace: names that have NEVER been
     // resolved (lastResolvedAt=0, new field) use a
-    // shorter 12h threshold. This handles the initial
-    // deploy where lastResolvedAt hasn't been
-    // populated yet but stale names have recent
-    // lastSeenAt from pre-fromPinner re-announces.
+    // shorter 12h threshold.
     const NEVER_RESOLVED_GRACE_MS = 12 * 60 * 60_000;
     const withinStartupGrace =
       startedAt > 0 && now - startedAt < STARTUP_GRACE_MS;
     if (withinStartupGrace && staleResolveMs > 0) {
       log.info(
-        "startup grace: skipping stale-resolve pruning" +
+        "startup grace: skipping stale-resolve" +
           ` (${Math.round((now - startedAt) / 1000)}s` +
-          ` since start, grace=${STARTUP_GRACE_MS / 1000}s)`,
+          ` since start,` +
+          ` grace=${STARTUP_GRACE_MS / 1000}s)`,
       );
     }
     if (staleResolveMs > 0 && !withinStartupGrace) {
-      const pruneSet = new Set(toPrune);
+      const deleteSet = new Set(toDelete);
       for (const name of knownNames) {
-        if (pruneSet.has(name)) continue;
+        if (deleteSet.has(name)) continue;
+        if (deactivatedNames.has(name)) continue;
         const seen = lastSeenAt.get(name) ?? 0;
         const resolved = lastResolvedAt.get(name) ?? 0;
         if (resolved === 0) {
-          // Never resolved — use shorter threshold
           const seenStale = seen + NEVER_RESOLVED_GRACE_MS < now;
           if (seenStale) {
-            toPrune.push(name);
-            staleCount++;
+            toDeactivate.push(name);
           }
         } else {
           const seenStale = seen + staleResolveMs < now;
           const resolveStale = resolved + staleResolveMs < now;
           if (seenStale && resolveStale) {
-            toPrune.push(name);
-            staleCount++;
+            toDeactivate.push(name);
           }
         }
       }
     }
 
-    // Capacity backstop: if still over limit after
-    // time-based pruning, prune oldest
-    const remaining = knownNames.size - toPrune.length;
+    // Capacity backstop → DELETE (OOM protection)
+    const pending = knownNames.size - toDelete.length;
     const maxTracked = maxActiveDocs() * PRUNE_HEADROOM;
-    if (remaining > maxTracked) {
-      const pruneSet = new Set(toPrune);
+    if (pending > maxTracked) {
+      const deleteSet = new Set(toDelete);
       const sorted = [...knownNames]
-        .filter((n) => !pruneSet.has(n))
+        .filter((n) => !deleteSet.has(n))
         .map((n) => ({
           name: n,
           seen: lastSeenAt.get(n) ?? 0,
         }))
         .sort((a, b) => a.seen - b.seen);
-      const extra = sorted.slice(0, remaining - maxTracked);
+      const extra = sorted.slice(0, pending - maxTracked);
       for (const { name } of extra) {
-        toPrune.push(name);
+        toDelete.push(name);
       }
     }
 
-    for (const name of toPrune) {
-      // Delete ALL blocks for this doc, not just tip
+    // Execute deactivations (soft — keep blocks)
+    for (const name of toDeactivate) {
+      deactivateName(name);
+    }
+    if (toDeactivate.length > 0) {
+      staleDeactivated += toDeactivate.length;
+    }
+
+    // Execute deletions (hard — remove blocks)
+    for (const name of toDelete) {
       const entry = history.getEntry(name);
       if (entry && helia) {
         for (const snap of entry.snapshots) {
@@ -986,19 +1011,23 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       persistMutation(() => store.removeName(name));
       guaranteedUntil.delete(name);
       inHeap.delete(name);
+      deactivatedNames.delete(name);
     }
 
-    if (staleCount > 0) {
-      stalePruned += staleCount;
+    if (toDelete.length > 0) {
+      stalePruned += toDelete.length;
     }
-    if (toPrune.length > 0) {
+    if (toDelete.length > 0 || toDeactivate.length > 0) {
       markDirty();
-      const parts = [`pruned ${toPrune.length} docs`];
-      if (staleCount > 0) {
-        parts.push(`${staleCount} stale`);
+      const parts: string[] = [];
+      if (toDelete.length > 0) {
+        parts.push(`deleted ${toDelete.length}`);
+      }
+      if (toDeactivate.length > 0) {
+        parts.push(`deactivated ${toDeactivate.length}`);
       }
       parts.push(`${knownNames.size} remaining`);
-      log.info(parts.join(", "));
+      log.info(`prune: ${parts.join(", ")}`);
     }
   }
 
@@ -1085,6 +1114,13 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     for (const [name, ts] of resMap) {
       lastResolvedAt.set(name, ts);
     }
+    // Load deactivated names (#376)
+    const deactNames = await store.getDeactivatedNames();
+    for (const name of deactNames) {
+      if (knownNames.has(name)) {
+        deactivatedNames.add(name);
+      }
+    }
     // Backfill lastSeenAt for names that don't have
     // it — use 0 so they get pruned on next cycle.
     for (const name of knownNames) {
@@ -1094,8 +1130,10 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       }
     }
     // Seed the schedule queue from restored state
+    // (skip deactivated names — passive phase)
     const now = Date.now();
     for (const name of knownNames) {
+      if (deactivatedNames.has(name)) continue;
       const interval = reannounceInterval(name, now);
       if (interval < MAX_INTERVAL_MS) {
         scheduleDoc(name, now + interval);
@@ -1289,6 +1327,14 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       const now = Date.now();
       lastSeenAt.set(ipnsName, now);
       persistMutation(() => store.setLastSeen(ipnsName, now));
+      // Reactivate if deactivated (#376)
+      if (deactivatedNames.has(ipnsName)) {
+        deactivatedNames.delete(ipnsName);
+        persistMutation(() => store.clearDeactivated(ipnsName));
+        log.info(
+          `reactivated` + ` ${ipnsName.slice(0, 12)}...` + ` (new activity)`,
+        );
+      }
       // Reset monotonic guarantee on new activity
       // so it recalculates from fresh lastSeenAt.
       guaranteedUntil.delete(ipnsName);
@@ -1400,6 +1446,8 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         ipnsThrottleAcquired: tm.acquired,
         ipnsThrottleRejected: tm.rejected,
         stalePruned,
+        staleDeactivated,
+        deactivatedNames: deactivatedNames.size,
       };
     },
 
@@ -1442,6 +1490,16 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
       phase = "running";
 
+      // Periodic prune: deactivate stale docs,
+      // delete retention-expired docs (#376).
+      // Startup grace in pruneIfNeeded() ensures
+      // stale-resolve is skipped for the first 10min.
+      pruneInterval = setInterval(() => {
+        if (phase === "running") {
+          track(pruneIfNeeded());
+        }
+      }, PRUNE_INTERVAL_MS);
+
       // Periodic re-resolve
       if (helia) {
         resolveInterval = setInterval(resolveAll, RESOLVE_INTERVAL_MS);
@@ -1471,13 +1529,6 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       thinSweepInterval = setInterval(() => {
         track(thinSweep());
       }, THIN_SWEEP_INTERVAL_MS);
-
-      // Periodic pruning — stale-resolve only fires
-      // after startup grace, so periodic runs are needed
-      // to clean up stale names. See #376.
-      pruneInterval = setInterval(() => {
-        track(pruneIfNeeded());
-      }, PRUNE_INTERVAL_MS);
 
       // Schedule queue processor
       if (config.pubsub) {
@@ -1684,6 +1735,12 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       const now = Date.now();
       lastSeenAt.set(ipnsName, now);
       persistMutation(() => store.setLastSeen(ipnsName, now));
+      // Reactivate if deactivated (#376)
+      if (deactivatedNames.has(ipnsName)) {
+        deactivatedNames.delete(ipnsName);
+        persistMutation(() => store.clearDeactivated(ipnsName));
+        log.info(`reactivated` + ` ${ipnsName.slice(0, 12)}...`);
+      }
       // Bump re-announce priority
       scheduleDoc(ipnsName, now + BASE_INTERVAL_MS);
     },
