@@ -1324,9 +1324,7 @@ describe("pinner with mock helia", () => {
         // it (blocks retained, not deleted)
         expect(pinner2.metrics().knownNames).toBe(1);
         expect(pinner2.metrics().deactivatedNames).toBe(1);
-        expect(
-          pinner2.metrics().staleDeactivated,
-        ).toBeGreaterThan(0);
+        expect(pinner2.metrics().staleDeactivated).toBeGreaterThan(0);
 
         await pinner2.stop();
         vi.useRealTimers();
