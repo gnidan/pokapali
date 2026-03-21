@@ -5,8 +5,9 @@ npm install @pokapali/react
 ```
 
 React bindings for pokapali — hooks for document
-state, and ready-made components for threaded
-comments with spatial anchoring.
+state, ready-made components for threaded comments
+with spatial anchoring, and indicator components for
+connection status and save state.
 
 ## Quick Start
 
@@ -186,6 +187,193 @@ const positioned = spatialLayout(
 );
 // → [{ id, y }] with minimum 8px gap
 ```
+
+## Indicator Components
+
+Status and save-state indicators extracted from the
+example app. Import the stylesheet for default styles:
+
+```typescript
+import "@pokapali/react/indicators.css";
+```
+
+All classes use BEM with a `pkp-` prefix
+(`pkp-save-indicator`, `pkp-status-indicator`, etc.).
+
+### SaveIndicator
+
+Displays the current save state and doubles as a
+publish button when the document is dirty or
+unpublished.
+
+```typescript
+import {
+  SaveIndicator,
+  useFeed,
+} from "@pokapali/react";
+
+const saveState = useFeed(doc.saveState);
+const ackCount = useFeed(doc.backedUp) ? 1 : 0;
+
+<SaveIndicator
+  saveState={saveState}
+  ackCount={ackCount}
+  onPublish={() => doc.publish()}
+/>
+```
+
+**Props:**
+
+| Prop        | Type                           | Description                                                                        |
+| ----------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| `saveState` | `SaveState`                    | Current save state from `doc.saveState` Feed.                                      |
+| `ackCount`  | `number`                       | Number of pinners that acknowledged the snapshot. Shows "Saved to N servers".      |
+| `onPublish` | `() => void`                   | Called when the user clicks the button (visible in `dirty` / `unpublished` state). |
+| `labels`    | `Partial<SaveIndicatorLabels>` | Override default English strings.                                                  |
+
+### LastUpdated
+
+Relative-time display that auto-refreshes every 5
+seconds. Briefly flashes green after a snapshot event.
+
+```typescript
+import {
+  LastUpdated,
+  useFeed,
+  useSnapshotFlash,
+} from "@pokapali/react";
+
+const tip = useFeed(doc.tip);
+const flash = useSnapshotFlash(doc);
+
+<LastUpdated
+  timestamp={tip?.ts ?? 0}
+  flash={flash}
+/>
+```
+
+**Props:**
+
+| Prop        | Type                           | Description                                        |
+| ----------- | ------------------------------ | -------------------------------------------------- |
+| `timestamp` | `number`                       | Unix timestamp (ms) of the last snapshot.          |
+| `flash`     | `boolean`                      | When `true`, briefly highlights the text in green. |
+| `labels`    | `Partial<SaveIndicatorLabels>` | Override the `lastUpdated` formatter.              |
+
+### StatusIndicator
+
+Connection status dot with label and optional
+degraded-state warning.
+
+```typescript
+import {
+  StatusIndicator,
+  useFeed,
+} from "@pokapali/react";
+
+const status = useFeed(doc.status);
+
+<StatusIndicator status={status} />
+```
+
+**Props:**
+
+| Prop     | Type                             | Description                                       |
+| -------- | -------------------------------- | ------------------------------------------------- |
+| `status` | `DocStatus`                      | Current connection status from `doc.status` Feed. |
+| `labels` | `Partial<StatusIndicatorLabels>` | Override default English strings.                 |
+
+Status values: `"synced"` (green dot), `"receiving"`
+(cyan), `"connecting"` (yellow + warning), `"offline"`
+(red + warning).
+
+### Indicator Labels (i18n)
+
+Both `SaveIndicator`/`LastUpdated` and
+`StatusIndicator` accept a `labels` prop:
+
+```typescript
+import type {
+  SaveIndicatorLabels,
+  StatusIndicatorLabels,
+} from "@pokapali/react";
+
+<SaveIndicator
+  labels={{
+    saved: "Gespeichert",
+    dirty: "Änderungen speichern",
+  }}
+  ...
+/>
+
+<StatusIndicator
+  labels={{
+    synced: "Verbunden",
+    offline: "Getrennt",
+  }}
+  ...
+/>
+```
+
+Use `defaultSaveIndicatorLabels` and
+`defaultStatusIndicatorLabels` to inspect or spread
+from the built-in defaults.
+
+## Topology Map
+
+Live SVG network visualization showing your browser,
+relays, pinners, and other editors. Exported from a
+separate entry point to keep the main bundle small:
+
+```typescript
+import { TopologyMap } from "@pokapali/react/topology";
+import "@pokapali/react/topology-map.css";
+```
+
+### Usage
+
+```typescript
+<TopologyMap doc={doc} />
+```
+
+The component subscribes to `doc.topologyGraph()`,
+awareness, snapshot events, gossip activity, and
+loading state to render a live network diagram.
+Nodes pulse on data flow; edges reflect connection
+status.
+
+**Props:**
+
+| Prop     | Type                         | Description                                          |
+| -------- | ---------------------------- | ---------------------------------------------------- |
+| `doc`    | `TopologyMapDoc`             | Doc instance (or any object matching the interface). |
+| `labels` | `Partial<TopologyMapLabels>` | Override default English strings.                    |
+
+`TopologyMapDoc` is a narrow interface — it requires
+`topologyGraph()`, `capability`, `snapshotEvents`,
+`tip`, `loading`, `gossipActivity`, and `awareness`.
+A standard `Doc` from `@pokapali/core` satisfies it.
+
+### Labels (i18n)
+
+```typescript
+import type {
+  TopologyMapLabels,
+} from "@pokapali/react/topology";
+
+<TopologyMap
+  doc={doc}
+  labels={{
+    you: "Ich",
+    relay: "Relais",
+    pinner: "Speicher",
+    connected: "verbunden",
+  }}
+/>
+```
+
+Use `defaultTopologyMapLabels` to inspect or spread
+from the built-in defaults.
 
 ## Peer Dependencies
 
