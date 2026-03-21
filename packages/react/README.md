@@ -319,6 +319,62 @@ Use `defaultSaveIndicatorLabels` and
 `defaultStatusIndicatorLabels` to inspect or spread
 from the built-in defaults.
 
+## Topology Map
+
+Live SVG network visualization showing your browser,
+relays, pinners, and other editors. Exported from a
+separate entry point to keep the main bundle small:
+
+```typescript
+import { TopologyMap } from "@pokapali/react/topology";
+import "@pokapali/react/topology-map.css";
+```
+
+### Usage
+
+```typescript
+<TopologyMap doc={doc} />
+```
+
+The component subscribes to `doc.topologyGraph()`,
+awareness, snapshot events, gossip activity, and
+loading state to render a live network diagram.
+Nodes pulse on data flow; edges reflect connection
+status.
+
+**Props:**
+
+| Prop     | Type                         | Description                                          |
+| -------- | ---------------------------- | ---------------------------------------------------- |
+| `doc`    | `TopologyMapDoc`             | Doc instance (or any object matching the interface). |
+| `labels` | `Partial<TopologyMapLabels>` | Override default English strings.                    |
+
+`TopologyMapDoc` is a narrow interface — it requires
+`topologyGraph()`, `capability`, `snapshotEvents`,
+`tip`, `loading`, `gossipActivity`, and `awareness`.
+A standard `Doc` from `@pokapali/core` satisfies it.
+
+### Labels (i18n)
+
+```typescript
+import type {
+  TopologyMapLabels,
+} from "@pokapali/react/topology";
+
+<TopologyMap
+  doc={doc}
+  labels={{
+    you: "Ich",
+    relay: "Relais",
+    pinner: "Speicher",
+    connected: "verbunden",
+  }}
+/>
+```
+
+Use `defaultTopologyMapLabels` to inspect or spread
+from the built-in defaults.
+
 ## Peer Dependencies
 
 - `@pokapali/core`
