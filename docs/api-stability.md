@@ -205,11 +205,72 @@ not a module-level export.
 
 ## @pokapali/react
 
-**Stable:** `useFeed()`, `useDocReady()`,
-`useDocDestroy()`
+### Stable
 
-**Experimental:** `useAutoSave()`,
-`useParticipants()`, `useSnapshotFlash()`
+`useFeed()`, `useDocReady()`, `useDocDestroy()`
+
+### Experimental
+
+#### Hooks
+
+`useAutoSave()`, `useParticipants()`,
+`useSnapshotFlash()`
+
+`useComments()` — returns comment state for a
+`Comments<T>` instance. Types: `CommentData`,
+`UseCommentsOptions`
+
+#### Comment Components
+
+`CommentSidebar`, `CommentPopover` — rendered UI
+for threaded comments. Types:
+`CommentSidebarProps`, `CommentPopoverProps`
+
+`spatialLayout()` — pure function for positioning
+comments alongside content. Types: `LayoutItem`,
+`PositionedItem`
+
+Label customization / i18n:
+`defaultSidebarLabels`, `defaultPopoverLabels`,
+`resolveSidebarLabels()`, `resolvePopoverLabels()`.
+Types: `CommentSidebarLabels`,
+`CommentPopoverLabels`
+
+CSS: import `@pokapali/react/comments.css` for
+default comment styles. Required peer dependencies:
+`@pokapali/comments`, `@tiptap/pm` (optional),
+`yjs` (optional).
+
+#### Indicator Components
+
+`SaveIndicator`, `LastUpdated` — save-state display
+with age tracking. Types: `SaveIndicatorProps`,
+`LastUpdatedProps`, `SaveIndicatorLabels`,
+`defaultSaveIndicatorLabels`
+
+`StatusIndicator` — connection-status dot + label.
+Types: `StatusIndicatorProps`,
+`StatusIndicatorLabels`,
+`defaultStatusIndicatorLabels`
+
+CSS: import `@pokapali/react/indicators.css` for
+default indicator styles.
+
+### Experimental — `@pokapali/react/topology`
+
+Separate entry point to isolate the `d3-force`
+dependency. Consumers who do not need the topology
+visualization should not import from this subpath.
+
+`TopologyMap` — force-directed network topology
+visualization (SVG). Types: `TopologyMapProps`,
+`TopologyMapDoc`, `TopologyMapLabels`,
+`defaultTopologyMapLabels`
+
+CSS: import `@pokapali/react/topology-map.css` for
+default topology styles. Required peer dependency:
+`d3-force` (optional — only needed when importing
+from this subpath).
 
 ## @pokapali/comments-tiptap — Mostly Experimental
 
