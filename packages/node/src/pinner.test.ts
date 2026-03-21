@@ -1097,7 +1097,7 @@ describe("pinner with mock helia", () => {
 
   describe("stale name pruning", () => {
     it(
-      "prunes names with no activity and no" + " resolve for staleResolveDays",
+      "prunes stale names via periodic prune" + " after startup grace (#376)",
       async () => {
         vi.useFakeTimers();
         const now = Date.now();
@@ -1117,17 +1117,25 @@ describe("pinner with mock helia", () => {
         // Verify it's tracked
         expect(pinner.history.getTip(name)).not.toBeNull();
 
-        // Advance 4 days — past 3-day stale threshold
+        // Stop, then advance 4 days externally (past
+        // 3-day stale threshold)
+        await pinner.stop();
         await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
 
-        // Stop and restart to trigger pruneIfNeeded
-        await pinner.stop();
+        // Restart — startup grace skips stale-resolve
         const pinner2 = await createPinner({
           appIds: ["test-app"],
           storagePath: tmpDir,
           staleResolveDays: 3,
         });
         await pinner2.start();
+
+        // Still present during startup grace
+        expect(pinner2.metrics().knownNames).toBe(1);
+
+        // Advance past startup grace (10m) + prune
+        // interval (1h) so periodic prune fires
+        await vi.advanceTimersByTimeAsync(61 * 60_000);
 
         // Name should have been pruned (no resolve,
         // lastSeenAt > 3 days ago)
@@ -1182,16 +1190,23 @@ describe("pinner with mock helia", () => {
       const name = testIpnsName;
       await pinner.ingest(name, block);
 
-      // Advance 13 hours — past 12h grace
+      // Stop, then advance 13 hours externally
+      await pinner.stop();
       await vi.advanceTimersByTimeAsync(13 * 60 * 60_000);
 
-      await pinner.stop();
+      // Restart — startup grace prevents stale prune
       const pinner2 = await createPinner({
         appIds: ["test-app"],
         storagePath: tmpDir,
         staleResolveDays: 3,
       });
       await pinner2.start();
+
+      // Startup grace (#376) skips stale-resolve
+      expect(pinner2.metrics().knownNames).toBe(1);
+
+      // Advance past startup grace + prune interval
+      await vi.advanceTimersByTimeAsync(61 * 60_000);
 
       // Should be pruned (never resolved, seen
       // >12h ago)
@@ -1239,6 +1254,145 @@ describe("pinner with mock helia", () => {
       await pinner2.stop();
       vi.useRealTimers();
     });
+
+    it(
+      "skips stale-resolve pruning during startup" + " grace period (#376)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest a block — sets lastSeenAt to now
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        const name = testIpnsName;
+        await pinner.ingest(name, block);
+
+        // Stop immediately (before periodic prune can
+        // fire), then advance time externally so the
+        // doc appears stale on restart.
+        await pinner.stop();
+
+        // Advance 4 days — past 3-day stale threshold
+        await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+
+        // Restart. pruneIfNeeded() runs immediately —
+        // within the 10-minute startup grace, so
+        // stale-resolve is skipped. Doc should survive.
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        // Doc should still exist — startup grace
+        // prevented stale-resolve from deleting it
+        const m = pinner2.metrics();
+        expect(m.knownNames).toBe(1);
+        expect(m.stalePruned).toBe(0);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "stale-resolve fires after startup grace" + " via periodic prune (#376)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest a block
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        const name = testIpnsName;
+        await pinner.ingest(name, block);
+
+        // Stop before periodic prune fires, advance
+        // time externally, then restart
+        await pinner.stop();
+        await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        // Doc survives initial startup prune (grace)
+        expect(pinner2.metrics().knownNames).toBe(1);
+        expect(pinner2.metrics().stalePruned).toBe(0);
+
+        // Advance past startup grace + prune interval.
+        // Periodic prune fires with stale-resolve
+        // enabled (past grace).
+        await vi.advanceTimersByTimeAsync(61 * 60_000);
+
+        // Now stale-resolve should have pruned it
+        expect(pinner2.metrics().knownNames).toBe(0);
+        expect(pinner2.metrics().stalePruned).toBeGreaterThan(0);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "retention pruning still works during startup" + " grace (#376)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        // Ingest a block
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        const name = testIpnsName;
+        await pinner.ingest(name, block);
+
+        // Stop, then advance 15 days externally
+        await pinner.stop();
+        await vi.advanceTimersByTimeAsync(15 * 24 * 60 * 60_000);
+
+        // Restart — retention pruning should still
+        // fire even within startup grace (only
+        // stale-resolve is skipped)
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        // Doc should be gone — retention expired
+        const m = pinner2.metrics();
+        expect(m.knownNames).toBe(0);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
 
     it("exposes stalePruned in metrics", async () => {
       const pinner = await createPinner({
