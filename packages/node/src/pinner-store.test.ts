@@ -179,6 +179,55 @@ describe("pinner-store", () => {
     });
   });
 
+  describe("deactivated (#376)", () => {
+    it("starts empty", async () => {
+      const names = await store.getDeactivatedNames();
+      expect(names.size).toBe(0);
+    });
+
+    it("sets and gets deactivated names", async () => {
+      await store.setDeactivated("aaa");
+      await store.setDeactivated("bbb");
+      const names = await store.getDeactivatedNames();
+      expect(names.size).toBe(2);
+      expect(names.has("aaa")).toBe(true);
+      expect(names.has("bbb")).toBe(true);
+    });
+
+    it("clearDeactivated removes name", async () => {
+      await store.setDeactivated("aaa");
+      await store.clearDeactivated("aaa");
+      const names = await store.getDeactivatedNames();
+      expect(names.size).toBe(0);
+    });
+
+    it("clearDeactivated is safe for" + " unknown names", async () => {
+      // Should not throw
+      await store.clearDeactivated("xxx");
+    });
+
+    it("removeName clears deactivated" + " status", async () => {
+      await store.addName("aaa");
+      await store.setDeactivated("aaa");
+      await store.removeName("aaa");
+      const names = await store.getDeactivatedNames();
+      expect(names.has("aaa")).toBe(false);
+    });
+
+    it("deactivated state survives" + " close/reopen", async () => {
+      await store.setDeactivated("aaa");
+      await store.close();
+
+      const store2 = await createPinnerStore(join(tmpDir, "pinner-state"));
+      await store2.open();
+
+      const names = await store2.getDeactivatedNames();
+      expect(names.has("aaa")).toBe(true);
+
+      await store2.close();
+    });
+  });
+
   describe("importState", () => {
     it("batch-imports full state", async () => {
       await store.importState({

@@ -1097,7 +1097,8 @@ describe("pinner with mock helia", () => {
 
   describe("stale name pruning", () => {
     it(
-      "prunes stale names via periodic prune" + " after startup grace (#376)",
+      "deactivates stale names via periodic" +
+        " prune after startup grace (#376)",
       async () => {
         vi.useFakeTimers();
         const now = Date.now();
@@ -1117,33 +1118,18 @@ describe("pinner with mock helia", () => {
         // Verify it's tracked
         expect(pinner.history.getTip(name)).not.toBeNull();
 
-        // Stop, then advance 4 days externally (past
-        // 3-day stale threshold)
-        await pinner.stop();
+        // Advance 4 days — past 3-day stale threshold
         await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+        await pinner.flush();
 
-        // Restart — startup grace skips stale-resolve
-        const pinner2 = await createPinner({
-          appIds: ["test-app"],
-          storagePath: tmpDir,
-          staleResolveDays: 3,
-        });
-        await pinner2.start();
+        // Name should still be known (blocks
+        // retained) but deactivated (#376)
+        const m = pinner.metrics();
+        expect(m.knownNames).toBe(1);
+        expect(m.deactivatedNames).toBe(1);
+        expect(m.staleDeactivated).toBeGreaterThan(0);
 
-        // Still present during startup grace
-        expect(pinner2.metrics().knownNames).toBe(1);
-
-        // Advance past startup grace (10m) + prune
-        // interval (1h) so periodic prune fires
-        await vi.advanceTimersByTimeAsync(61 * 60_000);
-
-        // Name should have been pruned (no resolve,
-        // lastSeenAt > 3 days ago)
-        const m = pinner2.metrics();
-        expect(m.knownNames).toBe(0);
-        expect(m.stalePruned).toBeGreaterThan(0);
-
-        await pinner2.stop();
+        await pinner.stop();
         vi.useRealTimers();
       },
     );
@@ -1174,49 +1160,39 @@ describe("pinner with mock helia", () => {
       },
     );
 
-    it("prunes never-resolved names after 12h" + " grace period", async () => {
-      vi.useFakeTimers();
+    it(
+      "deactivates never-resolved names" + " after 12h grace period (#376)",
+      async () => {
+        vi.useFakeTimers();
 
-      const pinner = await createPinner({
-        appIds: ["test-app"],
-        storagePath: tmpDir,
-        staleResolveDays: 3,
-      });
-      await pinner.start();
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
 
-      const block = await makeSnapshot({
-        ts: Date.now(),
-      });
-      const name = testIpnsName;
-      await pinner.ingest(name, block);
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        const name = testIpnsName;
+        await pinner.ingest(name, block);
 
-      // Stop, then advance 13 hours externally
-      await pinner.stop();
-      await vi.advanceTimersByTimeAsync(13 * 60 * 60_000);
+        // Advance 13 hours — past 12h grace AND past
+        // 10min startup grace
+        await vi.advanceTimersByTimeAsync(13 * 60 * 60_000);
+        await pinner.flush();
 
-      // Restart — startup grace prevents stale prune
-      const pinner2 = await createPinner({
-        appIds: ["test-app"],
-        storagePath: tmpDir,
-        staleResolveDays: 3,
-      });
-      await pinner2.start();
+        // Should be deactivated, not deleted (#376)
+        const m = pinner.metrics();
+        expect(m.knownNames).toBe(1);
+        expect(m.deactivatedNames).toBe(1);
+        expect(m.staleDeactivated).toBeGreaterThan(0);
 
-      // Startup grace (#376) skips stale-resolve
-      expect(pinner2.metrics().knownNames).toBe(1);
-
-      // Advance past startup grace + prune interval
-      await vi.advanceTimersByTimeAsync(61 * 60_000);
-
-      // Should be pruned (never resolved, seen
-      // >12h ago)
-      const m = pinner2.metrics();
-      expect(m.knownNames).toBe(0);
-      expect(m.stalePruned).toBeGreaterThan(0);
-
-      await pinner2.stop();
-      vi.useRealTimers();
-    });
+        await pinner.stop();
+        vi.useRealTimers();
+      },
+    );
 
     it("disables stale pruning when" + " staleResolveDays=0", async () => {
       vi.useFakeTimers();
@@ -1304,7 +1280,8 @@ describe("pinner with mock helia", () => {
     );
 
     it(
-      "stale-resolve fires after startup grace" + " via periodic prune (#376)",
+      "stale-resolve deactivates after startup" +
+        " grace via periodic prune (#376)",
       async () => {
         vi.useFakeTimers();
 
@@ -1336,16 +1313,20 @@ describe("pinner with mock helia", () => {
 
         // Doc survives initial startup prune (grace)
         expect(pinner2.metrics().knownNames).toBe(1);
-        expect(pinner2.metrics().stalePruned).toBe(0);
+        expect(pinner2.metrics().staleDeactivated).toBe(0);
 
         // Advance past startup grace + prune interval.
         // Periodic prune fires with stale-resolve
         // enabled (past grace).
         await vi.advanceTimersByTimeAsync(61 * 60_000);
 
-        // Now stale-resolve should have pruned it
-        expect(pinner2.metrics().knownNames).toBe(0);
-        expect(pinner2.metrics().stalePruned).toBeGreaterThan(0);
+        // Now stale-resolve should have deactivated
+        // it (blocks retained, not deleted)
+        expect(pinner2.metrics().knownNames).toBe(1);
+        expect(pinner2.metrics().deactivatedNames).toBe(1);
+        expect(
+          pinner2.metrics().staleDeactivated,
+        ).toBeGreaterThan(0);
 
         await pinner2.stop();
         vi.useRealTimers();
@@ -1407,6 +1388,205 @@ describe("pinner with mock helia", () => {
 
       await pinner.stop();
     });
+
+    it("deactivated doc still serves tip" + " and blocks (#376)", async () => {
+      vi.useFakeTimers();
+
+      const block = await makeSnapshot({
+        ts: Date.now(),
+      });
+      const cid = await blockToCid(block);
+      const blocks = new Map<string, Uint8Array>();
+      blocks.set(cid.toString(), block);
+      const mockHelia = createMockHelia(blocks);
+
+      // Also make blockstore.delete track calls
+      mockHelia.blockstore.put = vi.fn().mockResolvedValue(undefined);
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        helia: mockHelia as any,
+        peerId: "test-peer",
+        staleResolveDays: 3,
+      });
+      await pinner.start();
+      await pinner.ingest(testIpnsName, block);
+
+      // Advance past stale threshold + startup grace
+      await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+      await pinner.flush();
+
+      // Doc should be deactivated
+      const m = pinner.metrics();
+      expect(m.deactivatedNames).toBe(1);
+
+      // But tip data should still be available
+      const tipData = await pinner.getTipData(testIpnsName);
+      expect(tipData).not.toBeNull();
+      expect(tipData!.cid).toBe(cid.toString());
+
+      // Guarantee should still be available
+      const g = pinner.getGuarantee(testIpnsName);
+      expect(g).not.toBeNull();
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
+
+    it("reactivates deactivated doc on new" + " activity (#376)", async () => {
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        staleResolveDays: 3,
+      });
+      await pinner.start();
+
+      const block = await makeSnapshot({
+        ts: Date.now(),
+      });
+      await pinner.ingest(testIpnsName, block);
+
+      // Advance past stale threshold + grace
+      await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+      await pinner.flush();
+
+      // Confirm deactivated
+      expect(pinner.metrics().deactivatedNames).toBe(1);
+
+      // New activity reactivates
+      pinner.recordActivity(testIpnsName);
+      expect(pinner.metrics().deactivatedNames).toBe(0);
+
+      await pinner.stop();
+      vi.useRealTimers();
+    });
+
+    it("deactivated state survives pinner" + " restart (#376)", async () => {
+      vi.useFakeTimers();
+
+      const pinner = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        staleResolveDays: 3,
+      });
+      await pinner.start();
+
+      const block = await makeSnapshot({
+        ts: Date.now(),
+      });
+      await pinner.ingest(testIpnsName, block);
+
+      // Deactivate via stale-resolve
+      await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+      await pinner.flush();
+      expect(pinner.metrics().deactivatedNames).toBe(1);
+
+      await pinner.stop();
+
+      // Restart — deactivated state should persist
+      const pinner2 = await createPinner({
+        appIds: ["test-app"],
+        storagePath: tmpDir,
+        staleResolveDays: 3,
+      });
+      await pinner2.start();
+
+      const m = pinner2.metrics();
+      expect(m.knownNames).toBe(1);
+      expect(m.deactivatedNames).toBe(1);
+
+      await pinner2.stop();
+      vi.useRealTimers();
+    });
+
+    it(
+      "startup grace prevents stale-prune" +
+        " during initial pruneIfNeeded (#376)",
+      async () => {
+        vi.useFakeTimers();
+
+        // First pinner: stale pruning disabled so it
+        // just ingests and persists the name without
+        // deactivating it.
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 0,
+        });
+        await pinner.start();
+
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        await pinner.ingest(testIpnsName, block);
+
+        // Advance past stale threshold
+        await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
+        await pinner.stop();
+
+        // Restart with stale pruning enabled.
+        // Startup pruneIfNeeded() should NOT
+        // stale-prune during grace period.
+        const pinner2 = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner2.start();
+
+        // Before grace period expires: still active
+        const m = pinner2.metrics();
+        expect(m.knownNames).toBe(1);
+        expect(m.deactivatedNames).toBe(0);
+        expect(m.staleDeactivated).toBe(0);
+
+        // After grace period + prune interval:
+        // deactivated
+        await vi.advanceTimersByTimeAsync(61 * 60_000);
+        await pinner2.flush();
+
+        const m2 = pinner2.metrics();
+        expect(m2.knownNames).toBe(1);
+        expect(m2.deactivatedNames).toBe(1);
+
+        await pinner2.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "retention-expired docs are deleted" + " even when deactivated (#376)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        await pinner.ingest(testIpnsName, block);
+
+        // Advance past 14-day retention
+        await vi.advanceTimersByTimeAsync(15 * 24 * 60 * 60_000);
+        await pinner.flush();
+
+        // Should be fully deleted (past retention)
+        const m = pinner.metrics();
+        expect(m.knownNames).toBe(0);
+        expect(m.deactivatedNames).toBe(0);
+
+        await pinner.stop();
+        vi.useRealTimers();
+      },
+    );
   });
 
   describe("IPNS rate limiting", () => {

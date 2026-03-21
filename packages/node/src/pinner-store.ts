@@ -12,6 +12,7 @@
  *   /app/<ipnsName>    → appId string
  *   /seen/<ipnsName>   → timestamp ms (string)
  *   /res/<ipnsName>    → timestamp ms (string)
+ *   /deact/<ipnsName>  → "" (presence = deactivated)
  */
 
 import { LevelDatastore } from "datastore-level";
@@ -29,6 +30,7 @@ const PREFIX_TIP = "/tip/";
 const PREFIX_APP = "/app/";
 const PREFIX_SEEN = "/seen/";
 const PREFIX_RES = "/res/";
+const PREFIX_DEACT = "/deact/";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -83,6 +85,13 @@ export interface PinnerStore {
   /** All last-resolved timestamps as a Map. */
   getLastResolvedAll(): Promise<Map<string, number>>;
 
+  /** Mark a name as deactivated (passive phase). */
+  setDeactivated(name: string): Promise<void>;
+  /** Clear deactivated status for a name. */
+  clearDeactivated(name: string): Promise<void>;
+  /** All deactivated names. */
+  getDeactivatedNames(): Promise<Set<string>>;
+
   /** Batch-import state (for migration). */
   importState(state: {
     knownNames: string[];
@@ -114,6 +123,7 @@ export async function createPinnerStore(path: string): Promise<PinnerStore> {
     batch.delete(Key(PREFIX_APP + name));
     batch.delete(Key(PREFIX_SEEN + name));
     batch.delete(Key(PREFIX_RES + name));
+    batch.delete(Key(PREFIX_DEACT + name));
     await batch.commit();
   }
 
@@ -232,6 +242,29 @@ export async function createPinnerStore(path: string): Promise<PinnerStore> {
     return map;
   }
 
+  async function setDeactivated(name: string): Promise<void> {
+    await ds.put(Key(PREFIX_DEACT + name), encode(""));
+  }
+
+  async function clearDeactivated(name: string): Promise<void> {
+    try {
+      await ds.delete(Key(PREFIX_DEACT + name));
+    } catch {
+      // Key missing — fine
+    }
+  }
+
+  async function getDeactivatedNames(): Promise<Set<string>> {
+    const names = new Set<string>();
+    for await (const { key } of ds.query({
+      prefix: PREFIX_DEACT,
+    })) {
+      const name = key.toString().slice(PREFIX_DEACT.length);
+      names.add(name);
+    }
+    return names;
+  }
+
   async function importState(state: {
     knownNames: string[];
     tips: Record<string, string>;
@@ -280,6 +313,9 @@ export async function createPinnerStore(path: string): Promise<PinnerStore> {
     setLastResolved,
     getLastResolved,
     getLastResolvedAll,
+    setDeactivated,
+    clearDeactivated,
+    getDeactivatedNames,
     importState,
   };
 }
