@@ -1,5 +1,5 @@
 ---
-"@pokapali/react": minor
+"@pokapali/react": patch
 "@pokapali/example": patch
 ---
 
