@@ -1802,7 +1802,7 @@ describe("pinner with mock helia", () => {
 
         // Reactivate half the docs via recordActivity
         for (let i = 0; i < 4; i++) {
-          pinner2.recordActivity(docs[i].ipnsName);
+          pinner2.recordActivity(docs[i]!.ipnsName);
         }
 
         expect(pinner2.metrics().deactivatedNames).toBe(4);
