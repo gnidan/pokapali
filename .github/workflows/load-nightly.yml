@@ -40,6 +40,9 @@ on:
         type: number
         default: 5000
 
+permissions:
+  contents: read
+
 concurrency:
   group: load-nightly
   cancel-in-progress: false
