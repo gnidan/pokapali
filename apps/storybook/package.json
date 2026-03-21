@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/storybook",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Storybook for pokapali React components",
   "type": "module",
@@ -11,8 +11,8 @@
   "dependencies": {
     "@pokapali/comments": "^0.1.1",
     "@pokapali/comments-tiptap": "^0.1.1",
-    "@pokapali/core": "^0.1.1",
-    "@pokapali/react": "^0.1.2",
+    "@pokapali/core": "^0.1.5",
+    "@pokapali/react": "^0.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

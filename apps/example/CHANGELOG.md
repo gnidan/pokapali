@@ -1,5 +1,25 @@
 # @pokapali/example
 
+## 0.0.3
+
+### Patch Changes
+
+- [`d55f92b`](https://github.com/gnidan/pokapali/commit/d55f92b386f78c8772eed565633e39ec20d80a06)
+  Distinguish archived from unavailable versions in version
+  history — thinned versions show "archived" instead of
+  "unavailable"
+- [`4d7f81a`](https://github.com/gnidan/pokapali/commit/4d7f81ad58a95a3f09b99acd3e4b6c746d54edbe)
+  Extract SaveIndicator and LastUpdated components to
+  @pokapali/react with pkp- prefixed BEM classes, labels
+  interface for i18n, and indicators.css stylesheet
+- [`9cc4259`](https://github.com/gnidan/pokapali/commit/9cc42591a6e28f0f1e990e874d17edd7a42fcfbe)
+  Extract StatusIndicator component to @pokapali/react with
+  pkp- prefixed BEM classes, labels interface for i18n, and
+  indicators.css stylesheet
+- Updated dependencies
+  - @pokapali/react@0.1.4
+  - @pokapali/core@0.1.5
+
 ## 0.0.2
 
 ### Patch Changes

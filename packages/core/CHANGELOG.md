@@ -1,5 +1,44 @@
 # @pokapali/core
 
+## 0.1.5
+
+### Patch Changes
+
+- [#359](https://github.com/gnidan/pokapali/issues/359)
+  [`64d610f`](https://github.com/gnidan/pokapali/commit/64d610f5283ff2cf6b0d6a5f0d269011c6f04087)
+  Fix autosave not firing for the first edit.
+
+  When createAutoSaver attaches after the doc is
+  already dirty (e.g. from populateMeta during create),
+  it now starts the debounce timer immediately instead
+  of waiting for the next publish-needed event that
+  never arrives.
+
+- [#357](https://github.com/gnidan/pokapali/issues/357)
+  [`935bd68`](https://github.com/gnidan/pokapali/commit/935bd6805d84f009caeb037917caa2ecc31a5063)
+  Fix phantom "Publish changes" appearing when
+  nothing has changed.
+
+  The identity registration write to `_meta`
+  (clientIdentities) now uses SNAPSHOT_ORIGIN so it
+  does not mark the document dirty. This was the
+  primary cause of the stale publish prompt — every
+  session generates a new clientID, producing a new
+  Y.Map entry that triggered the dirty flag even
+  without user edits.
+
+- [#349](https://github.com/gnidan/pokapali/issues/349)
+  [`be9be3f`](https://github.com/gnidan/pokapali/commit/be9be3fa50996f2fc877eca6d767c5917e502246)
+  Fix topology graph edges ghosting after extended
+  use.
+
+  Deduplicate edges in buildTopologyGraph() using
+  normalized endpoint keys — the same relay-relay edge
+  reported from multiple sources (node-registry and peer
+  awareness) no longer produces duplicates. Also skip
+  null awareness states from disconnected peers to
+  prevent ghost browser nodes and edges.
+
 ## 0.1.4
 
 ### Patch Changes

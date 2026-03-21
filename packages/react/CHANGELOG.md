@@ -1,5 +1,47 @@
 # @pokapali/react
 
+## 0.1.4
+
+### Patch Changes
+
+- [`4d7f81a`](https://github.com/gnidan/pokapali/commit/4d7f81ad58a95a3f09b99acd3e4b6c746d54edbe)
+  Extract SaveIndicator and LastUpdated components to
+  @pokapali/react with pkp- prefixed BEM classes, labels
+  interface for i18n, and indicators.css stylesheet
+- [`9cc4259`](https://github.com/gnidan/pokapali/commit/9cc42591a6e28f0f1e990e874d17edd7a42fcfbe)
+  Extract StatusIndicator component to @pokapali/react with
+  pkp- prefixed BEM classes, labels interface for i18n, and
+  indicators.css stylesheet
+- [#363](https://github.com/gnidan/pokapali/issues/363)
+  [`b6be158`](https://github.com/gnidan/pokapali/commit/b6be158e7cfe5c812d3171d6e5f00ee2e80e01c1)
+  Default formatAuthor fallback shows "Anonymous"
+  instead of truncated pubkey hex.
+- [`378c99e`](https://github.com/gnidan/pokapali/commit/378c99e482d20c4c911233fbc98d8eb094323ef2)
+  Revert "servers" back to "pinners" in SaveIndicator default labels
+
+  "Pinner" is the correct domain term — it describes what the node does
+  (pins your content). The rename to "servers" in !212 was a mistake.
+
+- [`f8c4c46`](https://github.com/gnidan/pokapali/commit/f8c4c4697b1da0493ee6fb4e47790468dc9283df)
+  Fix comment sidebar rendering too tall in Storybook by using
+  top/bottom pinning instead of height: 100%
+- [`40a2a99`](https://github.com/gnidan/pokapali/commit/40a2a999b8b30867b3ac366b4daffe0bd39284d5)
+  Document SaveIndicator, LastUpdated, and
+  StatusIndicator components in @pokapali/react README.
+- [`1139d34`](https://github.com/gnidan/pokapali/commit/1139d349a7a33715b64445cd7dcb99523b253cab)
+  Extract TopologyMap component from example app to @pokapali/react
+
+  Adds TopologyMap with d3-force layout, particle animations, and SVG
+  rendering. Leaked internals removed: no peer IDs on infra nodes, no
+  guarantee halos/labels, simplified tooltips ("You", display names,
+  "Relay/Pinner — connected/has your latest changes"). Includes
+  TopologyMapLabels interface for i18n, topology-map.css stylesheet,
+  and 6 stories (Just You, Two Editors, Full Network, Editor
+  Disconnected, Server Down, Solo Offline).
+
+- Updated dependencies
+  - @pokapali/core@0.1.5
+
 ## 0.1.3
 
 ### Patch Changes
