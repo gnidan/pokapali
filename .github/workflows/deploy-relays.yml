@@ -22,6 +22,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-relays
   cancel-in-progress: false

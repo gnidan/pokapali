@@ -27,6 +27,9 @@ on:
         type: number
         default: 3
 
+permissions:
+  contents: read
+
 concurrency:
   group: chaos-weekly
   cancel-in-progress: false
