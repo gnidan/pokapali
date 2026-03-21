@@ -1469,153 +1469,10 @@ body {
   gap: 0.75rem 1.5rem;
 }
 
-/* --- Topology map --- */
+/* --- Topology map (layout override) --- */
 
-.topo-wrap {
+.pkp-topology {
   grid-column: 1 / -1;
-  display: flex;
-  justify-content: center;
-  padding: 0.25rem 0;
-  position: relative;
-}
-
-.topo-svg {
-  width: 100%;
-  max-width: 400px;
-  height: auto;
-}
-
-/* Node labels */
-.topo-label-infra {
-  font-size: 11px;
-  font-weight: 700;
-  fill: #fff;
-  pointer-events: none;
-}
-
-.topo-label-self {
-  font-size: 10px;
-  font-weight: 700;
-  fill: #fff;
-  pointer-events: none;
-}
-
-.topo-label-browser {
-  font-size: 9px;
-  font-weight: 600;
-  fill: #64748b;
-  pointer-events: none;
-}
-
-.topo-label-peer {
-  font-size: 8px;
-  font-weight: 600;
-  fill: #64748b;
-  pointer-events: none;
-}
-
-.topo-peer-id {
-  font-size: 7px;
-  font-family: monospace;
-  fill: #94a3b8;
-  pointer-events: none;
-}
-
-.topo-ack-text {
-  font-size: 6px;
-  font-weight: 700;
-  fill: #fff;
-  pointer-events: none;
-}
-
-.topo-badge-text {
-  font-size: 7px;
-  font-weight: 700;
-  fill: #fff;
-  pointer-events: none;
-}
-
-/* Guarantee visualization */
-.topo-guarantee-pulse {
-  animation: guarantee-glow 2s ease-in-out infinite;
-}
-
-.topo-guarantee-fade {
-  opacity: 0.4;
-}
-
-.topo-guarantee-label {
-  font-size: 6.5px;
-  font-weight: 500;
-  fill: #22c55e;
-  pointer-events: none;
-}
-
-.topo-guarantee-label.expired {
-  fill: #ef4444;
-  opacity: 0.6;
-}
-
-@keyframes guarantee-glow {
-  0%,
-  100% {
-    stroke-width: 2;
-    stroke-opacity: 0.5;
-  }
-  50% {
-    stroke-width: 3.5;
-    stroke-opacity: 0.9;
-  }
-}
-
-/* HTML tooltip overlay */
-.topo-tooltip {
-  position: absolute;
-  background: #1e293b;
-  color: #e2e8f0;
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
-  font-size: 0.7rem;
-  line-height: 1.4;
-  pointer-events: none;
-  z-index: 10;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.topo-tooltip-kind {
-  font-weight: 600;
-  font-size: 0.72rem;
-  color: #f1f5f9;
-  margin-bottom: 2px;
-}
-
-.topo-tooltip-id {
-  font-family: monospace;
-  font-size: 0.65rem;
-  color: #94a3b8;
-}
-
-.topo-tooltip-status {
-  color: #94a3b8;
-}
-
-.topo-tooltip-detail {
-  color: #94a3b8;
-  font-size: 0.65rem;
-}
-
-.topo-tooltip-ack {
-  color: #22c55e;
-  font-weight: 500;
-}
-
-.topo-tooltip-guarantee.active {
-  color: #22c55e;
-}
-
-.topo-tooltip-guarantee.expired {
-  color: #ef4444;
 }
 
 .cs-detail-section {
@@ -1797,11 +1654,6 @@ body {
 
   .pkp-status-indicator--degraded {
     padding: 2px 6px;
-  }
-
-  .topo-tooltip {
-    max-width: calc(100vw - 2rem);
-    white-space: normal;
   }
 
   .user-name-display,

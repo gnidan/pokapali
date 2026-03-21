@@ -86,6 +86,14 @@ export default defineConfig(({ command }) => ({
             __dirname,
             "../../packages/react/src/indicators.css",
           ),
+          "@pokapali/react/topology-map.css": path.resolve(
+            __dirname,
+            "../../packages/react/src/topology-map.css",
+          ),
+          "@pokapali/react/topology": path.resolve(
+            __dirname,
+            "../../packages/react/src/topology.ts",
+          ),
           ...Object.fromEntries(
             localPkgs.map((p) => [
               `@pokapali/${p}`,

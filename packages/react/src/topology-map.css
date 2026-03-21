@@ -1,0 +1,78 @@
+/**
+ * TopologyMap component styles — BEM with pkp- prefix.
+ *
+ * Import this stylesheet when using TopologyMap
+ * from @pokapali/react.
+ */
+
+/* ── Container ─────────────────────────────── */
+
+.pkp-topology {
+  display: flex;
+  justify-content: center;
+  padding: 0.25rem 0;
+  position: relative;
+}
+
+.pkp-topology__svg {
+  width: 100%;
+  max-width: 400px;
+  height: auto;
+}
+
+/* ── Node labels ───────────────────────────── */
+
+.pkp-topology__label--self {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #fff;
+  pointer-events: none;
+}
+
+.pkp-topology__peer-name {
+  font-size: 8px;
+  font-weight: 600;
+  fill: #64748b;
+  pointer-events: none;
+}
+
+/* ── HTML tooltip overlay ──────────────────── */
+
+.pkp-topology__tooltip {
+  position: absolute;
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 10;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.pkp-topology__tooltip-title {
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: #f1f5f9;
+  margin-bottom: 2px;
+}
+
+.pkp-topology__tooltip-status {
+  color: #94a3b8;
+}
+
+.pkp-topology__tooltip-detail {
+  color: #94a3b8;
+  font-size: 0.65rem;
+}
+
+/* ── Mobile ────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .pkp-topology__tooltip {
+    max-width: calc(100vw - 2rem);
+    white-space: normal;
+  }
+}
