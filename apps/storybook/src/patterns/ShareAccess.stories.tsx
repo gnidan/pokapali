@@ -40,70 +40,73 @@ function ShareAccessPatterns() {
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: "var(--poka-space-3)",
-          padding: "var(--poka-space-3) " + "var(--poka-space-4)",
-          background: "var(--poka-bg-surface)",
-          border: "1px solid var(--poka-border-default)",
-          borderRadius: "var(--poka-radius-lg)",
-          position: "relative",
+          flexDirection: "column",
+          gap: "var(--poka-space-2)",
         }}
       >
-        <span
-          style={{
-            fontSize: "var(--poka-text-base)",
-            fontWeight: "var(--poka-weight-semibold)" as unknown as number,
-            color: "var(--poka-text-primary)",
-          }}
-        >
-          Project Roadmap
-        </span>
-        <Badge role="admin" />
-
-        {/* Encryption toggle */}
-        <button
-          onClick={() => setEncOpen((s) => !s)}
+        <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "4px",
-            fontSize: "var(--poka-text-xs)",
-            color: "var(--poka-text-secondary)",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "4px",
+            gap: "var(--poka-space-3)",
+            padding: "var(--poka-space-3) " + "var(--poka-space-4)",
+            background: "var(--poka-bg-surface)",
+            border: "1px solid var(--poka-border-default)",
+            borderRadius: "var(--poka-radius-lg)",
           }}
         >
-          <LockIcon size={14} />
-          Encrypted
-        </button>
+          <span
+            style={{
+              fontSize: "var(--poka-text-base)",
+              fontWeight: "var(--poka-weight-semibold)" as unknown as number,
+              color: "var(--poka-text-primary)",
+            }}
+          >
+            Project Roadmap
+          </span>
+          <Badge role="admin" />
 
-        <span style={{ marginLeft: "auto" }} />
+          {/* Encryption toggle */}
+          <button
+            onClick={() => setEncOpen((s) => !s)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              fontSize: "var(--poka-text-xs)",
+              color: "var(--poka-text-secondary)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px",
+            }}
+          >
+            <LockIcon size={14} />
+            Encrypted
+          </button>
 
-        <button
-          style={{
-            fontSize: "var(--poka-text-xs)",
-            fontWeight: "var(--poka-weight-medium)" as unknown as number,
-            padding: "4px 10px",
-            borderRadius: "var(--poka-radius-md)",
-            border: "1px solid " + "var(--poka-color-accent)",
-            background: "var(--poka-surface-info)",
-            color: "var(--poka-color-accent)",
-            cursor: "pointer",
-          }}
-        >
-          Share
-        </button>
+          <span style={{ marginLeft: "auto" }} />
 
-        {/* Encryption popover */}
+          <button
+            style={{
+              fontSize: "var(--poka-text-xs)",
+              fontWeight: "var(--poka-weight-medium)" as unknown as number,
+              padding: "4px 10px",
+              borderRadius: "var(--poka-radius-md)",
+              border: "1px solid " + "var(--poka-color-accent)",
+              background: "var(--poka-surface-info)",
+              color: "var(--poka-color-accent)",
+              cursor: "pointer",
+            }}
+          >
+            Share
+          </button>
+        </div>
+
+        {/* Encryption popover — in flow */}
         {encOpen && (
           <div
             style={{
-              position: "absolute",
-              top: "calc(100% + 4px)",
-              left: 180,
-              zIndex: 10,
               width: 280,
               padding: "var(--poka-space-3)",
               background: "var(--poka-bg-surface)",

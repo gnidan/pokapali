@@ -40,9 +40,9 @@ function TriggerWithPopover() {
   return (
     <div
       style={{
-        position: "relative",
-        display: "inline-block",
-        marginBottom: open ? 180 : 0,
+        display: "inline-flex",
+        flexDirection: "column",
+        gap: 4,
       }}
     >
       <button
@@ -64,15 +64,7 @@ function TriggerWithPopover() {
         Encrypted
       </button>
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            zIndex: 10,
-            marginTop: 4,
-          }}
-        >
+        <div style={{ maxWidth: 320 }}>
           <EncryptionInfoPopover onClose={() => setOpen(false)} />
         </div>
       )}
