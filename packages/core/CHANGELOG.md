@@ -1,5 +1,15 @@
 # @pokapali/core
 
+## 0.1.6
+
+### Patch Changes
+
+- [#382](https://github.com/gnidan/pokapali/issues/382)
+  [`b319be4`](https://github.com/gnidan/pokapali/commit/b319be4bd6ededa9f2c2ac9ea6fae4fdc297b964)
+  Consolidate status derivation: deriveStatus() is now the single source
+  of truth in doc-status.ts with all 7 branches (including
+  MESH_GRACE_MS). computeStatus() delegates to it.
+
 ## 0.1.5
 
 ### Patch Changes

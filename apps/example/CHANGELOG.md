@@ -1,5 +1,23 @@
 # @pokapali/example
 
+## 0.0.4
+
+### Patch Changes
+
+- [`2ac537e`](https://github.com/gnidan/pokapali/commit/2ac537e21f6c7b88c9360aa96d544ee4000e73ec)
+  Replace unclear "Available" status label with "Loaded"
+  in block requests drawer
+- [`842ec6c`](https://github.com/gnidan/pokapali/commit/842ec6ccd997f418f724edfa7d054e7034be5f48)
+  Reduce editor min-height so content drives height, cap
+  connection status detail panel at 300px
+- [`da64113`](https://github.com/gnidan/pokapali/commit/da64113f9d2c04350c4defbec4614ae0e4e123ff)
+  Split header into two rows: identity (back, title,
+  lock, badge, name) and toolbar (status, save,
+  Share/History/Comments)
+- Updated dependencies
+  - @pokapali/core@0.1.6
+  - @pokapali/comments@0.1.2
+
 ## 0.0.3
 
 ### Patch Changes

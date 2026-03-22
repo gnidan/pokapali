@@ -7,6 +7,74 @@ The format is based on
 
 ## [Unreleased]
 
+## 2026-03-22
+
+### @pokapali/comments (0.1.2)
+
+- [#379](https://github.com/gnidan/pokapali/issues/379)
+  [`b0bba47`](https://github.com/gnidan/pokapali/commit/b0bba47e4046ce26beb7083a155bed34c1c32f18)
+  Fix contentType observer to use observeDeep/unobserveDeep so nested
+  Y.XmlFragment changes trigger anchor re-resolution.
+
+### @pokapali/core (0.1.6)
+
+- [#382](https://github.com/gnidan/pokapali/issues/382)
+  [`b319be4`](https://github.com/gnidan/pokapali/commit/b319be4bd6ededa9f2c2ac9ea6fae4fdc297b964)
+  Consolidate status derivation: deriveStatus() is now the single source
+  of truth in doc-status.ts with all 7 branches (including
+  MESH_GRACE_MS). computeStatus() delegates to it.
+
+### @pokapali/node (0.1.4)
+
+- [`40fd9c0`](https://github.com/gnidan/pokapali/commit/40fd9c005860f7407ae4ee64f9fe1763627caf27)
+  Make saveHistoryIndex atomic via write-to-tmp + rename,
+  preventing corrupt index files on crash
+  ([#380](https://github.com/gnidan/pokapali/issues/380))
+- [#378](https://github.com/gnidan/pokapali/issues/378)
+  [`5051909`](https://github.com/gnidan/pokapali/commit/505190981eb4791ba8e8133aec3fcd79a4ea5622)
+  Replace startup grace timer with resolveAll
+  completion flag.
+
+  Stale-resolve pruning is now gated on resolveAll()
+  having completed at least once, instead of a 10-minute
+  time-based grace window. This is the proper state-based
+  fix for the [#376](https://github.com/gnidan/pokapali/issues/376)
+  startup mass-deletion bug — pruning
+  waits for fresh lastResolvedAt data rather than guessing
+  how long resolveAll() takes.
+
+- [`d8b13db`](https://github.com/gnidan/pokapali/commit/d8b13db3b370b056932ee69a2174c65bb9d6189a)
+  Capture uncaptured relay setTimeout handles (45s
+  initial provide, 15s cert re-dial) and clear them
+  in stop() to prevent leaked timers
+  ([#381](https://github.com/gnidan/pokapali/issues/381))
+
+### @pokapali/example (0.0.4)
+
+- [`2ac537e`](https://github.com/gnidan/pokapali/commit/2ac537e21f6c7b88c9360aa96d544ee4000e73ec)
+  Replace unclear "Available" status label with "Loaded"
+  in block requests drawer
+- [`842ec6c`](https://github.com/gnidan/pokapali/commit/842ec6ccd997f418f724edfa7d054e7034be5f48)
+  Reduce editor min-height so content drives height, cap
+  connection status detail panel at 300px
+- [`da64113`](https://github.com/gnidan/pokapali/commit/da64113f9d2c04350c4defbec4614ae0e4e123ff)
+  Split header into two rows: identity (back, title,
+  lock, badge, name) and toolbar (status, save,
+  Share/History/Comments)
+
+### Internal
+
+- [`1cf221f`](https://github.com/gnidan/pokapali/commit/1cf221fc5c92ea5dedf7e8a38bb7663caa66aa95)
+  Add multi-doc regression tests for
+  [#376](https://github.com/gnidan/pokapali/issues/376) stale-resolve
+  pruning.
+- [`d3028fa`](https://github.com/gnidan/pokapali/commit/d3028fa92bc86c236bf3710ce5019315cb028aa9)
+  Add explicit permissions blocks to workflows
+  flagged by CodeQL code scanning. Restricts
+  GITHUB_TOKEN to least-privilege for deploy-relays,
+  load-smoke, load-nightly, chaos-weekly, and
+  health-check workflows.
+
 ## 2026-03-21
 
 ### @pokapali/node (0.1.3)

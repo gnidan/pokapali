@@ -1,5 +1,34 @@
 # @pokapali/node
 
+## 0.1.4
+
+### Patch Changes
+
+- [`40fd9c0`](https://github.com/gnidan/pokapali/commit/40fd9c005860f7407ae4ee64f9fe1763627caf27)
+  Make saveHistoryIndex atomic via write-to-tmp + rename,
+  preventing corrupt index files on crash
+  ([#380](https://github.com/gnidan/pokapali/issues/380))
+- [#378](https://github.com/gnidan/pokapali/issues/378)
+  [`5051909`](https://github.com/gnidan/pokapali/commit/505190981eb4791ba8e8133aec3fcd79a4ea5622)
+  Replace startup grace timer with resolveAll
+  completion flag.
+
+  Stale-resolve pruning is now gated on resolveAll()
+  having completed at least once, instead of a 10-minute
+  time-based grace window. This is the proper state-based
+  fix for the [#376](https://github.com/gnidan/pokapali/issues/376)
+  startup mass-deletion bug — pruning
+  waits for fresh lastResolvedAt data rather than guessing
+  how long resolveAll() takes.
+
+- [`d8b13db`](https://github.com/gnidan/pokapali/commit/d8b13db3b370b056932ee69a2174c65bb9d6189a)
+  Capture uncaptured relay setTimeout handles (45s
+  initial provide, 15s cert re-dial) and clear them
+  in stop() to prevent leaked timers
+  ([#381](https://github.com/gnidan/pokapali/issues/381))
+- Updated dependencies
+  - @pokapali/core@0.1.6
+
 ## 0.1.3
 
 ### Patch Changes
