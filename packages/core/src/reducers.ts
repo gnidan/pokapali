@@ -22,6 +22,7 @@ import type {
   IpnsResolutionStatus,
 } from "./facts.js";
 import { EMPTY_SET, EMPTY_GUARANTEES } from "./facts.js";
+import { deriveStatus } from "./doc-status.js";
 
 // ------------------------------------------------
 // Constants
@@ -481,25 +482,9 @@ function reduceIpnsStatus(
 // Derived status
 // ------------------------------------------------
 
-/**
- * Ported from create-doc computeStatus() — exact
- * same 6-branch logic.
- */
-export function deriveStatus(c: Connectivity): DocStatus {
-  if (c.syncStatus === "connected") return "synced";
-  if (c.syncStatus === "connecting") return "connecting";
-  if (c.gossip.activity === "receiving") {
-    return "receiving";
-  }
-  // Awareness-only = cursors visible but edits may
-  // not sync (#224). Report "connecting" not
-  // "receiving".
-  if (c.awarenessConnected) return "connecting";
-  if (c.gossip.activity === "subscribed") {
-    return "connecting";
-  }
-  return "offline";
-}
+// Re-exported from doc-status.ts — single source
+// of truth for status derivation (#382).
+export { deriveStatus } from "./doc-status.js";
 
 /**
  * Save state derivation. Takes content + chain

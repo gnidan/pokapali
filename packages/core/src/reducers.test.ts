@@ -1051,6 +1051,24 @@ describe("deriveStatus", () => {
   it("offline when nothing connected", () => {
     expect(deriveStatus(INITIAL_CONNECTIVITY)).toBe("offline");
   });
+
+  it("connecting during mesh grace period (#382)", () => {
+    expect(
+      deriveStatus({
+        ...INITIAL_CONNECTIVITY,
+        createdAt: Date.now(),
+      }),
+    ).toBe("connecting");
+  });
+
+  it("offline after mesh grace expires (#382)", () => {
+    expect(
+      deriveStatus({
+        ...INITIAL_CONNECTIVITY,
+        createdAt: Date.now() - 10_000,
+      }),
+    ).toBe("offline");
+  });
 });
 
 // ------------------------------------------------
