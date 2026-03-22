@@ -1,0 +1,74 @@
+/**
+ * Pokapali design tokens — CSS custom properties.
+ *
+ * Consumed by all @pokapali/react components and
+ * the example app. Import this stylesheet in your
+ * app entry or Storybook preview.
+ *
+ * Naming: --poka-{category}-{name}
+ * Categories: text, color, surface, bg, border,
+ *             space, radius, weight
+ */
+
+:root {
+  /* ── Type scale ────────────────────────────── */
+  --poka-text-2xs: 0.65rem;
+  --poka-text-xs: 0.72rem;
+  --poka-text-sm: 0.8rem;
+  --poka-text-base: 0.95rem;
+  --poka-text-lg: 1.25rem;
+
+  /* ── Status colors (foreground) ────────────── */
+  --poka-color-synced: #22c55e;
+  --poka-color-connecting: #eab308;
+  --poka-color-receiving: #06b6d4;
+  --poka-color-offline: #ef4444;
+  --poka-color-dirty: #f97316;
+
+  /* ── State surfaces (backgrounds) ──────────── */
+  --poka-surface-warning: #fef3c7;
+  --poka-surface-error: #fef2f2;
+  --poka-surface-success: #f0fdf4;
+  --poka-surface-info: #dbeafe;
+
+  /* ── State surface text ────────────────────── */
+  --poka-on-warning: #92400e;
+  --poka-on-error: #991b1b;
+  --poka-on-success: #166534;
+  --poka-on-info: #1e40af;
+
+  /* ── Text colors ───────────────────────────── */
+  --poka-text-primary: #1a1a1a;
+  --poka-text-secondary: #64748b;
+  --poka-text-muted: #94a3b8;
+
+  /* ── Backgrounds ───────────────────────────── */
+  --poka-bg-page: #fafafa;
+  --poka-bg-surface: #ffffff;
+  --poka-bg-muted: #f8fafc;
+  --poka-bg-subtle: #f1f5f9;
+
+  /* ── Borders ───────────────────────────────── */
+  --poka-border-default: #e5e7eb;
+  --poka-border-subtle: #e2e8f0;
+  --poka-border-input: #d1d5db;
+  --poka-border-focus: #2563eb;
+
+  /* ── Spacing ───────────────────────────────── */
+  --poka-space-1: 0.25rem;
+  --poka-space-2: 0.5rem;
+  --poka-space-3: 0.75rem;
+  --poka-space-4: 1rem;
+  --poka-space-6: 1.5rem;
+
+  /* ── Border radius ─────────────────────────── */
+  --poka-radius-sm: 3px;
+  --poka-radius-md: 6px;
+  --poka-radius-lg: 8px;
+  --poka-radius-full: 9999px;
+
+  /* ── Font weights ──────────────────────────── */
+  --poka-weight-normal: 400;
+  --poka-weight-medium: 500;
+  --poka-weight-semibold: 600;
+}
