@@ -19,12 +19,6 @@ const weights = [
     label: "Semibold",
     usage: "Headings, emphasis",
   },
-  {
-    token: "--poka-weight-bold",
-    value: "700",
-    label: "Bold",
-    usage: "Strong emphasis, topology labels",
-  },
 ] as const;
 
 function FontWeightStories() {
@@ -38,7 +32,8 @@ function FontWeightStories() {
           marginBottom: "2rem",
         }}
       >
-        4 levels covering body text through strong emphasis.
+        3 levels. Merges the previous 4 (400/500/600/ 700) — the 700 was only
+        used in 3 places and the visual difference from 600 is minimal.
       </p>
       <div
         style={{
