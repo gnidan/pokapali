@@ -219,7 +219,7 @@ function entryStatusLabel(
   loading: LoadingState,
   cid: string,
 ): string {
-  if (status === "available") return "Available";
+  if (status === "available") return "Loaded";
   if (status === "failed") return "Failed";
   // "loading" — check if this is the active fetch
   if (loading.status === "fetching" && loading.cid === cid) {
