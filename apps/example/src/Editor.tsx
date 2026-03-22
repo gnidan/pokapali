@@ -362,121 +362,127 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   return (
     <div className="app">
       <div className="header">
-        <button
-          className="back-arrow"
-          onClick={onBack}
-          aria-label="Back to document list"
-        >
-          &#x2039;
-        </button>
-        <h1>Pokapali</h1>
-        {!isReadOnly && editingTitle ? (
-          <input
-            ref={titleRef}
-            className="doc-title-input"
-            value={docTitle}
-            placeholder="Untitled"
-            aria-label="Document title"
-            onChange={(e) => setDocTitle(e.target.value)}
-            onBlur={commitTitle}
-            onKeyDown={handleTitleKeyDown}
-            maxLength={80}
-          />
-        ) : (
+        <div className="header-identity">
           <button
-            ref={titleBtnRef}
-            className={"doc-title" + (isReadOnly ? " read-only" : "")}
-            onClick={isReadOnly ? undefined : () => setEditingTitle(true)}
-            title={docTitle || "Untitled"}
-            aria-label={`Document: ${docTitle || "Untitled"}`}
-            disabled={isReadOnly}
+            className="back-arrow"
+            onClick={onBack}
+            aria-label="Back to document list"
           >
-            {docTitle || "Untitled"}
+            &#x2039;
           </button>
-        )}
-        <span className="encryption-wrap">
-          <button
-            className="encryption-btn"
-            onClick={() => setShowEncryption((s) => !s)}
-            aria-label="Encryption info"
-            title="End-to-end encrypted"
-          >
-            <LockIcon size={14} />
-          </button>
-          {showEncryption && (
-            <EncryptionInfo onClose={() => setShowEncryption(false)} />
+          <h1>Pokapali</h1>
+          {!isReadOnly && editingTitle ? (
+            <input
+              ref={titleRef}
+              className="doc-title-input"
+              value={docTitle}
+              placeholder="Untitled"
+              aria-label="Document title"
+              onChange={(e) => setDocTitle(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={handleTitleKeyDown}
+              maxLength={80}
+            />
+          ) : (
+            <button
+              ref={titleBtnRef}
+              className={"doc-title" + (isReadOnly ? " read-only" : "")}
+              onClick={isReadOnly ? undefined : () => setEditingTitle(true)}
+              title={docTitle || "Untitled"}
+              aria-label={`Document: ${docTitle || "Untitled"}`}
+              disabled={isReadOnly}
+            >
+              {docTitle || "Untitled"}
+            </button>
           )}
-        </span>
-        <span className={`badge ${role}`}>{capitalize(role)}</span>
-        {editingName ? (
-          <input
-            ref={nameRef}
-            className="user-name-input"
-            value={user.name}
-            placeholder="Your name"
-            aria-label="Your display name"
-            onChange={(e) =>
-              setUser((u) => ({
-                ...u,
-                name: e.target.value,
-              }))
+          <span className="encryption-wrap">
+            <button
+              className="encryption-btn"
+              onClick={() => setShowEncryption((s) => !s)}
+              aria-label="Encryption info"
+              title="End-to-end encrypted"
+            >
+              <LockIcon size={14} />
+            </button>
+            {showEncryption && (
+              <EncryptionInfo onClose={() => setShowEncryption(false)} />
+            )}
+          </span>
+          <span className={`badge ${role}`}>{capitalize(role)}</span>
+          {editingName ? (
+            <input
+              ref={nameRef}
+              className="user-name-input"
+              value={user.name}
+              placeholder="Your name"
+              aria-label="Your display name"
+              onChange={(e) =>
+                setUser((u) => ({
+                  ...u,
+                  name: e.target.value,
+                }))
+              }
+              onBlur={commitName}
+              onKeyDown={handleNameKeyDown}
+              maxLength={30}
+            />
+          ) : (
+            <button
+              ref={nameBtnRef}
+              className="user-name-display"
+              onClick={() => setEditingName(true)}
+              title="Click to change your name"
+              aria-label={
+                `Your name: ${user.name || "not set"}` + ". Click to edit"
+              }
+              style={{ borderColor: user.color }}
+            >
+              {user.name || "Set name..."}
+            </button>
+          )}
+        </div>
+        <div className="header-toolbar">
+          <StatusIndicator status={status} />
+          {canSave ? (
+            <SaveIndicator
+              saveState={saveState}
+              ackCount={ackCount}
+              onPublish={doSave}
+            />
+          ) : (
+            <LastUpdated timestamp={lastPublished} flash={updateFlash} />
+          )}
+          <button
+            className="toggle-share"
+            data-testid="share-toggle"
+            onClick={() => setShowShare((s) => !s)}
+            aria-expanded={showShare}
+            aria-label={showShare ? "Hide share panel" : "Open share panel"}
+          >
+            {showShare ? "Hide share" : "Share"}
+          </button>
+          <button
+            className="toggle-history"
+            onClick={() => setShowHistory((s) => !s)}
+            aria-expanded={showHistory}
+            aria-label={
+              showHistory ? "Hide version history" : "Open version history"
             }
-            onBlur={commitName}
-            onKeyDown={handleNameKeyDown}
-            maxLength={30}
-          />
-        ) : (
-          <button
-            ref={nameBtnRef}
-            className="user-name-display"
-            onClick={() => setEditingName(true)}
-            title="Click to change your name"
-            aria-label={`Your name: ${user.name || "not set"}. Click to edit`}
-            style={{ borderColor: user.color }}
           >
-            {user.name || "Set name..."}
+            {showHistory ? "Hide history" : "History"}
           </button>
-        )}
-        <StatusIndicator status={status} />
-        {canSave ? (
-          <SaveIndicator
-            saveState={saveState}
-            ackCount={ackCount}
-            onPublish={doSave}
-          />
-        ) : (
-          <LastUpdated timestamp={lastPublished} flash={updateFlash} />
-        )}
-        <button
-          className="toggle-share"
-          data-testid="share-toggle"
-          onClick={() => setShowShare((s) => !s)}
-          aria-expanded={showShare}
-          aria-label={showShare ? "Hide share panel" : "Open share panel"}
-        >
-          {showShare ? "Hide share" : "Share"}
-        </button>
-        <button
-          className="toggle-history"
-          onClick={() => setShowHistory((s) => !s)}
-          aria-expanded={showHistory}
-          aria-label={
-            showHistory ? "Hide version history" : "Open version history"
-          }
-        >
-          {showHistory ? "Hide history" : "History"}
-        </button>
-        <button
-          className="toggle-comments"
-          onClick={() => setShowComments((s) => !s)}
-          aria-expanded={showComments}
-          aria-label={showComments ? "Hide comments" : "Open comments"}
-        >
-          {showComments ? "Hide comments" : "Comments"}
-          {commentList.length > 0 && (
-            <span className="comment-count-badge">{commentList.length}</span>
-          )}
-        </button>
+          <button
+            className="toggle-comments"
+            onClick={() => setShowComments((s) => !s)}
+            aria-expanded={showComments}
+            aria-label={showComments ? "Hide comments" : "Open comments"}
+          >
+            {showComments ? "Hide comments" : "Comments"}
+            {commentList.length > 0 && (
+              <span className="comment-count-badge">{commentList.length}</span>
+            )}
+          </button>
+        </div>
       </div>
 
       {showShare && <SharePanel ref={sharePanelRef} doc={doc} />}
