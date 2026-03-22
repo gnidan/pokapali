@@ -221,7 +221,7 @@ export function comments<T>(
   const onContentChange = () => {
     rebuild();
   };
-  contentType.observe(onContentChange);
+  contentType.observeDeep(onContentChange);
 
   // Observe clientIdMapping for re-verification.
   const unsubMapping = options.clientIdMapping.subscribe(rebuild);
@@ -304,7 +304,7 @@ export function comments<T>(
       if (destroyed) return;
       destroyed = true;
       map.unobserveDeep(onMapChange);
-      contentType.unobserve(onContentChange);
+      contentType.unobserveDeep(onContentChange);
       unsubMapping();
       log.debug("destroyed comments instance");
     },
