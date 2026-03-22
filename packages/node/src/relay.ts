@@ -252,14 +252,15 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
 
   const doProvide = () => provideAll(helia, netCID, knownRelayPeerIds);
 
-  setTimeout(() => {
+  const initialProvideTimer = setTimeout(() => {
     log.debug("initial provide starting...");
     doProvide();
   }, 45_000);
 
+  let certRedialTimer: ReturnType<typeof setTimeout> | undefined;
   const onCertProvision = () => {
     log.info("certificate obtained, re-providing");
-    setTimeout(() => doProvide(), 15_000);
+    certRedialTimer = setTimeout(() => doProvide(), 15_000);
   };
   helia.libp2p.addEventListener("certificate:provision", onCertProvision);
 
@@ -284,6 +285,8 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     },
 
     async stop() {
+      clearTimeout(initialProvideTimer);
+      if (certRedialTimer) clearTimeout(certRedialTimer);
       healthCheck.clear();
       clearInterval(provideInterval);
       clearInterval(logInterval);
