@@ -24,6 +24,7 @@
   --poka-color-receiving: #06b6d4;
   --poka-color-offline: #ef4444;
   --poka-color-dirty: #f97316;
+  --poka-color-accent: #2563eb;
 
   /* ── State surfaces (backgrounds) ──────────── */
   --poka-surface-warning: #fef3c7;
@@ -71,4 +72,5 @@
   --poka-weight-normal: 400;
   --poka-weight-medium: 500;
   --poka-weight-semibold: 600;
+  --poka-weight-bold: 700;
 }

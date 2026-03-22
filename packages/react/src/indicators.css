@@ -1,5 +1,5 @@
 /**
- * Indicator component styles — BEM with pkp- prefix.
+ * Indicator component styles — BEM with poka- prefix.
  *
  * Import this stylesheet when using SaveIndicator,
  * LastUpdated, or StatusIndicator from @pokapali/react.
@@ -7,29 +7,29 @@
 
 /* ── Save indicator ─────────────────────────── */
 
-.pkp-save-indicator {
+.poka-save-indicator {
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: var(--poka-weight-medium);
 }
 
-.pkp-save-indicator--saved {
-  color: #22c55e;
+.poka-save-indicator--saved {
+  color: var(--poka-color-synced);
 }
 
-.pkp-save-indicator--dirty,
-.pkp-save-indicator--unpublished {
-  color: #f97316;
+.poka-save-indicator--dirty,
+.poka-save-indicator--unpublished {
+  color: var(--poka-color-dirty);
 }
 
-.pkp-save-indicator--saving {
-  color: #eab308;
+.poka-save-indicator--saving {
+  color: var(--poka-color-connecting);
 }
 
-.pkp-save-indicator--save-error {
-  color: #ef4444;
+.poka-save-indicator--save-error {
+  color: var(--poka-color-offline);
 }
 
-.pkp-save-indicator--action {
+.poka-save-indicator--action {
   background: none;
   border: none;
   cursor: pointer;
@@ -40,70 +40,70 @@
   text-underline-offset: 2px;
 }
 
-.pkp-save-indicator--action:hover {
+.poka-save-indicator--action:hover {
   text-decoration-style: solid;
 }
 
 /* ── Last updated ───────────────────────────── */
 
-.pkp-last-updated {
+.poka-last-updated {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--poka-text-secondary);
   transition: color 1s ease-out;
 }
 
-.pkp-last-updated--flashing {
-  color: #22c55e;
-  font-weight: 600;
+.poka-last-updated--flashing {
+  color: var(--poka-color-synced);
+  font-weight: var(--poka-weight-semibold);
   transition: none;
 }
 
 /* ── Status indicator ───────────────────────── */
 
-.pkp-status-indicator {
+.poka-status-indicator {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.pkp-status-indicator--degraded {
-  background: #fef3c7;
+.poka-status-indicator--degraded {
+  background: var(--poka-surface-warning);
   border: 1px solid #f59e0b;
-  border-radius: 6px;
+  border-radius: var(--poka-radius-md);
   padding: 2px 10px;
 }
 
-.pkp-status-indicator--degraded.pkp-status-indicator--offline {
-  background: #fef2f2;
-  border-color: #ef4444;
+.poka-status-indicator--degraded.poka-status-indicator--offline {
+  background: var(--poka-surface-error);
+  border-color: var(--poka-color-offline);
 }
 
-.pkp-status-indicator__text {
-  font-size: 0.8rem;
+.poka-status-indicator__text {
+  font-size: var(--poka-text-sm);
   color: #666;
 }
 
-.pkp-status-indicator--degraded .pkp-status-indicator__text {
-  color: #92400e;
-  font-weight: 500;
+.poka-status-indicator--degraded .poka-status-indicator__text {
+  color: var(--poka-on-warning);
+  font-weight: var(--poka-weight-medium);
 }
 
-.pkp-status-indicator--degraded.pkp-status-indicator--offline
-  .pkp-status-indicator__text {
-  color: #991b1b;
+.poka-status-indicator--degraded.poka-status-indicator--offline
+  .poka-status-indicator__text {
+  color: var(--poka-on-error);
 }
 
-.pkp-status-indicator__warning {
+.poka-status-indicator__warning {
   font-size: 0.7rem;
-  color: #92400e;
+  color: var(--poka-on-warning);
 }
 
-.pkp-status-indicator--degraded.pkp-status-indicator--offline
-  .pkp-status-indicator__warning {
-  color: #991b1b;
+.poka-status-indicator--degraded.poka-status-indicator--offline
+  .poka-status-indicator__warning {
+  color: var(--poka-on-error);
 }
 
-.pkp-status-indicator__dot {
+.poka-status-indicator__dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -111,18 +111,18 @@
   flex-shrink: 0;
 }
 
-.pkp-status-indicator__dot--synced {
-  background: #22c55e;
+.poka-status-indicator__dot--synced {
+  background: var(--poka-color-synced);
 }
 
-.pkp-status-indicator__dot--connecting {
-  background: #eab308;
+.poka-status-indicator__dot--connecting {
+  background: var(--poka-color-connecting);
 }
 
-.pkp-status-indicator__dot--receiving {
-  background: #06b6d4;
+.poka-status-indicator__dot--receiving {
+  background: var(--poka-color-receiving);
 }
 
-.pkp-status-indicator__dot--offline {
-  background: #ef4444;
+.poka-status-indicator__dot--offline {
+  background: var(--poka-color-offline);
 }

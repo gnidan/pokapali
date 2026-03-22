@@ -676,7 +676,7 @@ function NodeShape({
           y={1}
           textAnchor="middle"
           dominantBaseline="central"
-          className="pkp-topology__label--self"
+          className="poka-topology__label--self"
         >
           {label}
         </text>
@@ -688,7 +688,7 @@ function NodeShape({
           x={0}
           y={r + 11}
           textAnchor="middle"
-          className="pkp-topology__peer-name"
+          className="poka-topology__peer-name"
         >
           {node.label}
         </text>
@@ -787,11 +787,11 @@ function Tooltip({
   }
 
   return (
-    <div className="pkp-topology__tooltip" style={{ left, top }}>
-      <div className="pkp-topology__tooltip-title">{title}</div>
-      {status && <div className="pkp-topology__tooltip-status">{status}</div>}
+    <div className="poka-topology__tooltip" style={{ left, top }}>
+      <div className="poka-topology__tooltip-title">{title}</div>
+      {status && <div className="poka-topology__tooltip-status">{status}</div>}
       {node.browserCount != null && node.browserCount > 0 && (
-        <div className={"pkp-topology__tooltip-detail"}>
+        <div className={"poka-topology__tooltip-detail"}>
           {node.browserCount} browser
           {node.browserCount > 1 ? "s" : ""} connected
         </div>
@@ -1103,11 +1103,11 @@ export function TopologyMap({ doc, labels: labelsProp }: TopologyMapProps) {
   const nodeKindMap = new Map(graph.nodes.map((n) => [n.id, n.kind]));
 
   return (
-    <div className="pkp-topology">
+    <div className="poka-topology">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
-        className="pkp-topology__svg"
+        className="poka-topology__svg"
         aria-label={labels.networkLabel}
       >
         {graph.edges.map((e) => {

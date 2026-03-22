@@ -1485,7 +1485,7 @@ body {
 
 /* --- Topology map (layout override) --- */
 
-.pkp-topology {
+.poka-topology {
   grid-column: 1 / -1;
 }
 
@@ -1670,11 +1670,11 @@ body {
 
   /* Hide degraded-state warning text on mobile —
      the colored dot + label is enough */
-  .pkp-status-indicator__warning {
+  .poka-status-indicator__warning {
     display: none;
   }
 
-  .pkp-status-indicator--degraded {
+  .poka-status-indicator--degraded {
     padding: 2px 6px;
   }
 
@@ -1699,8 +1699,8 @@ body {
     padding: 0.25rem 0.4rem;
   }
 
-  .pkp-save-indicator,
-  .pkp-last-updated {
+  .poka-save-indicator,
+  .poka-last-updated {
     font-size: 0.65rem;
   }
 
@@ -1777,7 +1777,7 @@ body {
     margin-right: 0;
   }
 
-  .pkp-comment-sidebar {
+  .poka-comment-sidebar {
     width: 100%;
   }
 

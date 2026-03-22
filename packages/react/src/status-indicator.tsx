@@ -56,22 +56,23 @@ export function StatusIndicator({
   return (
     <span
       className={
-        "pkp-status-indicator" +
-        ` pkp-status-indicator--${status}` +
-        (warning ? " pkp-status-indicator--degraded" : "")
+        "poka-status-indicator" +
+        ` poka-status-indicator--${status}` +
+        (warning ? " poka-status-indicator--degraded" : "")
       }
       role="status"
       aria-label={labels.connectionLabel(statusLabel, warning)}
     >
       <span
         className={
-          "pkp-status-indicator__dot" + ` pkp-status-indicator__dot--${status}`
+          "poka-status-indicator__dot" +
+          ` poka-status-indicator__dot--${status}`
         }
         aria-hidden="true"
       />
-      <span className="pkp-status-indicator__text">{statusLabel}</span>
+      <span className="poka-status-indicator__text">{statusLabel}</span>
       {warning && (
-        <span className="pkp-status-indicator__warning">{warning}</span>
+        <span className="poka-status-indicator__warning">{warning}</span>
       )}
     </span>
   );
