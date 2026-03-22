@@ -17,7 +17,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Healthy: Story = {
   render: () => (
-    <div style={{ width: 400, height: 300 }}>
+    <div style={{ width: 400, height: 300, overflow: "hidden" }}>
       <TopologyMap doc={createMockTopologyDoc(healthyGraph)} />
     </div>
   ),
@@ -25,7 +25,7 @@ export const Healthy: Story = {
 
 export const Degraded: Story = {
   render: () => (
-    <div style={{ width: 400, height: 300 }}>
+    <div style={{ width: 400, height: 300, overflow: "hidden" }}>
       <TopologyMap doc={createMockTopologyDoc(degradedGraph)} />
     </div>
   ),
@@ -33,7 +33,7 @@ export const Degraded: Story = {
 
 export const Solo: Story = {
   render: () => (
-    <div style={{ width: 400, height: 300 }}>
+    <div style={{ width: 400, height: 300, overflow: "hidden" }}>
       <TopologyMap doc={createMockTopologyDoc(soloGraph)} />
     </div>
   ),
@@ -41,7 +41,7 @@ export const Solo: Story = {
 
 export const ReadOnly: Story = {
   render: () => (
-    <div style={{ width: 400, height: 300 }}>
+    <div style={{ width: 400, height: 300, overflow: "hidden" }}>
       <TopologyMap
         doc={createMockTopologyDoc(healthyGraph, {
           canPushSnapshots: false,

@@ -44,6 +44,60 @@ const versions: MockVersion[] = [
   },
 ];
 
+function VersionItem({
+  v,
+  isCurrent,
+  isSelected,
+  onSelect,
+}: {
+  v: MockVersion;
+  isCurrent: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const disabled = v.status === "archived";
+  const deltaClass =
+    v.delta !== undefined
+      ? v.delta > 0
+        ? "added"
+        : v.delta < 0
+          ? "removed"
+          : "unchanged"
+      : null;
+
+  return (
+    <button
+      className={
+        "vh-item" +
+        (isSelected ? " selected" : "") +
+        (disabled ? " archived" : "")
+      }
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      <span className="vh-item-seq">
+        #{v.seq}
+        {isCurrent && <span className="vh-current-badge">current</span>}
+      </span>
+      {v.delta !== undefined && (
+        <span
+          className={"vh-item-delta" + (deltaClass ? ` ${deltaClass}` : "")}
+        >
+          {v.delta > 0
+            ? `+${v.delta}`
+            : v.delta < 0
+              ? String(v.delta)
+              : "\u00b10"}
+        </span>
+      )}
+      <span className="vh-item-ts">{relativeAge(v.ts)}</span>
+      {v.tier && (
+        <span className={"vh-item-retention vh-tier-" + v.tier}>{v.tier}</span>
+      )}
+    </button>
+  );
+}
+
 const editorText = `The design system tokens provide a
 consistent visual language across all
 Pokapali interfaces. Each token follows
@@ -182,147 +236,33 @@ function HistoryPreviewPatterns() {
 
         {/* History drawer */}
         <div
+          className="vh-drawer"
           style={{
             width: 260,
             flexShrink: 0,
-            background: "var(--poka-bg-surface)",
-            border: "1px solid var(--poka-border-default)",
-            borderRadius: "var(--poka-radius-lg)",
-            overflow: "hidden",
           }}
         >
-          <div
-            className="vh-header"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "var(--poka-space-3) " + "var(--poka-space-3)",
-              borderBottom: "1px solid " + "var(--poka-border-default)",
-            }}
-          >
-            <span
-              style={{
-                fontSize: "var(--poka-text-sm)",
-                fontWeight: "var(--poka-weight-semibold)" as unknown as number,
-                color: "var(--poka-text-primary)",
-              }}
-            >
-              Version history
-            </span>
-            <span
-              style={{
-                fontSize: "var(--poka-text-xs)",
-                color: "var(--poka-text-muted)",
-              }}
-            >
+          <div className="vh-header">
+            <h3>Version history</h3>
+            <button className="vh-close" aria-label="Close">
               &#x2715;
-            </span>
+            </button>
           </div>
           <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              maxHeight: 380,
-              overflow: "auto",
-            }}
+            className="vh-list-section"
+            style={{ maxHeight: 380, overflow: "auto" }}
           >
-            {versions.map((v) => {
-              const isCurrent = v.seq === versions[0]!.seq;
-              const isSelected = selectedSeq === v.seq;
-              const disabled = v.status === "archived";
-
-              return (
-                <button
-                  key={v.seq}
-                  className={
-                    "vh-item" +
-                    (isSelected ? " selected" : "") +
-                    (disabled ? " archived" : "")
-                  }
-                  disabled={disabled}
-                  onClick={() => setSelectedSeq(isSelected ? null : v.seq)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--poka-space-2)",
-                    padding: "var(--poka-space-2) " + "var(--poka-space-3)",
-                    background: isSelected
-                      ? "var(--poka-surface-info)"
-                      : "transparent",
-                    border: "none",
-                    borderBottom: "1px solid " + "var(--poka-border-default)",
-                    cursor: disabled ? "default" : "pointer",
-                    opacity: disabled ? 0.4 : 1,
-                    textAlign: "left",
-                    width: "100%",
-                    fontSize: "var(--poka-text-xs)",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontWeight:
-                        "var(--poka-weight-medium)" as unknown as number,
-                      color: "var(--poka-text-primary)",
-                    }}
-                  >
-                    #{v.seq}
-                    {isCurrent && (
-                      <span
-                        style={{
-                          marginLeft: 4,
-                          fontSize: "var(--poka-text-2xs)",
-                          color: "var(--poka-color-synced)",
-                        }}
-                      >
-                        current
-                      </span>
-                    )}
-                  </span>
-                  {v.delta !== undefined && (
-                    <span
-                      style={{
-                        color:
-                          v.delta > 0
-                            ? "var(--poka-color-synced)"
-                            : v.delta < 0
-                              ? "var(--poka-color-offline)"
-                              : "var(--poka-text-muted)",
-                        fontSize: "var(--poka-text-2xs)",
-                      }}
-                    >
-                      {v.delta > 0
-                        ? `+${v.delta}`
-                        : v.delta < 0
-                          ? String(v.delta)
-                          : "\u00b10"}
-                    </span>
-                  )}
-                  <span
-                    style={{
-                      marginLeft: "auto",
-                      color: "var(--poka-text-muted)",
-                      fontSize: "var(--poka-text-2xs)",
-                    }}
-                  >
-                    {relativeAge(v.ts)}
-                  </span>
-                  {v.tier && (
-                    <span
-                      style={{
-                        fontSize: "var(--poka-text-2xs)",
-                        padding: "1px 4px",
-                        borderRadius: "var(--poka-radius-sm)",
-                        background: "var(--poka-bg-subtle)",
-                        color: "var(--poka-text-muted)",
-                      }}
-                    >
-                      {v.tier}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            {versions.map((v) => (
+              <VersionItem
+                key={v.seq}
+                v={v}
+                isCurrent={v.seq === versions[0]!.seq}
+                isSelected={selectedSeq === v.seq}
+                onSelect={() =>
+                  setSelectedSeq(selectedSeq === v.seq ? null : v.seq)
+                }
+              />
+            ))}
           </div>
         </div>
       </div>

@@ -253,7 +253,7 @@ function NetworkDiagnosticsPatterns() {
                 padding: "var(--poka-space-2)",
               }}
             >
-              <div style={{ width: "100%", height: 140 }}>
+              <div style={{ width: "100%", height: 140, overflow: "hidden" }}>
                 <TopologyMap doc={createMockTopologyDoc(healthyGraph)} />
               </div>
             </div>
