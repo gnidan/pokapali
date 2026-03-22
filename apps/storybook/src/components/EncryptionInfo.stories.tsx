@@ -14,6 +14,7 @@ function EncryptionInfoPopover({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-label="Encryption information"
+      style={{ position: "relative", top: "auto", right: "auto" }}
     >
       <div className="encryption-header">
         <LockIcon size={16} />
