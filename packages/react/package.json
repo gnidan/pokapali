@@ -30,7 +30,8 @@
     },
     "./comments.css": "./src/comments.css",
     "./indicators.css": "./src/indicators.css",
-    "./topology-map.css": "./src/topology-map.css"
+    "./topology-map.css": "./src/topology-map.css",
+    "./tokens.css": "./src/tokens.css"
   },
   "files": [
     "dist/src/**/*.js",
@@ -39,7 +40,8 @@
     "!dist/src/**/*.test.*",
     "src/comments.css",
     "src/indicators.css",
-    "src/topology-map.css"
+    "src/topology-map.css",
+    "src/tokens.css"
   ],
   "license": "MIT",
   "publishConfig": {
