@@ -34,174 +34,129 @@ function EncryptionInfoPopover({ onClose }: { onClose: () => void }) {
   );
 }
 
-function EncryptionInfoStories() {
+function TriggerWithPopover() {
   const [open, setOpen] = useState(true);
 
   return (
     <div
       style={{
-        fontFamily: "system-ui, sans-serif",
-        display: "flex",
-        flexDirection: "column",
-        gap: "2rem",
+        position: "relative",
+        display: "inline-block",
+        marginBottom: open ? 180 : 0,
       }}
     >
-      <h2 style={{ marginBottom: "0.5rem" }}>EncryptionInfo</h2>
-      <p
+      <button
+        type="button"
+        onClick={() => setOpen((s) => !s)}
         style={{
-          fontSize: "var(--poka-text-sm)",
-          color: "var(--poka-text-muted)",
-          marginBottom: "1rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.25rem",
+          fontSize: "var(--poka-text-xs)",
+          color: "var(--poka-text-secondary)",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "4px",
         }}
       >
-        Modal popover explaining end-to-end encryption. Triggered by the lock
-        icon in the header. Supports Escape to close, click-outside, and focus
-        trapping.
-      </p>
-
-      <div>
-        <h3
-          style={{
-            fontSize: "var(--poka-text-sm)",
-            color: "var(--poka-text-secondary)",
-            marginBottom: "0.5rem",
-          }}
-        >
-          Trigger + Popover
-        </h3>
+        <LockIcon size={14} />
+        Encrypted
+      </button>
+      {open && (
         <div
           style={{
-            position: "relative",
-            display: "inline-block",
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            zIndex: 10,
+            marginTop: 4,
           }}
         >
-          <button
-            type="button"
-            onClick={() => setOpen((s) => !s)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.25rem",
-              fontSize: "var(--poka-text-xs)",
-              color: "var(--poka-text-secondary)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: "4px",
-            }}
-          >
-            <LockIcon size={14} />
-            Encrypted
-          </button>
-          {open && (
-            <div
-              style={{
-                position: "absolute",
-                top: "100%",
-                left: 0,
-                zIndex: 10,
-                marginTop: 4,
-              }}
-            >
-              <EncryptionInfoPopover onClose={() => setOpen(false)} />
-            </div>
-          )}
+          <EncryptionInfoPopover onClose={() => setOpen(false)} />
         </div>
-      </div>
-
-      <div>
-        <h3
-          style={{
-            fontSize: "var(--poka-text-sm)",
-            color: "var(--poka-text-secondary)",
-            marginBottom: "0.5rem",
-          }}
-        >
-          Popover (static)
-        </h3>
-        <div style={{ maxWidth: 340 }}>
-          <EncryptionInfoPopover onClose={() => {}} />
-        </div>
-      </div>
-
-      <div>
-        <h3
-          style={{
-            fontSize: "var(--poka-text-sm)",
-            color: "var(--poka-text-secondary)",
-            marginBottom: "0.5rem",
-          }}
-        >
-          Lock Icon sizes
-        </h3>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "1.5rem",
-            color: "var(--poka-text-secondary)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-            }}
-          >
-            <LockIcon size={12} />
-            <span
-              style={{
-                fontSize: "var(--poka-text-2xs)",
-              }}
-            >
-              12px
-            </span>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-            }}
-          >
-            <LockIcon size={16} />
-            <span
-              style={{
-                fontSize: "var(--poka-text-2xs)",
-              }}
-            >
-              16px (default)
-            </span>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-            }}
-          >
-            <LockIcon size={24} />
-            <span
-              style={{
-                fontSize: "var(--poka-text-2xs)",
-              }}
-            >
-              24px
-            </span>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
 
-const meta: Meta<typeof EncryptionInfoStories> = {
+const meta: Meta = {
   title: "Components/EncryptionInfo",
-  component: EncryptionInfoStories,
 };
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj;
 
-export const Overview: Story = {};
+export const TriggerAndPopover: Story = {
+  render: () => <TriggerWithPopover />,
+};
+
+export const PopoverStatic: Story = {
+  render: () => (
+    <div style={{ maxWidth: 340 }}>
+      <EncryptionInfoPopover onClose={() => {}} />
+    </div>
+  ),
+};
+
+export const LockIconSizes: Story = {
+  render: () => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "1.5rem",
+        color: "var(--poka-text-secondary)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+        }}
+      >
+        <LockIcon size={12} />
+        <span
+          style={{
+            fontSize: "var(--poka-text-2xs)",
+          }}
+        >
+          12px
+        </span>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+        }}
+      >
+        <LockIcon size={16} />
+        <span
+          style={{
+            fontSize: "var(--poka-text-2xs)",
+          }}
+        >
+          16px (default)
+        </span>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+        }}
+      >
+        <LockIcon size={24} />
+        <span
+          style={{
+            fontSize: "var(--poka-text-2xs)",
+          }}
+        >
+          24px
+        </span>
+      </div>
+    </div>
+  ),
+};
