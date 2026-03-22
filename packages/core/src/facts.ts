@@ -287,6 +287,9 @@ export interface Connectivity {
   gossip: GossipState;
   relayPeers: ReadonlySet<string>;
   knownPinnerPids: ReadonlySet<string>;
+  /** Timestamp (ms) when the doc was created.
+   *  Used by deriveStatus() for mesh grace. */
+  createdAt?: number;
 }
 
 export interface GossipState {

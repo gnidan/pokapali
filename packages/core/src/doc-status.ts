@@ -7,6 +7,7 @@
  */
 
 import type {
+  Connectivity,
   DocState,
   DocStatus,
   SaveState,
@@ -21,30 +22,59 @@ import { MAX_INTERPRETER_RETRIES, RETRY_BASE_MS } from "./interpreter.js";
  *  "offline" flash while the mesh forms. */
 export const MESH_GRACE_MS = 5_000;
 
+// ── Status derivation (single source of truth) ──
+
+/**
+ * Derive DocStatus from Connectivity state.
+ * 7-branch logic shared by both the fact-stream
+ * reducer and the legacy create-doc path (#382).
+ */
+export function deriveStatus(c: Connectivity): DocStatus {
+  if (c.syncStatus === "connected") return "synced";
+  if (c.syncStatus === "connecting") return "connecting";
+  if (c.gossip.activity === "receiving") {
+    return "receiving";
+  }
+  // Awareness-only = cursors visible but edits may
+  // not sync (#224). Report "connecting" not
+  // "receiving" so consumers don't show a false
+  // "collaborating" state.
+  if (c.awarenessConnected) return "connecting";
+  if (c.gossip.activity === "subscribed") {
+    return "connecting";
+  }
+  // Mesh grace: during startup, peers haven't
+  // connected yet. Show "connecting" instead of
+  // "offline" for a brief window.
+  if (c.createdAt !== undefined && Date.now() - c.createdAt < MESH_GRACE_MS) {
+    return "connecting";
+  }
+  return "offline";
+}
+
+/**
+ * Convenience wrapper for callers that pass
+ * individual fields instead of a Connectivity
+ * object. Delegates to deriveStatus().
+ */
 export function computeStatus(
   syncStatus: SyncStatus,
   awarenessConnected: boolean,
   gossipActivity: GossipActivity,
   createdAt?: number,
 ): DocStatus {
-  if (syncStatus === "connected") return "synced";
-  if (syncStatus === "connecting") return "connecting";
-  if (gossipActivity === "receiving") return "receiving";
-  // Awareness-only = cursors visible but edits may
-  // not sync (#224). Report "connecting" not
-  // "receiving" so consumers don't show a false
-  // "collaborating" state.
-  if (awarenessConnected) return "connecting";
-  if (gossipActivity === "subscribed") {
-    return "connecting";
-  }
-  // During startup, mesh peers haven't connected
-  // yet. Show "connecting" instead of "offline"
-  // for a brief grace period.
-  if (createdAt !== undefined && Date.now() - createdAt < MESH_GRACE_MS) {
-    return "connecting";
-  }
-  return "offline";
+  return deriveStatus({
+    syncStatus,
+    awarenessConnected,
+    gossip: {
+      activity: gossipActivity,
+      subscribed: gossipActivity !== "inactive",
+      lastMessageAt: 0,
+    },
+    relayPeers: new Set(),
+    knownPinnerPids: new Set(),
+    createdAt,
+  });
 }
 
 export function computeSaveState(
