@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
+import { Badge, LockIcon, relativeAge } from "../helpers/story-helpers";
 
 /**
  * Landing Page pattern — the create/open form and
@@ -45,66 +46,6 @@ const recentDocs: RecentDoc[] = [
     lastOpened: NOW - 5 * DAY,
   },
 ];
-
-function relativeAge(ts: number): string {
-  const hrs = Math.round((NOW - ts) / HOUR);
-  if (hrs < 1) return "just now";
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.round(hrs / 24);
-  return `${days}d ago`;
-}
-
-function Badge({ role }: { role: "admin" | "writer" | "reader" }) {
-  const colors: Record<string, { bg: string; fg: string }> = {
-    admin: {
-      bg: "var(--poka-surface-info)",
-      fg: "var(--poka-on-info)",
-    },
-    writer: {
-      bg: "var(--poka-surface-success)",
-      fg: "var(--poka-on-success)",
-    },
-    reader: {
-      bg: "var(--poka-bg-subtle)",
-      fg: "var(--poka-text-secondary)",
-    },
-  };
-  const { bg, fg } = colors[role]!;
-  return (
-    <span
-      style={{
-        fontSize: "var(--poka-text-2xs)",
-        fontWeight: "var(--poka-weight-medium)" as unknown as number,
-        padding: "1px 6px",
-        borderRadius: "var(--poka-radius-full)",
-        background: bg,
-        color: fg,
-        textTransform: "capitalize",
-      }}
-    >
-      {role}
-    </span>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg
-      width={12}
-      height={12}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-  );
-}
 
 function LandingPagePatterns() {
   const [openUrl, setOpenUrl] = useState("");
@@ -163,7 +104,7 @@ function LandingPagePatterns() {
             gap: "var(--poka-space-1)",
           }}
         >
-          <LockIcon />
+          <LockIcon size={12} />
           End-to-end encrypted collaborative editing
         </div>
 

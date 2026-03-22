@@ -2,41 +2,9 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { StatusIndicator, SaveIndicator, LastUpdated } from "@pokapali/react";
 import type { DocStatus } from "@pokapali/core";
 import type { SaveState } from "@pokapali/core";
+import { Badge } from "../helpers/story-helpers";
 
 const noop = () => {};
-
-function Badge({ role }: { role: "admin" | "writer" | "reader" }) {
-  const colors: Record<string, { bg: string; fg: string }> = {
-    admin: {
-      bg: "var(--poka-surface-info)",
-      fg: "var(--poka-on-info)",
-    },
-    writer: {
-      bg: "var(--poka-surface-success)",
-      fg: "var(--poka-on-success)",
-    },
-    reader: {
-      bg: "var(--poka-bg-subtle)",
-      fg: "var(--poka-text-secondary)",
-    },
-  };
-  const { bg, fg } = colors[role];
-  return (
-    <span
-      style={{
-        fontSize: "var(--poka-text-2xs)",
-        fontWeight: "var(--poka-weight-medium)" as unknown as number,
-        padding: "2px 8px",
-        borderRadius: "var(--poka-radius-full)",
-        background: bg,
-        color: fg,
-        textTransform: "capitalize",
-      }}
-    >
-      {role}
-    </span>
-  );
-}
 
 function ToolbarButton({
   label,

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { Dot, Sparkline } from "../helpers/story-helpers";
 
 /**
  * Inline ConnectionStatus story — renders the
@@ -7,64 +8,6 @@ import type { Meta, StoryObj } from "@storybook/react";
  * Doc feeds, so we render the visual structure
  * statically.
  */
-
-const SPARK_W = 300;
-const SPARK_H = 40;
-const SPARK_PAD = 2;
-
-function normalizePoints(
-  data: number[],
-  width: number,
-  height: number,
-  pad: number,
-): string[] {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  return data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (width - 2 * pad) + pad;
-    const y = height - pad - ((v - min) / range) * (height - 2 * pad);
-    return `${x},${y}`;
-  });
-}
-
-function Sparkline({ data, color }: { data: number[]; color: string }) {
-  if (data.length < 2) return null;
-  const pts = normalizePoints(data, SPARK_W, SPARK_H, SPARK_PAD);
-  const line = pts.join(" ");
-  const last = pts[pts.length - 1]!.split(",");
-
-  return (
-    <svg
-      className="sparkline"
-      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-      preserveAspectRatio="xMidYMid meet"
-      aria-hidden="true"
-    >
-      <polygon
-        points={
-          line +
-          ` ${SPARK_W - SPARK_PAD},${SPARK_H}` +
-          ` ${SPARK_PAD},${SPARK_H}`
-        }
-        fill={color}
-        fillOpacity="0.08"
-      />
-      <polyline
-        points={line}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <circle cx={last[0]!} cy={last[1]!} r="2.5" fill={color} />
-    </svg>
-  );
-}
-
-function Dot({ state }: { state: "connected" | "disconnected" | "partial" }) {
-  return <span className={`cs-dot ${state}`} aria-hidden="true" />;
-}
 
 // Mock sparkline data
 const peerData = [2, 3, 3, 4, 5, 5, 6, 6, 7, 7, 6, 7, 7, 8, 8, 7, 7, 8, 8, 8];

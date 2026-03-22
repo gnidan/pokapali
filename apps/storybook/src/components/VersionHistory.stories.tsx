@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { relativeAge } from "../helpers/story-helpers";
 
 /**
  * Inline VersionHistory story — renders the drawer
@@ -21,18 +22,6 @@ interface MockVersion {
   expiresAt?: number;
   current?: boolean;
   selected?: boolean;
-}
-
-function relativeAge(ts: number): string {
-  const sec = Math.round((NOW - ts) / 1000);
-  if (sec < 5) return "just now";
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hrs = Math.floor(min / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.round(hrs / 24);
-  return `${days}d ago`;
 }
 
 function VersionItem({

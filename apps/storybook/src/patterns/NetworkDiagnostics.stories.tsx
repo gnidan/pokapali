@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { Dot, Sparkline } from "../helpers/story-helpers";
 
 /**
  * Network Diagnostics pattern — full bottom-panel
@@ -6,114 +7,6 @@ import type { Meta, StoryObj } from "@storybook/react";
  * node list, and topology overview. Mirrors the
  * ConnectionStatus layout from the example app.
  */
-
-const SPARK_W = 240;
-const SPARK_H = 36;
-const SPARK_PAD = 2;
-
-function normalizePoints(
-  data: number[],
-  width: number,
-  height: number,
-  pad: number,
-): string[] {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  return data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (width - 2 * pad) + pad;
-    const y = height - pad - ((v - min) / range) * (height - 2 * pad);
-    return `${x},${y}`;
-  });
-}
-
-function Sparkline({
-  data,
-  color,
-  label,
-  current,
-}: {
-  data: number[];
-  color: string;
-  label: string;
-  current: number;
-}) {
-  if (data.length < 2) return null;
-  const pts = normalizePoints(data, SPARK_W, SPARK_H, SPARK_PAD);
-  const line = pts.join(" ");
-  const last = pts[pts.length - 1]!.split(",");
-
-  return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          fontSize: "var(--poka-text-2xs)",
-          color: "var(--poka-text-muted)",
-          marginBottom: 2,
-        }}
-      >
-        <span>{label}</span>
-        <span
-          style={{
-            fontWeight: "var(--poka-weight-medium)" as unknown as number,
-            color: "var(--poka-text-secondary)",
-          }}
-        >
-          {current}
-        </span>
-      </div>
-      <svg
-        viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-        preserveAspectRatio="xMidYMid meet"
-        aria-hidden="true"
-        style={{ width: "100%", height: 36 }}
-      >
-        <polygon
-          points={
-            line +
-            ` ${SPARK_W - SPARK_PAD},${SPARK_H}` +
-            ` ${SPARK_PAD},${SPARK_H}`
-          }
-          fill={color}
-          fillOpacity="0.08"
-        />
-        <polyline
-          points={line}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <circle cx={last[0]!} cy={last[1]!} r="2.5" fill={color} />
-      </svg>
-    </div>
-  );
-}
-
-function Dot({ state }: { state: "connected" | "disconnected" | "partial" }) {
-  const color =
-    state === "connected"
-      ? "var(--poka-color-synced)"
-      : state === "partial"
-        ? "var(--poka-color-connecting)"
-        : "var(--poka-color-offline)";
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: 8,
-        height: 8,
-        borderRadius: "50%",
-        background: color,
-        flexShrink: 0,
-      }}
-      aria-hidden="true"
-    />
-  );
-}
 
 const peerData = [
   3, 4, 5, 5, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 10, 11, 11, 12, 12,
@@ -334,18 +227,24 @@ function NetworkDiagnosticsPatterns() {
               color="var(--poka-color-synced)"
               label="Peers"
               current={12}
+              width={240}
+              height={36}
             />
             <Sparkline
               data={meshData}
               color="var(--poka-color-receiving)"
               label="Mesh"
               current={6}
+              width={240}
+              height={36}
             />
             <Sparkline
               data={nodeData}
               color="var(--poka-color-connecting)"
               label="Nodes"
               current={4}
+              width={240}
+              height={36}
             />
           </div>
 
