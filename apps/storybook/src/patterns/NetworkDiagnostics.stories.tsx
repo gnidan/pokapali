@@ -1,4 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { TopologyMap } from "@pokapali/react/topology";
+import {
+  createMockTopologyDoc,
+  healthyGraph,
+} from "../helpers/mock-topology-doc";
 import { Dot, Sparkline } from "../helpers/story-helpers";
 
 /**
@@ -41,81 +46,6 @@ const nodes = [
     state: "disconnected" as const,
   },
 ];
-
-function TopologyMock() {
-  const positions = [
-    { x: 120, y: 30, label: "You" },
-    { x: 40, y: 100, label: "R1" },
-    { x: 120, y: 110, label: "R2" },
-    { x: 200, y: 100, label: "R3" },
-    { x: 80, y: 170, label: "P1" },
-    { x: 160, y: 170, label: "R4" },
-  ];
-
-  const edges = [
-    [0, 1],
-    [0, 2],
-    [0, 3],
-    [1, 4],
-    [2, 4],
-    [2, 5],
-  ];
-
-  return (
-    <svg
-      viewBox="0 0 240 200"
-      style={{ width: "100%", height: 140 }}
-      aria-label="Topology map"
-    >
-      {edges.map(([a, b], i) => (
-        <line
-          key={i}
-          x1={positions[a!]!.x}
-          y1={positions[a!]!.y}
-          x2={positions[b!]!.x}
-          y2={positions[b!]!.y}
-          stroke="var(--poka-border-default)"
-          strokeWidth="1"
-          strokeDasharray="3,3"
-        />
-      ))}
-      {positions.map((p, i) => (
-        <g key={i}>
-          <circle
-            cx={p.x}
-            cy={p.y}
-            r={i === 0 ? 12 : 8}
-            fill={
-              i === 0
-                ? "var(--poka-color-accent)"
-                : i < 4
-                  ? "var(--poka-color-synced)"
-                  : "var(--poka-color-connecting)"
-            }
-            fillOpacity={i === 0 ? 0.15 : 0.1}
-            stroke={
-              i === 0
-                ? "var(--poka-color-accent)"
-                : i < 4
-                  ? "var(--poka-color-synced)"
-                  : "var(--poka-color-connecting)"
-            }
-            strokeWidth="1.5"
-          />
-          <text
-            x={p.x}
-            y={p.y + 3}
-            textAnchor="middle"
-            fontSize="8"
-            fill="var(--poka-text-secondary)"
-          >
-            {p.label}
-          </text>
-        </g>
-      ))}
-    </svg>
-  );
-}
 
 function NetworkDiagnosticsPatterns() {
   return (
@@ -323,7 +253,9 @@ function NetworkDiagnosticsPatterns() {
                 padding: "var(--poka-space-2)",
               }}
             >
-              <TopologyMock />
+              <div style={{ width: "100%", height: 140 }}>
+                <TopologyMap doc={createMockTopologyDoc(healthyGraph)} />
+              </div>
             </div>
           </div>
         </div>
