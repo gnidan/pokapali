@@ -68,7 +68,7 @@ export function computeStatus(
     awarenessConnected,
     gossip: {
       activity: gossipActivity,
-      subscribed: gossipActivity !== "idle",
+      subscribed: gossipActivity !== "inactive",
       lastMessageAt: 0,
     },
     relayPeers: new Set(),
