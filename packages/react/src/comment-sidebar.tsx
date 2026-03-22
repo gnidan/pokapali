@@ -63,7 +63,7 @@ function CommentInput({
   );
 
   return (
-    <div className="pkp-comment-input">
+    <div className="poka-comment-input">
       <textarea
         ref={ref}
         data-testid="comment-input"
@@ -74,14 +74,14 @@ function CommentInput({
         autoFocus={autoFocus}
         rows={2}
       />
-      <div className="pkp-comment-input__actions">
+      <div className="poka-comment-input__actions">
         {onCancel && (
-          <button className="pkp-btn pkp-btn--cancel" onClick={onCancel}>
+          <button className="poka-btn poka-btn--cancel" onClick={onCancel}>
             {cancelLabel}
           </button>
         )}
         <button
-          className="pkp-btn pkp-btn--submit"
+          className="poka-btn poka-btn--submit"
           data-testid="comment-submit"
           onClick={handleSubmit}
           disabled={!text.trim()}
@@ -125,20 +125,20 @@ function CommentItemView({
   return (
     <div
       className={
-        "pkp-comment" +
-        (isReply ? " pkp-comment--reply" : "") +
-        (selected ? " pkp-comment--selected" : "") +
-        (isResolved ? " pkp-comment--resolved" : "") +
-        (hasOrphanedAnchor ? " pkp-comment--orphaned" : "")
+        "poka-comment" +
+        (isReply ? " poka-comment--reply" : "") +
+        (selected ? " poka-comment--selected" : "") +
+        (isResolved ? " poka-comment--resolved" : "") +
+        (hasOrphanedAnchor ? " poka-comment--orphaned" : "")
       }
       data-testid="comment-item"
       onClick={() => onSelect(comment.id)}
     >
-      <div className="pkp-comment__header">
+      <div className="poka-comment__header">
         <span
           className={
-            "pkp-comment__author" +
-            (comment.authorVerified ? "" : " pkp-comment__author--unverified")
+            "poka-comment__author" +
+            (comment.authorVerified ? "" : " poka-comment__author--unverified")
           }
           title={
             comment.authorVerified
@@ -149,24 +149,24 @@ function CommentItemView({
         >
           {labels.formatAuthor(comment.author, undefined)}
           {!comment.authorVerified && (
-            <span className="pkp-comment__unverified-badge">?</span>
+            <span className="poka-comment__unverified-badge">?</span>
           )}
         </span>
-        <span className="pkp-comment__timestamp">
+        <span className="poka-comment__timestamp">
           {labels.formatAge(comment.ts)}
         </span>
       </div>
 
-      <div className="pkp-comment__body">{comment.content}</div>
+      <div className="poka-comment__body">{comment.content}</div>
 
       {hasOrphanedAnchor && !isReply && (
-        <div className="pkp-comment__orphan-note">{labels.orphanedNote}</div>
+        <div className="poka-comment__orphan-note">{labels.orphanedNote}</div>
       )}
 
-      <div className="pkp-comment__actions">
+      <div className="poka-comment__actions">
         {!isReply && !isResolved && (
           <button
-            className="pkp-btn pkp-btn--sm"
+            className="poka-btn poka-btn--sm"
             data-testid="reply-btn"
             onClick={(e) => {
               e.stopPropagation();
@@ -178,7 +178,7 @@ function CommentItemView({
         )}
         {!isReply && !isResolved && (
           <button
-            className="pkp-btn pkp-btn--sm"
+            className="poka-btn poka-btn--sm"
             data-testid="resolve-btn"
             onClick={(e) => {
               e.stopPropagation();
@@ -190,7 +190,7 @@ function CommentItemView({
         )}
         {!isReply && isResolved && (
           <button
-            className="pkp-btn pkp-btn--sm"
+            className="poka-btn poka-btn--sm"
             onClick={(e) => {
               e.stopPropagation();
               onReopen(comment.id);
@@ -201,7 +201,7 @@ function CommentItemView({
         )}
         {isAuthor && (
           <button
-            className="pkp-btn pkp-btn--sm pkp-btn--danger"
+            className="poka-btn poka-btn--sm poka-btn--danger"
             onClick={(e) => {
               e.stopPropagation();
               onDelete(comment.id);
@@ -249,8 +249,8 @@ function CommentThread({
   return (
     <div
       className={
-        "pkp-comment-thread" +
-        (isResolved ? " pkp-comment-thread--resolved" : "")
+        "poka-comment-thread" +
+        (isResolved ? " poka-comment-thread--resolved" : "")
       }
     >
       <CommentItemView
@@ -283,7 +283,7 @@ function CommentThread({
       ))}
 
       {replyingTo === comment.id && (
-        <div className="pkp-comment-thread__reply-input">
+        <div className="poka-comment-thread__reply-input">
           <CommentInput
             placeholder={labels.replyPlaceholder}
             submitLabel={labels.replyButton}
@@ -505,15 +505,15 @@ export function CommentSidebar({
 
   return (
     <div
-      className={"pkp-comment-sidebar" + (className ? ` ${className}` : "")}
+      className={"poka-comment-sidebar" + (className ? ` ${className}` : "")}
       role="complementary"
       aria-label={labels.title}
       data-testid="comment-sidebar"
     >
-      <div className="pkp-comment-sidebar__header">
+      <div className="poka-comment-sidebar__header">
         <h3>{labels.title}</h3>
         <button
-          className="pkp-comment-sidebar__close"
+          className="poka-comment-sidebar__close"
           onClick={onClose}
           aria-label={labels.closeAriaLabel}
         >
@@ -523,7 +523,7 @@ export function CommentSidebar({
 
       {(status === "offline" || status === "connecting") && (
         <div
-          className={`pkp-comment-sidebar__sync-warning pkp-comment-sidebar__sync-warning--${status}`}
+          className={`poka-comment-sidebar__sync-warning poka-comment-sidebar__sync-warning--${status}`}
           role="alert"
         >
           {status === "offline"
@@ -533,7 +533,7 @@ export function CommentSidebar({
       )}
 
       <div
-        className="pkp-comment-sidebar__body"
+        className="poka-comment-sidebar__body"
         ref={bodyRef}
         style={
           useSpatial
@@ -545,7 +545,7 @@ export function CommentSidebar({
         }
       >
         {hasPendingAnchor && myPubkey && (
-          <div className="pkp-comment-sidebar__new-comment">
+          <div className="poka-comment-sidebar__new-comment">
             <CommentInput
               placeholder={labels.commentPlaceholder}
               submitLabel={labels.submitButton}
@@ -557,13 +557,13 @@ export function CommentSidebar({
         )}
 
         {!hasPendingAnchor && myPubkey && (
-          <div className="pkp-comment-sidebar__hint">
+          <div className="poka-comment-sidebar__hint">
             {labels.selectionHint}
           </div>
         )}
 
         {openComments.length === 0 && resolvedComments.length === 0 && (
-          <div className="pkp-comment-sidebar__empty">{labels.emptyState}</div>
+          <div className="poka-comment-sidebar__empty">{labels.emptyState}</div>
         )}
 
         {openComments.map((comment) => (
@@ -613,7 +613,7 @@ export function CommentSidebar({
             }
           >
             <button
-              className="pkp-comment-sidebar__resolved-toggle"
+              className="poka-comment-sidebar__resolved-toggle"
               onClick={() => setShowResolved((s) => !s)}
             >
               {labels.resolvedToggle(resolvedComments.length, showResolved)}

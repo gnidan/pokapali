@@ -1,5 +1,5 @@
 /**
- * TopologyMap component styles — BEM with pkp- prefix.
+ * TopologyMap component styles — BEM with poka- prefix.
  *
  * Import this stylesheet when using TopologyMap
  * from @pokapali/react.
@@ -7,14 +7,14 @@
 
 /* ── Container ─────────────────────────────── */
 
-.pkp-topology {
+.poka-topology {
   display: flex;
   justify-content: center;
-  padding: 0.25rem 0;
+  padding: var(--poka-space-1) 0;
   position: relative;
 }
 
-.pkp-topology__svg {
+.poka-topology__svg {
   width: 100%;
   max-width: 400px;
   height: auto;
@@ -22,28 +22,28 @@
 
 /* ── Node labels ───────────────────────────── */
 
-.pkp-topology__label--self {
+.poka-topology__label--self {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--poka-weight-bold);
   fill: #fff;
   pointer-events: none;
 }
 
-.pkp-topology__peer-name {
+.poka-topology__peer-name {
   font-size: 8px;
-  font-weight: 600;
-  fill: #64748b;
+  font-weight: var(--poka-weight-semibold);
+  fill: var(--poka-text-secondary);
   pointer-events: none;
 }
 
 /* ── HTML tooltip overlay ──────────────────── */
 
-.pkp-topology__tooltip {
+.poka-topology__tooltip {
   position: absolute;
   background: #1e293b;
-  color: #e2e8f0;
+  color: var(--poka-border-subtle);
   padding: 0.4rem 0.6rem;
-  border-radius: 6px;
+  border-radius: var(--poka-radius-md);
   font-size: 0.7rem;
   line-height: 1.4;
   pointer-events: none;
@@ -52,26 +52,26 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.pkp-topology__tooltip-title {
-  font-weight: 600;
-  font-size: 0.72rem;
-  color: #f1f5f9;
+.poka-topology__tooltip-title {
+  font-weight: var(--poka-weight-semibold);
+  font-size: var(--poka-text-xs);
+  color: var(--poka-bg-subtle);
   margin-bottom: 2px;
 }
 
-.pkp-topology__tooltip-status {
-  color: #94a3b8;
+.poka-topology__tooltip-status {
+  color: var(--poka-text-muted);
 }
 
-.pkp-topology__tooltip-detail {
-  color: #94a3b8;
-  font-size: 0.65rem;
+.poka-topology__tooltip-detail {
+  color: var(--poka-text-muted);
+  font-size: var(--poka-text-2xs);
 }
 
 /* ── Mobile ────────────────────────────────── */
 
 @media (max-width: 600px) {
-  .pkp-topology__tooltip {
+  .poka-topology__tooltip {
     max-width: calc(100vw - 2rem);
     white-space: normal;
   }

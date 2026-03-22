@@ -6,6 +6,7 @@ const dotColors = [
   { token: "--poka-color-receiving", label: "Receiving", value: "#06b6d4" },
   { token: "--poka-color-offline", label: "Offline", value: "#ef4444" },
   { token: "--poka-color-dirty", label: "Dirty", value: "#f97316" },
+  { token: "--poka-color-accent", label: "Accent", value: "#3b82f6" },
 ] as const;
 
 const surfacePairs = [

@@ -86,8 +86,8 @@ export function SaveIndicator({
     return (
       <button
         className={
-          "pkp-save-indicator pkp-save-indicator--action" +
-          ` pkp-save-indicator--${saveState}`
+          "poka-save-indicator poka-save-indicator--action" +
+          ` poka-save-indicator--${saveState}`
         }
         onClick={onPublish}
         role="status"
@@ -100,7 +100,7 @@ export function SaveIndicator({
 
   return (
     <span
-      className={"pkp-save-indicator" + ` pkp-save-indicator--${saveState}`}
+      className={"poka-save-indicator" + ` poka-save-indicator--${saveState}`}
       role="status"
       aria-live="polite"
     >
@@ -133,7 +133,7 @@ export function LastUpdated({
   return (
     <span
       className={
-        "pkp-last-updated" + (flash ? " pkp-last-updated--flashing" : "")
+        "poka-last-updated" + (flash ? " poka-last-updated--flashing" : "")
       }
       aria-live="polite"
     >

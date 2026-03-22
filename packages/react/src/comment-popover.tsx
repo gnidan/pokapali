@@ -180,7 +180,7 @@ export function CommentPopover({
   return (
     <div
       ref={popoverRef}
-      className="pkp-comment-popover"
+      className="poka-comment-popover"
       data-testid="comment-popover"
       role="toolbar"
       aria-label={labels.toolbarAriaLabel}
@@ -191,7 +191,7 @@ export function CommentPopover({
       }}
     >
       <button
-        className="pkp-comment-popover__btn"
+        className="poka-comment-popover__btn"
         data-testid="add-comment-btn"
         aria-label={labels.addCommentAriaLabel}
         title={labels.addCommentTitle}

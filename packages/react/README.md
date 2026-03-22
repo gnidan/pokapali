@@ -73,8 +73,8 @@ Import the stylesheet for default comment styles:
 import "@pokapali/react/comments.css";
 ```
 
-All classes use BEM with a `pkp-` prefix
-(`pkp-comment-sidebar`, `pkp-comment-popover`, etc.).
+All classes use BEM with a `poka-` prefix
+(`poka-comment-sidebar`, `poka-comment-popover`, etc.).
 Override or replace as needed.
 
 ### CommentSidebar
@@ -197,8 +197,8 @@ example app. Import the stylesheet for default styles:
 import "@pokapali/react/indicators.css";
 ```
 
-All classes use BEM with a `pkp-` prefix
-(`pkp-save-indicator`, `pkp-status-indicator`, etc.).
+All classes use BEM with a `poka-` prefix
+(`poka-save-indicator`, `poka-status-indicator`, etc.).
 
 ### SaveIndicator
 
