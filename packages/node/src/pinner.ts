@@ -1049,11 +1049,9 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
   }
 
   async function saveHistoryIndex(): Promise<void> {
-    await writeFile(
-      historyIndexPath,
-      JSON.stringify(history.toJSON()),
-      "utf-8",
-    );
+    const tmp = historyIndexPath + ".tmp";
+    await writeFile(tmp, JSON.stringify(history.toJSON()), "utf-8");
+    await rename(tmp, historyIndexPath);
   }
 
   async function migrateFromStateJson(): Promise<boolean> {
