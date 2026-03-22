@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
-import { relativeAge } from "../helpers/story-helpers";
+import {
+  type MockVersion,
+  VersionItem,
+  VersionDrawer,
+} from "../helpers/mock-version-history";
 
 /**
  * History & Preview pattern — shows the version
@@ -11,14 +15,6 @@ import { relativeAge } from "../helpers/story-helpers";
 
 const NOW = Date.now();
 const HOUR = 3_600_000;
-
-interface MockVersion {
-  seq: number;
-  ts: number;
-  delta?: number;
-  tier?: string;
-  status?: "archived" | null;
-}
 
 const versions: MockVersion[] = [
   { seq: 8, ts: NOW - 5_000, delta: 42 },
@@ -43,60 +39,6 @@ const versions: MockVersion[] = [
     status: "archived",
   },
 ];
-
-function VersionItem({
-  v,
-  isCurrent,
-  isSelected,
-  onSelect,
-}: {
-  v: MockVersion;
-  isCurrent: boolean;
-  isSelected: boolean;
-  onSelect: () => void;
-}) {
-  const disabled = v.status === "archived";
-  const deltaClass =
-    v.delta !== undefined
-      ? v.delta > 0
-        ? "added"
-        : v.delta < 0
-          ? "removed"
-          : "unchanged"
-      : null;
-
-  return (
-    <button
-      className={
-        "vh-item" +
-        (isSelected ? " selected" : "") +
-        (disabled ? " archived" : "")
-      }
-      disabled={disabled}
-      onClick={onSelect}
-    >
-      <span className="vh-item-seq">
-        #{v.seq}
-        {isCurrent && <span className="vh-current-badge">current</span>}
-      </span>
-      {v.delta !== undefined && (
-        <span
-          className={"vh-item-delta" + (deltaClass ? ` ${deltaClass}` : "")}
-        >
-          {v.delta > 0
-            ? `+${v.delta}`
-            : v.delta < 0
-              ? String(v.delta)
-              : "\u00b10"}
-        </span>
-      )}
-      <span className="vh-item-ts">{relativeAge(v.ts)}</span>
-      {v.tier && (
-        <span className={"vh-item-retention vh-tier-" + v.tier}>{v.tier}</span>
-      )}
-    </button>
-  );
-}
 
 const editorText = `The design system tokens provide a
 consistent visual language across all
@@ -235,13 +177,7 @@ function HistoryPreviewPatterns() {
         </div>
 
         {/* History drawer */}
-        <div
-          className="vh-drawer"
-          style={{
-            width: 260,
-            flexShrink: 0,
-          }}
-        >
+        <VersionDrawer width={260}>
           <div className="vh-header">
             <h3>Version history</h3>
             <button className="vh-close" aria-label="Close">
@@ -250,7 +186,10 @@ function HistoryPreviewPatterns() {
           </div>
           <div
             className="vh-list-section"
-            style={{ maxHeight: 380, overflow: "auto" }}
+            style={{
+              maxHeight: 380,
+              overflow: "auto",
+            }}
           >
             {versions.map((v) => (
               <VersionItem
@@ -258,13 +197,13 @@ function HistoryPreviewPatterns() {
                 v={v}
                 isCurrent={v.seq === versions[0]!.seq}
                 isSelected={selectedSeq === v.seq}
-                onSelect={() =>
+                onClick={() =>
                   setSelectedSeq(selectedSeq === v.seq ? null : v.seq)
                 }
               />
             ))}
           </div>
-        </div>
+        </VersionDrawer>
       </div>
     </div>
   );
