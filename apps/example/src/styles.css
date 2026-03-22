@@ -355,13 +355,13 @@ body {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: white;
-  min-height: 400px;
+  min-height: 200px;
 }
 
 .editor-container .tiptap {
   padding: 1rem;
   outline: none;
-  min-height: 400px;
+  min-height: 200px;
 }
 
 .editor-container.comments-open {
@@ -563,7 +563,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
+  min-height: 200px;
   color: #64748b;
   font-size: 0.95rem;
 }
@@ -1467,6 +1467,8 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem 1.5rem;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 /* --- Topology map (layout override) --- */
@@ -1684,7 +1686,7 @@ body {
 
   .editor-container,
   .editor-container .tiptap {
-    min-height: 250px;
+    min-height: 150px;
   }
 
   .editor-container .tiptap {
