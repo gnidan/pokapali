@@ -1098,7 +1098,7 @@ describe("pinner with mock helia", () => {
   describe("stale name pruning", () => {
     it(
       "deactivates stale names via periodic" +
-        " prune after startup grace (#376)",
+        " prune after resolveAll gate (#378)",
       async () => {
         vi.useFakeTimers();
         const now = Date.now();
@@ -1123,7 +1123,7 @@ describe("pinner with mock helia", () => {
         await pinner.flush();
 
         // Name should still be known (blocks
-        // retained) but deactivated (#376)
+        // retained) but deactivated (#378)
         const m = pinner.metrics();
         expect(m.knownNames).toBe(1);
         expect(m.deactivatedNames).toBe(1);
@@ -1161,7 +1161,7 @@ describe("pinner with mock helia", () => {
     );
 
     it(
-      "deactivates never-resolved names" + " after 12h grace period (#376)",
+      "deactivates never-resolved names" + " after 12h grace period (#378)",
       async () => {
         vi.useFakeTimers();
 
@@ -1179,11 +1179,11 @@ describe("pinner with mock helia", () => {
         await pinner.ingest(name, block);
 
         // Advance 13 hours — past 12h grace AND past
-        // 10min startup grace
+        // resolveAll gate
         await vi.advanceTimersByTimeAsync(13 * 60 * 60_000);
         await pinner.flush();
 
-        // Should be deactivated, not deleted (#376)
+        // Should be deactivated, not deleted (#378)
         const m = pinner.metrics();
         expect(m.knownNames).toBe(1);
         expect(m.deactivatedNames).toBe(1);
@@ -1232,7 +1232,7 @@ describe("pinner with mock helia", () => {
     });
 
     it(
-      "skips stale-resolve pruning during startup" + " grace period (#376)",
+      "skips stale-resolve pruning during startup" + " grace period (#378)",
       async () => {
         vi.useFakeTimers();
 
@@ -1259,7 +1259,7 @@ describe("pinner with mock helia", () => {
         await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
 
         // Restart. pruneIfNeeded() runs immediately —
-        // within the 10-minute startup grace, so
+        // before resolveAll completes, so
         // stale-resolve is skipped. Doc should survive.
         const pinner2 = await createPinner({
           appIds: ["test-app"],
@@ -1268,7 +1268,7 @@ describe("pinner with mock helia", () => {
         });
         await pinner2.start();
 
-        // Doc should still exist — startup grace
+        // Doc should still exist — resolveAll gate
         // prevented stale-resolve from deleting it
         const m = pinner2.metrics();
         expect(m.knownNames).toBe(1);
@@ -1281,7 +1281,7 @@ describe("pinner with mock helia", () => {
 
     it(
       "stale-resolve deactivates after startup" +
-        " grace via periodic prune (#376)",
+        " grace via periodic prune (#378)",
       async () => {
         vi.useFakeTimers();
 
@@ -1315,7 +1315,7 @@ describe("pinner with mock helia", () => {
         expect(pinner2.metrics().knownNames).toBe(1);
         expect(pinner2.metrics().staleDeactivated).toBe(0);
 
-        // Advance past startup grace + prune interval.
+        // Advance past resolveAll gate + prune interval.
         // Periodic prune fires with stale-resolve
         // enabled (past grace).
         await vi.advanceTimersByTimeAsync(61 * 60_000);
@@ -1332,7 +1332,7 @@ describe("pinner with mock helia", () => {
     );
 
     it(
-      "retention pruning still works during startup" + " grace (#376)",
+      "retention pruning still works during startup" + " grace (#378)",
       async () => {
         vi.useFakeTimers();
 
@@ -1355,7 +1355,7 @@ describe("pinner with mock helia", () => {
         await vi.advanceTimersByTimeAsync(15 * 24 * 60 * 60_000);
 
         // Restart — retention pruning should still
-        // fire even within startup grace (only
+        // fire even within resolveAll gate (only
         // stale-resolve is skipped)
         const pinner2 = await createPinner({
           appIds: ["test-app"],
@@ -1387,7 +1387,7 @@ describe("pinner with mock helia", () => {
       await pinner.stop();
     });
 
-    it("deactivated doc still serves tip" + " and blocks (#376)", async () => {
+    it("deactivated doc still serves tip" + " and blocks (#378)", async () => {
       vi.useFakeTimers();
 
       const block = await makeSnapshot({
@@ -1411,7 +1411,7 @@ describe("pinner with mock helia", () => {
       await pinner.start();
       await pinner.ingest(testIpnsName, block);
 
-      // Advance past stale threshold + startup grace
+      // Advance past stale threshold + resolveAll gate
       await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
       await pinner.flush();
 
@@ -1432,7 +1432,7 @@ describe("pinner with mock helia", () => {
       vi.useRealTimers();
     });
 
-    it("reactivates deactivated doc on new" + " activity (#376)", async () => {
+    it("reactivates deactivated doc on new" + " activity (#378)", async () => {
       vi.useFakeTimers();
 
       const pinner = await createPinner({
@@ -1462,7 +1462,7 @@ describe("pinner with mock helia", () => {
       vi.useRealTimers();
     });
 
-    it("deactivated state survives pinner" + " restart (#376)", async () => {
+    it("deactivated state survives pinner" + " restart (#378)", async () => {
       vi.useFakeTimers();
 
       const pinner = await createPinner({
@@ -1501,8 +1501,8 @@ describe("pinner with mock helia", () => {
     });
 
     it(
-      "startup grace prevents stale-prune" +
-        " during initial pruneIfNeeded (#376)",
+      "resolveAll gate prevents stale-prune" +
+        " during initial pruneIfNeeded (#378)",
       async () => {
         vi.useFakeTimers();
 
@@ -1556,7 +1556,7 @@ describe("pinner with mock helia", () => {
     );
 
     it(
-      "retention-expired docs are deleted" + " even when deactivated (#376)",
+      "retention-expired docs are deleted" + " even when deactivated (#378)",
       async () => {
         vi.useFakeTimers();
 
@@ -1586,13 +1586,14 @@ describe("pinner with mock helia", () => {
       },
     );
 
-    // --- Multi-doc regression tests (#376) ---
+    // --- Multi-doc regression tests (#378) ---
     // The original production bug mass-deleted many
     // docs on restart. These tests reproduce that
     // scenario with 10+ unique docs.
 
     it(
-      "multi-doc: startup grace prevents" + " mass-deletion on restart (#376)",
+      "multi-doc: resolveAll gate prevents" +
+        " mass-deletion on restart (#378)",
       async () => {
         vi.useFakeTimers();
         const DOC_COUNT = 12;
@@ -1621,7 +1622,7 @@ describe("pinner with mock helia", () => {
         await pinner.stop();
         await vi.advanceTimersByTimeAsync(4 * 24 * 60 * 60_000);
 
-        // Restart — startup grace should protect ALL
+        // Restart — resolveAll gate should protect ALL
         // docs from stale-resolve pruning
         const pinner2 = await createPinner({
           appIds: ["test-app"],
@@ -1642,7 +1643,7 @@ describe("pinner with mock helia", () => {
 
     it(
       "multi-doc: periodic prune deactivates" +
-        " all stale docs, deletes none (#376)",
+        " all stale docs, deletes none (#378)",
       async () => {
         vi.useFakeTimers();
         const DOC_COUNT = 10;
@@ -1676,10 +1677,10 @@ describe("pinner with mock helia", () => {
         });
         await pinner2.start();
 
-        // All survive startup grace
+        // All survive resolveAll gate
         expect(pinner2.metrics().knownNames).toBe(DOC_COUNT);
 
-        // Advance past startup grace (10 min) + prune
+        // Advance past prune
         // interval (1 hour). Periodic prune fires with
         // stale-resolve enabled.
         await vi.advanceTimersByTimeAsync(61 * 60_000);
@@ -1698,7 +1699,7 @@ describe("pinner with mock helia", () => {
 
     it(
       "multi-doc: mix of stale and active" +
-        " docs — only stale deactivated (#376)",
+        " docs — only stale deactivated (#378)",
       async () => {
         vi.useFakeTimers();
 
@@ -1761,7 +1762,7 @@ describe("pinner with mock helia", () => {
 
     it(
       "multi-doc: deactivated docs survive" +
-        " restart, reactivate on activity (#376)",
+        " restart, reactivate on activity (#378)",
       async () => {
         vi.useFakeTimers();
         const DOC_COUNT = 8;

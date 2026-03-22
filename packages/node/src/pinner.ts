@@ -71,12 +71,6 @@ const SCHEDULE_TICK_MS = 5_000;
 // activity AND no successful IPNS resolve for 3 days.
 const DEFAULT_STALE_RESOLVE_MS = 3 * 24 * 60 * 60_000;
 
-// Skip stale-resolve pruning for the first 10 minutes
-// after startup. On restart, lastResolvedAt is stale
-// (resolveAll() hasn't run yet), so stale-resolve would
-// incorrectly mass-delete docs. See #376.
-const STARTUP_GRACE_MS = 10 * 60_000;
-
 // Self-tuning capacity
 const INITIAL_PER_DOC_MS = 50;
 const EMA_ALPHA = 0.3;
@@ -388,7 +382,10 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     p.finally(() => pending.delete(p));
   }
   let phase: PinnerPhase = "created";
-  let startedAt = 0;
+  // Gate stale-resolve pruning on resolveAll() having
+  // completed at least once (#378). On restart,
+  // lastResolvedAt is stale until resolveAll() runs.
+  let resolveAllCompleted = false;
   const shutdownCtrl = new AbortController();
   let resolveInterval: ReturnType<typeof setInterval> | null = null;
   let republishInterval: ReturnType<typeof setInterval> | null = null;
@@ -915,28 +912,23 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
 
     // Stale-resolve pruning → DEACTIVATE (not delete)
     //
-    // Startup grace (#376): skip stale-resolve for the
-    // first STARTUP_GRACE_MS after start(). On restart,
-    // lastResolvedAt is stale because resolveAll() runs
-    // async after pruneIfNeeded(). Without this grace,
-    // every doc looks stale on restart and gets
+    // Gate on resolveAll() completion (#378, replaces
+    // #376 time-based grace). On restart, lastResolvedAt
+    // is stale until resolveAll() populates it. Without
+    // this gate, every doc looks stale and gets
     // deactivated.
     //
     // First-run grace: names that have NEVER been
     // resolved (lastResolvedAt=0, new field) use a
     // shorter 12h threshold.
     const NEVER_RESOLVED_GRACE_MS = 12 * 60 * 60_000;
-    const withinStartupGrace =
-      startedAt > 0 && now - startedAt < STARTUP_GRACE_MS;
-    if (withinStartupGrace && staleResolveMs > 0) {
+    if (!resolveAllCompleted && staleResolveMs > 0) {
       log.info(
-        "startup grace: skipping stale-resolve" +
-          ` (${Math.round((now - startedAt) / 1000)}s` +
-          ` since start,` +
-          ` grace=${STARTUP_GRACE_MS / 1000}s)`,
+        "skipping stale-resolve pruning:" +
+          " resolveAll() has not completed yet",
       );
     }
-    if (staleResolveMs > 0 && !withinStartupGrace) {
+    if (staleResolveMs > 0 && resolveAllCompleted) {
       const deleteSet = new Set(toDelete);
       for (const name of knownNames) {
         if (deleteSet.has(name)) continue;
@@ -1470,7 +1462,6 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         });
         throw err;
       }
-      startedAt = Date.now();
       await pruneIfNeeded();
 
       // Backfill history index from blockstore
@@ -1479,19 +1470,31 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         track(backfillHistory());
       }
 
-      // Resolve all persisted names on startup
+      // Resolve all persisted names on startup.
+      // Sets resolveAllCompleted so stale-resolve
+      // pruning can fire (#378).
       if (helia && knownNames.size > 0) {
         log.info(`startup: resolving` + ` ${knownNames.size} persisted names`);
         // Fire and forget — don't block startup
-        track(resolveAll());
+        track(
+          resolveAll().then(() => {
+            resolveAllCompleted = true;
+            log.info(
+              "resolveAll() complete," + " stale-resolve pruning enabled",
+            );
+          }),
+        );
+      } else {
+        // No names to resolve — stale-resolve can
+        // fire immediately (nothing to stale-prune)
+        resolveAllCompleted = true;
       }
 
       phase = "running";
 
       // Periodic prune: deactivate stale docs,
-      // delete retention-expired docs (#376).
-      // Startup grace in pruneIfNeeded() ensures
-      // stale-resolve is skipped for the first 10min.
+      // delete retention-expired docs (#376/#378).
+      // Stale-resolve gated on resolveAllCompleted.
       pruneInterval = setInterval(() => {
         if (phase === "running") {
           track(pruneIfNeeded());
