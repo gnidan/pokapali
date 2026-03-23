@@ -1,5 +1,5 @@
 ---
-"@pokapali/react": minor
+"@pokapali/react": patch
 ---
 
 Add useSaveLabel, useLastUpdated, and useStatusLabel hooks
