@@ -11,8 +11,9 @@ import { useFeed } from "@pokapali/react";
 // --- Time formatting ---
 
 /**
- * Format a future timestamp as a human-readable duration.
- * Returns "expired" if the timestamp is in the past.
+ * Format a future timestamp as a human-readable
+ * duration. Returns "expired" if the timestamp is
+ * in the past.
  *
  * Examples: "2h 15m", "3 days", "45m", "expired"
  */
@@ -35,7 +36,7 @@ export function formatRelativeTime(timestamp: number): string {
 
 const MAX_SAMPLES = 60;
 
-interface History {
+export interface History {
   peers: number[];
   mesh: number[];
   nodes: number[];
@@ -89,7 +90,7 @@ const SPARK_W = 300;
 const SPARK_H = 40;
 const SPARK_PAD = 2;
 
-function Sparkline({ data, color }: { data: number[]; color: string }) {
+export function Sparkline({ data, color }: { data: number[]; color: string }) {
   if (data.length < 2) return null;
   const pts = normalizePoints(data, SPARK_W, SPARK_H, SPARK_PAD);
   const line = pts.join(" ");
@@ -117,7 +118,7 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   );
 }
 
-function MultiSparkline({ series }: { series: Series[] }) {
+export function MultiSparkline({ series }: { series: Series[] }) {
   const active = series.filter((s) => s.data.length >= 2);
   if (active.length === 0) return null;
 
@@ -164,7 +165,7 @@ function MultiSparkline({ series }: { series: Series[] }) {
 
 // --- Helpers ---
 
-function Dot({
+export function Dot({
   state,
 }: {
   state: "connected" | "disconnected" | "partial" | "inactive";
@@ -172,7 +173,7 @@ function Dot({
   return <span className={`cs-dot ${state}`} aria-hidden="true" />;
 }
 
-function fetchLabel(fs: LoadingState): string {
+export function fetchLabel(fs: LoadingState): string {
   switch (fs.status) {
     case "idle":
       return "Idle";
@@ -196,13 +197,13 @@ function fetchLabel(fs: LoadingState): string {
 
 type Health = "connected" | "partial" | "disconnected" | "inactive";
 
-function nodeHealth(connected: number): Health {
+export function nodeHealth(connected: number): Health {
   if (connected >= 3) return "connected";
   if (connected > 0) return "partial";
   return "disconnected";
 }
 
-function networkHealth(ipfsPeers: number, meshPeers: number): Health {
+export function networkHealth(ipfsPeers: number, meshPeers: number): Health {
   const total = ipfsPeers + meshPeers;
   if (total >= 6) return "connected";
   if (total > 0) return "partial";
@@ -214,14 +215,13 @@ function truncateCid(cid: string): string {
   return cid.slice(0, 6) + "\u2026" + cid.slice(-6);
 }
 
-function entryStatusLabel(
+export function entryStatusLabel(
   status: string,
   loading: LoadingState,
   cid: string,
 ): string {
   if (status === "available") return "Loaded";
   if (status === "failed") return "Failed";
-  // "loading" — check if this is the active fetch
   if (loading.status === "fetching" && loading.cid === cid) {
     return "Fetching\u2026";
   }
@@ -235,7 +235,7 @@ function entryStatusLabel(
   return "Queued";
 }
 
-function BlockRequestsDrawer({
+export function BlockRequestsDrawer({
   versions,
   loading,
 }: {
@@ -283,9 +283,15 @@ function BlockRequestsDrawer({
   );
 }
 
-function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
-  const versions = useFeed(doc.versions);
-  const loading = useFeed(doc.loading);
+// --- SyncSummary (props-driven) ---
+
+export interface SyncSummaryProps {
+  info: Diagnostics;
+  versions: VersionHistory;
+  loading: LoadingState;
+}
+
+export function SyncSummary({ info, versions, loading }: SyncSummaryProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
 
@@ -300,7 +306,6 @@ function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
   const hasEntries = versions.entries.length > 0;
   const hasDrawer = hasEntries || hasPending || versions.walking;
 
-  // Click-away handler
   const handleClickOutside = useCallback((e: MouseEvent) => {
     if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
       setOpen(false);
@@ -362,7 +367,7 @@ function SyncSummary({ info, doc }: { info: Diagnostics; doc: Doc }) {
 
 // --- Expanded detail sections ---
 
-function NetworkDetail({
+export function NetworkDetail({
   info,
   history,
 }: {
@@ -424,7 +429,7 @@ function NetworkDetail({
   );
 }
 
-function SnapshotsDetail({
+export function SnapshotsDetail({
   info,
   history,
 }: {
@@ -498,11 +503,17 @@ function SnapshotsDetail({
   );
 }
 
-// --- Main component ---
+// --- useConnectionDiagnostics hook ---
 
-export function ConnectionStatus({ doc }: { doc: Doc }) {
+export interface ConnectionDiagnostics {
+  info: Diagnostics;
+  history: History;
+}
+
+export function useConnectionDiagnostics(doc: Doc): ConnectionDiagnostics {
   const [info, setInfo] = useState<Diagnostics>(() => doc.diagnostics());
   const historyRef = useRef<History>(emptyHistory());
+
   useEffect(() => {
     let active = true;
     const refresh = () => {
@@ -541,8 +552,29 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
     };
   }, [doc]);
 
+  return { info, history: historyRef.current };
+}
+
+// --- ConnectionStatusView (presentational) ---
+
+export interface ConnectionStatusViewProps {
+  info: Diagnostics;
+  history: History;
+  versions: VersionHistory;
+  loading: LoadingState;
+  canPushSnapshots: boolean;
+  topologyMap?: React.ReactNode;
+}
+
+export function ConnectionStatusView({
+  info,
+  history,
+  versions,
+  loading,
+  canPushSnapshots,
+  topologyMap,
+}: ConnectionStatusViewProps) {
   const connectedNodes = info.nodes.filter((n) => n.connected).length;
-  const h = historyRef.current;
 
   return (
     <div className="connection-status-wrap">
@@ -593,9 +625,9 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
           <span className="cs-label">libp2p network</span>
         </span>
 
-        <SyncSummary info={info} doc={doc} />
+        <SyncSummary info={info} versions={versions} loading={loading} />
 
-        {doc.capability.canPushSnapshots &&
+        {canPushSnapshots &&
           !info.nodes.some(
             (n) => n.connected && n.roles.includes("pinner"),
           ) && (
@@ -604,14 +636,16 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
               {info.nodes.some((n) => n.connected && !n.rolesConfirmed) ? (
                 <span
                   className={"cs-section cs-checking-pinners"}
-                  title={"Waiting for node capability broadcasts\u2026"}
+                  title={"Waiting for node capability " + "broadcasts\u2026"}
                 >
                   Checking for pinners…
                 </span>
               ) : (
                 <span
                   className={"cs-section cs-no-pinner"}
-                  title={"No pinners connected \u2014 changes may not persist"}
+                  title={
+                    "No pinners connected \u2014 " + "changes may not persist"
+                  }
                 >
                   No connected pinners
                 </span>
@@ -622,10 +656,29 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
 
       {/* Detail panel — always visible */}
       <div className="cs-detail">
-        <TopologyMap doc={doc} />
-        <NetworkDetail info={info} history={h} />
-        <SnapshotsDetail info={info} history={h} />
+        {topologyMap}
+        <NetworkDetail info={info} history={history} />
+        <SnapshotsDetail info={info} history={history} />
       </div>
     </div>
+  );
+}
+
+// --- ConnectionStatus (thin orchestrator) ---
+
+export function ConnectionStatus({ doc }: { doc: Doc }) {
+  const { info, history } = useConnectionDiagnostics(doc);
+  const versions = useFeed(doc.versions);
+  const loading = useFeed(doc.loading);
+
+  return (
+    <ConnectionStatusView
+      info={info}
+      history={history}
+      versions={versions}
+      loading={loading}
+      canPushSnapshots={doc.capability.canPushSnapshots}
+      topologyMap={<TopologyMap doc={doc} />}
+    />
   );
 }
