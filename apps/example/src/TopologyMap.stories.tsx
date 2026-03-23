@@ -5,7 +5,7 @@ import {
   healthyGraph,
   degradedGraph,
   soloGraph,
-} from "../helpers/mock-topology-doc";
+} from "./mock-topology-doc";
 
 const meta: Meta<typeof TopologyMap> = {
   title: "Components/TopologyMap",
