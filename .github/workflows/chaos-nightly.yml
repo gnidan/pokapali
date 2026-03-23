@@ -1,8 +1,8 @@
-name: Weekly Chaos Tests (Tier 3)
+name: Nightly Chaos Tests (Tier 3)
 
 on:
   schedule:
-    - cron: "0 4 * * 0" # Sundays at 4am UTC
+    - cron: "0 4 * * *" # Daily at 4am UTC
   workflow_dispatch:
     inputs:
       scenario:
@@ -32,7 +32,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: chaos-weekly
+  group: chaos-nightly
   cancel-in-progress: false
 
 env:
