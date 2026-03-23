@@ -14,7 +14,19 @@ export type { CommentSidebarProps } from "./comment-sidebar.js";
 export { CommentPopover } from "./comment-popover.js";
 export type { CommentPopoverProps } from "./comment-popover.js";
 
-export { SaveIndicator, LastUpdated } from "./save-indicator.js";
+export { useSaveLabel } from "./use-save-label.js";
+export type { SaveLabelResult } from "./use-save-label.js";
+
+export { useLastUpdated } from "./use-last-updated.js";
+export type { LastUpdatedResult } from "./use-last-updated.js";
+
+export { useStatusLabel } from "./use-status-label.js";
+export type { StatusLabelResult } from "./use-status-label.js";
+
+/** @deprecated Use {@link useSaveLabel} hook instead. */
+export { SaveIndicator } from "./save-indicator.js";
+/** @deprecated Use {@link useLastUpdated} hook instead. */
+export { LastUpdated } from "./save-indicator.js";
 export type {
   SaveIndicatorProps,
   LastUpdatedProps,
@@ -22,6 +34,7 @@ export type {
 } from "./save-indicator.js";
 export { defaultSaveIndicatorLabels } from "./save-indicator.js";
 
+/** @deprecated Use {@link useStatusLabel} hook instead. */
 export { StatusIndicator } from "./status-indicator.js";
 export type {
   StatusIndicatorProps,

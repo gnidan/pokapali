@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
 import type { SaveState } from "@pokapali/core";
+import { useSaveLabel } from "./use-save-label.js";
+import { useLastUpdated } from "./use-last-updated.js";
 
 // ── Labels ──────────────────────────────────────
 
@@ -23,46 +24,6 @@ export const defaultSaveIndicatorLabels: SaveIndicatorLabels = {
   lastUpdated: (age) => `Last updated: ${age}`,
 };
 
-function resolveLabels(
-  partial?: Partial<SaveIndicatorLabels>,
-): SaveIndicatorLabels {
-  if (!partial) return defaultSaveIndicatorLabels;
-  return { ...defaultSaveIndicatorLabels, ...partial };
-}
-
-// ── Helpers ─────────────────────────────────────
-
-function saveLabel(
-  labels: SaveIndicatorLabels,
-  saveState: SaveState,
-  ackCount: number,
-): string {
-  if (saveState === "saved" && ackCount > 0) {
-    return labels.savedWithAcks(ackCount);
-  }
-  switch (saveState) {
-    case "saved":
-      return labels.saved;
-    case "dirty":
-      return labels.dirty;
-    case "saving":
-      return labels.saving;
-    case "unpublished":
-      return labels.unpublished;
-    case "save-error":
-      return labels.saveError;
-  }
-}
-
-function formatAge(timestamp: number): string {
-  const sec = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (sec < 5) return "just now";
-  if (sec < 60) return `${sec}s ago`;
-  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
-  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
-  return `${Math.round(sec / 86400)}d ago`;
-}
-
 // ── SaveIndicator ───────────────────────────────
 
 export interface SaveIndicatorProps {
@@ -72,15 +33,22 @@ export interface SaveIndicatorProps {
   labels?: Partial<SaveIndicatorLabels>;
 }
 
+/**
+ * @deprecated Use {@link useSaveLabel} hook instead
+ * and render your own markup. This component will be
+ * removed in a future release.
+ */
 export function SaveIndicator({
   saveState,
   ackCount,
   onPublish,
   labels: labelOverrides,
 }: SaveIndicatorProps) {
-  const labels = resolveLabels(labelOverrides);
-  const canPublish = saveState === "dirty" || saveState === "unpublished";
-  const label = saveLabel(labels, saveState, ackCount);
+  const { label, canPublish } = useSaveLabel(
+    saveState,
+    ackCount,
+    labelOverrides,
+  );
 
   if (canPublish) {
     return (
@@ -117,18 +85,17 @@ export interface LastUpdatedProps {
   labels?: Partial<SaveIndicatorLabels>;
 }
 
+/**
+ * @deprecated Use {@link useLastUpdated} hook instead
+ * and render your own markup. This component will be
+ * removed in a future release.
+ */
 export function LastUpdated({
   timestamp,
   flash,
   labels: labelOverrides,
 }: LastUpdatedProps) {
-  const labels = resolveLabels(labelOverrides);
-  const [, forceUpdate] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => forceUpdate((n) => n + 1), 5_000);
-    return () => clearInterval(id);
-  }, []);
+  const { label } = useLastUpdated(timestamp, labelOverrides);
 
   return (
     <span
@@ -137,7 +104,7 @@ export function LastUpdated({
       }
       aria-live="polite"
     >
-      {labels.lastUpdated(formatAge(timestamp))}
+      {label}
     </span>
   );
 }

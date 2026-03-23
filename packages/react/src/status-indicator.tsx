@@ -1,4 +1,5 @@
 import type { DocStatus } from "@pokapali/core";
+import { useStatusLabel } from "./use-status-label.js";
 
 // ── Labels ──────────────────────────────────────
 
@@ -25,13 +26,6 @@ export const defaultStatusIndicatorLabels: StatusIndicatorLabels = {
       : `Connection: ${status}`,
 };
 
-function resolveLabels(
-  partial?: Partial<StatusIndicatorLabels>,
-): StatusIndicatorLabels {
-  if (!partial) return defaultStatusIndicatorLabels;
-  return { ...defaultStatusIndicatorLabels, ...partial };
-}
-
 // ── Component ───────────────────────────────────
 
 export interface StatusIndicatorProps {
@@ -39,29 +33,29 @@ export interface StatusIndicatorProps {
   labels?: Partial<StatusIndicatorLabels>;
 }
 
+/**
+ * @deprecated Use {@link useStatusLabel} hook instead
+ * and render your own markup. This component will be
+ * removed in a future release.
+ */
 export function StatusIndicator({
   status,
   labels: labelOverrides,
 }: StatusIndicatorProps) {
-  const labels = resolveLabels(labelOverrides);
-
-  const statusLabel = labels[status];
-  const warning =
-    status === "connecting"
-      ? labels.connectingWarning
-      : status === "offline"
-        ? labels.offlineWarning
-        : undefined;
+  const { label, warning, ariaLabel, degraded } = useStatusLabel(
+    status,
+    labelOverrides,
+  );
 
   return (
     <span
       className={
         "poka-status-indicator" +
         ` poka-status-indicator--${status}` +
-        (warning ? " poka-status-indicator--degraded" : "")
+        (degraded ? " poka-status-indicator--degraded" : "")
       }
       role="status"
-      aria-label={labels.connectionLabel(statusLabel, warning)}
+      aria-label={ariaLabel}
     >
       <span
         className={
@@ -70,7 +64,7 @@ export function StatusIndicator({
         }
         aria-hidden="true"
       />
-      <span className="poka-status-indicator__text">{statusLabel}</span>
+      <span className="poka-status-indicator__text">{label}</span>
       {warning && (
         <span className="poka-status-indicator__warning">{warning}</span>
       )}
