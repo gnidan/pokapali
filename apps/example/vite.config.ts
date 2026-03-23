@@ -78,6 +78,10 @@ export default defineConfig(({ command }) => ({
         alias: {
           // CSS subpath export needs its own alias
           // since the index.ts alias swallows it.
+          "@pokapali/react/tokens.css": path.resolve(
+            __dirname,
+            "../../packages/react/src/tokens.css",
+          ),
           "@pokapali/react/comments.css": path.resolve(
             __dirname,
             "../../packages/react/src/comments.css",
