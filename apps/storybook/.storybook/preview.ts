@@ -3,6 +3,7 @@ import "@pokapali/react/tokens.css";
 import "@pokapali/react/comments.css";
 import "@pokapali/react/indicators.css";
 import "@pokapali/react/topology-map.css";
+import "../../example/src/styles.css";
 
 const preview: Preview = {
   parameters: {
