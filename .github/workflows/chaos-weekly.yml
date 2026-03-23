@@ -29,6 +29,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: chaos-weekly
@@ -316,3 +317,63 @@ jobs:
           packages/load-test/bin/chaos-fleet.sh \
             stop || true
           REMOTE
+
+  notify-failure:
+    name: Notify Failure
+    needs:
+      - s1-relay-kill
+      - s4-peer-churn
+      - s3-name-flood
+      - cleanup
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: File or update issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: >-
+            ${{ github.server_url }}/${{ github.repository
+            }}/actions/runs/${{ github.run_id }}
+        run: |
+          LABEL="chaos-test-failure"
+          EXISTING=$(gh issue list \
+            --label "$LABEL" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          BODY_FILE=$(mktemp)
+
+          if [ -n "$EXISTING" ]; then
+            printf 'Still failing (%s):\n\n' \
+              "$NOW" > "$BODY_FILE"
+            printf '- Run: %s\n' \
+              "$RUN_URL" >> "$BODY_FILE"
+            gh issue comment "$EXISTING" \
+              --body-file "$BODY_FILE"
+          else
+            {
+              printf '%s\n\n' \
+                "Chaos test failed."
+              printf '## Details\n\n'
+              printf '- Run: %s\n' "$RUN_URL"
+              printf '- Time: %s\n\n' "$NOW"
+              printf '## Action needed\n\n'
+              printf '%s\n' \
+                "1. Check the run logs above"
+              printf '%s\n' \
+                "2. Fix and close this issue"
+              printf '%s\n\n' \
+                "3. Subsequent failures will" \
+                "be added as comments."
+            } > "$BODY_FILE"
+            gh issue create \
+              --title "Chaos test failed" \
+              --label "$LABEL" \
+              --body-file "$BODY_FILE"
+          fi
+          rm -f "$BODY_FILE"
