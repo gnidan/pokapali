@@ -1,5 +1,15 @@
 # @pokapali/react
 
+## 0.1.6
+
+### Patch Changes
+
+- [`33c69df`](https://github.com/gnidan/pokapali/commit/33c69df1f5ae6492fbde12f85a16db17f5ee96bb)
+  Add useSaveLabel, useLastUpdated, and useStatusLabel hooks
+  that extract indicator logic from the deprecated SaveIndicator,
+  LastUpdated, and StatusIndicator components. Consumers can now
+  build custom indicator UIs without depending on library markup.
+
 ## 0.1.5
 
 ### Patch Changes

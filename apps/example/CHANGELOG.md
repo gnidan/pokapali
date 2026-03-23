@@ -1,5 +1,34 @@
 # @pokapali/example
 
+## 0.0.6
+
+### Patch Changes
+
+- [`a654419`](https://github.com/gnidan/pokapali/commit/a6544194c6988a4c7baa3a5bb1a896b11b399e6d)
+  Import tokens.css in example app entry point so
+  design token custom properties resolve at runtime
+- [`af9235f`](https://github.com/gnidan/pokapali/commit/af9235f88bf35d913d9fbc830f0c22caba9df16c)
+  Add example app stories glob to Storybook config and
+  decompose ConnectionStatus into hook + presentational view
+- [`bfc77c1`](https://github.com/gnidan/pokapali/commit/bfc77c1de78310dfb2c9adf0a5fda21c11fa5bf0)
+  Replace deprecated component re-exports with local
+  implementations using useSaveLabel, useLastUpdated,
+  and useStatusLabel hooks from @pokapali/react.
+- [`a1205a6`](https://github.com/gnidan/pokapali/commit/a1205a689a0fbcc99fd8c7b93e749adc4024ea09)
+  Move 3 pattern stories (HistoryPreview,
+  NetworkDiagnostics, ShareAccess) and TopologyMap
+  component story to example app, co-located with
+  real components. Rewrite patterns to use
+  VersionHistory, ConnectionStatusView, SharePanel,
+  and EncryptionInfo directly instead of inline fakes.
+- [`b4e6600`](https://github.com/gnidan/pokapali/commit/b4e6600cbc761af75f4c36653b6eb7c0f277fdfd)
+  Move 5 component stories (ConnectionStatus, EncryptionInfo,
+  SharePanel, ValidationWarning, VersionHistory) from storybook
+  app to example app, co-located with real components. Rewrite
+  to import actual components with prop-driven mock data.
+- Updated dependencies
+  - @pokapali/react@0.1.6
+
 ## 0.0.5
 
 ### Patch Changes

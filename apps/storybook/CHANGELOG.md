@@ -1,5 +1,32 @@
 # @pokapali/storybook
 
+## 0.1.3
+
+### Patch Changes
+
+- [`af9235f`](https://github.com/gnidan/pokapali/commit/af9235f88bf35d913d9fbc830f0c22caba9df16c)
+  Add example app stories glob to Storybook config and
+  decompose ConnectionStatus into hook + presentational view
+- [`68c24a1`](https://github.com/gnidan/pokapali/commit/68c24a1726b1447373efd2a0be250fd820a45607)
+  Add Storybook CSS overrides to neutralize absolute
+  positioning on encryption popover, version history
+  drawer, and block requests dropdown so components
+  render in normal document flow within stories.
+- [`a1205a6`](https://github.com/gnidan/pokapali/commit/a1205a689a0fbcc99fd8c7b93e749adc4024ea09)
+  Move 3 pattern stories (HistoryPreview,
+  NetworkDiagnostics, ShareAccess) and TopologyMap
+  component story to example app, co-located with
+  real components. Rewrite patterns to use
+  VersionHistory, ConnectionStatusView, SharePanel,
+  and EncryptionInfo directly instead of inline fakes.
+- [`b4e6600`](https://github.com/gnidan/pokapali/commit/b4e6600cbc761af75f4c36653b6eb7c0f277fdfd)
+  Move 5 component stories (ConnectionStatus, EncryptionInfo,
+  SharePanel, ValidationWarning, VersionHistory) from storybook
+  app to example app, co-located with real components. Rewrite
+  to import actual components with prop-driven mock data.
+- Updated dependencies
+  - @pokapali/react@0.1.6
+
 ## 0.1.2
 
 ### Patch Changes

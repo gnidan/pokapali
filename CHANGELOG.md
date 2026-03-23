@@ -7,6 +7,77 @@ The format is based on
 
 ## [Unreleased]
 
+## 2026-03-23
+
+### @pokapali/react (0.1.6)
+
+- [`33c69df`](https://github.com/gnidan/pokapali/commit/33c69df1f5ae6492fbde12f85a16db17f5ee96bb)
+  Add useSaveLabel, useLastUpdated, and useStatusLabel hooks
+  that extract indicator logic from the deprecated SaveIndicator,
+  LastUpdated, and StatusIndicator components. Consumers can now
+  build custom indicator UIs without depending on library markup.
+
+### @pokapali/example (0.0.6)
+
+- [`a654419`](https://github.com/gnidan/pokapali/commit/a6544194c6988a4c7baa3a5bb1a896b11b399e6d)
+  Import tokens.css in example app entry point so
+  design token custom properties resolve at runtime
+- [`af9235f`](https://github.com/gnidan/pokapali/commit/af9235f88bf35d913d9fbc830f0c22caba9df16c)
+  Add example app stories glob to Storybook config and
+  decompose ConnectionStatus into hook + presentational view
+- [`bfc77c1`](https://github.com/gnidan/pokapali/commit/bfc77c1de78310dfb2c9adf0a5fda21c11fa5bf0)
+  Replace deprecated component re-exports with local
+  implementations using useSaveLabel, useLastUpdated,
+  and useStatusLabel hooks from @pokapali/react.
+- [`a1205a6`](https://github.com/gnidan/pokapali/commit/a1205a689a0fbcc99fd8c7b93e749adc4024ea09)
+  Move 3 pattern stories (HistoryPreview,
+  NetworkDiagnostics, ShareAccess) and TopologyMap
+  component story to example app, co-located with
+  real components. Rewrite patterns to use
+  VersionHistory, ConnectionStatusView, SharePanel,
+  and EncryptionInfo directly instead of inline fakes.
+- [`b4e6600`](https://github.com/gnidan/pokapali/commit/b4e6600cbc761af75f4c36653b6eb7c0f277fdfd)
+  Move 5 component stories (ConnectionStatus, EncryptionInfo,
+  SharePanel, ValidationWarning, VersionHistory) from storybook
+  app to example app, co-located with real components. Rewrite
+  to import actual components with prop-driven mock data.
+
+### @pokapali/storybook (0.1.3)
+
+- [`af9235f`](https://github.com/gnidan/pokapali/commit/af9235f88bf35d913d9fbc830f0c22caba9df16c)
+  Add example app stories glob to Storybook config and
+  decompose ConnectionStatus into hook + presentational view
+- [`68c24a1`](https://github.com/gnidan/pokapali/commit/68c24a1726b1447373efd2a0be250fd820a45607)
+  Add Storybook CSS overrides to neutralize absolute
+  positioning on encryption popover, version history
+  drawer, and block requests dropdown so components
+  render in normal document flow within stories.
+- [`a1205a6`](https://github.com/gnidan/pokapali/commit/a1205a689a0fbcc99fd8c7b93e749adc4024ea09)
+  Move 3 pattern stories (HistoryPreview,
+  NetworkDiagnostics, ShareAccess) and TopologyMap
+  component story to example app, co-located with
+  real components. Rewrite patterns to use
+  VersionHistory, ConnectionStatusView, SharePanel,
+  and EncryptionInfo directly instead of inline fakes.
+- [`b4e6600`](https://github.com/gnidan/pokapali/commit/b4e6600cbc761af75f4c36653b6eb7c0f277fdfd)
+  Move 5 component stories (ConnectionStatus, EncryptionInfo,
+  SharePanel, ValidationWarning, VersionHistory) from storybook
+  app to example app, co-located with real components. Rewrite
+  to import actual components with prop-driven mock data.
+
+### Internal
+
+- [`b48e526`](https://github.com/gnidan/pokapali/commit/b48e5266cf2e47a0a1432eaef7a55e7df44b6ca4)
+  Rename chaos-weekly to chaos-nightly, run daily at
+  4am UTC instead of weekly on Sundays
+  ([#391](https://github.com/gnidan/pokapali/issues/391))
+- [`05838ef`](https://github.com/gnidan/pokapali/commit/05838ef04f96ac93d3a9ee42c5d3123a38c96f3a)
+  Add GitHub issue auto-creation on failure for
+  chaos-weekly, load-nightly, and load-smoke workflows.
+  Creates or comments on labeled issues so failures
+  surface in gh-activity
+  ([#392](https://github.com/gnidan/pokapali/issues/392))
+
 ## 2026-03-22
 
 ### @pokapali/comments (0.1.2)
