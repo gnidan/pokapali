@@ -7,8 +7,8 @@
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: #fafafa;
-  color: #1a1a1a;
+  background: var(--poka-bg-page);
+  color: var(--poka-text-primary);
 }
 
 .app {
@@ -30,7 +30,7 @@ body {
 
 .landing h1 {
   font-size: 2rem;
-  font-weight: 600;
+  font-weight: var(--poka-weight-semibold);
 }
 
 .landing-actions {
@@ -45,11 +45,11 @@ body {
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--poka-radius-md);
   cursor: pointer;
-  background: #2563eb;
+  background: var(--poka-color-accent);
   color: white;
-  font-weight: 500;
+  font-weight: var(--poka-weight-medium);
 }
 
 .landing-actions button:hover {
@@ -64,8 +64,8 @@ body {
 .open-form input {
   flex: 1;
   padding: 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border: 1px solid var(--poka-border-input);
+  border-radius: var(--poka-radius-md);
   font-size: 1rem;
 }
 
@@ -78,11 +78,11 @@ body {
   align-items: center;
   gap: 0.75rem;
   padding: 0.6rem 0.75rem;
-  background: #fef2f2;
+  background: var(--poka-surface-error);
   border: 1px solid #fecaca;
-  border-radius: 6px;
+  border-radius: var(--poka-radius-md);
   font-size: 0.875rem;
-  color: #991b1b;
+  color: var(--poka-on-error);
 }
 
 .landing-error p {
@@ -93,17 +93,17 @@ body {
 
 .landing-error button {
   padding: 0.35rem 0.75rem;
-  font-size: 0.8rem;
+  font-size: var(--poka-text-sm);
   border: 1px solid #fecaca;
-  border-radius: 4px;
-  background: white;
-  color: #991b1b;
+  border-radius: var(--poka-radius-sm);
+  background: var(--poka-bg-surface);
+  color: var(--poka-on-error);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .landing-error button:hover {
-  background: #fef2f2;
+  background: var(--poka-surface-error);
 }
 
 .empty-state {
@@ -114,7 +114,7 @@ body {
 
 .empty-state p {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--poka-text-secondary);
   line-height: 1.5;
 }
 
@@ -127,8 +127,8 @@ body {
 
 .recent-docs h3 {
   font-size: 0.875rem;
-  font-weight: 500;
-  color: #64748b;
+  font-weight: var(--poka-weight-medium);
+  color: var(--poka-text-secondary);
   margin-bottom: 0.5rem;
 }
 
@@ -139,7 +139,7 @@ body {
 .recent-item {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--poka-bg-subtle);
 }
 
 .recent-item:last-child {
@@ -157,12 +157,12 @@ body {
   cursor: pointer;
   text-align: left;
   font-size: 0.875rem;
-  color: #1a1a1a;
-  border-radius: 4px;
+  color: var(--poka-text-primary);
+  border-radius: var(--poka-radius-sm);
 }
 
 .recent-link:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--poka-bg-muted);
 }
 
 .recent-link:disabled {
@@ -172,8 +172,8 @@ body {
 
 .recent-title {
   font-size: 0.85rem;
-  font-weight: 500;
-  color: #1a1a1a;
+  font-weight: var(--poka-weight-medium);
+  color: var(--poka-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -182,34 +182,34 @@ body {
 
 .recent-id-pill {
   font-family: monospace;
-  font-size: 0.65rem;
-  color: #64748b;
-  background: #f1f5f9;
+  font-size: var(--poka-text-2xs);
+  color: var(--poka-text-secondary);
+  background: var(--poka-bg-subtle);
   padding: 0.1rem 0.4rem;
-  border-radius: 999px;
+  border-radius: var(--poka-radius-full);
   white-space: nowrap;
 }
 
 .recent-age {
   margin-left: auto;
-  font-size: 0.75rem;
-  color: #94a3b8;
+  font-size: var(--poka-text-xs);
+  color: var(--poka-text-muted);
 }
 
 .recent-remove {
   background: none;
   border: none;
   cursor: pointer;
-  color: #94a3b8;
+  color: var(--poka-text-muted);
   font-size: 1rem;
   padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--poka-radius-sm);
   line-height: 1;
 }
 
 .recent-remove:hover {
-  color: #ef4444;
-  background: #fef2f2;
+  color: var(--poka-color-offline);
+  background: var(--poka-surface-error);
 }
 
 /* Header bar */
@@ -313,26 +313,26 @@ body {
 /* Badge */
 
 .badge {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--poka-text-xs);
+  font-weight: var(--poka-weight-semibold);
   padding: 0.2rem 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--poka-radius-full);
   text-transform: uppercase;
 }
 
 .badge.admin {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--poka-surface-warning);
+  color: var(--poka-on-warning);
 }
 
 .badge.writer {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--poka-surface-success);
+  color: var(--poka-on-success);
 }
 
 .badge.reader {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--poka-surface-info);
+  color: var(--poka-on-info);
 }
 
 /* User name */

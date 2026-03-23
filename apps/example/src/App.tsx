@@ -1,23 +1,15 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
-import type { Doc, PokapaliApp } from "@pokapali/core";
-import { capitalize, formatAge } from "./utils";
-import {
-  loadRecent,
-  saveRecent,
-  removeRecent,
-  type RecentDoc,
-} from "./recentDocs";
+import type { Doc } from "@pokapali/core";
+import { capitalize } from "./utils";
+import { saveRecent } from "./recentDocs";
+import { getApp } from "./getApp";
+import { Landing } from "./Landing";
 
 const LazyEditorView = lazy(() =>
   import("./Editor").then((m) => ({
     default: m.EditorView,
   })),
 );
-
-function abbreviateId(id: string): string {
-  if (id.length <= 12) return id;
-  return id.slice(0, 4) + "\u2026" + id.slice(-4);
-}
 
 // Lightweight URL check that doesn't require
 // loading @pokapali/core. Mirrors the logic in
@@ -39,194 +31,8 @@ function isDocUrl(url: string): boolean {
   }
 }
 
-// Lazy-init pokapali: the P2P stack (~1.3MB min)
-// only loads when the user creates or opens a doc.
-let appPromise: Promise<PokapaliApp> | null = null;
-
-function getApp(): Promise<PokapaliApp> {
-  if (appPromise) return appPromise;
-
-  // Persist across Vite HMR to avoid duplicate
-  // Helia/WebRTC instances on hot reload
-  if (import.meta.hot?.data.app) {
-    appPromise = Promise.resolve(import.meta.hot.data.app as PokapaliApp);
-    return appPromise;
-  }
-
-  appPromise = import("@pokapali/core").then(({ pokapali }) => {
-    const params = new URLSearchParams(window.location.search);
-    const noCache = params.get("noCache") === "1";
-    const peersParam = params.get("bootstrapPeers");
-    const bootstrapPeers = peersParam
-      ? peersParam.split(",").filter(Boolean)
-      : undefined;
-    const instance = pokapali({
-      appId: "pokapali-example",
-      channels: ["content", "comments"],
-      origin:
-        window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
-      persistence: !noCache,
-      ...(bootstrapPeers ? { bootstrapPeers } : {}),
-    });
-    if (import.meta.hot) {
-      import.meta.hot.data.app = instance;
-    }
-    return instance;
-  });
-
-  return appPromise;
-}
-
 function recordDoc(doc: Doc) {
   saveRecent(doc.urls.best, capitalize(doc.role));
-}
-
-function RecentDocsList({
-  onOpen,
-  loading,
-}: {
-  onOpen: (url: string) => void;
-  loading: boolean;
-}) {
-  const [docs, setDocs] = useState<RecentDoc[]>(loadRecent);
-  const [, tick] = useState(0);
-
-  // Re-render periodically so relative ages stay fresh
-  useEffect(() => {
-    const id = setInterval(() => tick((n) => n + 1), 30_000);
-    return () => clearInterval(id);
-  }, []);
-
-  if (docs.length === 0) {
-    return (
-      <div className="empty-state">
-        <p>
-          End-to-end encrypted, no sign-up required. Create a document and share
-          the link to start collaborating.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="recent-docs">
-      <h3>Recent documents</h3>
-      <ul className="recent-list">
-        {docs.map((d) => (
-          <li key={d.docId} className="recent-item">
-            <button
-              className="recent-link"
-              disabled={loading}
-              onClick={() => onOpen(d.url)}
-              aria-label={`Open ${d.title || "Untitled"}, ${d.role}, ${formatAge(d.lastOpened)}`}
-            >
-              <span className="recent-title" title={d.title || "Untitled"}>
-                {d.title || "Untitled"}
-              </span>
-              <span className="recent-id-pill">{abbreviateId(d.docId)}</span>
-              <span className={"badge " + d.role.toLowerCase()}>{d.role}</span>
-              <span className="recent-age">{formatAge(d.lastOpened)}</span>
-            </button>
-            <button
-              className="recent-remove"
-              title="Remove"
-              aria-label={`Remove document ${d.docId} from recent list`}
-              onClick={() =>
-                setDocs((prev) => {
-                  removeRecent(d.docId);
-                  return prev.filter((e) => e.docId !== d.docId);
-                })
-              }
-            >
-              &times;
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function Landing({ onDoc }: { onDoc: (doc: Doc) => void }) {
-  const [url, setUrl] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleCreate = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const app = await getApp();
-      const doc = await app.create();
-      onDoc(doc);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setLoading(false);
-    }
-  }, [onDoc]);
-
-  const openByUrl = useCallback(
-    async (rawUrl: string) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const app = await getApp();
-        const doc = await app.open(rawUrl);
-        onDoc(doc);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setLoading(false);
-      }
-    },
-    [onDoc],
-  );
-
-  const handleOpen = useCallback(async () => {
-    if (!url.trim()) return;
-    await openByUrl(url.trim());
-  }, [url, openByUrl]);
-
-  return (
-    <div className="landing">
-      <h1>Pokapali</h1>
-      <p>Collaborative documents, peer-to-peer.</p>
-      <div className="landing-actions">
-        <button onClick={handleCreate} disabled={loading}>
-          {loading ? "Loading\u2026" : "Create new document"}
-        </button>
-        <div className="open-form">
-          <input
-            type="text"
-            placeholder="Paste a capability URL..."
-            aria-label="Document capability URL"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleOpen();
-            }}
-          />
-          <button onClick={handleOpen} disabled={loading || !url.trim()}>
-            Open
-          </button>
-        </div>
-        {error && (
-          <div className="landing-error" role="alert">
-            <p>{error}</p>
-            <button
-              onClick={() => {
-                setError(null);
-                setLoading(false);
-              }}
-              aria-label="Dismiss error"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-      </div>
-      <RecentDocsList onOpen={openByUrl} loading={loading} />
-    </div>
-  );
 }
 
 export function App() {
