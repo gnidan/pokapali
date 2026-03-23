@@ -1,6 +1,6 @@
 {
   "name": "@pokapali/example",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "description": "Example collaborative editor using pokapali",
   "keywords": [
@@ -31,7 +31,7 @@
     "@pokapali/comments": "^0.1.2",
     "@pokapali/comments-tiptap": "^0.1.2",
     "@pokapali/core": "^0.1.6",
-    "@pokapali/react": "^0.1.4",
+    "@pokapali/react": "^0.1.5",
     "@tiptap/core": "^2.11.0",
     "@tiptap/extension-collaboration": "^2.11.0",
     "@tiptap/extension-collaboration-cursor": "^2.11.0",

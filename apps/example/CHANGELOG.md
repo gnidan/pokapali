@@ -1,5 +1,14 @@
 # @pokapali/example
 
+## 0.0.5
+
+### Patch Changes
+
+- [`a5fb8a9`](https://github.com/gnidan/pokapali/commit/a5fb8a933486e96e2416d1b0b6945012367cead9)
+  Adopt design tokens and rename BEM prefix from pkp- to poka-
+- Updated dependencies
+  - @pokapali/react@0.1.5
+
 ## 0.0.4
 
 ### Patch Changes

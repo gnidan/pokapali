@@ -1,5 +1,21 @@
 # @pokapali/react
 
+## 0.1.5
+
+### Patch Changes
+
+- [`6015aa6`](https://github.com/gnidan/pokapali/commit/6015aa611dec9d0331d8bb7d3a2b1ab1ccf4fabd)
+  Add design tokens (tokens.css) and Design System
+  Storybook section with visual stories for type scale,
+  status colors, text colors, backgrounds, borders,
+  spacing, radii, and font weights
+- [`68d1160`](https://github.com/gnidan/pokapali/commit/68d116059a91085e38d9d6bbd8c230e28de878c6)
+  Fix SaveIndicator button font size: replace `font: inherit`
+  with `font-family: inherit` so the CSS shorthand doesn't
+  reset font-size from 0.75rem to the parent's size
+- [`a5fb8a9`](https://github.com/gnidan/pokapali/commit/a5fb8a933486e96e2416d1b0b6945012367cead9)
+  Adopt design tokens and rename BEM prefix from pkp- to poka-
+
 ## 0.1.4
 
 ### Patch Changes
