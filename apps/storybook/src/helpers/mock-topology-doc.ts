@@ -14,7 +14,7 @@ import type {
   LoadingState,
   VersionInfo,
 } from "@pokapali/core";
-import type { TopologyMapDoc } from "@pokapali/react";
+import type { TopologyMapDoc } from "@pokapali/react/topology";
 
 function staticFeed<T>(value: T): Feed<T> {
   return {
