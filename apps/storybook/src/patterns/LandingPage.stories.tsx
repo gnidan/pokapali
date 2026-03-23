@@ -105,7 +105,7 @@ function LandingPagePatterns() {
           }}
         >
           <LockIcon size={12} />
-          End-to-end encrypted collaborative editing
+          Encrypted, peer-to-peer collaborative editing
         </div>
 
         <button
