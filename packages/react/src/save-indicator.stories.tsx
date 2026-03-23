@@ -1,112 +1,194 @@
 /**
- * SaveIndicator + LastUpdated stories — organized by
- * user journey around "Are my changes saved?"
+ * useSaveLabel + useLastUpdated hook stories — shows
+ * how consumers derive save state labels and build
+ * their own indicator UI.
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
-import { SaveIndicator, LastUpdated } from "./save-indicator.js";
+import type { SaveState } from "@pokapali/core";
+import { useSaveLabel } from "./use-save-label.js";
+import { useLastUpdated } from "./use-last-updated.js";
 
-// ── Shared ──────────────────────────────────────
+// ── Hook demo components ────────────────────────
 
-const noop = () => {};
+function SaveLabelDemo({
+  saveState,
+  ackCount,
+}: {
+  saveState: SaveState;
+  ackCount: number;
+}) {
+  const { label, canPublish } = useSaveLabel(saveState, ackCount);
 
-const decorator = (Story: React.ComponentType) => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 16,
-      padding: 16,
-    }}
-  >
-    <Story />
-  </div>
-);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "1rem",
+      }}
+    >
+      <span
+        className={
+          "poka-save-indicator" +
+          ` poka-save-indicator--${saveState}` +
+          (canPublish ? " poka-save-indicator--action" : "")
+        }
+        role="status"
+      >
+        {label}
+      </span>
+      <code
+        style={{
+          fontSize: "var(--poka-text-2xs)",
+          color: "var(--poka-text-muted)",
+        }}
+      >
+        canPublish={String(canPublish)}
+      </code>
+    </div>
+  );
+}
 
-// ── SaveIndicator Meta ──────────────────────────
+function LastUpdatedDemo({
+  timestamp,
+  flash,
+}: {
+  timestamp: number;
+  flash: boolean;
+}) {
+  const { label, age } = useLastUpdated(timestamp);
 
-const saveMeta: Meta<typeof SaveIndicator> = {
-  component: SaveIndicator,
-  decorators: [decorator],
-};
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "1rem",
+      }}
+    >
+      <span
+        className={
+          "poka-last-updated" + (flash ? " poka-last-updated--flashing" : "")
+        }
+        aria-live="polite"
+      >
+        {label}
+      </span>
+      <code
+        style={{
+          fontSize: "var(--poka-text-2xs)",
+          color: "var(--poka-text-muted)",
+        }}
+      >
+        age=&quot;{age}&quot;
+      </code>
+    </div>
+  );
+}
 
-export default saveMeta;
-type SaveStory = StoryObj<typeof SaveIndicator>;
+// ── Meta ────────────────────────────────────────
 
-// ── Save State Stories ──────────────────────────
-
-export const Saved: SaveStory = {
-  name: "Status/Save State/Saved",
-  args: {
-    saveState: "saved",
-    ackCount: 3,
-    onPublish: noop,
-  },
-};
-
-export const SavedLocally: SaveStory = {
-  name: "Status/Save State/Saved Locally",
-  args: {
+const states: {
+  saveState: SaveState;
+  ackCount: number;
+  note: string;
+}[] = [
+  {
     saveState: "saved",
     ackCount: 0,
-    onPublish: noop,
+    note: "All changes persisted locally",
   },
-};
-
-export const UnsavedChanges: SaveStory = {
-  name: "Status/Save State/Unsaved Changes",
-  args: {
+  {
+    saveState: "saved",
+    ackCount: 2,
+    note: "Persisted + acknowledged by pinners",
+  },
+  {
     saveState: "dirty",
     ackCount: 0,
-    onPublish: noop,
+    note: "Unsaved changes — canPublish=true",
   },
-};
-
-export const Saving: SaveStory = {
-  name: "Status/Save State/Saving",
-  args: {
+  {
     saveState: "saving",
     ackCount: 0,
-    onPublish: noop,
+    note: "Write in progress",
   },
-};
-
-export const NewDocument: SaveStory = {
-  name: "Status/Save State/New Document",
-  args: {
+  {
     saveState: "unpublished",
     ackCount: 0,
-    onPublish: noop,
+    note: "Never saved — canPublish=true",
   },
-};
-
-export const SaveFailed: SaveStory = {
-  name: "Status/Save State/Save Failed",
-  args: {
+  {
     saveState: "save-error",
     ackCount: 0,
-    onPublish: noop,
+    note: "Persistence failed",
   },
+];
+
+function AllSaveStates() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "1.5rem",
+        padding: 16,
+      }}
+    >
+      <h3 style={{ margin: 0 }}>useSaveLabel</h3>
+      {states.map(({ saveState, ackCount, note }) => (
+        <div key={`${saveState}-${ackCount}`}>
+          <SaveLabelDemo saveState={saveState} ackCount={ackCount} />
+          <div
+            style={{
+              fontSize: "var(--poka-text-2xs)",
+              color: "var(--poka-text-muted)",
+              marginTop: 2,
+              marginLeft: 4,
+            }}
+          >
+            {note}
+          </div>
+        </div>
+      ))}
+      <h3 style={{ margin: "1rem 0 0" }}>useLastUpdated</h3>
+      <LastUpdatedDemo timestamp={Date.now() - 30_000} flash={false} />
+      <LastUpdatedDemo timestamp={Date.now()} flash={true} />
+    </div>
+  );
+}
+
+const meta: Meta<typeof AllSaveStates> = {
+  title: "Hooks/useSaveLabel",
+  component: AllSaveStates,
 };
 
-// ── LastUpdated Stories ──────────────────────────
+export default meta;
+type Story = StoryObj<typeof meta>;
 
-const lastUpdatedMeta: Meta<typeof LastUpdated> = {
-  component: LastUpdated,
-  decorators: [decorator],
+export const Overview: Story = {};
+
+export const Saved: Story = {
+  render: () => <SaveLabelDemo saveState="saved" ackCount={0} />,
 };
 
-// Storybook only supports one default export, so
-// LastUpdated stories use render functions instead.
-
-export const JustNow: StoryObj = {
-  name: "Status/Last Updated/Just Now",
-  render: () => <LastUpdated timestamp={Date.now() - 3_000} flash={false} />,
-  decorators: [decorator],
+export const SavedWithAcks: Story = {
+  render: () => <SaveLabelDemo saveState="saved" ackCount={2} />,
 };
 
-export const Flashing: StoryObj = {
-  name: "Status/Last Updated/Flashing",
-  render: () => <LastUpdated timestamp={Date.now() - 500} flash={true} />,
-  decorators: [decorator],
+export const Dirty: Story = {
+  render: () => <SaveLabelDemo saveState="dirty" ackCount={0} />,
+};
+
+export const Saving: Story = {
+  render: () => <SaveLabelDemo saveState="saving" ackCount={0} />,
+};
+
+export const Unpublished: Story = {
+  render: () => <SaveLabelDemo saveState="unpublished" ackCount={0} />,
+};
+
+export const SaveError: Story = {
+  render: () => <SaveLabelDemo saveState="save-error" ackCount={0} />,
 };
