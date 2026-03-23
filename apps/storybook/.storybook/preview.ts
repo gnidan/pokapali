@@ -4,6 +4,7 @@ import "@pokapali/react/comments.css";
 import "@pokapali/react/indicators.css";
 import "@pokapali/react/topology-map.css";
 import "../../example/src/styles.css";
+import "./overrides.css";
 
 const preview: Preview = {
   parameters: {

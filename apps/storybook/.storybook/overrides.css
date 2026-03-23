@@ -1,0 +1,33 @@
+/**
+ * Storybook-specific CSS overrides.
+ *
+ * The example app's styles.css uses absolute positioning
+ * for several components (encryption popover, version
+ * history drawer, block-requests drawer) that assume a
+ * full-page layout context. In Storybook these need to
+ * render in normal document flow.
+ */
+
+/* Encryption popover: render inline instead of
+   floating below a trigger */
+.encryption-popover {
+  position: relative;
+  top: auto;
+  right: auto;
+}
+
+/* Version history drawer: render inline instead of
+   anchored to top-right of viewport */
+.vh-drawer {
+  position: relative;
+  top: auto;
+  right: auto;
+  box-shadow: none;
+}
+
+/* Block requests dropdown: render inline */
+.cs-block-drawer {
+  position: relative;
+  top: auto;
+  left: auto;
+}
