@@ -1,8 +1,13 @@
+/**
+ * Header / Status Line pattern — imports real
+ * StatusIndicator, SaveIndicator, and LastUpdated
+ * components from the example app (hook-based).
+ */
+
 import type { Meta, StoryObj } from "@storybook/react";
-import { StatusIndicator, SaveIndicator, LastUpdated } from "@pokapali/react";
-import type { DocStatus } from "@pokapali/core";
-import type { SaveState } from "@pokapali/core";
-import { Badge } from "../helpers/story-helpers";
+import type { DocStatus, SaveState } from "@pokapali/core";
+import { StatusIndicator } from "../StatusIndicator";
+import { SaveIndicator, LastUpdated } from "../SaveIndicator";
 
 const noop = () => {};
 
@@ -18,41 +23,12 @@ function ToolbarButton({
   return (
     <button
       type="button"
-      style={{
-        fontSize: "var(--poka-text-xs)",
-        fontWeight: "var(--poka-weight-medium)" as unknown as number,
-        padding: "4px 10px",
-        borderRadius: "var(--poka-radius-md)",
-        border: `1px solid ${active ? "var(--poka-color-accent)" : "var(--poka-border-default)"}`,
-        background: active
-          ? "var(--poka-surface-info)"
-          : "var(--poka-bg-surface)",
-        color: active
-          ? "var(--poka-color-accent)"
-          : "var(--poka-text-secondary)",
-        cursor: "pointer",
-        position: "relative",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "4px",
-      }}
+      className={active ? "toggle-comments" : "toggle-share"}
+      style={active ? { borderColor: "var(--poka-color-accent)" } : {}}
     >
       {label}
       {badge !== undefined && badge > 0 && (
-        <span
-          style={{
-            fontSize: "var(--poka-text-2xs)",
-            fontWeight: "var(--poka-weight-semibold)" as unknown as number,
-            background: "var(--poka-color-accent)",
-            color: "#ffffff",
-            borderRadius: "var(--poka-radius-full)",
-            padding: "1px 5px",
-            minWidth: 16,
-            textAlign: "center",
-          }}
-        >
-          {badge}
-        </span>
+        <span className="comment-count-badge">{badge}</span>
       )}
     </button>
   );
@@ -77,63 +53,14 @@ function HeaderRow({
 }) {
   const isReader = role === "reader";
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--poka-space-2)",
-        padding: "var(--poka-space-3) var(--poka-space-4)",
-        background: "var(--poka-bg-surface)",
-        border: "1px solid var(--poka-border-default)",
-        borderRadius: "var(--poka-radius-lg)",
-      }}
-    >
-      {/* Identity row */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--poka-space-2)",
-        }}
-      >
-        <span
-          style={{
-            fontSize: "var(--poka-text-sm)",
-            color: "var(--poka-text-muted)",
-            cursor: "pointer",
-          }}
-        >
-          &#8592;
-        </span>
-        <span
-          style={{
-            fontSize: "var(--poka-text-lg)",
-            fontWeight: "var(--poka-weight-semibold)" as unknown as number,
-            color: "var(--poka-text-primary)",
-          }}
-        >
-          Pokapali
-        </span>
-        <span
-          style={{
-            fontSize: "var(--poka-text-base)",
-            fontWeight: "var(--poka-weight-medium)" as unknown as number,
-            color: "var(--poka-text-primary)",
-          }}
-        >
-          {title}
-        </span>
-        <Badge role={role} />
+    <div className="header">
+      <div className="header-identity">
+        <button className="back-arrow">&#8592;</button>
+        <h1>Pokapali</h1>
+        <button className="doc-title">{title}</button>
+        <span className={"badge " + role}>{role}</span>
       </div>
-
-      {/* Toolbar row */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--poka-space-3)",
-        }}
-      >
+      <div className="header-toolbar">
         <StatusIndicator status={status} />
         <span style={{ marginLeft: "auto" }} />
         {isReader ? (
@@ -159,34 +86,12 @@ function HeaderRow({
 
 function StatusLinePatterns() {
   return (
-    <div
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        display: "flex",
-        flexDirection: "column",
-        gap: "2rem",
-      }}
-    >
-      <h2 style={{ marginBottom: "0.5rem" }}>Header / Status Line</h2>
-      <p
-        style={{
-          fontSize: "var(--poka-text-sm)",
-          color: "var(--poka-text-muted)",
-          marginBottom: "0.5rem",
-        }}
-      >
-        Two-row header pattern: identity row (back, title, role badge) and
-        toolbar row (connection status, save state, action buttons).
-        Demonstrates the three-concern separation: connectivity
-        (StatusIndicator), persistence (SaveIndicator), and identity (badge +
-        title).
-      </p>
-
+    <div className="app">
       <div
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: "1.5rem",
+          gap: "2rem",
         }}
       >
         <div>
@@ -240,7 +145,7 @@ function StatusLinePatterns() {
               marginBottom: "0.5rem",
             }}
           >
-            Reader — synced, shows LastUpdated instead of SaveIndicator
+            Reader — synced, LastUpdated instead of SaveIndicator
           </code>
           <HeaderRow
             title="Published Report"
@@ -260,7 +165,7 @@ function StatusLinePatterns() {
               marginBottom: "0.5rem",
             }}
           >
-            Admin — offline, save error, comments panel open
+            Admin — offline, save error, comments open
           </code>
           <HeaderRow
             title="Draft Spec"
@@ -280,6 +185,9 @@ function StatusLinePatterns() {
 const meta: Meta<typeof StatusLinePatterns> = {
   title: "Patterns/Header Status Line",
   component: StatusLinePatterns,
+  parameters: {
+    layout: "fullscreen",
+  },
 };
 
 export default meta;
