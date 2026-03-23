@@ -6,7 +6,7 @@ import {
   anchorPositions,
   baseCommentProps,
   SidebarFrame,
-} from "../helpers/mock-comment-data";
+} from "../mock-comment-data";
 
 /**
  * Comments Flow pattern — shows the interaction

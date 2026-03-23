@@ -7,7 +7,7 @@ import {
   anchorPositions,
   baseCommentProps,
   SidebarFrame,
-} from "../helpers/mock-comment-data";
+} from "./mock-comment-data";
 
 const meta: Meta<typeof CommentSidebar> = {
   title: "Components/CommentSidebar",
