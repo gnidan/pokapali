@@ -112,7 +112,9 @@ export function App() {
       <Suspense
         fallback={
           <div className="landing">
-            <h1>Pokapali</h1>
+            <h1>
+              Pokapali<span className="app-subtitle">Demo editor</span>
+            </h1>
             <p>Loading editor…</p>
           </div>
         }
@@ -125,7 +127,9 @@ export function App() {
   if (autoOpening) {
     return (
       <div className="landing">
-        <h1>Pokapali</h1>
+        <h1>
+          Pokapali<span className="app-subtitle">Demo editor</span>
+        </h1>
         <p>Loading…</p>
         <button onClick={goToLanding}>Cancel</button>
         {error && (

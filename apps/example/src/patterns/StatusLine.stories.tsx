@@ -56,7 +56,9 @@ function HeaderRow({
     <div className="header">
       <div className="header-identity">
         <button className="back-arrow">&#8592;</button>
-        <h1>Pokapali</h1>
+        <h1>
+          Pokapali<span className="app-subtitle">Demo editor</span>
+        </h1>
         <button className="doc-title">{title}</button>
         <span className={"badge " + role}>{role}</span>
       </div>

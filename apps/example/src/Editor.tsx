@@ -371,7 +371,9 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
           >
             &#x2039;
           </button>
-          <h1>Pokapali</h1>
+          <h1>
+            Pokapali<span className="app-subtitle">Demo editor</span>
+          </h1>
           {!isReadOnly && editingTitle ? (
             <input
               ref={titleRef}

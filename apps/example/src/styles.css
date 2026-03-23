@@ -31,6 +31,7 @@ body {
 .landing h1 {
   font-size: 2rem;
   font-weight: var(--poka-weight-semibold);
+  line-height: 1.1;
 }
 
 .landing-actions {
@@ -239,6 +240,14 @@ body {
 .header h1 {
   font-size: 1.25rem;
   font-weight: 600;
+  line-height: 1.1;
+}
+
+.app-subtitle {
+  display: block;
+  font-size: 0.6em;
+  font-weight: 400;
+  opacity: 0.55;
 }
 
 /* Encryption info */

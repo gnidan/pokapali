@@ -44,7 +44,9 @@ export function Landing({ onDoc }: { onDoc: (doc: Doc) => void }) {
 
   return (
     <div className="landing">
-      <h1>Pokapali</h1>
+      <h1>
+        Pokapali<span className="app-subtitle">Demo editor</span>
+      </h1>
       <p>Collaborative documents, peer-to-peer.</p>
       <div className="landing-actions">
         <button onClick={handleCreate} disabled={loading}>
