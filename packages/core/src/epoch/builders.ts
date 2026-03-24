@@ -1,0 +1,97 @@
+/**
+ * Tree builders for hydration.
+ *
+ * `fromSnapshots` builds a coarse tree from a
+ * snapshot chain — each snapshot becomes an epoch
+ * with empty edits and a snapshotted boundary.
+ *
+ * `backfillEdits` distributes edits into the correct
+ * epochs by testing `codec.contains` against each
+ * snapshot's state bytes.
+ */
+import type { CID } from "multiformats/cid";
+import { epoch, closedBoundary, snapshottedBoundary } from "./types.js";
+import type { Edit } from "./types.js";
+import type { CrdtCodec } from "../codec/codec.js";
+import type { EpochTree } from "./tree.js";
+import { fromEpochs } from "./tree.js";
+
+export interface Snapshot {
+  readonly cid: CID;
+  readonly state: Uint8Array;
+}
+
+/**
+ * Build a coarse EpochTree from a snapshot chain.
+ *
+ * Each snapshot becomes an epoch with empty edits
+ * and a snapshotted boundary. The resulting tree
+ * represents the document's history at the coarsest
+ * granularity — no fine-grained edits yet.
+ */
+export function fromSnapshots(snapshots: readonly Snapshot[]): EpochTree {
+  return fromEpochs(
+    snapshots.map((s) => epoch([], snapshottedBoundary(s.cid))),
+  );
+}
+
+/**
+ * Distribute edits across epochs defined by a
+ * snapshot chain.
+ *
+ * For each edit, finds the snapshot where it first
+ * appears — contained by snapshot[i] but NOT by
+ * snapshot[i-1]. This places the edit in the epoch
+ * where it was new. Edits not contained by any
+ * snapshot go into a trailing closed epoch.
+ *
+ * Returns a tree with edits distributed across
+ * epochs matching the snapshot boundaries.
+ */
+export function backfillEdits(
+  snapshots: readonly Snapshot[],
+  edits: readonly Edit[],
+  codec: CrdtCodec,
+): EpochTree {
+  if (snapshots.length === 0) {
+    return fromEpochs([]);
+  }
+
+  // Bucket edits by earliest containing snapshot.
+  // buckets[i] = edits for snapshot i
+  // buckets[snapshots.length] = remainder (not in any)
+  const buckets: Edit[][] = Array.from(
+    { length: snapshots.length + 1 },
+    () => [],
+  );
+
+  for (const e of edits) {
+    let placed = false;
+    for (let i = 0; i < snapshots.length; i++) {
+      if (codec.contains(snapshots[i]!.state, e.payload)) {
+        // Linear scan guarantees this is the earliest
+        // containing snapshot — all S[j<i] were already
+        // checked and returned false.
+        buckets[i]!.push(e);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      buckets[snapshots.length]!.push(e);
+    }
+  }
+
+  // Build epoch list
+  const result = snapshots.map((s, i) =>
+    epoch(buckets[i]!, snapshottedBoundary(s.cid)),
+  );
+
+  // Add remainder epoch if needed
+  const remainder = buckets[snapshots.length]!;
+  if (remainder.length > 0) {
+    result.push(epoch(remainder, closedBoundary()));
+  }
+
+  return fromEpochs(result);
+}
