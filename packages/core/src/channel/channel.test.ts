@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import fc from "fast-check";
 import type { Measured } from "@pokapali/finger-tree";
 import { toArray } from "@pokapali/finger-tree";
 import { edit, epoch, openBoundary } from "../epoch/types.js";
@@ -193,5 +194,87 @@ describe("createChannel", () => {
 
     // No notifications after destroy
     expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("closeEpoch on empty tip creates empty closed epoch", () => {
+    const ch = createChannel("content");
+    ch.closeEpoch();
+
+    const epochs = toArray(ch.tree);
+    expect(epochs).toHaveLength(2);
+    expect(epochs[0]!.boundary.tag).toBe("closed");
+    expect(epochs[0]!.edits).toHaveLength(0);
+    expect(epochs[1]!.boundary.tag).toBe("open");
+    expect(epochs[1]!.edits).toHaveLength(0);
+  });
+
+  it("deactivate mid-lifecycle, re-activate gets current value", () => {
+    const codec = fakeCodec();
+    const view = mergedPayloadView(codec);
+
+    const ch = createChannel("content");
+    const feed1 = ch.activate(view);
+
+    ch.appendEdit(fakeEdit(1));
+    ch.appendEdit(fakeEdit(2));
+
+    // Deactivate
+    ch.deactivate("merged-payload");
+
+    // Append more while deactivated
+    ch.appendEdit(fakeEdit(3));
+
+    // Re-activate — fresh feed should have current value
+    const feed2 = ch.activate(view);
+    expect(feed2).not.toBe(feed1);
+
+    const state = feed2.getSnapshot();
+    expect(state.tag).toBe("ready");
+    if (state.tag === "ready") {
+      expect(state.value).toEqual(new Uint8Array([1, 2, 3]));
+    }
+  });
+});
+
+// -- Property tests --
+
+describe("Channel mutation property", () => {
+  it("N appends + M closeEpochs → total edits = N", () => {
+    // Generate a sequence of operations:
+    // "append" or "close"
+    const arbOps = fc.array(
+      fc.oneof(
+        { weight: 3, arbitrary: fc.constant("append" as const) },
+        { weight: 1, arbitrary: fc.constant("close" as const) },
+      ),
+      { minLength: 1, maxLength: 50 },
+    );
+
+    fc.assert(
+      fc.property(arbOps, (ops) => {
+        const ch = createChannel("content");
+        let appendCount = 0;
+        let nextId = 1;
+
+        for (const op of ops) {
+          if (op === "append") {
+            ch.appendEdit(fakeEdit(nextId++));
+            appendCount++;
+          } else {
+            ch.closeEpoch();
+          }
+        }
+
+        // Total edits across all epochs = appendCount
+        const epochs = toArray(ch.tree);
+        const totalEdits = epochs.reduce((sum, ep) => sum + ep.edits.length, 0);
+        expect(totalEdits).toBe(appendCount);
+
+        // Last epoch is always open
+        const last = epochs[epochs.length - 1]!;
+        expect(last.boundary.tag).toBe("open");
+      }),
+      { numRuns: 200 },
+    );
   });
 });

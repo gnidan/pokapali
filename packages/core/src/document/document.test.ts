@@ -128,4 +128,20 @@ describe("createDocument", () => {
     expect(cb1).not.toHaveBeenCalled();
     expect(cb2).not.toHaveBeenCalled();
   });
+
+  it("channel() after destroy creates new channel", () => {
+    const doc = createDocument({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    const before = doc.channel("content");
+    doc.destroy();
+
+    // Post-destroy: channel() creates a fresh channel
+    // (no destroyed guard — documents the current behavior)
+    const after = doc.channel("content");
+    expect(after).not.toBe(before);
+    expect(after.name).toBe("content");
+  });
 });
