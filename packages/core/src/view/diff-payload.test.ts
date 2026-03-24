@@ -156,6 +156,54 @@ describe("diffPayloadView properties", () => {
       ),
     );
 
+  it("apply(evaluateAt(M), diff(M, N)) = evaluateAt(N)", () => {
+    const codec_ = fakeCodec();
+
+    // Generate epochs with globally unique edit IDs
+    // so our set-based fake codec works correctly
+    const arbUniqueEpochs = fc
+      .array(fc.integer({ min: 1, max: 5 }), { minLength: 1, maxLength: 10 })
+      .map((sizes) => {
+        let nextId = 1;
+        return sizes.map((size) => {
+          const ids = Array.from({ length: size }, () => nextId++);
+          return epoch(
+            ids.map((id) => fakeEdit(id, "aa", "content", id)),
+            closedBoundary(),
+          );
+        });
+      });
+
+    fc.assert(
+      fc.property(
+        arbUniqueEpochs,
+        fc.integer({ min: 0, max: 10 }),
+        (epochs, rawM) => {
+          const tree = fromEpochs(epochs);
+          const mergeView = mergedPayloadView(codec_);
+          const diffView = diffPayloadView(codec_);
+          const cache = createCache<Uint8Array>();
+          const n = epochs.length;
+
+          // Clamp M to [0, N]
+          const m = Math.min(rawM, n);
+
+          const atM = evaluateAt(mergeView, tree, m, cache);
+          const atN = evaluateAt(mergeView, tree, n, cache);
+
+          const diff = diffView.compute(tree, {
+            before: atM,
+            after: atN,
+          });
+
+          const applied = codec_.apply(atM, diff);
+          expect(applied).toEqual(atN);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
   it("diff(0, N) applied to empty = mergedPayload", () => {
     const codec_ = fakeCodec();
 

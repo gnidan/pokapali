@@ -147,6 +147,32 @@ describe("createViewRegistry", () => {
     expect(registry.isActive("max-id")).toBe(false);
   });
 
+  it("deactivate during notifyTreeChanged does not throw", () => {
+    const tree1 = fromEpochs([epoch([fakeEdit(1)], closedBoundary())]);
+
+    const registry = createViewRegistry(tree1);
+    const feed = registry.activate(editCountView);
+    registry.activate(maxIdView);
+
+    // Subscriber deactivates edit-count during notification
+    feed.subscribe(() => {
+      registry.deactivate("edit-count");
+    });
+
+    const tree2 = fromEpochs([
+      epoch([fakeEdit(1)], closedBoundary()),
+      epoch([fakeEdit(2)], closedBoundary()),
+    ]);
+
+    // Should not throw despite mutation during iteration
+    expect(() => registry.notifyTreeChanged(tree2)).not.toThrow();
+
+    // edit-count should be deactivated
+    expect(registry.isActive("edit-count")).toBe(false);
+    // max-id should still be active and updated
+    expect(registry.isActive("max-id")).toBe(true);
+  });
+
   it("multiple views have independent caches", () => {
     const tree1 = fromEpochs([
       epoch([fakeEdit(1), fakeEdit(2)], closedBoundary()),

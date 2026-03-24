@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import fc from "fast-check";
+import type { Measured } from "@pokapali/finger-tree";
 import { toArray } from "@pokapali/finger-tree";
 import { fromEpochs } from "../epoch/tree.js";
 import { edit, epoch, closedBoundary, openBoundary } from "../epoch/types.js";
@@ -6,6 +8,7 @@ import type { Epoch } from "../epoch/types.js";
 import type { CrdtCodec } from "../codec/codec.js";
 import { evaluateMonoidal, createCache } from "./evaluate.js";
 import { mergedPayloadView } from "./merged-payload.js";
+import { monoidalView } from "./types.js";
 import { evaluateAt } from "./evaluate-at.js";
 
 // -- Helpers --
@@ -136,5 +139,96 @@ describe("evaluateAt", () => {
     expect(evaluateAt(view, tree, 5, cache)).toEqual(
       new Uint8Array([1, 2, 3, 4, 5]),
     );
+  });
+});
+
+// -- Property tests --
+
+describe("evaluateAt properties", () => {
+  const arbEpoch = fc
+    .array(fc.integer({ min: 1, max: 255 }), {
+      minLength: 1,
+      maxLength: 5,
+    })
+    .map((ids) =>
+      epoch(
+        ids.map((id) => fakeEdit(id, "aa", "content", id)),
+        closedBoundary(),
+      ),
+    );
+
+  it("evaluateAt(view, tree, N) = foldl over first N epochs", () => {
+    const codec_ = fakeCodec();
+    const mergeView = mergedPayloadView(codec_);
+
+    fc.assert(
+      fc.property(
+        fc.array(arbEpoch, { minLength: 1, maxLength: 10 }),
+        fc.integer({ min: 0, max: 10 }),
+        (epochs, position) => {
+          const tree = fromEpochs(epochs);
+          const cache = createCache<Uint8Array>();
+
+          const actual = evaluateAt(mergeView, tree, position, cache);
+
+          // Manual foldl over first N epochs
+          const n = Math.min(position, epochs.length);
+          const prefix = epochs.slice(0, n);
+          const expected = prefix.reduce((acc, ep) => {
+            const epValue = mergeView.measured.measure(ep);
+            return mergeView.measured.monoid.append(acc, epValue);
+          }, mergeView.measured.monoid.empty);
+
+          expect(actual).toEqual(expected);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+});
+
+// -- Cache sharing --
+
+describe("evaluateAt cache sharing", () => {
+  it("fewer measure calls when cache is warm", () => {
+    const measureSpy = vi.fn((ep: Epoch) => ep.edits.length);
+    const spiedView = monoidalView({
+      name: "spied-count",
+      description: "Spied edit count",
+      measured: {
+        monoid: {
+          empty: 0,
+          append: (a: number, b: number) => a + b,
+        },
+        measure: measureSpy,
+      },
+    });
+
+    // 8 epochs for internal node sharing
+    const tree = fromEpochs([
+      epoch([fakeEdit(1)], closedBoundary()),
+      epoch([fakeEdit(2)], closedBoundary()),
+      epoch([fakeEdit(3)], closedBoundary()),
+      epoch([fakeEdit(4)], closedBoundary()),
+      epoch([fakeEdit(5)], closedBoundary()),
+      epoch([fakeEdit(6)], closedBoundary()),
+      epoch([fakeEdit(7)], closedBoundary()),
+      epoch([fakeEdit(8)], closedBoundary()),
+    ]);
+
+    const cache = createCache<number>();
+
+    // Warm the cache with a full evaluation
+    evaluateMonoidal(spiedView, tree, cache);
+    const warmCalls = measureSpy.mock.calls.length;
+    expect(warmCalls).toBe(8);
+
+    // Now evaluateAt with warm cache
+    measureSpy.mockClear();
+    const result = evaluateAt(spiedView, tree, 5, cache);
+
+    // Should reuse cached subtree nodes
+    expect(measureSpy.mock.calls.length).toBeLessThan(warmCalls);
+    expect(result).toBe(5);
   });
 });
