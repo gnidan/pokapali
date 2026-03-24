@@ -6,6 +6,7 @@
   },
   "include": ["src"],
   "references": [
+    { "path": "../finger-tree" },
     { "path": "../crypto" },
     { "path": "../capability" },
     { "path": "../subdocs" },

@@ -26,7 +26,7 @@ export interface Measured<V, A> {
  * monoid over objects with those same keys. Empty has
  * each component's empty. Append merges key-wise.
  */
-export function combine<T extends Record<string, unknown>>(monoids: {
+export function combine<T extends object>(monoids: {
   [K in keyof T]: Monoid<T[K]>;
 }): Monoid<T> {
   const keys = Object.keys(monoids) as (keyof T)[];

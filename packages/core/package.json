@@ -66,6 +66,7 @@
     "@libp2p/crypto": "^5.0.0",
     "@libp2p/pubsub-peer-discovery": "^12.0.0",
     "@pokapali/capability": "^0.1.2",
+    "@pokapali/finger-tree": "^0.0.0",
     "@pokapali/crypto": "^0.1.1",
     "@pokapali/log": "^0.1.1",
     "@pokapali/snapshot": "^0.1.2",
