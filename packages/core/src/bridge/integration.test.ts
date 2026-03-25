@@ -10,8 +10,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import "fake-indexeddb/auto";
 import * as Y from "yjs";
-import { toArray } from "@pokapali/finger-tree";
+import { toArray, measureTree } from "@pokapali/finger-tree";
 import type { SubdocManager } from "@pokapali/subdocs";
+import { epochMeasured } from "../epoch/index-monoid.js";
+import { fromEpochs } from "../epoch/tree.js";
+import { contentHashView } from "../view/content-hash.js";
 import { createDocument } from "../document/document.js";
 import type { Document } from "../document/document.js";
 import { createEditBridge } from "./edit-bridge.js";
@@ -278,4 +281,131 @@ describe("Phase 4b bridge integration", () => {
     expect(loaded[1]!.edits).toHaveLength(1);
     expect(loaded[1]!.boundary.tag).toBe("open");
   });
+
+  it(
+    "hydration: persist → destroy → load " +
+      "→ rebuild channel → views produce " +
+      "correct values",
+    async () => {
+      const dbName = `test-hydration-${Math.random()}`;
+
+      // --- Session 1: create edits + converge ---
+      const { manager, docs } = mockSubdocManager(["content"]);
+      document = createDocument({
+        identity: fakeIdentity(),
+        capability: fakeCapability(),
+      });
+      bridge = createEditBridge({
+        subdocManager: manager,
+        document,
+        channelNames: ["content"],
+        localAuthor: "aabb",
+      });
+      store = await createEpochStore(dbName);
+
+      await bridge.start();
+
+      // Two local edits
+      docs.get("content")!.getArray("data").push(["first"]);
+      docs.get("content")!.getArray("data").push(["second"]);
+
+      const ch = document.channel("content");
+
+      // Persist edits
+      for (const e of toArray(ch.tree).flatMap((ep) => ep.edits)) {
+        await store.persistEdit("content", e);
+      }
+
+      // Converge
+      ch.closeEpoch();
+      await store.persistEpochBoundary(
+        "content",
+        0,
+        toArray(ch.tree)[0]!.boundary,
+      );
+
+      // One more edit in new epoch
+      docs.get("content")!.getArray("data").push(["third"]);
+
+      const tipEdits = toArray(ch.tree).at(-1)!.edits;
+      for (const e of tipEdits) {
+        await store.persistEdit("content", e);
+      }
+
+      // Capture expected tree measure
+      const originalMeasure = measureTree(epochMeasured, ch.tree);
+
+      // --- Destroy everything (simulate browser
+      //     close) ---
+      bridge.destroy();
+      document.destroy();
+      store.destroy();
+
+      // --- Session 2: load from store, rebuild ---
+      const store2 = await createEpochStore(dbName);
+      const loaded = await store2.loadChannelEpochs("content");
+
+      expect(loaded).toHaveLength(2);
+      expect(loaded[0]!.edits).toHaveLength(2);
+      expect(loaded[0]!.boundary.tag).toBe("closed");
+      expect(loaded[1]!.edits).toHaveLength(1);
+      expect(loaded[1]!.boundary.tag).toBe("open");
+
+      // Rebuild tree from loaded epochs
+      const restoredTree = fromEpochs(loaded);
+
+      // Verify tree measure matches
+      const restoredMeasure = measureTree(epochMeasured, restoredTree);
+      expect(restoredMeasure.epochCount).toBe(originalMeasure.epochCount);
+      expect(restoredMeasure.editCount).toBe(originalMeasure.editCount);
+
+      // Create new Document, populate channel via
+      // appendEdit on loaded edits
+      const doc2 = createDocument({
+        identity: fakeIdentity(),
+        capability: fakeCapability(),
+      });
+
+      const ch2 = doc2.channel("content");
+
+      // Activate contentHash view
+      const hashFeed = ch2.activate(contentHashView());
+
+      // Rebuild channel by replaying loaded epochs
+      // into the channel (appendEdit + closeEpoch)
+      for (const loadedEpoch of loaded) {
+        for (const e of loadedEpoch.edits) {
+          ch2.appendEdit(e);
+        }
+        if (loadedEpoch.boundary.tag !== "open") {
+          ch2.closeEpoch();
+        }
+      }
+
+      // Verify channel tree matches loaded data
+      const rebuilt = toArray(ch2.tree);
+      expect(rebuilt).toHaveLength(2);
+      expect(rebuilt[0]!.edits).toHaveLength(2);
+      expect(rebuilt[0]!.boundary.tag).toBe("closed");
+      expect(rebuilt[1]!.edits).toHaveLength(1);
+
+      // Verify view produces non-zero hash
+      // (3 edits with payloads)
+      const hashState = hashFeed.getSnapshot();
+      expect(hashState.tag).toBe("ready");
+      if (hashState.tag === "ready") {
+        expect(hashState.value).toBeInstanceOf(Uint8Array);
+        const allZero = hashState.value.every((b: number) => b === 0);
+        expect(allZero).toBe(false);
+      }
+
+      doc2.destroy();
+      store2.destroy();
+
+      // Prevent afterEach from double-destroying
+      store = undefined as unknown as EpochStore;
+      document = undefined as unknown as Document;
+      bridge = undefined as unknown as EditBridge;
+    },
+  );
 });

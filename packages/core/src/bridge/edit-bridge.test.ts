@@ -235,6 +235,39 @@ describe("createEditBridge", () => {
     expect(edits).toHaveLength(0);
   });
 
+  it("destroy during pending whenLoaded " + "prevents attach", async () => {
+    let resolveLoaded!: () => void;
+    const whenLoaded = new Promise<void>((r) => (resolveLoaded = r));
+
+    const { manager, docs } = mockSubdocManager(["content"], { whenLoaded });
+
+    const bridge = createEditBridge({
+      subdocManager: manager,
+      document: doc,
+      channelNames: ["content"],
+      localAuthor: "aabb",
+    });
+
+    const startPromise = bridge.start();
+
+    // Destroy before whenLoaded resolves
+    bridge.destroy();
+
+    // Now resolve whenLoaded
+    resolveLoaded();
+    await startPromise;
+
+    // Bridge should NOT have started
+    expect(bridge.started).toBe(false);
+
+    // Edits should not be captured
+    docs.get("content")!.getArray("data").push([1]);
+
+    const ch = doc.channel("content");
+    const edits = toArray(ch.tree).flatMap((ep) => ep.edits);
+    expect(edits).toHaveLength(0);
+  });
+
   it("start waits for whenLoaded", async () => {
     let resolveLoaded!: () => void;
     const whenLoaded = new Promise<void>((r) => (resolveLoaded = r));

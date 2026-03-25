@@ -307,6 +307,100 @@ describe("createConvergenceDetector", () => {
     detector.destroy();
   });
 
+  it(
+    "peer leaving mid-hysteresis — count " +
+      "continues (not reset by peer gap)",
+    () => {
+      const awareness = mockAwareness();
+      const { manager } = mockSubdocManager(["content"]);
+
+      const detector = createConvergenceDetector({
+        awareness,
+        document: doc,
+        subdocManager: manager,
+        channelNames: ["content"],
+        hysteresisCount: 3,
+        checkIntervalMs: 1000,
+      });
+
+      // Tick 1 — set hash
+      vi.advanceTimersByTime(1000);
+      const localState = awareness.getLocalState();
+      awareness._addPeer(2, { ...localState });
+
+      // Tick 2 — match, count = 1
+      vi.advanceTimersByTime(1000);
+
+      // Peer leaves (tab close)
+      awareness._removePeer(2);
+
+      // Tick 3 — only 1 peer, check skipped
+      // (count stays at 1, not incremented)
+      vi.advanceTimersByTime(1000);
+
+      // Peer rejoins with same hash
+      awareness._addPeer(2, {
+        ...awareness.getLocalState(),
+      });
+
+      // Tick 4 — match, count = 2
+      vi.advanceTimersByTime(1000);
+
+      // Not yet at 3
+      let epochs = toArray(doc.channel("content").tree);
+      expect(epochs).toHaveLength(1);
+
+      // Tick 5 — match, count = 3 → closeEpoch
+      vi.advanceTimersByTime(1000);
+
+      epochs = toArray(doc.channel("content").tree);
+      expect(epochs).toHaveLength(2);
+      expect(epochs[0]!.boundary.tag).toBe("closed");
+
+      detector.destroy();
+    },
+  );
+
+  it("3+ peers — partial match prevents " + "convergence", () => {
+    const awareness = mockAwareness();
+    const { manager, docs } = mockSubdocManager(["content"]);
+
+    const detector = createConvergenceDetector({
+      awareness,
+      document: doc,
+      subdocManager: manager,
+      channelNames: ["content"],
+      hysteresisCount: 2,
+      checkIntervalMs: 1000,
+    });
+
+    // Tick 1 — set hash
+    vi.advanceTimersByTime(1000);
+    const localState = awareness.getLocalState();
+
+    // Peer 2 matches, peer 3 has different doc
+    awareness._addPeer(2, { ...localState });
+
+    // Peer 3 has a different hash (different doc)
+    const peerDoc = new Y.Doc();
+    peerDoc.getArray("data").push([99]);
+    // Compute a different hash manually
+    awareness._addPeer(3, {
+      "svHash:content": "deadbeefdeadbeef",
+    });
+
+    // Ticks 2, 3, 4 — peer 3 never matches
+    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
+
+    // No convergence — not all peers match
+    const epochs = toArray(doc.channel("content").tree);
+    expect(epochs).toHaveLength(1);
+
+    detector.destroy();
+  });
+
   it("destroy stops timer", () => {
     const awareness = mockAwareness();
     const { manager } = mockSubdocManager(["content"]);
