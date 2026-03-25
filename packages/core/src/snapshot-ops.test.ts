@@ -82,7 +82,7 @@ function buildOptions(
 
 // --- Mock decodeSnapshot ---
 
-vi.mock("@pokapali/snapshot", () => ({
+vi.mock("@pokapali/blocks", () => ({
   decodeSnapshot: vi.fn(() => ({
     seq: 5,
     prev: null,
@@ -119,7 +119,7 @@ describe("createSnapshotOps", () => {
     });
 
     it("returns empty object on decode failure", async () => {
-      const { decodeSnapshot } = await import("@pokapali/snapshot");
+      const { decodeSnapshot } = await import("@pokapali/blocks");
       vi.mocked(decodeSnapshot).mockImplementationOnce(() => {
         throw new Error("corrupt block");
       });
@@ -131,7 +131,7 @@ describe("createSnapshotOps", () => {
     });
 
     it("handles missing publisher field", async () => {
-      const { decodeSnapshot } = await import("@pokapali/snapshot");
+      const { decodeSnapshot } = await import("@pokapali/blocks");
       vi.mocked(decodeSnapshot).mockReturnValueOnce({
         seq: 3,
         prev: null,
@@ -250,7 +250,7 @@ describe("createSnapshotOps", () => {
     it(
       "throws SnapshotValidationError when" + " validateSnapshot returns false",
       async () => {
-        const { validateSnapshot } = await import("@pokapali/snapshot");
+        const { validateSnapshot } = await import("@pokapali/blocks");
         vi.mocked(validateSnapshot).mockResolvedValueOnce(false);
 
         const ops = createSnapshotOps(buildOptions());
@@ -263,7 +263,7 @@ describe("createSnapshotOps", () => {
     );
 
     it("does not call applyRemote when" + " validation fails", async () => {
-      const { validateSnapshot } = await import("@pokapali/snapshot");
+      const { validateSnapshot } = await import("@pokapali/blocks");
       vi.mocked(validateSnapshot).mockResolvedValueOnce(false);
 
       const codec = mockSnapshotCodec();
@@ -280,7 +280,7 @@ describe("createSnapshotOps", () => {
     it(
       "proceeds normally when validateSnapshot" + " returns true",
       async () => {
-        const { validateSnapshot } = await import("@pokapali/snapshot");
+        const { validateSnapshot } = await import("@pokapali/blocks");
         vi.mocked(validateSnapshot).mockResolvedValueOnce(true);
 
         const codec = mockSnapshotCodec();

@@ -4,9 +4,9 @@
  *
  * Exercises the cross-package message flow:
  * @pokapali/crypto (keys) →
- * @pokapali/snapshot (encode) →
+ * @pokapali/blocks (encode) →
  * @pokapali/core/announce (publish/parse) →
- * @pokapali/snapshot (decode + verify).
+ * @pokapali/blocks (decode + verify).
  *
  * Tests the encode → publish → parse → decode round
  * trip that existing unit tests skip (they use fake
@@ -25,7 +25,7 @@ import {
   encodeSnapshot,
   decodeSnapshot,
   validateSnapshot,
-} from "@pokapali/snapshot";
+} from "@pokapali/blocks";
 import {
   announceSnapshot,
   announceAck,

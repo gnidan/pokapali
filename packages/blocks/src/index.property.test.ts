@@ -1,5 +1,5 @@
 /**
- * Property-based tests for @pokapali/snapshot.
+ * Property-based tests for @pokapali/blocks.
  *
  * Covers the fetch coalescer state machine (pure
  * state transitions) and snapshot encode/decode

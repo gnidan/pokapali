@@ -50,7 +50,7 @@ const doc2 = await app.open(someUrl);
 | [`@pokapali/crypto`](packages/crypto)                   | Key derivation (HKDF), Ed25519 signing, AES-GCM encryption      |
 | [`@pokapali/capability`](packages/capability)           | Capability URL encoding/decoding and access level inference     |
 | [`@pokapali/subdocs`](packages/subdocs)                 | Yjs subdocument manager with channel isolation                  |
-| [`@pokapali/snapshot`](packages/snapshot)               | Snapshot encoding, decoding, verification, and chain walking    |
+| [`@pokapali/blocks`](packages/blocks)                   | Snapshot encoding, decoding, verification, and chain walking    |
 | [`@pokapali/node`](packages/node)                       | Relay server, pinner, and HTTP block/health endpoints (Node.js) |
 | [`@pokapali/log`](packages/log)                         | Zero-dependency structured logging                              |
 | [`@pokapali/comments`](packages/comments)               | Comment threads with anchored text ranges                       |

@@ -121,10 +121,10 @@ vi.mock("./identity.js", () => ({
   signParticipant: vi.fn(async () => ({ sig: "mocksig", v: 2 })),
 }));
 
-vi.mock("@pokapali/snapshot", async () => {
+vi.mock("@pokapali/blocks", async () => {
   const actual =
-    await vi.importActual<typeof import("@pokapali/snapshot")>(
-      "@pokapali/snapshot",
+    await vi.importActual<typeof import("@pokapali/blocks")>(
+      "@pokapali/blocks",
     );
   return {
     ...actual,
@@ -133,7 +133,7 @@ vi.mock("@pokapali/snapshot", async () => {
 });
 
 import { pokapali } from "./index.js";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 
 const SOLO_OPTS = {
   appId: "solo-test",

@@ -1,7 +1,7 @@
-# @pokapali/snapshot
+# @pokapali/blocks
 
 ```sh
-npm install @pokapali/snapshot
+npm install @pokapali/blocks
 ```
 
 Snapshot encoding, decoding, verification, and chain
@@ -19,7 +19,7 @@ import {
   decodeSnapshot,
   decryptSnapshot,
   validateSnapshot,
-} from "@pokapali/snapshot";
+} from "@pokapali/blocks";
 import { deriveDocKeys, ed25519KeyPairFromSeed } from "@pokapali/crypto";
 
 // Derive keys (normally done by @pokapali/core)

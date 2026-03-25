@@ -12,7 +12,7 @@ import {
   announceTopic,
   base64ToUint8,
 } from "@pokapali/core/announce";
-import { decodeSnapshot, decryptSnapshot } from "@pokapali/snapshot";
+import { decodeSnapshot, decryptSnapshot } from "@pokapali/blocks";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("load-test:reader-peer");

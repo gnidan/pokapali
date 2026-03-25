@@ -8,7 +8,7 @@ import {
   ed25519KeyPairFromSeed,
   bytesToHex,
 } from "@pokapali/crypto";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import { createPinner } from "./pinner.js";
 import type { Pinner } from "./pinner.js";
 

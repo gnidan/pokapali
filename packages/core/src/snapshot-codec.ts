@@ -6,7 +6,7 @@ import {
   encodeSnapshot,
   decodeSnapshot,
   decryptSnapshot,
-} from "@pokapali/snapshot";
+} from "@pokapali/blocks";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
 import type { BlockResolver } from "./block-resolver.js";

@@ -14,7 +14,7 @@ vi.mock("@pokapali/crypto", () => ({
   verifyBytes: vi.fn(async () => true),
 }));
 
-vi.mock("@pokapali/snapshot", () => ({
+vi.mock("@pokapali/blocks", () => ({
   decodeSnapshot: vi.fn(() => ({
     seq: 1,
     prev: null,

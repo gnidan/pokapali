@@ -8,8 +8,8 @@
  */
 
 import type { CID } from "multiformats/cid";
-import { walkChain, decryptSnapshot } from "@pokapali/snapshot";
-import type { SnapshotNode } from "@pokapali/snapshot";
+import { walkChain, decryptSnapshot } from "@pokapali/blocks";
+import type { SnapshotNode } from "@pokapali/blocks";
 import { epoch, snapshottedBoundary, edit } from "../epoch/types.js";
 import type { Epoch } from "../epoch/types.js";
 

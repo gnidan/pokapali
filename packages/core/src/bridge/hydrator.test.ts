@@ -8,7 +8,7 @@ import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import { hydrateFromSnapshots } from "./hydrator.js";
 
 // -- Helpers --

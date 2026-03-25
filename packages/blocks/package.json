@@ -1,5 +1,5 @@
 {
-  "name": "@pokapali/snapshot",
+  "name": "@pokapali/blocks",
   "version": "0.1.2",
   "description": "Encrypted snapshot encoding and versioning for pokapali documents",
   "keywords": [
@@ -9,11 +9,11 @@
     "dag-cbor",
     "versioning"
   ],
-  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/snapshot",
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/blocks",
   "repository": {
     "type": "git",
     "url": "https://github.com/gnidan/pokapali.git",
-    "directory": "packages/snapshot"
+    "directory": "packages/blocks"
   },
   "author": "g. nicholas d'andrea <nick@gnidan.org>",
   "type": "module",

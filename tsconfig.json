@@ -6,7 +6,7 @@
     { "path": "packages/crypto" },
     { "path": "packages/capability" },
     { "path": "packages/subdocs" },
-    { "path": "packages/snapshot" },
+    { "path": "packages/blocks" },
     { "path": "packages/sync" },
     { "path": "packages/comments" },
     { "path": "packages/comments-tiptap" },

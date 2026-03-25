@@ -15,7 +15,7 @@ import {
   generateAdminSecret,
   bytesToHex,
 } from "@pokapali/crypto";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import {
   announceTopic,
   announceSnapshot,

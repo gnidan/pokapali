@@ -4,7 +4,7 @@
  *
  * Exercises the real cross-package data path:
  * @pokapali/crypto (key generation) →
- * @pokapali/snapshot (encode/decode) →
+ * @pokapali/blocks (encode/decode) →
  * @pokapali/core facts/reducers (chain state).
  */
 import { describe, it, expect } from "vitest";
@@ -16,7 +16,7 @@ import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
-import { encodeSnapshot, decodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot, decodeSnapshot } from "@pokapali/blocks";
 import { initialDocState, versionHistory } from "./facts.js";
 import type { Fact } from "./facts.js";
 import { reduce } from "./reducers.js";

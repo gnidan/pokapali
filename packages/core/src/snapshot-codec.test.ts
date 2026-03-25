@@ -7,7 +7,7 @@ import { sha256 } from "multiformats/hashes/sha2";
 import {
   encodeSnapshot as realEncodeSnapshot,
   decodeSnapshot as realDecodeSnapshot,
-} from "@pokapali/snapshot";
+} from "@pokapali/blocks";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
 
 function createMockResolver(blocks?: Map<string, Uint8Array>): BlockResolver {

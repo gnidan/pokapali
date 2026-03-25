@@ -1,6 +1,6 @@
 import { describe, test, expect, vi } from "vitest";
 import * as Y from "yjs";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,

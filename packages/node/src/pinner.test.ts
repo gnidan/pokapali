@@ -31,7 +31,7 @@ import {
   ed25519KeyPairFromSeed,
   bytesToHex,
 } from "@pokapali/crypto";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import { signAnnouncementProof } from "@pokapali/core/announce";
 import { createPinner } from "./pinner.js";
 

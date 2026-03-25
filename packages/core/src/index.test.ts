@@ -9,7 +9,7 @@ import {
 } from "vitest";
 import * as Y from "yjs";
 import { parseUrl, inferCapability } from "@pokapali/capability";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import { setLogLevel, getLogLevel } from "@pokapali/log";
 import {
   decodeForwardingRecord,
@@ -113,10 +113,10 @@ vi.mock("./identity.js", () => ({
   signParticipant: vi.fn(async () => ({ sig: "aa".repeat(32), v: 2 })),
 }));
 
-vi.mock("@pokapali/snapshot", async () => {
+vi.mock("@pokapali/blocks", async () => {
   const actual =
-    await vi.importActual<typeof import("@pokapali/snapshot")>(
-      "@pokapali/snapshot",
+    await vi.importActual<typeof import("@pokapali/blocks")>(
+      "@pokapali/blocks",
     );
   return {
     ...actual,

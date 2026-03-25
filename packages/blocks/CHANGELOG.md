@@ -1,4 +1,4 @@
-# @pokapali/snapshot
+# @pokapali/blocks
 
 ## 0.1.2
 

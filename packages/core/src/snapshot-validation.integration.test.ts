@@ -4,7 +4,7 @@
  *
  * Exercises the real cross-package validation path:
  * @pokapali/crypto (key generation) →
- * @pokapali/snapshot (encode + validateSnapshot) →
+ * @pokapali/blocks (encode + validateSnapshot) →
  * @pokapali/core snapshot-ops (SnapshotValidationError)
  * → interpreter (graceful degradation).
  *
@@ -20,7 +20,7 @@ import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
-import { encodeSnapshot, validateSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot, validateSnapshot } from "@pokapali/blocks";
 import { createSnapshotOps, SnapshotValidationError } from "./snapshot-ops.js";
 import { ValidationError } from "./errors.js";
 import { runInterpreter } from "./interpreter.js";

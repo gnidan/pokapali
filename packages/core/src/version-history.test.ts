@@ -17,7 +17,7 @@ import type { BlockResolver } from "./block-resolver.js";
 import * as Y from "yjs";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
 
 const DAG_CBOR_CODE = 0x71;

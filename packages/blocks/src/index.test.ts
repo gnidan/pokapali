@@ -37,7 +37,7 @@ async function cidFromBytes(bytes: Uint8Array): Promise<CID> {
   return CID.create(1, dagCbor.code, hash);
 }
 
-describe("@pokapali/snapshot", () => {
+describe("@pokapali/blocks", () => {
   describe("encodeSnapshot / decodeSnapshot", () => {
     it("round-trips CBOR encoding", async () => {
       const { readKey, signingKey } = await makeTestKeys();

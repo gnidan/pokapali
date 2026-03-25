@@ -134,7 +134,7 @@ Core sub-entry points (`@pokapali/core/announce`,
 `CapabilityKeys`, `Capability`, `ParsedUrl`,
 `CapabilityGrant`, `DocKeys`
 
-## @pokapali/snapshot — Mostly Stable
+## @pokapali/blocks — Mostly Stable
 
 **Stable:** `encodeSnapshot`, `decryptSnapshot`,
 `decodeSnapshot`, `validateSnapshot`, `walkChain`,

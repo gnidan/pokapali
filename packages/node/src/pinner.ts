@@ -1,7 +1,7 @@
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { code as dagCborCode } from "@ipld/dag-cbor";
-import { validateSnapshot, decodeSnapshot } from "@pokapali/snapshot";
+import { validateSnapshot, decodeSnapshot } from "@pokapali/blocks";
 import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import { ipns } from "@helia/ipns";
 import { publicKeyFromRaw } from "@libp2p/crypto/keys";

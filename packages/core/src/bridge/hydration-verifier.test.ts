@@ -13,7 +13,7 @@ import {
   deriveDocKeys,
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
-import { encodeSnapshot } from "@pokapali/snapshot";
+import { encodeSnapshot } from "@pokapali/blocks";
 import type { SubdocManager } from "@pokapali/subdocs";
 import type { CrdtCodec } from "../codec/codec.js";
 import { createDocument } from "../document/document.js";

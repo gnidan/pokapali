@@ -10,7 +10,7 @@
  */
 
 import type { CID } from "multiformats/cid";
-import { decodeSnapshot, validateSnapshot } from "@pokapali/snapshot";
+import { decodeSnapshot, validateSnapshot } from "@pokapali/blocks";
 import { bytesToHex } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
 import type { SubdocManager } from "@pokapali/subdocs";
