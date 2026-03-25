@@ -6,6 +6,10 @@ export {
   type DocumentCapability,
 } from "./document/index.js";
 
+// Capability + Credential
+export { Capability } from "./capability/index.js";
+export type { Credential } from "./credential.js";
+
 // View system
 export { View, Cache, Status, inspect } from "./view.js";
 export { Feed } from "./feed/index.js";

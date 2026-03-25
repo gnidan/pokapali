@@ -5,5 +5,9 @@
     "rootDir": "."
   },
   "include": ["src"],
-  "references": [{ "path": "../codec" }, { "path": "../finger-tree" }]
+  "references": [
+    { "path": "../codec" },
+    { "path": "../crypto" },
+    { "path": "../finger-tree" }
+  ]
 }

@@ -5,25 +5,22 @@
  * capability. Channels are lazy get-or-create.
  * Destroy cascades to all channels.
  */
+import type { Ed25519KeyPair } from "@pokapali/crypto";
+import type { Capability } from "../capability/capability.js";
 import type { Channel } from "../channel/channel.js";
 import { Channel as ChannelCompanion } from "../channel/channel.js";
 
 /**
- * Identity keypair for document authorship.
+ * @deprecated Use {@link Ed25519KeyPair} from
+ *   `@pokapali/crypto` instead.
  */
-export interface DocumentIdentity {
-  readonly publicKey: Uint8Array;
-  readonly privateKey: Uint8Array;
-}
+export type DocumentIdentity = Ed25519KeyPair;
 
 /**
- * Access capability for a document.
+ * @deprecated Use {@link Capability} from
+ *   `@pokapali/document` instead.
  */
-export interface DocumentCapability {
-  readonly channels: Set<string>;
-  readonly canPushSnapshots: boolean;
-  readonly isAdmin: boolean;
-}
+export type DocumentCapability = Capability;
 
 /**
  * Per-document container holding channels, identity,
@@ -31,8 +28,8 @@ export interface DocumentCapability {
  */
 export interface Document {
   channel(name: string): Channel;
-  readonly identity: DocumentIdentity;
-  readonly capability: DocumentCapability;
+  readonly identity: Ed25519KeyPair;
+  readonly capability: Capability;
   destroy(): void;
 }
 
@@ -44,10 +41,7 @@ export const Document = {
    * Create a Document with identity and capability.
    * Channels are created lazily on first access.
    */
-  create(opts: {
-    identity: DocumentIdentity;
-    capability: DocumentCapability;
-  }): Document {
+  create(opts: { identity: Ed25519KeyPair; capability: Capability }): Document {
     const channels = new Map<string, Channel>();
 
     return {

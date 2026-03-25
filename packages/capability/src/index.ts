@@ -1,45 +1,53 @@
 import type { DocKeys } from "@pokapali/crypto";
 import { base64urlEncode } from "@pokapali/crypto";
+import {
+  Capability as DocumentCapability,
+  type Credential,
+} from "@pokapali/document";
+
+// -- Re-exports from @pokapali/document --
 
 /**
- * Narrowed subset of {@link @pokapali/crypto!DocKeys} for
- * sharing via capability URLs. Fields are optional because
- * lower permission levels (e.g. read-only) omit keys that
- * grant write or admin access.
+ * @deprecated Import {@link Credential} from
+ *   `@pokapali/document` instead.
  */
-export interface CapabilityKeys {
-  /** AES-GCM-256 key for encrypting/decrypting
-   *  snapshots. Present at all permission levels. */
-  readKey?: CryptoKey;
-  /** Ed25519 private key bytes for IPNS publishing.
-   *  Present for writers and admins. */
-  ipnsKeyBytes?: Uint8Array;
-  /** Key used for document rotation (re-keying).
-   *  Present for admins only. */
-  rotationKey?: Uint8Array;
-  /** Shared password for the awareness (cursor/
-   *  presence) room. */
-  awarenessRoomPassword?: string;
-  /** Per-channel symmetric keys, keyed by channel
-   *  name. Writers receive keys for their permitted
-   *  channels; admins derive all keys via HKDF. */
-  channelKeys?: Record<string, Uint8Array>;
+export type CapabilityKeys = Credential;
+
+/**
+ * @deprecated Import {@link Capability} from
+ *   `@pokapali/document` instead.
+ */
+export type Capability = DocumentCapability;
+
+/**
+ * @deprecated Import {@link Capability.Grant} from
+ *   `@pokapali/document` instead.
+ */
+export type CapabilityGrant = DocumentCapability.Grant;
+
+/**
+ * @deprecated Use `Capability.infer()` from
+ *   `@pokapali/document` instead.
+ */
+export function inferCapability(
+  keys: CapabilityKeys,
+  channels: string[],
+): Capability {
+  return DocumentCapability.infer(keys, channels);
 }
 
 /**
- * Describes the permissions derived from a set of
- * {@link CapabilityKeys}. Returned by
- * {@link inferCapability}.
+ * @deprecated Use `Capability.narrow()` from
+ *   `@pokapali/document` instead.
  */
-export interface Capability {
-  /** Channel names the holder can write to. */
-  channels: Set<string>;
-  /** True if the holder has the IPNS key needed
-   *  to publish snapshots. */
-  canPushSnapshots: boolean;
-  /** True if the holder has the rotation key. */
-  isAdmin: boolean;
+export function narrowCapability(
+  keys: CapabilityKeys,
+  grant: CapabilityGrant,
+): CapabilityKeys {
+  return DocumentCapability.narrow(keys, grant);
 }
+
+// -- URL encoding (stays in this package) --
 
 // Wire format:
 //   version(1) || entry* sorted by label
@@ -78,8 +86,6 @@ export async function encodeFragment(keys: CapabilityKeys): Promise<string> {
   if (keys.awarenessRoomPassword) {
     entries.push(["a", new TextEncoder().encode(keys.awarenessRoomPassword)]);
   }
-  // Wire format uses "n:" prefix for channel keys
-  // (historical — kept for backward compatibility).
   const chKeys = keys.channelKeys;
   if (chKeys) {
     for (const [name, key] of Object.entries(chKeys)) {
@@ -212,7 +218,6 @@ export async function decodeFragment(
     } else if (label === "a") {
       keys.awarenessRoomPassword = new TextDecoder().decode(value);
     } else if (label.startsWith("n:")) {
-      // Wire format "n:" → channelKeys
       channelKeys[label.slice(2)] = value;
     }
     // ignore unknown labels for forward compat
@@ -223,34 +228,6 @@ export async function decodeFragment(
   }
 
   return keys;
-}
-
-/**
- * Derives a {@link Capability} from a set of keys
- * and the document's configured channel list.
- *
- * @param keys - The holder's capability keys.
- * @param channels - All channel names configured
- *   for the document.
- */
-export function inferCapability(
-  keys: CapabilityKeys,
-  channels: string[],
-): Capability {
-  const writable = new Set<string>();
-  if (keys.channelKeys) {
-    for (const ch of channels) {
-      if (ch in keys.channelKeys) {
-        writable.add(ch);
-      }
-    }
-  }
-
-  return {
-    channels: writable,
-    canPushSnapshots: !!keys.ipnsKeyBytes,
-    isAdmin: !!keys.rotationKey,
-  };
 }
 
 /** Result of parsing a pokapali capability URL. */
@@ -265,14 +242,6 @@ export interface ParsedUrl {
 
 /**
  * Builds a full pokapali capability URL.
- *
- * @param base - Origin and optional path prefix
- *   (e.g. `https://example.com`).
- * @param ipnsName - The document's IPNS name.
- * @param keys - Capability keys to encode in the
- *   URL fragment.
- * @returns A URL of the form
- *   `{base}/doc/{ipnsName}#{fragment}`.
  */
 export async function buildUrl(
   base: string,
@@ -321,85 +290,8 @@ export async function parseUrl(url: string): Promise<ParsedUrl> {
 }
 
 /**
- * Describes the permissions to grant when narrowing
- * a capability via {@link narrowCapability}.
- */
-export interface CapabilityGrant {
-  /** Channels to include. `undefined` preserves all
-   *  source channels; `[]` removes all. */
-  channels?: string[];
-  /** Whether to include the IPNS key (snapshot
-   *  publishing). Defaults to false. */
-  canPushSnapshots?: boolean;
-}
-
-/**
- * Creates a narrowed copy of capability keys that
- * grants only the permissions specified in the
- * grant. The rotation key is never included
- * (admin-only). Read key and awareness password
- * are always preserved.
- *
- * @param keys - The source (admin) capability keys.
- * @param grant - The permissions to include.
- * @throws If the grant requests channels not present
- *   in the source keys.
- */
-export function narrowCapability(
-  keys: CapabilityKeys,
-  grant: CapabilityGrant,
-): CapabilityKeys {
-  const result: CapabilityKeys = {};
-
-  // readKey and awarenessRoomPassword always included
-  if (keys.readKey) {
-    result.readKey = keys.readKey;
-  }
-  if (keys.awarenessRoomPassword) {
-    result.awarenessRoomPassword = keys.awarenessRoomPassword;
-  }
-
-  // ipnsKeyBytes only if grant allows pushing
-  if (grant.canPushSnapshots && keys.ipnsKeyBytes) {
-    result.ipnsKeyBytes = keys.ipnsKeyBytes;
-  }
-
-  // rotationKey never narrowed (admin only)
-
-  // channel keys:
-  //   undefined → preserve all from source
-  //   []        → zero channels
-  //   [...]     → narrow + validate
-  if (grant.channels === undefined) {
-    if (keys.channelKeys) {
-      result.channelKeys = { ...keys.channelKeys };
-    }
-  } else if (grant.channels.length > 0) {
-    const missing = grant.channels.filter(
-      (ch) => !keys.channelKeys || !(ch in keys.channelKeys),
-    );
-    if (missing.length > 0) {
-      throw new Error(
-        "narrowCapability: grant requests channels " +
-          "not in source keys: " +
-          missing.join(", "),
-      );
-    }
-    const narrowed: Record<string, Uint8Array> = {};
-    for (const ch of grant.channels) {
-      narrowed[ch] = keys.channelKeys![ch]!;
-    }
-    result.channelKeys = narrowed;
-  }
-  // else: grant.channels = [] → no channelKeys
-
-  return result;
-}
-
-/**
  * Re-exported from `@pokapali/crypto` for
- * convenience. Contains all key material for a
- * document.
+ * convenience.
  */
 export type { DocKeys };
 
