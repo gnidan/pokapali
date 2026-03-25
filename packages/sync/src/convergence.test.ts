@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
 import type { SubdocManager } from "@pokapali/subdocs";
-import { createDocument } from "../document/document.js";
-import type { Document } from "../document/document.js";
-import { createConvergenceDetector } from "./convergence.js";
+import { Document } from "@pokapali/document";
+import type { Document as DocumentType } from "@pokapali/document";
+import { Convergence } from "./convergence.js";
 
 // -- Helpers --
 
@@ -120,12 +120,12 @@ function mockSubdocManager(channelNames: string[]): {
 
 // -- Tests --
 
-describe("createConvergenceDetector", () => {
-  let doc: Document;
+describe("Convergence.create", () => {
+  let doc: DocumentType;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    doc = createDocument({
+    doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
@@ -139,7 +139,7 @@ describe("createConvergenceDetector", () => {
     const awareness = mockAwareness();
     const { manager } = mockSubdocManager(["content"]);
 
-    const detector = createConvergenceDetector({
+    const detector = Convergence.create({
       awareness,
       document: doc,
       subdocManager: manager,
@@ -156,12 +156,12 @@ describe("createConvergenceDetector", () => {
     const localState = awareness.getLocalState();
     awareness._addPeer(2, { ...localState });
 
-    // Tick 2 — hashes match, count = 1
+    // Tick 2 -- hashes match, count = 1
     vi.advanceTimersByTime(1000);
-    // Tick 3 — count = 2
+    // Tick 3 -- count = 2
     vi.advanceTimersByTime(1000);
 
-    // Not yet at threshold 3 — no closeEpoch
+    // Not yet at threshold 3 -- no closeEpoch
     const epochs = toArray(doc.channel("content").tree);
     expect(epochs).toHaveLength(1);
     expect(epochs[0]!.boundary.tag).toBe("open");
@@ -173,7 +173,7 @@ describe("createConvergenceDetector", () => {
     const awareness = mockAwareness();
     const { manager, docs } = mockSubdocManager(["content"]);
 
-    const detector = createConvergenceDetector({
+    const detector = Convergence.create({
       awareness,
       document: doc,
       subdocManager: manager,
@@ -182,25 +182,25 @@ describe("createConvergenceDetector", () => {
       checkIntervalMs: 1000,
     });
 
-    // Tick 1 — set initial hash
+    // Tick 1 -- set initial hash
     vi.advanceTimersByTime(1000);
     const localState = awareness.getLocalState();
     awareness._addPeer(2, { ...localState });
 
-    // Tick 2 — match, count = 1
+    // Tick 2 -- match, count = 1
     vi.advanceTimersByTime(1000);
 
     // Change the doc (hash changes)
     docs.get("content")!.getArray("data").push([42]);
 
-    // Tick 3 — hash changed, count resets
+    // Tick 3 -- hash changed, count resets
     vi.advanceTimersByTime(1000);
 
     // Copy new hash to peer
     const newState = awareness.getLocalState();
     awareness._addPeer(2, { ...newState });
 
-    // Ticks 4, 5 — match, count = 1, 2
+    // Ticks 4, 5 -- match, count = 1, 2
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
 
@@ -215,7 +215,7 @@ describe("createConvergenceDetector", () => {
     const awareness = mockAwareness();
     const { manager } = mockSubdocManager(["content"]);
 
-    const detector = createConvergenceDetector({
+    const detector = Convergence.create({
       awareness,
       document: doc,
       subdocManager: manager,
@@ -224,12 +224,12 @@ describe("createConvergenceDetector", () => {
       checkIntervalMs: 1000,
     });
 
-    // Tick 1 — set hash
+    // Tick 1 -- set hash
     vi.advanceTimersByTime(1000);
     const localState = awareness.getLocalState();
     awareness._addPeer(2, { ...localState });
 
-    // Ticks 2, 3, 4 — match 3 times → closeEpoch
+    // Ticks 2, 3, 4 -- match 3 times -> closeEpoch
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
@@ -246,7 +246,7 @@ describe("createConvergenceDetector", () => {
     const awareness = mockAwareness();
     const { manager, docs } = mockSubdocManager(["content", "comments"]);
 
-    const detector = createConvergenceDetector({
+    const detector = Convergence.create({
       awareness,
       document: doc,
       subdocManager: manager,
@@ -255,19 +255,19 @@ describe("createConvergenceDetector", () => {
       checkIntervalMs: 1000,
     });
 
-    // Tick 1 — set hashes
+    // Tick 1 -- set hashes
     vi.advanceTimersByTime(1000);
     const localState = awareness.getLocalState();
     awareness._addPeer(2, { ...localState });
 
-    // Tick 2 — both match, count = 1
+    // Tick 2 -- both match, count = 1
     vi.advanceTimersByTime(1000);
 
     // Modify content only
     docs.get("content")!.getArray("data").push([1]);
 
-    // Tick 3 — content hash changed (reset),
-    //          comments still matching (count = 2 → close)
+    // Tick 3 -- content hash changed (reset),
+    //          comments still matching (count=2->close)
     vi.advanceTimersByTime(1000);
 
     // Comments should have closed epoch
@@ -282,11 +282,11 @@ describe("createConvergenceDetector", () => {
     detector.destroy();
   });
 
-  it("single peer — no convergence", () => {
+  it("single peer -- no convergence", () => {
     const awareness = mockAwareness();
     const { manager } = mockSubdocManager(["content"]);
 
-    const detector = createConvergenceDetector({
+    const detector = Convergence.create({
       awareness,
       document: doc,
       subdocManager: manager,
@@ -295,7 +295,7 @@ describe("createConvergenceDetector", () => {
       checkIntervalMs: 1000,
     });
 
-    // Ticks with only 1 peer (local) — no convergence
+    // Ticks with only 1 peer (local) -- no convergence
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
@@ -308,13 +308,13 @@ describe("createConvergenceDetector", () => {
   });
 
   it(
-    "peer leaving mid-hysteresis — count " +
+    "peer leaving mid-hysteresis -- count " +
       "continues (not reset by peer gap)",
     () => {
       const awareness = mockAwareness();
       const { manager } = mockSubdocManager(["content"]);
 
-      const detector = createConvergenceDetector({
+      const detector = Convergence.create({
         awareness,
         document: doc,
         subdocManager: manager,
@@ -323,18 +323,18 @@ describe("createConvergenceDetector", () => {
         checkIntervalMs: 1000,
       });
 
-      // Tick 1 — set hash
+      // Tick 1 -- set hash
       vi.advanceTimersByTime(1000);
       const localState = awareness.getLocalState();
       awareness._addPeer(2, { ...localState });
 
-      // Tick 2 — match, count = 1
+      // Tick 2 -- match, count = 1
       vi.advanceTimersByTime(1000);
 
       // Peer leaves (tab close)
       awareness._removePeer(2);
 
-      // Tick 3 — only 1 peer, check skipped
+      // Tick 3 -- only 1 peer, check skipped
       // (count stays at 1, not incremented)
       vi.advanceTimersByTime(1000);
 
@@ -343,14 +343,14 @@ describe("createConvergenceDetector", () => {
         ...awareness.getLocalState(),
       });
 
-      // Tick 4 — match, count = 2
+      // Tick 4 -- match, count = 2
       vi.advanceTimersByTime(1000);
 
       // Not yet at 3
       let epochs = toArray(doc.channel("content").tree);
       expect(epochs).toHaveLength(1);
 
-      // Tick 5 — match, count = 3 → closeEpoch
+      // Tick 5 -- match, count = 3 -> closeEpoch
       vi.advanceTimersByTime(1000);
 
       epochs = toArray(doc.channel("content").tree);
@@ -361,11 +361,11 @@ describe("createConvergenceDetector", () => {
     },
   );
 
-  it("3+ peers — partial match prevents " + "convergence", () => {
+  it("3+ peers -- partial match prevents " + "convergence", () => {
     const awareness = mockAwareness();
     const { manager, docs } = mockSubdocManager(["content"]);
 
-    const detector = createConvergenceDetector({
+    const detector = Convergence.create({
       awareness,
       document: doc,
       subdocManager: manager,
@@ -374,7 +374,7 @@ describe("createConvergenceDetector", () => {
       checkIntervalMs: 1000,
     });
 
-    // Tick 1 — set hash
+    // Tick 1 -- set hash
     vi.advanceTimersByTime(1000);
     const localState = awareness.getLocalState();
 
@@ -389,12 +389,12 @@ describe("createConvergenceDetector", () => {
       "svHash:content": "deadbeefdeadbeef",
     });
 
-    // Ticks 2, 3, 4 — peer 3 never matches
+    // Ticks 2, 3, 4 -- peer 3 never matches
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
 
-    // No convergence — not all peers match
+    // No convergence -- not all peers match
     const epochs = toArray(doc.channel("content").tree);
     expect(epochs).toHaveLength(1);
 
@@ -405,7 +405,7 @@ describe("createConvergenceDetector", () => {
     const awareness = mockAwareness();
     const { manager } = mockSubdocManager(["content"]);
 
-    const detector = createConvergenceDetector({
+    const detector = Convergence.create({
       awareness,
       document: doc,
       subdocManager: manager,

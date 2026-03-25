@@ -5,5 +5,13 @@
     "rootDir": "."
   },
   "include": ["src"],
-  "references": [{ "path": "../log" }, { "path": "../subdocs" }]
+  "references": [
+    { "path": "../blocks" },
+    { "path": "../codec" },
+    { "path": "../document" },
+    { "path": "../finger-tree" },
+    { "path": "../log" },
+    { "path": "../store" },
+    { "path": "../subdocs" }
+  ]
 }

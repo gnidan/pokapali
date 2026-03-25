@@ -1,7 +1,7 @@
 /**
- * Tests for verifyHydration — proves that a
- * hydrated epoch tree (from snapshots + backfilled
- * live edits) matches the live Y.Doc state.
+ * Tests for verify -- proves that a hydrated epoch
+ * tree (from snapshots + backfilled live edits)
+ * matches the live Y.Doc state.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import * as fc from "fast-check";
@@ -15,13 +15,13 @@ import {
 } from "@pokapali/crypto";
 import { encodeSnapshot } from "@pokapali/blocks";
 import type { SubdocManager } from "@pokapali/subdocs";
-import type { CrdtCodec } from "../codec/codec.js";
-import { createDocument } from "../document/document.js";
-import type { Document } from "../document/document.js";
-import { createEditBridge } from "./edit-bridge.js";
-import type { EditBridge } from "./edit-bridge.js";
-import { verifyHydration } from "./hydration-verifier.js";
-import type { HydrationVerifyResult } from "./hydration-verifier.js";
+import type { Codec } from "@pokapali/codec";
+import { Document } from "@pokapali/document";
+import type { Document as DocumentType } from "@pokapali/document";
+import { Edits } from "../edits.js";
+import type { Edits as EditsType } from "../edits.js";
+import { verify } from "./verifier.js";
+import type { VerifyResult } from "./verifier.js";
 
 // -- Helpers --
 
@@ -79,7 +79,7 @@ function mockSubdocManager(channelNames: string[]): {
   return { manager, docs };
 }
 
-function yjsCodec(): CrdtCodec {
+function yjsCodec(): Codec {
   return {
     merge(a: Uint8Array, b: Uint8Array): Uint8Array {
       const doc = new Y.Doc();
@@ -149,36 +149,36 @@ async function encodeYDocs(
 
 // -- Tests --
 
-describe("verifyHydration", () => {
-  let document: Document;
-  let bridge: EditBridge;
+describe("verify", () => {
+  let document: DocumentType;
+  let edits: EditsType;
 
   afterEach(() => {
-    bridge?.destroy();
+    edits?.destroy();
     document?.destroy();
   });
 
-  it("fresh doc — no snapshots, live edits only", async () => {
+  it("fresh doc -- no snapshots, live edits only", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
     const codec = yjsCodec();
 
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Local edits
     docs.get("content")!.getArray("data").push(["hello"]);
     docs.get("content")!.getArray("data").push(["world"]);
 
-    const results = await verifyHydration({
+    const results = await verify({
       document,
       subdocManager: manager,
       channelNames: ["content"],
@@ -200,17 +200,17 @@ describe("verifyHydration", () => {
     const codec = yjsCodec();
     const blocks = new Map<string, Uint8Array>();
 
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Pre-snapshot edit
     const yDoc = docs.get("content")!;
@@ -232,8 +232,8 @@ describe("verifyHydration", () => {
     yDoc.getArray("data").push(["after-snap"]);
 
     // Hydrate from snapshot
-    const { hydrateFromSnapshots } = await import("./hydrator.js");
-    const hydrated = await hydrateFromSnapshots({
+    const { fromSnapshots } = await import("./hydrator.js");
+    const hydrated = await fromSnapshots({
       tipCid: cid,
       blockGetter: async (c: CID) => {
         const b = blocks.get(c.toString());
@@ -243,7 +243,7 @@ describe("verifyHydration", () => {
       readKey: keys.readKey,
     });
 
-    const [result] = await verifyHydration({
+    const [result] = await verify({
       document,
       subdocManager: manager,
       channelNames: ["content"],
@@ -263,17 +263,17 @@ describe("verifyHydration", () => {
     const codec = yjsCodec();
     const blocks = new Map<string, Uint8Array>();
 
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     const yDoc = docs.get("content")!;
 
@@ -295,8 +295,8 @@ describe("verifyHydration", () => {
     }
 
     // Hydrate
-    const { hydrateFromSnapshots } = await import("./hydrator.js");
-    const hydrated = await hydrateFromSnapshots({
+    const { fromSnapshots } = await import("./hydrator.js");
+    const hydrated = await fromSnapshots({
       tipCid: prevCid!,
       blockGetter: async (c: CID) => {
         const b = blocks.get(c.toString());
@@ -306,7 +306,7 @@ describe("verifyHydration", () => {
       readKey: keys.readKey,
     });
 
-    const [result] = await verifyHydration({
+    const [result] = await verify({
       document,
       subdocManager: manager,
       channelNames: ["content"],
@@ -316,27 +316,27 @@ describe("verifyHydration", () => {
 
     expect(result!.match).toBe(true);
     expect(result!.snapshotEpochCount).toBe(3);
-    // All edits covered by snapshots — no backfill
+    // All edits covered by snapshots -- no backfill
     expect(result!.backfilledEditCount).toBe(0);
   });
 
-  it("divergence injected — extra edit in Y.Doc", async () => {
+  it("divergence injected -- extra edit in Y.Doc", async () => {
     const { keys, signingKey } = await makeKeys();
     const { manager, docs } = mockSubdocManager(["content"]);
     const codec = yjsCodec();
     const blocks = new Map<string, Uint8Array>();
 
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     const yDoc = docs.get("content")!;
     yDoc.getArray("data").push(["in-snap"]);
@@ -358,14 +358,14 @@ describe("verifyHydration", () => {
 
     // Inject divergence: extra edit in Y.Doc only
     // (not in epoch tree)
-    bridge.destroy();
+    edits.destroy();
     const phantomDoc = new Y.Doc();
     phantomDoc.getArray("extra").push(["phantom"]);
     Y.applyUpdate(yDoc, Y.encodeStateAsUpdate(phantomDoc));
 
     // Hydrate
-    const { hydrateFromSnapshots } = await import("./hydrator.js");
-    const hydrated = await hydrateFromSnapshots({
+    const { fromSnapshots } = await import("./hydrator.js");
+    const hydrated = await fromSnapshots({
       tipCid: cid,
       blockGetter: async (c: CID) => {
         const b = blocks.get(c.toString());
@@ -375,7 +375,7 @@ describe("verifyHydration", () => {
       readKey: keys.readKey,
     });
 
-    const [result] = await verifyHydration({
+    const [result] = await verify({
       document,
       subdocManager: manager,
       channelNames: ["content"],
@@ -387,27 +387,27 @@ describe("verifyHydration", () => {
     expect(result!.details).toBeDefined();
   });
 
-  it("multi-channel — verifies all channels", async () => {
+  it("multi-channel -- verifies all channels", async () => {
     const { manager, docs } = mockSubdocManager(["content", "comments"]);
     const codec = yjsCodec();
 
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Edit both channels
     docs.get("content")!.getArray("data").push(["content-edit"]);
     docs.get("comments")!.getArray("data").push(["comment-edit"]);
 
-    const results = await verifyHydration({
+    const results = await verify({
       document,
       subdocManager: manager,
       channelNames: ["content", "comments"],
@@ -423,8 +423,8 @@ describe("verifyHydration", () => {
   });
 
   it(
-    "property: N snapshots × M post-snapshot " +
-      "edits → hydrate → verify matches",
+    "property: N snapshots x M post-snapshot " +
+      "edits -> hydrate -> verify matches",
     async () => {
       await fc.assert(
         fc.asyncProperty(
@@ -436,11 +436,11 @@ describe("verifyHydration", () => {
             const codec = yjsCodec();
             const blocks = new Map<string, Uint8Array>();
 
-            const d = createDocument({
+            const d = Document.create({
               identity: fakeIdentity(),
               capability: fakeCapability(),
             });
-            const br = createEditBridge({
+            const br = Edits.create({
               subdocManager: manager,
               document: d,
               channelNames: ["content"],
@@ -479,8 +479,8 @@ describe("verifyHydration", () => {
             }
 
             // Hydrate
-            const { hydrateFromSnapshots } = await import("./hydrator.js");
-            const hydrated = await hydrateFromSnapshots({
+            const { fromSnapshots } = await import("./hydrator.js");
+            const hydrated = await fromSnapshots({
               tipCid: prevCid!,
               blockGetter: async (c: CID) => {
                 const b = blocks.get(c.toString());
@@ -492,7 +492,7 @@ describe("verifyHydration", () => {
               readKey: keys.readKey,
             });
 
-            const [result] = await verifyHydration({
+            const [result] = await verify({
               document: d,
               subdocManager: manager,
               channelNames: ["content"],

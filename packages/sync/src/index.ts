@@ -14,3 +14,7 @@ export {
   type Awareness,
   type SubdocManager,
 } from "./webrtc/index.js";
+
+export { Edits } from "./edits.js";
+export { Convergence } from "./convergence.js";
+export * as Hydration from "./hydration/index.js";

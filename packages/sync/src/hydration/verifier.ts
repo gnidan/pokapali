@@ -1,26 +1,16 @@
 /**
- * HydrationVerifier — verifies that a hydrated
- * epoch tree (from snapshots) plus backfilled live
- * edits matches the live Y.Doc state.
- *
- * Steps per channel:
- * 1. Start with snapshot epochs (if any)
- * 2. Merge snapshot payloads into a base state
- * 3. Find live edits not covered by snapshots
- *    (via codec.contains)
- * 4. Merge base + backfilled edits
- * 5. Compare against live Y.Doc (same
- *    normalization as ParallelVerifier)
+ * Verifies that a hydrated epoch tree (from
+ * snapshots) plus backfilled live edits matches
+ * the live Y.Doc state.
  */
 
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
 import type { SubdocManager } from "@pokapali/subdocs";
-import type { CrdtCodec } from "../codec/codec.js";
-import type { Document } from "../document/document.js";
-import type { Epoch } from "../epoch/types.js";
+import type { Codec } from "@pokapali/codec";
+import type { Document, Epoch } from "@pokapali/document";
 
-export interface HydrationVerifyResult {
+export interface VerifyResult {
   match: boolean;
   channel: string;
   snapshotEpochCount: number;
@@ -28,25 +18,21 @@ export interface HydrationVerifyResult {
   details?: string;
 }
 
-export interface HydrationVerifyOptions {
+export interface VerifyOptions {
   document: Document;
   subdocManager: SubdocManager;
   channelNames: string[];
-  codec: CrdtCodec;
-  /** Hydrated epochs from hydrateFromSnapshots,
+  codec: Codec;
+  /** Hydrated epochs from fromSnapshots,
    *  or null if no snapshots available. */
   snapshotEpochs: Map<string, Epoch[]> | null;
 }
 
-function verifyChannel(
-  channelName: string,
-  opts: HydrationVerifyOptions,
-): HydrationVerifyResult {
+function verifyChannel(channelName: string, opts: VerifyOptions): VerifyResult {
   const { document, subdocManager, codec, snapshotEpochs } = opts;
 
   const ch = document.channel(channelName);
 
-  // Step 1: Build base state from snapshot epochs
   const snapEpochs = snapshotEpochs?.get(channelName) ?? [];
   const snapshotEpochCount = snapEpochs.length;
 
@@ -57,8 +43,6 @@ function verifyChannel(
     }
   }
 
-  // Step 2: Find live edits not covered by
-  // snapshot base state, and backfill
   const liveEpochs = toArray(ch.tree);
   let backfilledEditCount = 0;
 
@@ -71,7 +55,6 @@ function verifyChannel(
     }
   }
 
-  // Step 3: Compare against live Y.Doc
   const subdoc = subdocManager.subdoc(channelName);
   const liveState = Y.encodeStateAsUpdate(subdoc);
 
@@ -118,8 +101,6 @@ function verifyChannel(
  * live edits produce the same state as the live
  * Y.Doc, for each channel.
  */
-export async function verifyHydration(
-  opts: HydrationVerifyOptions,
-): Promise<HydrationVerifyResult[]> {
+export async function verify(opts: VerifyOptions): Promise<VerifyResult[]> {
   return opts.channelNames.map((name) => verifyChannel(name, opts));
 }

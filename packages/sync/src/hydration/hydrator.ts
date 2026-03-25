@@ -10,10 +10,10 @@
 import type { CID } from "multiformats/cid";
 import { walkChain, decryptSnapshot } from "@pokapali/blocks";
 import type { SnapshotNode } from "@pokapali/blocks";
-import { epoch, snapshottedBoundary, edit } from "../epoch/types.js";
-import type { Epoch } from "../epoch/types.js";
+import { Epoch, Boundary, Edit } from "@pokapali/document";
+import type { Epoch as EpochType } from "@pokapali/document";
 
-export interface HydrateOptions {
+export interface Options {
   /** CID of the most recent snapshot (tip). */
   tipCid: CID;
   /** Fetches raw block bytes by CID. */
@@ -24,26 +24,22 @@ export interface HydrateOptions {
 
 /**
  * Walk the snapshot chain from tip, decrypt each
- * snapshot, and produce a map of channel name →
+ * snapshot, and produce a map of channel name ->
  * epochs (oldest-first). Each snapshot becomes one
  * epoch with a `snapshotted` boundary and a single
  * hydration edit per channel.
  */
-export async function hydrateFromSnapshots(
-  opts: HydrateOptions,
-): Promise<Map<string, Epoch[]>> {
+export async function fromSnapshots(
+  opts: Options,
+): Promise<Map<string, EpochType[]>> {
   const { tipCid, blockGetter, readKey } = opts;
 
-  // Collect snapshots newest-first with their CIDs
   const collected: {
     node: SnapshotNode;
     block: Uint8Array;
     cid: CID;
   }[] = [];
 
-  // walkChain yields newest-first; we need to
-  // track CIDs alongside nodes. Re-fetch blocks
-  // to compute CIDs (walkChain doesn't expose them).
   let currentCid: CID | null = tipCid;
   for await (const node of walkChain(tipCid, blockGetter)) {
     const block = await blockGetter(currentCid!);
@@ -55,11 +51,9 @@ export async function hydrateFromSnapshots(
     currentCid = node.prev;
   }
 
-  // Reverse to oldest-first
   collected.reverse();
 
-  // Build channel → Epoch[]
-  const result = new Map<string, Epoch[]>();
+  const result = new Map<string, EpochType[]>();
 
   for (const { node, cid } of collected) {
     const plaintexts = await decryptSnapshot(node, readKey);
@@ -69,7 +63,7 @@ export async function hydrateFromSnapshots(
         result.set(channel, []);
       }
 
-      const e = edit({
+      const e = Edit.create({
         payload,
         timestamp: node.ts,
         author: "",
@@ -78,7 +72,7 @@ export async function hydrateFromSnapshots(
         signature: new Uint8Array(),
       });
 
-      result.get(channel)!.push(epoch([e], snapshottedBoundary(cid)));
+      result.get(channel)!.push(Epoch.create([e], Boundary.snapshotted(cid)));
     }
   }
 

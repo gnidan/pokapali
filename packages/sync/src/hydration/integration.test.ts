@@ -1,10 +1,10 @@
 /**
- * Integration test — proves the full Phase 4
+ * Integration test -- proves the full Phase 4
  * pipeline end-to-end:
  *
- * Document + SubdocManager → EditBridge edits →
- * ConvergenceDetector closes epochs → EpochStore
- * persists → mock snapshot → hydrate → backfill →
+ * Document + SubdocManager -> Edits edits ->
+ * Convergence closes epochs -> Store
+ * persists -> mock snapshot -> hydrate -> backfill ->
  * verify match
  */
 import { describe, it, expect, afterEach } from "vitest";
@@ -20,15 +20,14 @@ import {
 import { encodeSnapshot } from "@pokapali/blocks";
 import { toArray } from "@pokapali/finger-tree";
 import type { SubdocManager } from "@pokapali/subdocs";
-import type { CrdtCodec } from "../codec/codec.js";
-import { createDocument } from "../document/document.js";
-import type { Document } from "../document/document.js";
-import { createEditBridge } from "./edit-bridge.js";
-import type { EditBridge } from "./edit-bridge.js";
-import { createEpochStore } from "./epoch-store.js";
-import type { EpochStore } from "./epoch-store.js";
-import { hydrateFromSnapshots } from "./hydrator.js";
-import { verifyHydration } from "./hydration-verifier.js";
+import type { Codec } from "@pokapali/codec";
+import { Document } from "@pokapali/document";
+import type { Document as DocumentType } from "@pokapali/document";
+import { Edits } from "../edits.js";
+import type { Edits as EditsType } from "../edits.js";
+import { Store } from "@pokapali/store";
+import { fromSnapshots } from "./hydrator.js";
+import { verify } from "./verifier.js";
 
 // -- Helpers --
 
@@ -86,7 +85,7 @@ function mockSubdocManager(channelNames: string[]): {
   return { manager, docs };
 }
 
-function yjsCodec(): CrdtCodec {
+function yjsCodec(): Codec {
   return {
     merge(a: Uint8Array, b: Uint8Array): Uint8Array {
       const doc = new Y.Doc();
@@ -156,19 +155,20 @@ async function makeSnapshot(
 // -- Tests --
 
 describe("Phase 4 hydration integration", () => {
-  let document: Document;
-  let bridge: EditBridge;
-  let store: EpochStore;
+  let document: DocumentType;
+  let edits: EditsType;
+  let store: Store;
 
   afterEach(() => {
-    bridge?.destroy();
+    edits?.destroy();
     document?.destroy();
     store?.destroy();
   });
 
   it(
-    "full pipeline: edit → converge → persist " +
-      "→ snapshot → hydrate → backfill → verify",
+    "full pipeline: edit -> converge -> persist " +
+      "-> snapshot -> hydrate -> backfill " +
+      "-> verify",
     async () => {
       const { keys, signingKey } = await makeKeys();
       const blocks = new Map<string, Uint8Array>();
@@ -177,19 +177,19 @@ describe("Phase 4 hydration integration", () => {
       const { manager, docs } = mockSubdocManager(["content"]);
       const codec = yjsCodec();
 
-      document = createDocument({
+      document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
       });
-      bridge = createEditBridge({
+      edits = Edits.create({
         subdocManager: manager,
         document,
         channelNames: ["content"],
         localAuthor: "aabb",
       });
-      store = await createEpochStore(dbName);
+      store = await Store.create(dbName);
 
-      await bridge.start();
+      await edits.start();
 
       // --- Phase 1: Local edits ---
       const yDoc = docs.get("content")!;
@@ -231,7 +231,7 @@ describe("Phase 4 hydration integration", () => {
       }
 
       // --- Phase 5: Hydrate from snapshot ---
-      const hydrated = await hydrateFromSnapshots({
+      const hydrated = await fromSnapshots({
         tipCid: cid,
         blockGetter: async (c: CID) => {
           const b = blocks.get(c.toString());
@@ -244,7 +244,7 @@ describe("Phase 4 hydration integration", () => {
       });
 
       // --- Phase 6: Verify hydration ---
-      const [result] = await verifyHydration({
+      const [result] = await verify({
         document,
         subdocManager: manager,
         channelNames: ["content"],
@@ -268,25 +268,25 @@ describe("Phase 4 hydration integration", () => {
     const { manager, docs } = mockSubdocManager(["content"]);
     const codec = yjsCodec();
 
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    store = await createEpochStore(dbName);
+    store = await Store.create(dbName);
 
-    await bridge.start();
+    await edits.start();
 
     const yDoc = docs.get("content")!;
     const ch = document.channel("content");
     let prevCid: CID | null = null;
 
-    // 3 rounds: edit → converge → snapshot
+    // 3 rounds: edit -> converge -> snapshot
     for (let i = 1; i <= 3; i++) {
       yDoc.getArray("data").push([`round-${i}`]);
 
@@ -319,7 +319,7 @@ describe("Phase 4 hydration integration", () => {
     }
 
     // Hydrate from tip snapshot
-    const hydrated = await hydrateFromSnapshots({
+    const hydrated = await fromSnapshots({
       tipCid: prevCid!,
       blockGetter: async (c: CID) => {
         const b = blocks.get(c.toString());
@@ -332,7 +332,7 @@ describe("Phase 4 hydration integration", () => {
     });
 
     // Verify
-    const [result] = await verifyHydration({
+    const [result] = await verify({
       document,
       subdocManager: manager,
       channelNames: ["content"],

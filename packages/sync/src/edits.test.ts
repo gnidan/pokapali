@@ -3,9 +3,9 @@ import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
 import { SNAPSHOT_ORIGIN } from "@pokapali/subdocs";
 import type { SubdocManager } from "@pokapali/subdocs";
-import { createDocument } from "../document/document.js";
-import type { Document } from "../document/document.js";
-import { createEditBridge } from "./edit-bridge.js";
+import { Document } from "@pokapali/document";
+import type { Document as DocumentType } from "@pokapali/document";
+import { Edits } from "./edits.js";
 
 // -- Helpers --
 
@@ -71,11 +71,11 @@ function mockSubdocManager(
 
 // -- Tests --
 
-describe("createEditBridge", () => {
-  let doc: Document;
+describe("Edits.create", () => {
+  let doc: DocumentType;
 
   beforeEach(() => {
-    doc = createDocument({
+    doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
@@ -84,13 +84,13 @@ describe("createEditBridge", () => {
   it("captures local edit", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Simulate a local Y.Doc update (null origin)
     const yDoc = docs.get("content")!;
@@ -98,24 +98,24 @@ describe("createEditBridge", () => {
 
     const ch = doc.channel("content");
     const epochs = toArray(ch.tree);
-    const edits = epochs.flatMap((ep) => ep.edits);
+    const editList = epochs.flatMap((ep) => ep.edits);
 
-    expect(edits).toHaveLength(1);
-    expect(edits[0]!.origin).toBe("local");
-    expect(edits[0]!.author).toBe("aabb");
-    expect(edits[0]!.channel).toBe("content");
+    expect(editList).toHaveLength(1);
+    expect(editList[0]!.origin).toBe("local");
+    expect(editList[0]!.author).toBe("aabb");
+    expect(editList[0]!.channel).toBe("content");
   });
 
   it("captures remote edit with sync origin", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Simulate a remote update (non-null origin)
     const yDoc = docs.get("content")!;
@@ -126,23 +126,23 @@ describe("createEditBridge", () => {
 
     const ch = doc.channel("content");
     const epochs = toArray(ch.tree);
-    const edits = epochs.flatMap((ep) => ep.edits);
+    const editList = epochs.flatMap((ep) => ep.edits);
 
-    expect(edits).toHaveLength(1);
-    expect(edits[0]!.origin).toBe("sync");
-    expect(edits[0]!.author).toBe("");
+    expect(editList).toHaveLength(1);
+    expect(editList[0]!.origin).toBe("sync");
+    expect(editList[0]!.author).toBe("");
   });
 
   it("filters SNAPSHOT_ORIGIN updates", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Apply update with SNAPSHOT_ORIGIN
     const yDoc = docs.get("content")!;
@@ -153,23 +153,23 @@ describe("createEditBridge", () => {
 
     const ch = doc.channel("content");
     const epochs = toArray(ch.tree);
-    const edits = epochs.flatMap((ep) => ep.edits);
+    const editList = epochs.flatMap((ep) => ep.edits);
 
-    expect(edits).toHaveLength(0);
+    expect(editList).toHaveLength(0);
   });
 
   it("filters skipOrigins updates", async () => {
     const customOrigin = { name: "y-indexeddb" };
     const { manager, docs } = mockSubdocManager(["content"]);
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
       skipOrigins: new Set([customOrigin]),
     });
-    await bridge.start();
+    await edits.start();
 
     const yDoc = docs.get("content")!;
     const remoteDoc = new Y.Doc();
@@ -179,21 +179,21 @@ describe("createEditBridge", () => {
 
     const ch = doc.channel("content");
     const epochs = toArray(ch.tree);
-    const edits = epochs.flatMap((ep) => ep.edits);
+    const editList = epochs.flatMap((ep) => ep.edits);
 
-    expect(edits).toHaveLength(0);
+    expect(editList).toHaveLength(0);
   });
 
   it("routes edits to correct channels", async () => {
     const { manager, docs } = mockSubdocManager(["content", "comments"]);
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Edit in content
     docs.get("content")!.getArray("data").push([1]);
@@ -216,23 +216,23 @@ describe("createEditBridge", () => {
   it("destroy stops capturing edits", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
-    bridge.destroy();
+    edits.destroy();
 
     docs.get("content")!.getArray("data").push([1]);
 
     const ch = doc.channel("content");
     const epochs = toArray(ch.tree);
-    const edits = epochs.flatMap((ep) => ep.edits);
+    const editList = epochs.flatMap((ep) => ep.edits);
 
-    expect(edits).toHaveLength(0);
+    expect(editList).toHaveLength(0);
   });
 
   it("destroy during pending whenLoaded " + "prevents attach", async () => {
@@ -241,31 +241,31 @@ describe("createEditBridge", () => {
 
     const { manager, docs } = mockSubdocManager(["content"], { whenLoaded });
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
 
-    const startPromise = bridge.start();
+    const startPromise = edits.start();
 
     // Destroy before whenLoaded resolves
-    bridge.destroy();
+    edits.destroy();
 
     // Now resolve whenLoaded
     resolveLoaded();
     await startPromise;
 
-    // Bridge should NOT have started
-    expect(bridge.started).toBe(false);
+    // Edits should NOT have started
+    expect(edits.started).toBe(false);
 
     // Edits should not be captured
     docs.get("content")!.getArray("data").push([1]);
 
     const ch = doc.channel("content");
-    const edits = toArray(ch.tree).flatMap((ep) => ep.edits);
-    expect(edits).toHaveLength(0);
+    const editList = toArray(ch.tree).flatMap((ep) => ep.edits);
+    expect(editList).toHaveLength(0);
   });
 
   it("start waits for whenLoaded", async () => {
@@ -274,32 +274,32 @@ describe("createEditBridge", () => {
 
     const { manager, docs } = mockSubdocManager(["content"], { whenLoaded });
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
 
-    const startPromise = bridge.start();
-    expect(bridge.started).toBe(false);
+    const startPromise = edits.start();
+    expect(edits.started).toBe(false);
 
     // Edits before whenLoaded should not be captured
     docs.get("content")!.getArray("data").push([1]);
 
     let ch = doc.channel("content");
-    let edits = toArray(ch.tree).flatMap((ep) => ep.edits);
-    expect(edits).toHaveLength(0);
+    let editList = toArray(ch.tree).flatMap((ep) => ep.edits);
+    expect(editList).toHaveLength(0);
 
     // Resolve whenLoaded
     resolveLoaded();
     await startPromise;
-    expect(bridge.started).toBe(true);
+    expect(edits.started).toBe(true);
 
     // Now edits should be captured
     docs.get("content")!.getArray("data").push([2]);
     ch = doc.channel("content");
-    edits = toArray(ch.tree).flatMap((ep) => ep.edits);
-    expect(edits).toHaveLength(1);
+    editList = toArray(ch.tree).flatMap((ep) => ep.edits);
+    expect(editList).toHaveLength(1);
   });
 });

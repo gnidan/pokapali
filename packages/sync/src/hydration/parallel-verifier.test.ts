@@ -3,11 +3,15 @@ import * as fc from "fast-check";
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
 import type { SubdocManager } from "@pokapali/subdocs";
-import type { CrdtCodec } from "../codec/codec.js";
-import { createDocument } from "../document/document.js";
-import type { Document } from "../document/document.js";
-import { createEditBridge } from "./edit-bridge.js";
-import { createParallelVerifier, type VerifyResult } from "./verifier.js";
+import type { Codec } from "@pokapali/codec";
+import { Document } from "@pokapali/document";
+import type { Document as DocumentType } from "@pokapali/document";
+import { Edit } from "@pokapali/document";
+import { Edits } from "../edits.js";
+import {
+  ParallelVerifier,
+  type ParallelVerifyResult,
+} from "./parallel-verifier.js";
 
 // -- Helpers --
 
@@ -64,10 +68,10 @@ function mockSubdocManager(channelNames: string[]): {
 }
 
 /**
- * Y.Doc-based codec — uses real Yjs merge/diff
+ * Y.Doc-based codec -- uses real Yjs merge/diff
  * for faithful verification testing.
  */
-function yjsCodec(): CrdtCodec {
+function yjsCodec(): Codec {
   return {
     merge(a: Uint8Array, b: Uint8Array): Uint8Array {
       const doc = new Y.Doc();
@@ -107,32 +111,32 @@ function yjsCodec(): CrdtCodec {
 
 // -- Tests --
 
-describe("createParallelVerifier", () => {
-  let doc: Document;
+describe("ParallelVerifier.create", () => {
+  let doc: DocumentType;
 
   beforeEach(() => {
-    doc = createDocument({
+    doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
   });
 
-  it("matching — local edits only", async () => {
+  it("matching -- local edits only", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
     const codec = yjsCodec();
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Local edit
     docs.get("content")!.getArray("data").push(["hello"]);
 
-    const verifier = createParallelVerifier({
+    const verifier = ParallelVerifier.create({
       document: doc,
       subdocManager: manager,
       channelNames: ["content"],
@@ -144,24 +148,25 @@ describe("createParallelVerifier", () => {
     expect(result.channel).toBe("content");
     expect(result.epochCount).toBeGreaterThan(0);
 
-    // contentHash should be present for diagnostics
+    // contentHash should be present for
+    // diagnostics
     expect(result.contentHash).toBeInstanceOf(Uint8Array);
     expect(result.contentHash!.length).toBeGreaterThan(0);
 
-    bridge.destroy();
+    edits.destroy();
   });
 
-  it("matching — local + remote edits", async () => {
+  it("matching -- local + remote edits", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
     const codec = yjsCodec();
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Local edit
     const yDoc = docs.get("content")!;
@@ -173,7 +178,7 @@ describe("createParallelVerifier", () => {
     const update = Y.encodeStateAsUpdate(remoteDoc);
     Y.applyUpdate(yDoc, update, "provider");
 
-    const verifier = createParallelVerifier({
+    const verifier = ParallelVerifier.create({
       document: doc,
       subdocManager: manager,
       channelNames: ["content"],
@@ -184,25 +189,25 @@ describe("createParallelVerifier", () => {
     expect(result.match).toBe(true);
     expect(result.channel).toBe("content");
 
-    bridge.destroy();
+    edits.destroy();
   });
 
-  it("divergence detection — extra edit in tree", async () => {
+  it("divergence detection -- extra edit in tree", async () => {
     const { manager, docs } = mockSubdocManager(["content"]);
     const codec = yjsCodec();
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Normal edit through bridge
     docs.get("content")!.getArray("data").push(["real"]);
 
-    bridge.destroy();
+    edits.destroy();
 
     // Inject a phantom edit directly into the
     // channel tree (Y.Doc doesn't have it)
@@ -210,9 +215,8 @@ describe("createParallelVerifier", () => {
     phantomDoc.getArray("other").push(["phantom"]);
     const phantomUpdate = Y.encodeStateAsUpdate(phantomDoc);
 
-    const { edit } = await import("../epoch/types.js");
     doc.channel("content").appendEdit(
-      edit({
+      Edit.create({
         payload: phantomUpdate,
         timestamp: Date.now(),
         author: "phantom",
@@ -222,7 +226,7 @@ describe("createParallelVerifier", () => {
       }),
     );
 
-    const verifier = createParallelVerifier({
+    const verifier = ParallelVerifier.create({
       document: doc,
       subdocManager: manager,
       channelNames: ["content"],
@@ -238,19 +242,19 @@ describe("createParallelVerifier", () => {
     const { manager, docs } = mockSubdocManager(["content", "comments"]);
     const codec = yjsCodec();
 
-    const bridge = createEditBridge({
+    const edits = Edits.create({
       subdocManager: manager,
       document: doc,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
     });
-    await bridge.start();
+    await edits.start();
 
     // Edit both channels
     docs.get("content")!.getArray("data").push(["c1"]);
     docs.get("comments")!.getArray("data").push(["m1"]);
 
-    const verifier = createParallelVerifier({
+    const verifier = ParallelVerifier.create({
       document: doc,
       subdocManager: manager,
       channelNames: ["content", "comments"],
@@ -263,28 +267,28 @@ describe("createParallelVerifier", () => {
     expect(results[0]!.channel).toBe("content");
     expect(results[1]!.channel).toBe("comments");
 
-    bridge.destroy();
+    edits.destroy();
   });
 
   it(
-    "property: N random edits → bridge → " + "closeEpoch → verify matches",
+    "property: N random edits -> bridge -> " + "closeEpoch -> verify matches",
     async () => {
       await fc.assert(
         fc.asyncProperty(fc.integer({ min: 1, max: 10 }), async (numEdits) => {
-          const d = createDocument({
+          const d = Document.create({
             identity: fakeIdentity(),
             capability: fakeCapability(),
           });
           const { manager, docs } = mockSubdocManager(["content"]);
           const codec = yjsCodec();
 
-          const bridge = createEditBridge({
+          const edits = Edits.create({
             subdocManager: manager,
             document: d,
             channelNames: ["content"],
             localAuthor: "aabb",
           });
-          await bridge.start();
+          await edits.start();
 
           const yDoc = docs.get("content")!;
           for (let i = 0; i < numEdits; i++) {
@@ -294,7 +298,7 @@ describe("createParallelVerifier", () => {
           // Close epoch
           d.channel("content").closeEpoch();
 
-          const verifier = createParallelVerifier({
+          const verifier = ParallelVerifier.create({
             document: d,
             subdocManager: manager,
             channelNames: ["content"],
@@ -305,7 +309,7 @@ describe("createParallelVerifier", () => {
           expect(result.match).toBe(true);
           expect(result.epochCount).toBeGreaterThanOrEqual(2);
 
-          bridge.destroy();
+          edits.destroy();
           d.destroy();
         }),
         { numRuns: 50 },
@@ -318,36 +322,35 @@ describe("createParallelVerifier", () => {
     async () => {
       await fc.assert(
         fc.asyncProperty(fc.integer({ min: 1, max: 5 }), async (numEdits) => {
-          const d = createDocument({
+          const d = Document.create({
             identity: fakeIdentity(),
             capability: fakeCapability(),
           });
           const { manager, docs } = mockSubdocManager(["content"]);
           const codec = yjsCodec();
 
-          const bridge = createEditBridge({
+          const edits = Edits.create({
             subdocManager: manager,
             document: d,
             channelNames: ["content"],
             localAuthor: "aabb",
           });
-          await bridge.start();
+          await edits.start();
 
           const yDoc = docs.get("content")!;
           for (let i = 0; i < numEdits; i++) {
             yDoc.getArray("data").push([`e-${i}`]);
           }
 
-          bridge.destroy();
+          edits.destroy();
 
           // Inject phantom edit into tree only
           const phantomDoc = new Y.Doc();
           phantomDoc.getArray("phantom").push(["diverge"]);
           const phantomUpdate = Y.encodeStateAsUpdate(phantomDoc);
 
-          const { edit } = await import("../epoch/types.js");
           d.channel("content").appendEdit(
-            edit({
+            Edit.create({
               payload: phantomUpdate,
               timestamp: Date.now(),
               author: "phantom",
@@ -357,7 +360,7 @@ describe("createParallelVerifier", () => {
             }),
           );
 
-          const verifier = createParallelVerifier({
+          const verifier = ParallelVerifier.create({
             document: d,
             subdocManager: manager,
             channelNames: ["content"],

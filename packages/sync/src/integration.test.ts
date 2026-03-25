@@ -1,26 +1,27 @@
 /**
- * Integration test — proves the full Phase 4b
+ * Integration test -- proves the full Phase 4b
  * pipeline composes:
  *
- * SubdocManager → EditBridge → Document → EpochStore
+ * SubdocManager -> Edits -> Document -> Store
  *
- * ConvergenceDetector is mocked (direct closeEpoch
- * call) to keep the test deterministic.
+ * Convergence is mocked (direct closeEpoch call)
+ * to keep the test deterministic.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import "fake-indexeddb/auto";
 import * as Y from "yjs";
 import { toArray, measureTree } from "@pokapali/finger-tree";
 import type { SubdocManager } from "@pokapali/subdocs";
-import { epochMeasured } from "../epoch/index-monoid.js";
-import { fromEpochs } from "../epoch/tree.js";
-import { contentHashView } from "../view/content-hash.js";
-import { createDocument } from "../document/document.js";
-import type { Document } from "../document/document.js";
-import { createEditBridge } from "./edit-bridge.js";
-import type { EditBridge } from "./edit-bridge.js";
-import { createEpochStore } from "./epoch-store.js";
-import type { EpochStore } from "./epoch-store.js";
+import {
+  Document,
+  epochMeasured,
+  fromEpochs,
+  Fingerprint,
+} from "@pokapali/document";
+import type { Document as DocumentType } from "@pokapali/document";
+import { Store } from "@pokapali/store";
+import { Edits } from "./edits.js";
+import type { Edits as EditsType } from "./edits.js";
 
 // -- Helpers --
 
@@ -79,37 +80,38 @@ function mockSubdocManager(channelNames: string[]): {
 // -- Tests --
 
 describe("Phase 4b bridge integration", () => {
-  let document: Document;
-  let bridge: EditBridge;
-  let store: EpochStore;
+  let document: DocumentType;
+  let edits: EditsType;
+  let store: Store;
 
   afterEach(() => {
-    bridge?.destroy();
+    edits?.destroy();
     document?.destroy();
     store?.destroy();
   });
 
   it(
-    "full pipeline: edit → channel → persist " + "→ converge → load round-trip",
+    "full pipeline: edit -> channel -> persist " +
+      "-> converge -> load round-trip",
     async () => {
       const dbName = `test-integration-${Math.random()}`;
 
       // 1. Create all components
       const { manager, docs } = mockSubdocManager(["content"]);
-      document = createDocument({
+      document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
       });
-      bridge = createEditBridge({
+      edits = Edits.create({
         subdocManager: manager,
         document,
         channelNames: ["content"],
         localAuthor: "aabb",
       });
-      store = await createEpochStore(dbName);
+      store = await Store.create(dbName);
 
-      // 2. Start EditBridge
-      await bridge.start();
+      // 2. Start Edits
+      await edits.start();
 
       // 3. Simulate local edit
       const yDoc = docs.get("content")!;
@@ -144,8 +146,8 @@ describe("Phase 4b bridge integration", () => {
       // Persist remote edit
       await store.persistEdit("content", remoteEdits[0]!);
 
-      // 6. Simulate convergence (mock — direct
-      //    closeEpoch instead of ConvergenceDetector)
+      // 6. Simulate convergence (mock -- direct
+      //    closeEpoch instead of Convergence)
       ch.closeEpoch();
 
       // Verify epoch closed in channel tree
@@ -157,7 +159,7 @@ describe("Phase 4b bridge integration", () => {
       // Persist epoch boundary
       await store.persistEpochBoundary("content", 0, epochs[0]!.boundary);
 
-      // 7. Load from EpochStore — verify round-trip
+      // 7. Load from Store -- verify round-trip
       const loaded = await store.loadChannelEpochs("content");
       expect(loaded).toHaveLength(2);
 
@@ -178,19 +180,19 @@ describe("Phase 4b bridge integration", () => {
     const dbName = `test-integration-multi-${Math.random()}`;
 
     const { manager, docs } = mockSubdocManager(["content", "comments"]);
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
     });
-    store = await createEpochStore(dbName);
+    store = await Store.create(dbName);
 
-    await bridge.start();
+    await edits.start();
 
     // Edit content channel
     docs.get("content")!.getArray("data").push(["content-edit"]);
@@ -232,19 +234,19 @@ describe("Phase 4b bridge integration", () => {
     const dbName = `test-integration-post-${Math.random()}`;
 
     const { manager, docs } = mockSubdocManager(["content"]);
-    document = createDocument({
+    document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
-    bridge = createEditBridge({
+    edits = Edits.create({
       subdocManager: manager,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
     });
-    store = await createEpochStore(dbName);
+    store = await Store.create(dbName);
 
-    await bridge.start();
+    await edits.start();
 
     // Edit before convergence
     docs.get("content")!.getArray("data").push(["before"]);
@@ -283,27 +285,27 @@ describe("Phase 4b bridge integration", () => {
   });
 
   it(
-    "hydration: persist → destroy → load " +
-      "→ rebuild channel → views produce " +
+    "hydration: persist -> destroy -> load " +
+      "-> rebuild channel -> views produce " +
       "correct values",
     async () => {
       const dbName = `test-hydration-${Math.random()}`;
 
       // --- Session 1: create edits + converge ---
       const { manager, docs } = mockSubdocManager(["content"]);
-      document = createDocument({
+      document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
       });
-      bridge = createEditBridge({
+      edits = Edits.create({
         subdocManager: manager,
         document,
         channelNames: ["content"],
         localAuthor: "aabb",
       });
-      store = await createEpochStore(dbName);
+      store = await Store.create(dbName);
 
-      await bridge.start();
+      await edits.start();
 
       // Two local edits
       docs.get("content")!.getArray("data").push(["first"]);
@@ -337,12 +339,12 @@ describe("Phase 4b bridge integration", () => {
 
       // --- Destroy everything (simulate browser
       //     close) ---
-      bridge.destroy();
+      edits.destroy();
       document.destroy();
       store.destroy();
 
       // --- Session 2: load from store, rebuild ---
-      const store2 = await createEpochStore(dbName);
+      const store2 = await Store.create(dbName);
       const loaded = await store2.loadChannelEpochs("content");
 
       expect(loaded).toHaveLength(2);
@@ -361,7 +363,7 @@ describe("Phase 4b bridge integration", () => {
 
       // Create new Document, populate channel via
       // appendEdit on loaded edits
-      const doc2 = createDocument({
+      const doc2 = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
       });
@@ -369,7 +371,7 @@ describe("Phase 4b bridge integration", () => {
       const ch2 = doc2.channel("content");
 
       // Activate contentHash view
-      const hashFeed = ch2.activate(contentHashView());
+      const hashFeed = ch2.activate(Fingerprint.view());
 
       // Rebuild channel by replaying loaded epochs
       // into the channel (appendEdit + closeEpoch)
@@ -403,9 +405,9 @@ describe("Phase 4b bridge integration", () => {
       store2.destroy();
 
       // Prevent afterEach from double-destroying
-      store = undefined as unknown as EpochStore;
-      document = undefined as unknown as Document;
-      bridge = undefined as unknown as EditBridge;
+      store = undefined as unknown as Store;
+      document = undefined as unknown as DocumentType;
+      edits = undefined as unknown as EditsType;
     },
   );
 });

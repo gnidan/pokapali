@@ -9,7 +9,7 @@ import {
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
 import { encodeSnapshot } from "@pokapali/blocks";
-import { hydrateFromSnapshots } from "./hydrator.js";
+import { fromSnapshots } from "./hydrator.js";
 
 // -- Helpers --
 
@@ -48,8 +48,8 @@ async function encodeYDocs(
 
 // -- Tests --
 
-describe("hydrateFromSnapshots", () => {
-  it("single snapshot → one epoch per channel", async () => {
+describe("fromSnapshots", () => {
+  it("single snapshot -> one epoch per channel", async () => {
     const { keys, signingKey } = await makeKeys();
 
     const contentDoc = new Y.Doc();
@@ -66,7 +66,7 @@ describe("hydrateFromSnapshots", () => {
     const blocks = new Map<string, Uint8Array>();
     blocks.set(cid.toString(), block);
 
-    const result = await hydrateFromSnapshots({
+    const result = await fromSnapshots({
       tipCid: cid,
       blockGetter: async (c: CID) => {
         const b = blocks.get(c.toString());
@@ -85,7 +85,7 @@ describe("hydrateFromSnapshots", () => {
     expect(epochs[0]!.edits[0]!.origin).toBe("hydrate");
   });
 
-  it("chain of 3 → 3 epochs oldest-first", async () => {
+  it("chain of 3 -> 3 epochs oldest-first", async () => {
     const { keys, signingKey } = await makeKeys();
     const blocks = new Map<string, Uint8Array>();
 
@@ -125,7 +125,7 @@ describe("hydrateFromSnapshots", () => {
     );
     blocks.set(snap3.cid.toString(), snap3.block);
 
-    const result = await hydrateFromSnapshots({
+    const result = await fromSnapshots({
       tipCid: snap3.cid,
       blockGetter: async (c: CID) => {
         const b = blocks.get(c.toString());
@@ -163,12 +163,12 @@ describe("hydrateFromSnapshots", () => {
     blocks.set(cid.toString(), block);
 
     // Use a different readKey for decryption
-    // → should fail
+    // -> should fail
     const wrongSecret = generateAdminSecret();
     const wrongKeys = await deriveDocKeys(wrongSecret, "test-app", ["content"]);
 
     await expect(
-      hydrateFromSnapshots({
+      fromSnapshots({
         tipCid: cid,
         blockGetter: async (c: CID) => {
           const b = blocks.get(c.toString());
@@ -183,7 +183,7 @@ describe("hydrateFromSnapshots", () => {
   });
 
   it(
-    "property: N-link chain → N epochs " +
+    "property: N-link chain -> N epochs " +
       "per channel, oldest-first, all snapshotted",
     async () => {
       await fc.assert(
@@ -212,7 +212,7 @@ describe("hydrateFromSnapshots", () => {
             prevCid = cid;
           }
 
-          const result = await hydrateFromSnapshots({
+          const result = await fromSnapshots({
             tipCid: prevCid!,
             blockGetter: async (c: CID) => {
               const b = blocks.get(c.toString());
