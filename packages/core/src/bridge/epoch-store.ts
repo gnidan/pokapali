@@ -15,6 +15,7 @@
  * the full Epoch[] for a channel.
  */
 
+import { CID } from "multiformats/cid";
 import {
   type Edit,
   type Epoch,
@@ -22,6 +23,7 @@ import {
   edit,
   epoch,
   openBoundary,
+  snapshottedBoundary,
 } from "../epoch/types.js";
 
 const DB_VERSION = 1;
@@ -44,7 +46,7 @@ interface StoredBoundary {
   epochIndex: number;
   boundary: {
     tag: "open" | "closed" | "snapshotted";
-    cid?: unknown;
+    cidBytes?: Uint8Array;
   };
 }
 
@@ -155,7 +157,9 @@ export async function createEpochStore(dbName: string): Promise<EpochStore> {
           epochIndex,
           boundary: {
             tag: boundary.tag,
-            ...(boundary.tag === "snapshotted" ? { cid: boundary.cid } : {}),
+            ...(boundary.tag === "snapshotted"
+              ? { cidBytes: boundary.cid.bytes }
+              : {}),
           },
         };
         store.put(stored);
@@ -195,10 +199,15 @@ export async function createEpochStore(dbName: string): Promise<EpochStore> {
         return [];
       }
 
-      // Build boundary map
+      // Build boundary map, reconstructing CIDs
       const boundaryMap = new Map<number, EpochBoundary>();
       for (const b of boundaries) {
-        boundaryMap.set(b.epochIndex, b.boundary as EpochBoundary);
+        if (b.boundary.tag === "snapshotted" && b.boundary.cidBytes) {
+          const cid = CID.decode(b.boundary.cidBytes);
+          boundaryMap.set(b.epochIndex, snapshottedBoundary(cid));
+        } else {
+          boundaryMap.set(b.epochIndex, b.boundary as EpochBoundary);
+        }
       }
 
       // Group edits by epochIndex

@@ -240,22 +240,14 @@ describe("createEpochStore", () => {
       // The boundary should have snapshotted tag
       expect(epochs[0]!.boundary.tag).toBe("snapshotted");
 
-      // CID may lose prototype through IDB
-      // structured clone — verify the data survived
-      // even if it's a plain object
+      // CID must survive IDB round-trip as a real
+      // CID instance (serialized as bytes on write,
+      // reconstructed via CID.decode on read).
       const loaded = epochs[0]!.boundary;
+      expect(loaded.tag).toBe("snapshotted");
       if (loaded.tag === "snapshotted") {
-        // Check if CID survived as a CID instance
-        // or as a plain object
-        const cidValue = loaded.cid;
-        if (cidValue instanceof CID) {
-          expect(cidValue.toString()).toBe(cid.toString());
-        } else {
-          // CID lost its prototype — structured
-          // clone landmine confirmed. Data is still
-          // there as plain object fields.
-          expect(cidValue).toBeDefined();
-        }
+        expect(loaded.cid).toBeInstanceOf(CID);
+        expect(loaded.cid.toString()).toBe(cid.toString());
       }
     },
   );
