@@ -1,5 +1,5 @@
 /**
- * Property tests for YjsCrdtCodec.
+ * Property tests for yjsCodec.
  *
  * Verifies CRDT laws hold for arbitrary inputs:
  * - merge commutativity
@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 import * as Y from "yjs";
-import { yjsCrdtCodec as codec } from "./yjs-codec.js";
+import { yjsCodec as codec } from "./yjs-codec.js";
 
 // -- Arbitrary Yjs updates --
 
@@ -25,7 +25,10 @@ function arbUpdate(): fc.Arbitrary<Uint8Array> {
     .record({
       entries: fc.array(
         fc.tuple(
-          fc.string({ minLength: 1, maxLength: 8 }),
+          fc.string({
+            minLength: 1,
+            maxLength: 8,
+          }),
           fc.oneof(fc.integer(), fc.string({ maxLength: 20 })),
         ),
         { minLength: 1, maxLength: 10 },
@@ -109,7 +112,7 @@ describe("CRDT law properties", () => {
 });
 
 describe("diff/apply properties", () => {
-  it("apply(base, diff(full, base)) ≡ full", () => {
+  it("apply(base, diff(full, base)) = full", () => {
     fc.assert(
       fc.property(arbUpdate(), arbUpdate(), (a, b) => {
         // Build "full" by merging a and b via apply

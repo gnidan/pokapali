@@ -1,7 +1,7 @@
 /**
- * YjsCrdtCodec tests.
+ * yjsCodec tests.
  *
- * Covers all five CrdtCodec operations with Yjs
+ * Covers all five Codec operations with Yjs
  * semantics: merge, diff, apply, empty, contains.
  *
  * Property-level tests verify CRDT laws
@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { yjsCrdtCodec as codec } from "./yjs-codec.js";
+import { yjsCodec as codec } from "./yjs-codec.js";
 
 // -- Helpers --
 
@@ -153,7 +153,7 @@ describe("diff", () => {
 
     const d = codec.diff(state, state);
 
-    // Diff should be empty — no new operations
+    // Diff should be empty -- no new operations
     expect(codec.contains(state, d)).toBe(true);
   });
 
@@ -261,7 +261,7 @@ describe("apply", () => {
     });
     const d3 = codec.diff(s3, s2);
 
-    // Replay: empty → d1 → d2 → d3 = s3
+    // Replay: empty -> d1 -> d2 -> d3 = s3
     let current = s0;
     current = codec.apply(current, d1);
     current = codec.apply(current, d2);
@@ -298,7 +298,7 @@ describe("contains", () => {
     doc.destroy();
   });
 
-  it("identical state → contained", () => {
+  it("identical state -> contained", () => {
     const state = makeUpdate((doc) => {
       doc.getMap("test").set("a", 1);
     });
@@ -370,7 +370,7 @@ describe("contains", () => {
     // contain the delta
     const early = new Y.Doc();
     early.getMap("test").set("a", 1);
-    // Different clientId — so early snapshot from
+    // Different clientId -- so early snapshot from
     // different doc won't contain original client's
     // operations. Test with same-doc snapshot:
     const doc2 = new Y.Doc();
@@ -412,7 +412,7 @@ describe("cross-operation consistency", () => {
     expect(codec.contains(merged, b)).toBe(true);
   });
 
-  it("apply(base, diff(full, base)) ≡ full", () => {
+  it("apply(base, diff(full, base)) = full", () => {
     const base = makeUpdate((doc) => {
       doc.getMap("test").set("a", 1);
     });

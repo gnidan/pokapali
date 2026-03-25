@@ -1,0 +1,54 @@
+{
+  "name": "@pokapali/codec",
+  "version": "0.0.0",
+  "description": "CRDT codec abstraction and Yjs adapter for pokapali",
+  "keywords": [
+    "pokapali",
+    "crdt",
+    "codec",
+    "yjs"
+  ],
+  "homepage": "https://github.com/gnidan/pokapali/tree/main/packages/codec",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gnidan/pokapali.git",
+    "directory": "packages/codec"
+  },
+  "author": "g. nicholas d'andrea <nick@gnidan.org>",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "!dist/src/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "fast-check": "^4.6.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "yjs": "^13.6.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
