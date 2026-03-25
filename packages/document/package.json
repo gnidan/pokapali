@@ -28,6 +28,11 @@
   "publishConfig": {
     "access": "public"
   },
+  "imports": {
+    "#history": "./src/history/index.ts",
+    "#state": "./src/state/index.ts",
+    "#fingerprint": "./src/fingerprint/index.ts"
+  },
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

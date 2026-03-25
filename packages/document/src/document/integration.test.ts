@@ -5,10 +5,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { measureTree, toArray } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
-import { epochMeasured } from "../history/summary.js";
-import { Edit } from "../history/edit.js";
-import * as State from "../state/index.js";
-import * as Fingerprint from "../fingerprint/index.js";
+import { epochMeasured, Edit } from "#history";
+import * as State from "#state";
+import * as Fingerprint from "#fingerprint";
 import { Document } from "./document.js";
 
 // -- Helpers --

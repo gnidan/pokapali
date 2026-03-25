@@ -1,7 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Epoch as EpochCompanion, Boundary } from "../history/epoch.js";
-import { Edit } from "../history/edit.js";
-import { History } from "../history/history.js";
+import { Epoch as EpochCompanion, Boundary, Edit, History } from "#history";
 import { Cache, inspect } from "../view.js";
 import { view } from "./view.js";
 

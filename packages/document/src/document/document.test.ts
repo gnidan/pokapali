@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Measured } from "@pokapali/finger-tree";
-import type { Epoch } from "../history/epoch.js";
-import { Edit } from "../history/edit.js";
+import type { Epoch } from "#history";
+import { Edit } from "#history";
 import { View } from "../view.js";
 import { Document } from "./document.js";
 

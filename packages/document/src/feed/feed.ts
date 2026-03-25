@@ -17,7 +17,7 @@ import {
   Cache as CacheCompanion,
   inspect,
 } from "../view.js";
-import type { History } from "../history/history.js";
+import type { History } from "#history";
 
 /**
  * A reactive feed for a monoidal view evaluation.

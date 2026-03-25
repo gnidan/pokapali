@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": ".",
+    "paths": {
+      "#history": ["./src/history/index.ts"],
+      "#state": ["./src/state/index.ts"],
+      "#fingerprint": ["./src/fingerprint/index.ts"]
+    }
   },
   "include": ["src"],
   "references": [

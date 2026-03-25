@@ -13,11 +13,13 @@
  *     + snoc new empty open → registry.notifyTreeChanged
  */
 import { snoc, viewr } from "@pokapali/finger-tree";
-import { epochMeasured } from "../history/summary.js";
-import type { History } from "../history/history.js";
-import { History as HistoryCompanion } from "../history/history.js";
-import { Epoch, Boundary } from "../history/epoch.js";
-import type { Edit } from "../history/edit.js";
+import type { History, Edit } from "#history";
+import {
+  epochMeasured,
+  History as HistoryCompanion,
+  Epoch,
+  Boundary,
+} from "#history";
 import type { View, Status } from "../view.js";
 import type { Feed } from "../feed/feed.js";
 import { Registry } from "../registry/registry.js";

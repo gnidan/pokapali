@@ -3,10 +3,10 @@ import fc from "fast-check";
 import type { Measured } from "@pokapali/finger-tree";
 import { toArray } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
-import type { Epoch } from "../history/epoch.js";
-import { Edit } from "../history/edit.js";
+import type { Epoch } from "#history";
+import { Edit } from "#history";
 import { View } from "../view.js";
-import * as State from "../state/index.js";
+import * as State from "#state";
 import { Channel } from "./channel.js";
 
 // -- Helpers --

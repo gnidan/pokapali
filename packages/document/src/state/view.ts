@@ -11,7 +11,7 @@
  */
 import type { Measured } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
-import type { Epoch } from "../history/epoch.js";
+import type { Epoch } from "#history";
 import type { View } from "../view.js";
 import { View as ViewCompanion } from "../view.js";
 

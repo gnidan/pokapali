@@ -8,7 +8,7 @@
 import type { View, Status } from "../view.js";
 import type { Feed } from "../feed/feed.js";
 import { Feed as FeedCompanion } from "../feed/feed.js";
-import type { History } from "../history/history.js";
+import type { History } from "#history";
 
 /**
  * Registry for active monoidal view feeds.
