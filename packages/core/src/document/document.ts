@@ -1,19 +1,12 @@
 /**
- * Document — per-document container.
- *
- * Holds per-channel epoch trees, identity, and
- * capability. Channels are lazy get-or-create.
- * Destroy cascades to all channels.
+ * Re-export Document from @pokapali/document
+ * for backwards compatibility.
  */
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import type { Capability } from "@pokapali/capability";
 import type { Channel } from "../channel/channel.js";
 import { createChannel } from "../channel/channel.js";
 
-/**
- * Per-document container holding channels, identity,
- * and capability.
- */
 export interface Document {
   channel(name: string): Channel;
   readonly identity: Ed25519KeyPair;
@@ -21,10 +14,6 @@ export interface Document {
   destroy(): void;
 }
 
-/**
- * Create a Document with identity and capability.
- * Channels are created lazily on first access.
- */
 export function createDocument(opts: {
   identity: Ed25519KeyPair;
   capability: Capability;

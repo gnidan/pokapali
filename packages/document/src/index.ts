@@ -1,3 +1,11 @@
+// Channel + Document
+export { Channel } from "./channel/index.js";
+export {
+  Document,
+  type DocumentIdentity,
+  type DocumentCapability,
+} from "./document/index.js";
+
 // View system
 export { View, Cache, Status, inspect } from "./view.js";
 export { Feed } from "./feed/index.js";
