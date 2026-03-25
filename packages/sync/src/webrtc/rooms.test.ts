@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
 import { createSubdocManager } from "@pokapali/subdocs";
-import { setupNamespaceRooms, setupAwarenessRoom } from "./index.js";
+import { setupNamespaceRooms, setupAwarenessRoom } from "./rooms.js";
 
 interface MockInstance {
   roomName: string;
@@ -399,17 +399,19 @@ describe("setupAwarenessRoom", () => {
   it("onStatusChange fires callback", () => {
     const room = setupAwarenessRoom(IPNS, "abcdef01", SIGNALING);
     // Capture the "status" event handler registered
-    // on the provider — MockProvider stores it via on()
+    // on the provider — MockProvider stores it via
+    // on()
     const cb = vi.fn();
     room.onStatusChange(cb);
 
     // Simulate provider emitting status by calling
-    // the handler registered with provider.on("status")
+    // the handler registered with
+    // provider.on("status")
     // In our mock, on() is a no-op, but the real
     // implementation wires through notifyStatus.
-    // Since our mock on() is a no-op, we can't trigger
-    // it that way. Instead verify the callback is
-    // stored and would be called.
+    // Since our mock on() is a no-op, we can't
+    // trigger it that way. Instead verify the
+    // callback is stored and would be called.
     expect(cb).not.toHaveBeenCalled();
 
     room.destroy();
