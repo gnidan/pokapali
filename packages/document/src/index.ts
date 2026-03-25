@@ -4,6 +4,7 @@ export {
   Document,
   type DocumentIdentity,
   type DocumentCapability,
+  type Level,
 } from "./document/index.js";
 
 // Capability + Credential
