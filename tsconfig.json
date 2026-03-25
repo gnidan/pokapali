@@ -10,6 +10,7 @@
     { "path": "packages/sync" },
     { "path": "packages/comments" },
     { "path": "packages/comments-tiptap" },
+    { "path": "packages/document" },
     { "path": "packages/core" },
     { "path": "packages/node" },
     { "path": "packages/load-test" },

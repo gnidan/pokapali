@@ -69,7 +69,7 @@ describe("Edit", () => {
   });
 });
 
-describe("EpochBoundary", () => {
+describe("Boundary", () => {
   it("open boundary", () => {
     const b = openBoundary();
     expect(b.tag).toBe("open");
@@ -158,7 +158,7 @@ describe("appendEdit", () => {
 });
 
 describe("boundary transitions", () => {
-  it("open → closed via closeEpoch", () => {
+  it("open -> closed via closeEpoch", () => {
     const ep = epoch([fakeEdit()], openBoundary());
     const closed = closeEpoch(ep);
 
@@ -171,7 +171,7 @@ describe("boundary transitions", () => {
     expect(() => closeEpoch(ep)).toThrow("Can only close an open epoch");
   });
 
-  it("closed → snapshotted via snapshotEpoch", () => {
+  it("closed -> snapshotted via snapshotEpoch", () => {
     const ep = epoch([], closedBoundary());
     const cid = fakeCid(5);
     const snapped = snapshotEpoch(ep, cid);
@@ -189,7 +189,7 @@ describe("boundary transitions", () => {
     );
   });
 
-  it("open → closed → snapshotted chain", () => {
+  it("open -> closed -> snapshotted chain", () => {
     let ep = epoch([fakeEdit()], openBoundary());
     expect(ep.boundary.tag).toBe("open");
 

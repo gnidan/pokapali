@@ -3,10 +3,10 @@ import fc from "fast-check";
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 import { measureTree, toArray } from "@pokapali/finger-tree";
-import { epochMeasured } from "./index-monoid.js";
+import { epochMeasured } from "./summary.js";
 import { edit } from "./types.js";
 import type { Edit } from "./types.js";
-import type { CrdtCodec } from "../codec/codec.js";
+import type { Codec } from "@pokapali/codec";
 import { fromSnapshots, backfillEdits } from "./builders.js";
 import type { Snapshot } from "./builders.js";
 
@@ -36,10 +36,10 @@ function fakeEdit(
 }
 
 /**
- * Fake CrdtCodec where contains checks if snapshot
+ * Fake Codec where contains checks if snapshot
  * bytes include the edit's payload[0].
  */
-function fakeCodec(): CrdtCodec {
+function fakeCodec(): Codec {
   return {
     merge: (a, b) => new Uint8Array([...a, ...b]),
     diff: (state, _base) => state,
@@ -60,9 +60,18 @@ function fakeCodec(): CrdtCodec {
 describe("fromSnapshots", () => {
   it("builds tree from 3 snapshots", () => {
     const snapshots: Snapshot[] = [
-      { cid: fakeCid(1), state: new Uint8Array([1]) },
-      { cid: fakeCid(2), state: new Uint8Array([2]) },
-      { cid: fakeCid(3), state: new Uint8Array([3]) },
+      {
+        cid: fakeCid(1),
+        state: new Uint8Array([1]),
+      },
+      {
+        cid: fakeCid(2),
+        state: new Uint8Array([2]),
+      },
+      {
+        cid: fakeCid(3),
+        state: new Uint8Array([3]),
+      },
     ];
 
     const tree = fromSnapshots(snapshots);
@@ -79,14 +88,17 @@ describe("fromSnapshots", () => {
     }
   });
 
-  it("empty snapshots → empty tree", () => {
+  it("empty snapshots -> empty tree", () => {
     const tree = fromSnapshots([]);
     expect(tree.tag).toBe("empty");
   });
 
-  it("single snapshot → single epoch", () => {
+  it("single snapshot -> single epoch", () => {
     const tree = fromSnapshots([
-      { cid: fakeCid(1), state: new Uint8Array([1]) },
+      {
+        cid: fakeCid(1),
+        state: new Uint8Array([1]),
+      },
     ]);
     const arr = toArray(tree);
 
@@ -97,8 +109,14 @@ describe("fromSnapshots", () => {
 
   it("has correct index", () => {
     const tree = fromSnapshots([
-      { cid: fakeCid(1), state: new Uint8Array([1]) },
-      { cid: fakeCid(2), state: new Uint8Array([2]) },
+      {
+        cid: fakeCid(1),
+        state: new Uint8Array([1]),
+      },
+      {
+        cid: fakeCid(2),
+        state: new Uint8Array([2]),
+      },
     ]);
     const idx = measureTree(epochMeasured, tree);
 
@@ -136,8 +154,8 @@ describe("backfillEdits", () => {
     const result = backfillEdits(snapshots, edits, codec);
     const arr = toArray(result);
 
-    // Edits 1,2 → epoch 0 (contained by S1)
-    // Edits 3,4 → epoch 1 (in S2 but not S1)
+    // Edits 1,2 -> epoch 0 (contained by S1)
+    // Edits 3,4 -> epoch 1 (in S2 but not S1)
     expect(arr).toHaveLength(2);
     expect(arr[0]!.edits).toHaveLength(2);
     expect(arr[1]!.edits).toHaveLength(2);
@@ -160,7 +178,8 @@ describe("backfillEdits", () => {
     const result = backfillEdits(snapshots, edits, codec);
     const arr = toArray(result);
 
-    // Edit 1 → epoch 0 (in S1), edit 3 → remainder
+    // Edit 1 -> epoch 0 (in S1),
+    // edit 3 -> remainder
     expect(arr).toHaveLength(2);
     expect(arr[0]!.edits).toHaveLength(1);
     expect(arr[0]!.edits[0]!.payload[0]).toBe(1);
@@ -197,7 +216,7 @@ describe("backfillEdits", () => {
     expect(arr[1]!.edits).toHaveLength(0);
   });
 
-  it("no edits → tree has empty epochs", () => {
+  it("no edits -> tree has empty epochs", () => {
     const snapshots: Snapshot[] = [
       {
         cid: fakeCid(1),
@@ -217,7 +236,7 @@ describe("backfillEdits", () => {
 // -- Integration: full hydration cycle --
 
 describe("full hydration cycle", () => {
-  it("fromSnapshots → backfillEdits → correct tree", () => {
+  it("fromSnapshots -> backfillEdits -> correct tree", () => {
     // 3 snapshots from pinner:
     // S1 covers edits 1,2,3
     // S2 covers edits 1,2,3,4,5
@@ -371,7 +390,8 @@ describe("backfillEdits properties", () => {
           for (let i = 0; i < arr.length; i++) {
             for (const e of arr[i]!.edits) {
               if (i < snapshots.length) {
-                // Snapshotted epoch: must be contained
+                // Snapshotted epoch: must be
+                // contained
                 expect(codec.contains(snapshots[i]!.state, e.payload)).toBe(
                   true,
                 );
@@ -382,7 +402,8 @@ describe("backfillEdits properties", () => {
                   ).toBe(false);
                 }
               } else {
-                // Remainder epoch: not in any snapshot
+                // Remainder epoch: not in any
+                // snapshot
                 for (const s of snapshots) {
                   expect(codec.contains(s.state, e.payload)).toBe(false);
                 }

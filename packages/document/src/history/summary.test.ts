@@ -14,10 +14,10 @@ import {
   Sum,
   MinMax,
   SetUnion,
-  epochIndexMonoid,
+  summaryMonoid,
   epochMeasured,
-} from "./index-monoid.js";
-import type { EpochIndex } from "./index-monoid.js";
+} from "./summary.js";
+import { Summary } from "./summary.js";
 import {
   edit,
   epoch,
@@ -59,7 +59,7 @@ function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return true;
 }
 
-function epochIndexEq(a: EpochIndex, b: EpochIndex): boolean {
+function summaryEq(a: Summary, b: Summary): boolean {
   return (
     a.epochCount === b.epochCount &&
     a.editCount === b.editCount &&
@@ -174,8 +174,8 @@ describe("SetUnion monoid laws", () => {
   });
 });
 
-describe("epochIndexMonoid laws", () => {
-  const arbIndex: fc.Arbitrary<EpochIndex> = fc.record({
+describe("summaryMonoid laws", () => {
+  const arbIndex: fc.Arbitrary<Summary> = fc.record({
     epochCount: fc.nat({ max: 100 }),
     editCount: fc.nat({ max: 1000 }),
     timeRange: fc
@@ -190,9 +190,9 @@ describe("epochIndexMonoid laws", () => {
   it("left identity", () => {
     fc.assert(
       fc.property(arbIndex, (v) => {
-        expect(
-          epochIndexEq(epochIndexMonoid.append(epochIndexMonoid.empty, v), v),
-        ).toBe(true);
+        expect(summaryEq(summaryMonoid.append(summaryMonoid.empty, v), v)).toBe(
+          true,
+        );
       }),
     );
   });
@@ -200,9 +200,9 @@ describe("epochIndexMonoid laws", () => {
   it("right identity", () => {
     fc.assert(
       fc.property(arbIndex, (v) => {
-        expect(
-          epochIndexEq(epochIndexMonoid.append(v, epochIndexMonoid.empty), v),
-        ).toBe(true);
+        expect(summaryEq(summaryMonoid.append(v, summaryMonoid.empty), v)).toBe(
+          true,
+        );
       }),
     );
   });
@@ -211,9 +211,9 @@ describe("epochIndexMonoid laws", () => {
     fc.assert(
       fc.property(arbIndex, arbIndex, arbIndex, (a, b, c) => {
         expect(
-          epochIndexEq(
-            epochIndexMonoid.append(epochIndexMonoid.append(a, b), c),
-            epochIndexMonoid.append(a, epochIndexMonoid.append(b, c)),
+          summaryEq(
+            summaryMonoid.append(summaryMonoid.append(a, b), c),
+            summaryMonoid.append(a, summaryMonoid.append(b, c)),
           ),
         ).toBe(true);
       }),
@@ -307,13 +307,13 @@ describe("epochMeasured.measure", () => {
 
 // -- Finger tree integration tests --
 
-describe("EpochIndex in finger tree", () => {
+describe("Summary in finger tree", () => {
   function buildTree(epochs: Epoch[]) {
     return fromArray(epochMeasured, epochs);
   }
 
   it("empty tree has monoid identity", () => {
-    const tree = empty<EpochIndex, Epoch>();
+    const tree = empty<Summary, Epoch>();
     const idx = measureTree(epochMeasured, tree);
     expect(idx.epochCount).toBe(0);
     expect(idx.editCount).toBe(0);
@@ -358,7 +358,7 @@ describe("EpochIndex in finger tree", () => {
   });
 
   it("snoc appends and updates index", () => {
-    let tree = empty<EpochIndex, Epoch>();
+    let tree = empty<Summary, Epoch>();
     tree = snoc(
       epochMeasured,
       tree,
@@ -394,7 +394,8 @@ describe("EpochIndex in finger tree", () => {
 
     // Split where cumulative editCount > 2
     // ep1 has 2 edits, so accumulated after ep1 = 2,
-    // not > 2. After ep2, accumulated = 5, which is > 2.
+    // not > 2. After ep2, accumulated = 5, which
+    // is > 2.
     const result = split(epochMeasured, (v) => v.editCount > 2, tree);
 
     expect(result).toBeDefined();
@@ -421,7 +422,8 @@ describe("EpochIndex in finger tree", () => {
   });
 });
 
-// -- Property tests: measureTree matches manual fold --
+// -- Property tests: measureTree matches manual
+// fold --
 
 const arbAuthor = fc.constantFrom("aa", "bb", "cc", "dd", "ee", "ff");
 
@@ -453,18 +455,20 @@ describe("measureTree matches manual fold", () => {
   it("tree index equals fold of individual measures", () => {
     fc.assert(
       fc.property(
-        fc.array(arbEpoch, { minLength: 0, maxLength: 10 }),
+        fc.array(arbEpoch, {
+          minLength: 0,
+          maxLength: 10,
+        }),
         (epochs) => {
           const tree = fromArray(epochMeasured, epochs);
           const treeIdx = measureTree(epochMeasured, tree);
 
           const foldIdx = epochs.reduce(
-            (acc, ep) =>
-              epochIndexMonoid.append(acc, epochMeasured.measure(ep)),
-            epochIndexMonoid.empty,
+            (acc, ep) => summaryMonoid.append(acc, epochMeasured.measure(ep)),
+            summaryMonoid.empty,
           );
 
-          expect(epochIndexEq(treeIdx, foldIdx)).toBe(true);
+          expect(summaryEq(treeIdx, foldIdx)).toBe(true);
         },
       ),
       { numRuns: 200 },
@@ -478,7 +482,10 @@ describe("split properties", () => {
   it("split on epochCount: left + value + right = original", () => {
     fc.assert(
       fc.property(
-        fc.array(arbEpoch, { minLength: 1, maxLength: 10 }),
+        fc.array(arbEpoch, {
+          minLength: 1,
+          maxLength: 10,
+        }),
         (epochs) => {
           const tree = fromArray(epochMeasured, epochs);
           const total = measureTree(epochMeasured, tree).epochCount;
@@ -505,7 +512,7 @@ describe("split properties", () => {
           expect(leftIdx.epochCount).toBeLessThan(target);
 
           // Left + value reaches target
-          const withValue = epochIndexMonoid.append(
+          const withValue = summaryMonoid.append(
             leftIdx,
             epochMeasured.measure(result!.value),
           );
@@ -519,7 +526,10 @@ describe("split properties", () => {
   it("split on snapshotCount finds a snapshot boundary", () => {
     fc.assert(
       fc.property(
-        fc.array(arbEpoch, { minLength: 1, maxLength: 10 }),
+        fc.array(arbEpoch, {
+          minLength: 1,
+          maxLength: 10,
+        }),
         (epochs) => {
           const tree = fromArray(epochMeasured, epochs);
           const total = measureTree(epochMeasured, tree).snapshotCount;
@@ -547,7 +557,10 @@ describe("split properties", () => {
   it("split on timeRange finds correct epoch", () => {
     fc.assert(
       fc.property(
-        fc.array(arbEpoch, { minLength: 1, maxLength: 10 }),
+        fc.array(arbEpoch, {
+          minLength: 1,
+          maxLength: 10,
+        }),
         (epochs) => {
           const tree = fromArray(epochMeasured, epochs);
           const idx = measureTree(epochMeasured, tree);
@@ -572,5 +585,17 @@ describe("split properties", () => {
       ),
       { numRuns: 200 },
     );
+  });
+});
+
+// -- Summary companion tests --
+
+describe("Summary companion", () => {
+  it("Summary.monoid is summaryMonoid", () => {
+    expect(Summary.monoid).toBe(summaryMonoid);
+  });
+
+  it("Summary.measured is epochMeasured", () => {
+    expect(Summary.measured).toBe(epochMeasured);
   });
 });

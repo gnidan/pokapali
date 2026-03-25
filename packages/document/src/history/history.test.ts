@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 import { measureTree, snoc, split, toArray } from "@pokapali/finger-tree";
-import { epochMeasured } from "./index-monoid.js";
-import { fromEpochs, emptyTree } from "./tree.js";
+import { epochMeasured } from "./summary.js";
+import { fromEpochs, emptyTree, History } from "./history.js";
 import {
   edit,
   epoch,
@@ -51,6 +51,13 @@ describe("emptyTree", () => {
     expect(idx.editCount).toBe(0);
     expect(idx.authors.size).toBe(0);
     expect(idx.snapshotCount).toBe(0);
+  });
+});
+
+describe("History.empty", () => {
+  it("returns an empty finger tree", () => {
+    const tree = History.empty();
+    expect(tree.tag).toBe("empty");
   });
 });
 
@@ -102,7 +109,34 @@ describe("fromEpochs", () => {
   });
 });
 
-describe("EpochTree with snoc", () => {
+describe("History.fromEpochs", () => {
+  it("delegates to fromEpochs", () => {
+    const ep = epoch([fakeEdit("aa", "content", 100)], openBoundary());
+    const tree = History.fromEpochs([ep]);
+    expect(toArray(tree)).toHaveLength(1);
+  });
+});
+
+describe("History.fromSnapshots", () => {
+  it("builds tree from snapshots", () => {
+    const tree = History.fromSnapshots([
+      {
+        cid: fakeCid(1),
+        state: new Uint8Array([1]),
+      },
+      {
+        cid: fakeCid(2),
+        state: new Uint8Array([2]),
+      },
+    ]);
+    const arr = toArray(tree);
+    expect(arr).toHaveLength(2);
+    expect(arr[0]!.boundary.tag).toBe("snapshotted");
+    expect(arr[1]!.boundary.tag).toBe("snapshotted");
+  });
+});
+
+describe("History with snoc", () => {
   it("builds tree incrementally", () => {
     let tree = emptyTree();
     tree = snoc(
@@ -123,7 +157,7 @@ describe("EpochTree with snoc", () => {
   });
 });
 
-describe("EpochTree navigation queries", () => {
+describe("History navigation queries", () => {
   const ep1 = epoch(
     [fakeEdit("aa", "content", 100)],
     snapshottedBoundary(fakeCid(1)),
@@ -185,5 +219,100 @@ describe("EpochTree navigation queries", () => {
   it("returns undefined when predicate never true", () => {
     const result = split(epochMeasured, (v) => v.epochCount >= 100, tree);
     expect(result).toBeUndefined();
+  });
+});
+
+describe("History.mergeAdjacent", () => {
+  it("merges two adjacent epochs", () => {
+    const ep1 = epoch(
+      [fakeEdit("aa", "content", 100)],
+      snapshottedBoundary(fakeCid(1)),
+    );
+    const ep2 = epoch(
+      [fakeEdit("bb", "content", 200)],
+      snapshottedBoundary(fakeCid(2)),
+    );
+    const ep3 = epoch([fakeEdit("cc", "content", 300)], closedBoundary());
+
+    const tree = fromEpochs([ep1, ep2, ep3]);
+    const result = History.mergeAdjacent(tree, 2);
+    const arr = toArray(result);
+
+    expect(arr).toHaveLength(2);
+    expect(arr[0]!.edits).toHaveLength(1);
+    expect(arr[1]!.edits).toHaveLength(2);
+  });
+
+  it("throws for position < 1", () => {
+    const tree = fromEpochs([
+      epoch([fakeEdit("aa", "content", 100)], closedBoundary()),
+    ]);
+    expect(() => History.mergeAdjacent(tree, 0)).toThrow();
+  });
+
+  it("throws for position beyond tree size", () => {
+    const tree = fromEpochs([
+      epoch([fakeEdit("aa", "content", 100)], closedBoundary()),
+      epoch([fakeEdit("bb", "content", 200)], closedBoundary()),
+    ]);
+    expect(() => History.mergeAdjacent(tree, 3)).toThrow();
+  });
+});
+
+describe("History.backfill", () => {
+  it("distributes edits across snapshot epochs", () => {
+    const snapshots = [
+      {
+        cid: fakeCid(1),
+        state: new Uint8Array([1, 2]),
+      },
+      {
+        cid: fakeCid(2),
+        state: new Uint8Array([1, 2, 3, 4]),
+      },
+    ];
+
+    const edits = [
+      edit({
+        payload: new Uint8Array([1]),
+        timestamp: 100,
+        author: "aa",
+        channel: "content",
+        origin: "local" as const,
+        signature: new Uint8Array([1]),
+      }),
+      edit({
+        payload: new Uint8Array([3]),
+        timestamp: 300,
+        author: "cc",
+        channel: "content",
+        origin: "local" as const,
+        signature: new Uint8Array([3]),
+      }),
+    ];
+
+    const codec = {
+      merge: (a: Uint8Array, b: Uint8Array) => new Uint8Array([...a, ...b]),
+      diff: (state: Uint8Array) => state,
+      apply: (base: Uint8Array, update: Uint8Array) =>
+        new Uint8Array([...base, ...update]),
+      empty: () => new Uint8Array([]),
+      contains: (snapshot: Uint8Array, editPayload: Uint8Array) => {
+        const id = editPayload[0]!;
+        for (const b of snapshot) {
+          if (b === id) return true;
+        }
+        return false;
+      },
+    };
+
+    const result = History.backfill(snapshots, edits, codec);
+    const arr = toArray(result);
+
+    // Edit 1 -> epoch 0 (in S1)
+    // Edit 3 -> epoch 1 (in S2 but not S1)
+    expect(arr).toHaveLength(2);
+    expect(arr[0]!.edits).toHaveLength(1);
+    expect(arr[1]!.edits).toHaveLength(1);
   });
 });

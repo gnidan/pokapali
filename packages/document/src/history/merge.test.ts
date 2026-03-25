@@ -3,9 +3,9 @@ import fc from "fast-check";
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 import { measureTree, toArray } from "@pokapali/finger-tree";
-import { epochMeasured, epochIndexMonoid } from "./index-monoid.js";
-import type { EpochIndex } from "./index-monoid.js";
-import { fromEpochs } from "./tree.js";
+import { epochMeasured, summaryMonoid } from "./summary.js";
+import type { Summary } from "./summary.js";
+import { fromEpochs } from "./history.js";
 import {
   edit,
   epoch,
@@ -48,7 +48,7 @@ function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return true;
 }
 
-function epochIndexEq(a: EpochIndex, b: EpochIndex): boolean {
+function summaryEq(a: Summary, b: Summary): boolean {
   return (
     a.epochCount === b.epochCount &&
     a.editCount === b.editCount &&
@@ -234,7 +234,10 @@ const arbAuthor = fc.constantFrom("aa", "bb", "cc", "dd", "ee", "ff");
 
 const arbEditForProp = fc.record({
   payload: fc.constant(new Uint8Array([1])),
-  timestamp: fc.integer({ min: 0, max: 1_000_000 }),
+  timestamp: fc.integer({
+    min: 0,
+    max: 1_000_000,
+  }),
   author: arbAuthor,
   channel: fc.constantFrom("content", "comments"),
   origin: fc.constant("local" as const),
@@ -258,7 +261,7 @@ describe("mergeEpochs properties", () => {
 
           const idxA = epochMeasured.measure(a);
           const idxB = epochMeasured.measure(b);
-          const combined = epochIndexMonoid.append(idxA, idxB);
+          const combined = summaryMonoid.append(idxA, idxB);
           const idxMerged = epochMeasured.measure(merged);
 
           // editCount is sum

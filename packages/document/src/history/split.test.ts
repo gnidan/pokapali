@@ -3,9 +3,8 @@ import fc from "fast-check";
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 import { measureTree, toArray } from "@pokapali/finger-tree";
-import { epochMeasured, epochIndexMonoid } from "./index-monoid.js";
-import type { EpochIndex } from "./index-monoid.js";
-import { fromEpochs } from "./tree.js";
+import { epochMeasured, summaryMonoid } from "./summary.js";
+import { fromEpochs } from "./history.js";
 import { mergeEpochs } from "./merge.js";
 import {
   edit,
@@ -15,8 +14,8 @@ import {
   snapshottedBoundary,
 } from "./types.js";
 import type { Edit, Epoch } from "./types.js";
-import type { CrdtCodec } from "../codec/codec.js";
-import { splitEpochAtSnapshot } from "./split-epoch.js";
+import type { Codec } from "@pokapali/codec";
+import { splitEpochAtSnapshot } from "./split.js";
 
 // -- Helpers --
 
@@ -52,13 +51,13 @@ function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 }
 
 /**
- * A fake CrdtCodec where `contains` returns true
- * if snapshot includes the edit's payload byte.
+ * A fake Codec where `contains` returns true if
+ * snapshot includes the edit's payload byte.
  *
  * Snapshot is a Uint8Array treated as a set of byte
  * values. An edit's payload[0] is its identity.
  */
-function fakeCodec(containedIds: Set<number>): CrdtCodec {
+function fakeCodec(containedIds: Set<number>): Codec {
   return {
     merge: (a, b) => new Uint8Array([...a, ...b]),
     diff: (state, _base) => state,
@@ -101,7 +100,7 @@ describe("splitEpochAtSnapshot", () => {
     expect(arr[1]!.boundary.tag).toBe("closed");
   });
 
-  it("snapshot contains all → before gets all, after empty", () => {
+  it("snapshot contains all -> before gets all, after empty", () => {
     const edits = [
       fakeEdit(1, "aa", "content", 100),
       fakeEdit(2, "bb", "content", 200),
@@ -122,7 +121,7 @@ describe("splitEpochAtSnapshot", () => {
     expect(arr[1]!.boundary.tag).toBe("closed");
   });
 
-  it("snapshot contains none → before empty, after gets all", () => {
+  it("snapshot contains none -> before empty, after gets all", () => {
     const edits = [
       fakeEdit(1, "aa", "content", 100),
       fakeEdit(2, "bb", "content", 200),
@@ -215,7 +214,10 @@ const arbAuthor = fc.constantFrom("aa", "bb", "cc", "dd", "ee", "ff");
 function arbEditWithId(id: number) {
   return fc
     .record({
-      timestamp: fc.integer({ min: 0, max: 1_000_000 }),
+      timestamp: fc.integer({
+        min: 0,
+        max: 1_000_000,
+      }),
       author: arbAuthor,
       channel: fc.constantFrom("content", "comments"),
     })
@@ -242,7 +244,8 @@ describe("splitEpochAtSnapshot properties", () => {
   it("split then merge = original edits", () => {
     fc.assert(
       fc.property(arbEpochWithIds, fc.nat(), ({ ep, ids }, splitRaw) => {
-        // Pick a random subset of IDs for the snapshot
+        // Pick a random subset of IDs for the
+        // snapshot
         const splitPoint = splitRaw % (ids.length + 1);
         const containedIds = new Set(ids.slice(0, splitPoint));
         const codec = fakeCodec(containedIds);
@@ -270,7 +273,7 @@ describe("splitEpochAtSnapshot properties", () => {
     );
   });
 
-  it("EpochIndex consistent after split", () => {
+  it("Summary consistent after split", () => {
     fc.assert(
       fc.property(arbEpochWithIds, fc.nat(), ({ ep, ids }, splitRaw) => {
         const splitPoint = splitRaw % (ids.length + 1);
