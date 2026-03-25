@@ -3,13 +3,25 @@
  * registry and lifecycle management.
  *
  * Wraps the existing pokapali() entry point, adding
- * structured document tracking via a registry map.
+ * structured document tracking via a registry map
+ * and per-document lifecycle state management.
+ *
  * New code alongside old — pokapali() is untouched.
  */
 
 import { pokapali } from "./index.js";
 import type { PokapaliConfig, PokapaliApp } from "./index.js";
 import type { Doc } from "./create-doc.js";
+import type { Level } from "@pokapali/document";
+import type { Codec } from "@pokapali/codec";
+import { Document } from "@pokapali/document";
+
+/** Extended config adding codec for view lifecycle. */
+export interface AppConfig extends PokapaliConfig {
+  /** Codec for CRDT operations. Required for
+   *  lifecycle levels above background. */
+  codec?: Codec;
+}
 
 export interface App {
   /** Application identifier. */
@@ -30,6 +42,16 @@ export interface App {
   /** Close a document by IPNS name, destroying it
    *  and removing it from the registry. */
   close(id: string): void;
+  /** Activate views on a document up to the given
+   *  lifecycle level. No-op for unknown doc IDs. */
+  activate(id: string, level: Level): void;
+  /** Deactivate all views on a document, returning
+   *  it to background level. No-op for unknown
+   *  doc IDs. */
+  deactivate(id: string): void;
+  /** Get the current lifecycle level for a document.
+   *  Returns undefined for unknown doc IDs. */
+  levelOf(id: string): Level | undefined;
   /** Check if a URL matches this app's doc format. */
   isDocUrl(url: string): boolean;
   /** Extract document IPNS name from a capability
@@ -45,15 +67,54 @@ export const App: {
    *  (identity loading, network bootstrap) without
    *  a breaking API change. Currently wraps the
    *  synchronous pokapali() call. */
-  create(config: PokapaliConfig): Promise<App>;
+  create(config: AppConfig): Promise<App>;
 } = {
-  async create(config: PokapaliConfig): Promise<App> {
+  async create(config: AppConfig): Promise<App> {
     const inner: PokapaliApp = pokapali(config);
     const docs = new Map<string, Doc>();
+    const lifecycles = new Map<string, Document>();
 
     const appId = config.appId ?? "";
     const channels = config.channels;
     const origin = config.origin;
+    const codec = config.codec;
+
+    /** Minimal identity for Document — lifecycle
+     *  management doesn't use identity or capability,
+     *  but Document.create requires them. */
+    const dummyIdentity = {
+      publicKey: new Uint8Array(32),
+      privateKey: new Uint8Array(64),
+    };
+
+    const dummyCapability = {
+      channels: new Set(channels),
+      canPushSnapshots: false,
+      isAdmin: false,
+    };
+
+    function createLifecycle(): Document {
+      return Document.create({
+        identity: dummyIdentity,
+        capability: dummyCapability,
+        codec,
+      });
+    }
+
+    function registerDoc(id: string, doc: Doc): void {
+      docs.set(id, doc);
+      lifecycles.set(id, createLifecycle());
+    }
+
+    function removeDoc(id: string): void {
+      const lc = lifecycles.get(id);
+      if (lc) {
+        lc.deactivate();
+        lc.destroy();
+      }
+      lifecycles.delete(id);
+      docs.delete(id);
+    }
 
     return {
       appId,
@@ -63,11 +124,8 @@ export const App: {
 
       async create(): Promise<Doc> {
         const doc = await inner.create();
-        // Doc has an ipnsName on the params used
-        // to create it. We need to extract the id.
-        // The doc's read URL contains the IPNS name.
         const id = inner.docIdFromUrl(doc.urls.read);
-        docs.set(id, doc);
+        registerDoc(id, doc);
         return doc;
       },
 
@@ -78,7 +136,7 @@ export const App: {
           return existing;
         }
         const doc = await inner.open(url);
-        docs.set(id, doc);
+        registerDoc(id, doc);
         return doc;
       },
 
@@ -86,7 +144,24 @@ export const App: {
         const doc = docs.get(id);
         if (!doc) return;
         doc.destroy();
-        docs.delete(id);
+        removeDoc(id);
+      },
+
+      activate(id: string, level: Level): void {
+        const lc = lifecycles.get(id);
+        if (!lc) return;
+        lc.activate(level);
+      },
+
+      deactivate(id: string): void {
+        const lc = lifecycles.get(id);
+        if (!lc) return;
+        lc.deactivate();
+      },
+
+      levelOf(id: string): Level | undefined {
+        const lc = lifecycles.get(id);
+        return lc?.level;
       },
 
       isDocUrl(url: string): boolean {
@@ -98,10 +173,18 @@ export const App: {
       },
 
       destroy(): void {
+        for (const [id] of docs) {
+          const lc = lifecycles.get(id);
+          if (lc) {
+            lc.deactivate();
+            lc.destroy();
+          }
+        }
         for (const doc of docs.values()) {
           doc.destroy();
         }
         docs.clear();
+        lifecycles.clear();
       },
     };
   },

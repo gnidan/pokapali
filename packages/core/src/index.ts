@@ -391,6 +391,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 }
 
 export { App } from "./app.js";
+export type { AppConfig } from "./app.js";
 
 // --- Re-exports ---
 
