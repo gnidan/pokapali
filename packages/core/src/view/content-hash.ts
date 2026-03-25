@@ -1,62 +1,10 @@
 /**
- * contentHash view.
- *
- * Order-independent content hash using SHA-256 + XOR.
- *
- * Each edit's payload is hashed with SHA-256, then
- * hashes are combined via XOR. Because XOR is
- * commutative and associative, the result is the same
- * regardless of edit order within or across epochs.
- *
- * Two peers with the same set of edits but different
- * epoch boundaries will produce the same root hash.
+ * Re-export contentHashView from @pokapali/document
+ * for backwards compatibility.
  */
-import { sha256 } from "@noble/hashes/sha256";
-import type { Measured } from "@pokapali/finger-tree";
-import type { Epoch } from "../epoch/types.js";
-import type { MonoidalView } from "./types.js";
-import { monoidalView } from "./types.js";
+import type { View } from "@pokapali/document";
+import { Fingerprint } from "@pokapali/document";
 
-/** XOR two 32-byte arrays. */
-function xor(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const result = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    result[i] = (a[i] ?? 0) ^ (b[i] ?? 0);
-  }
-  return result;
-}
-
-/**
- * Create a MonoidalView that produces an order-
- * independent content hash.
- *
- * The monoid:
- * - identity: 32 zero bytes
- * - append: XOR
- *
- * The measure: XOR of SHA-256 hashes of all edit
- * payloads in the epoch.
- */
-function measureEpochHash(ep: Epoch): Uint8Array {
-  let acc: Uint8Array = new Uint8Array(32);
-  for (const e of ep.edits) {
-    acc = xor(acc, sha256(e.payload));
-  }
-  return acc;
-}
-
-export function contentHashView(): MonoidalView<Uint8Array> {
-  const measured: Measured<Uint8Array, Epoch> = {
-    monoid: {
-      empty: new Uint8Array(32),
-      append: xor,
-    },
-    measure: measureEpochHash,
-  };
-
-  return monoidalView({
-    name: "content-hash",
-    description: "Order-independent content hash (SHA-256 + XOR)",
-    measured,
-  });
+export function contentHashView(): View<Uint8Array> {
+  return Fingerprint.view();
 }
