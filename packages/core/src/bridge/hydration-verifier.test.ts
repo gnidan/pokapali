@@ -4,6 +4,7 @@
  * live edits) matches the live Y.Doc state.
  */
 import { describe, it, expect, afterEach } from "vitest";
+import * as fc from "fast-check";
 import * as Y from "yjs";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -420,4 +421,94 @@ describe("verifyHydration", () => {
     expect(results[1]!.match).toBe(true);
     expect(results[1]!.channel).toBe("comments");
   });
+
+  it(
+    "property: N snapshots × M post-snapshot " +
+      "edits → hydrate → verify matches",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 1, max: 5 }),
+          fc.integer({ min: 0, max: 3 }),
+          async (numSnaps, numPostEdits) => {
+            const { keys, signingKey } = await makeKeys();
+            const { manager, docs } = mockSubdocManager(["content"]);
+            const codec = yjsCodec();
+            const blocks = new Map<string, Uint8Array>();
+
+            const d = createDocument({
+              identity: fakeIdentity(),
+              capability: fakeCapability(),
+            });
+            const br = createEditBridge({
+              subdocManager: manager,
+              document: d,
+              channelNames: ["content"],
+              localAuthor: "aabb",
+            });
+            await br.start();
+
+            const yDoc = docs.get("content")!;
+            let prevCid: CID | null = null;
+
+            // Build N snapshots
+            for (let i = 1; i <= numSnaps; i++) {
+              yDoc.getArray("data").push([`s-${i}`]);
+              const snapDoc = new Y.Doc();
+              Y.applyUpdate(snapDoc, Y.encodeStateAsUpdate(yDoc));
+              const plaintexts: Record<string, Uint8Array> = {
+                content: Y.encodeStateAsUpdate(snapDoc),
+              };
+              const block = await encodeSnapshot(
+                plaintexts,
+                keys.readKey,
+                prevCid,
+                i,
+                Date.now(),
+                signingKey,
+              );
+              const hash = await sha256.digest(block);
+              const cid = CID.createV1(0x71, hash);
+              blocks.set(cid.toString(), block);
+              prevCid = cid;
+            }
+
+            // M post-snapshot edits
+            for (let j = 0; j < numPostEdits; j++) {
+              yDoc.getArray("data").push([`p-${j}`]);
+            }
+
+            // Hydrate
+            const { hydrateFromSnapshots } = await import("./hydrator.js");
+            const hydrated = await hydrateFromSnapshots({
+              tipCid: prevCid!,
+              blockGetter: async (c: CID) => {
+                const b = blocks.get(c.toString());
+                if (!b) {
+                  throw new Error(`missing ${c}`);
+                }
+                return b;
+              },
+              readKey: keys.readKey,
+            });
+
+            const [result] = await verifyHydration({
+              document: d,
+              subdocManager: manager,
+              channelNames: ["content"],
+              codec,
+              snapshotEpochs: hydrated,
+            });
+
+            expect(result!.match).toBe(true);
+            expect(result!.snapshotEpochCount).toBe(numSnaps);
+
+            br.destroy();
+            d.destroy();
+          },
+        ),
+        { numRuns: 30 },
+      );
+    },
+  );
 });

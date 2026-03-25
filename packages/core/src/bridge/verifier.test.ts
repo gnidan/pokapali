@@ -308,7 +308,70 @@ describe("createParallelVerifier", () => {
           bridge.destroy();
           d.destroy();
         }),
-        { numRuns: 20 },
+        { numRuns: 50 },
+      );
+    },
+  );
+
+  it(
+    "property: divergence detected when " + "phantom edit injected",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(fc.integer({ min: 1, max: 5 }), async (numEdits) => {
+          const d = createDocument({
+            identity: fakeIdentity(),
+            capability: fakeCapability(),
+          });
+          const { manager, docs } = mockSubdocManager(["content"]);
+          const codec = yjsCodec();
+
+          const bridge = createEditBridge({
+            subdocManager: manager,
+            document: d,
+            channelNames: ["content"],
+            localAuthor: "aabb",
+          });
+          await bridge.start();
+
+          const yDoc = docs.get("content")!;
+          for (let i = 0; i < numEdits; i++) {
+            yDoc.getArray("data").push([`e-${i}`]);
+          }
+
+          bridge.destroy();
+
+          // Inject phantom edit into tree only
+          const phantomDoc = new Y.Doc();
+          phantomDoc.getArray("phantom").push(["diverge"]);
+          const phantomUpdate = Y.encodeStateAsUpdate(phantomDoc);
+
+          const { edit } = await import("../epoch/types.js");
+          d.channel("content").appendEdit(
+            edit({
+              payload: phantomUpdate,
+              timestamp: Date.now(),
+              author: "phantom",
+              channel: "content",
+              origin: "local",
+              signature: new Uint8Array([]),
+            }),
+          );
+
+          const verifier = createParallelVerifier({
+            document: d,
+            subdocManager: manager,
+            channelNames: ["content"],
+            codec,
+          });
+
+          const result = verifier.verify("content");
+          expect(result.match).toBe(false);
+          expect(result.details).toBeDefined();
+          expect(result.details!.length).toBeGreaterThan(0);
+
+          d.destroy();
+        }),
+        { numRuns: 30 },
       );
     },
   );

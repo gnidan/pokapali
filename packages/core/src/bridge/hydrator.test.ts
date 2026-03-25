@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import * as fc from "fast-check";
 import * as Y from "yjs";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -180,4 +181,65 @@ describe("hydrateFromSnapshots", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it(
+    "property: N-link chain → N epochs " +
+      "per channel, oldest-first, all snapshotted",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(fc.integer({ min: 1, max: 5 }), async (chainLen) => {
+          const { keys, signingKey } = await makeKeys();
+          const blocks = new Map<string, Uint8Array>();
+
+          let prevCid: CID | null = null;
+          for (let i = 1; i <= chainLen; i++) {
+            const doc = new Y.Doc();
+            doc.getText("content").insert(0, `snap-${i}`);
+            const plaintexts: Record<string, Uint8Array> = {
+              content: Y.encodeStateAsUpdate(doc),
+            };
+            const block = await encodeSnapshot(
+              plaintexts,
+              keys.readKey,
+              prevCid,
+              i,
+              Date.now(),
+              signingKey,
+            );
+            const hash = await sha256.digest(block);
+            const cid = CID.createV1(DAG_CBOR_CODE, hash);
+            blocks.set(cid.toString(), block);
+            prevCid = cid;
+          }
+
+          const result = await hydrateFromSnapshots({
+            tipCid: prevCid!,
+            blockGetter: async (c: CID) => {
+              const b = blocks.get(c.toString());
+              if (!b) {
+                throw new Error(`missing ${c}`);
+              }
+              return b;
+            },
+            readKey: keys.readKey,
+          });
+
+          const epochs = result.get("content")!;
+          expect(epochs).toHaveLength(chainLen);
+
+          // All boundaries snapshotted
+          for (const ep of epochs) {
+            expect(ep.boundary.tag).toBe("snapshotted");
+          }
+
+          // Each epoch has exactly one edit
+          for (const ep of epochs) {
+            expect(ep.edits).toHaveLength(1);
+            expect(ep.edits[0]!.origin).toBe("hydrate");
+          }
+        }),
+        { numRuns: 20 },
+      );
+    },
+  );
 });
