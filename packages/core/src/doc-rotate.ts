@@ -12,8 +12,7 @@ import {
   ed25519KeyPairFromSeed,
   bytesToHex,
 } from "@pokapali/crypto";
-import { createSubdocManager } from "@pokapali/subdocs";
-import type { SubdocManager } from "@pokapali/subdocs";
+import { Subdocs } from "./subdocs/index.js";
 import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
 import type { SyncOptions, PubSubLike } from "@pokapali/sync";
 import {
@@ -51,7 +50,7 @@ export interface RotateContext {
   signalingUrls: string[];
   syncOpts?: SyncOptions;
   pubsub?: PubSubLike;
-  subdocManager: SubdocManager;
+  subdocManager: Subdocs;
 }
 
 /**
@@ -92,11 +91,11 @@ export async function rotateDoc(
   const newIpnsName = bytesToHex(newSigningKey.publicKey);
 
   // Copy current state to new subdoc manager
-  const newSubdocManager = createSubdocManager(newIpnsName, ctx.channels, {
+  const newSubdocs = Subdocs.create(newIpnsName, ctx.channels, {
     primaryNamespace: ctx.primaryChannel,
   });
   const snapshot = ctx.subdocManager.encodeAll();
-  newSubdocManager.applySnapshot(snapshot);
+  newSubdocs.applySnapshot(snapshot);
 
   const rotateSyncOpts: SyncOptions = {
     ...ctx.syncOpts,
@@ -105,7 +104,7 @@ export async function rotateDoc(
 
   const newSyncManager = setupNamespaceRooms(
     newIpnsName,
-    newSubdocManager,
+    newSubdocs,
     newDocKeys.channelKeys,
     ctx.signalingUrls,
     rotateSyncOpts,
@@ -146,7 +145,7 @@ export async function rotateDoc(
   const newCap = inferCapability(newKeys, ctx.channels);
 
   populateMetaFn(
-    newSubdocManager.metaDoc,
+    newSubdocs.metaDoc,
     newSigningKey.publicKey,
     newDocKeys.channelKeys,
   );
@@ -159,7 +158,7 @@ export async function rotateDoc(
   }
 
   const newDoc = createDocFn({
-    subdocManager: newSubdocManager,
+    subdocManager: newSubdocs,
     syncManager: newSyncManager,
     awarenessRoom: newAwarenessRoom,
     cap: newCap,

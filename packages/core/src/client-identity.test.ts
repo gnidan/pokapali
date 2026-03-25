@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { bytesToHex, hexToBytes, verifyBytes } from "@pokapali/crypto";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
-import { createSubdocManager } from "@pokapali/subdocs";
+import { Subdocs } from "./subdocs/index.js";
 import { Awareness } from "y-protocols/awareness";
 import { signParticipant } from "./identity.js";
 import { setupParticipantAwareness } from "./doc-identity.js";
@@ -451,7 +451,7 @@ describe("setupParticipantAwareness", () => {
       crypto.getRandomValues(seed);
       const kp = await ed25519KeyPairFromSeed(seed);
 
-      const sdm = createSubdocManager("test-ipns", ["content"]);
+      const sdm = Subdocs.create("test-ipns", ["content"]);
       const doc = new Y.Doc();
       const awareness = new Awareness(doc);
 

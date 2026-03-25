@@ -14,7 +14,7 @@ import {
   setupParticipantAwareness,
 } from "./doc-identity.js";
 import type { IdentityMap } from "./doc-identity.js";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { Subdocs } from "./subdocs/index.js";
 import type {
   SyncManager,
   AwarenessRoom,
@@ -303,7 +303,7 @@ export interface P2PDeps {
 }
 
 export interface DocParams {
-  subdocManager: SubdocManager;
+  subdocManager: Subdocs;
   syncManager?: SyncManager;
   awarenessRoom?: AwarenessRoom;
   cap: Capability;

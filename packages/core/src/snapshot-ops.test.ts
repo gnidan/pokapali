@@ -15,7 +15,7 @@ import {
 } from "./snapshot-ops.js";
 import type { SnapshotCodec } from "./snapshot-codec.js";
 import type { BlockResolver } from "./block-resolver.js";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { Subdocs } from "./subdocs/index.js";
 
 // --- Helpers ---
 
@@ -52,7 +52,7 @@ function mockSnapshotCodec(): SnapshotCodec {
   } as unknown as SnapshotCodec;
 }
 
-function mockSubdocManager(): SubdocManager {
+function mockSubdocs(): Subdocs {
   const metaDoc = new Y.Doc({ guid: "test:_meta" });
   return {
     subdoc: vi.fn(),
@@ -64,7 +64,7 @@ function mockSubdocManager(): SubdocManager {
     off: vi.fn(),
     whenLoaded: Promise.resolve(),
     destroy: vi.fn(),
-  } as unknown as SubdocManager;
+  } as unknown as Subdocs;
 }
 
 function buildOptions(
@@ -72,7 +72,7 @@ function buildOptions(
 ): SnapshotOpsOptions {
   return {
     snapshotCodec: mockSnapshotCodec(),
-    subdocManager: mockSubdocManager(),
+    subdocManager: mockSubdocs(),
     resolver: mockResolver(),
     readKey: {} as CryptoKey,
     getClockSum: () => 42,
@@ -214,7 +214,7 @@ describe("createSnapshotOps", () => {
     );
 
     it("returns true for listed publisher", () => {
-      const sdm = mockSubdocManager();
+      const sdm = mockSubdocs();
       sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
       const ops = createSnapshotOps(buildOptions({ subdocManager: sdm }));
@@ -223,7 +223,7 @@ describe("createSnapshotOps", () => {
     });
 
     it("returns false for unlisted publisher", () => {
-      const sdm = mockSubdocManager();
+      const sdm = mockSubdocs();
       sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
       const ops = createSnapshotOps(buildOptions({ subdocManager: sdm }));
@@ -234,7 +234,7 @@ describe("createSnapshotOps", () => {
     it(
       "returns false for undefined publisher" + " when auth is configured",
       () => {
-        const sdm = mockSubdocManager();
+        const sdm = mockSubdocs();
         sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
         const ops = createSnapshotOps(buildOptions({ subdocManager: sdm }));

@@ -11,7 +11,7 @@ import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { hexToBytes, bytesToHex, verifyBytes } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
-import { SNAPSHOT_ORIGIN } from "@pokapali/subdocs";
+import { Subdocs } from "./subdocs/index.js";
 import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
 import { createFeed } from "./sources.js";
@@ -155,7 +155,7 @@ export function setupParticipantAwareness(
 
         // Persist clientID→pubkey in _meta so the
         // mapping survives across snapshots.
-        // Use SNAPSHOT_ORIGIN so the write doesn't
+        // Use Subdocs.SNAPSHOT_ORIGIN so the write doesn't
         // mark the doc dirty — this is infrastructure
         // metadata, not a user edit (#357).
         metaDoc.transact(() => {
@@ -165,7 +165,7 @@ export function setupParticipantAwareness(
             sig,
             v: 2,
           });
-        }, SNAPSHOT_ORIGIN);
+        }, Subdocs.SNAPSHOT_ORIGIN);
       })
       .catch((err) => {
         log.warn(

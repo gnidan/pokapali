@@ -96,7 +96,6 @@ export function createSubdocManager(
   let destroyed = false;
   const dirtyListeners = new Set<() => void>();
 
-  // Create docs for each namespace + _meta
   const allKeys = [...namespaces, "_meta"];
   for (const key of allKeys) {
     const guid = `${ipnsName}:${key}`;
@@ -104,7 +103,6 @@ export function createSubdocManager(
     docs.set(key, doc);
   }
 
-  // Track updates for dirty flag
   const updateHandlers = new Map<
     string,
     (update: Uint8Array, origin: unknown) => void
@@ -137,10 +135,6 @@ export function createSubdocManager(
     registerDoc(key, doc);
   }
 
-  // Load all docs and build whenLoaded promise.
-  // For root docs without a provider, load()
-  // alone won't fire the 'load' event, so we
-  // emit it manually after calling load().
   const loadPromises: Promise<void>[] = [];
   for (const doc of docs.values()) {
     loadPromises.push(doc.whenLoaded.then(() => {}));

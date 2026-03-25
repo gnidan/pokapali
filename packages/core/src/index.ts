@@ -14,7 +14,7 @@ import {
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
-import { createSubdocManager } from "@pokapali/subdocs";
+import { Subdocs } from "./subdocs/index.js";
 import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
 import type { SyncOptions, PubSubLike } from "@pokapali/sync";
 import {
@@ -171,7 +171,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     let docPersistence: DocPersistence | null = null;
     const skipOrigins = new Set<object>();
 
-    const subdocManager = createSubdocManager(ipnsName, channels, {
+    const subdocManager = Subdocs.create(ipnsName, channels, {
       primaryNamespace: primaryChannel,
       skipOrigins: persistenceEnabled ? skipOrigins : undefined,
     });

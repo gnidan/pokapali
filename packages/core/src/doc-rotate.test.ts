@@ -168,7 +168,7 @@ describe("rotateDoc", () => {
   });
 
   it("copies state from old subdocManager", async () => {
-    const encodeAll = vi.fn(() => new Uint8Array([9, 8, 7]));
+    const encodeAll = vi.fn(() => ({}));
     const ctx = baseContext({
       subdocManager: {
         encodeAll,

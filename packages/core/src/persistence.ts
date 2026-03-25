@@ -7,11 +7,11 @@
  *
  * The provider instance is used as the transaction
  * origin when applying stored updates, so it must be
- * added to SubdocManager's skipOrigins to suppress
+ * added to Subdocs's skipOrigins to suppress
  * false dirty flags.
  */
 import { IndexeddbPersistence } from "y-indexeddb";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { Subdocs } from "./subdocs/index.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("persistence");
@@ -34,14 +34,14 @@ export interface DocPersistence {
 
 /**
  * Attach y-indexeddb providers to every Y.Doc in a
- * SubdocManager. Each provider is keyed by the doc's
+ * Subdocs. Each provider is keyed by the doc's
  * guid (which is `${ipnsName}:${namespace}`).
  *
  * Returns a DocPersistence handle for lifecycle
  * management. Call destroy() when the doc is closed.
  */
 export function createDocPersistence(
-  subdocManager: SubdocManager,
+  subdocManager: Subdocs,
   namespaces: string[],
 ): DocPersistence {
   const providers = new Set<IndexeddbPersistence>();
