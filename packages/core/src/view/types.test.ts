@@ -8,7 +8,7 @@ import {
   viewReady,
   viewStale,
 } from "./types.js";
-import type { MonoidalView, DerivedView, ViewState } from "./types.js";
+import type { DerivedView, ViewState } from "./types.js";
 
 // -- Helpers --
 
@@ -25,24 +25,27 @@ describe("MonoidalView", () => {
     const view = monoidalView({
       name: "epoch-count",
       description: "Counts epochs",
+      channel: "test",
       measured: countMeasured,
     });
 
     expect(view.name).toBe("epoch-count");
     expect(view.description).toBe("Counts epochs");
-    expect(view.measured).toBe(countMeasured);
+    expect(view.channels["test"]).toBe(countMeasured);
   });
 
   it("measured field has correct monoid", () => {
     const view = monoidalView({
       name: "test",
       description: "test view",
+      channel: "test",
       measured: countMeasured,
     });
 
-    expect(view.measured.monoid.empty).toBe(0);
-    expect(view.measured.monoid.append(2, 3)).toBe(5);
-    expect(view.measured.measure({} as Epoch)).toBe(1);
+    const m = view.channels["test"]!;
+    expect(m.monoid.empty).toBe(0);
+    expect(m.monoid.append(2, 3)).toBe(5);
+    expect(m.measure({} as Epoch)).toBe(1);
   });
 });
 

@@ -32,6 +32,7 @@ const editCountMeasured: Measured<number, Epoch> = {
 const editCountView = monoidalView({
   name: "edit-count",
   description: "Total edit count",
+  channel: "content",
   measured: editCountMeasured,
 });
 
@@ -47,6 +48,7 @@ const maxIdMeasured: Measured<number, Epoch> = {
 const maxIdView = monoidalView({
   name: "max-id",
   description: "Maximum edit ID",
+  channel: "content",
   measured: maxIdMeasured,
 });
 

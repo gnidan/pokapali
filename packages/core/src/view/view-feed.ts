@@ -12,5 +12,9 @@ export interface ViewFeed<V> extends Feed<Status<V>> {
 }
 
 export function createViewFeed<V>(view: View<V>, tree: History): ViewFeed<V> {
-  return DocumentFeed.create(view, tree);
+  // Assumes single-channel view — compat shim, to be
+  // deleted
+  const channel = Object.keys(view.channels)[0]!;
+  const measured = view.channels[channel]!;
+  return DocumentFeed.create(measured, tree);
 }

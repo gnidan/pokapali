@@ -28,15 +28,17 @@ const editCountMeasured: Measured<number, Epoch> = {
   measure: (ep) => ep.edits.length,
 };
 
-const editCountView = View.create({
+const editCountView = View.singleChannel({
   name: "edit-count",
   description: "Total edit count",
+  channel: "content",
   measured: editCountMeasured,
 });
 
-const maxIdView = View.create({
+const maxIdView = View.singleChannel({
   name: "max-id",
   description: "Max edit payload byte",
+  channel: "content",
   measured: {
     monoid: {
       empty: 0,
@@ -52,7 +54,7 @@ const maxIdView = View.create({
 describe("Registry.create", () => {
   it("starts with no active views", () => {
     const tree = History.fromEpochs([]);
-    const registry = Registry.create(tree);
+    const registry = Registry.create("content", tree);
 
     expect(registry.isActive("edit-count")).toBe(false);
   });
@@ -62,7 +64,7 @@ describe("Registry.create", () => {
       EpochCompanion.create([fakeEdit(1), fakeEdit(2)], Boundary.closed()),
     ]);
 
-    const registry = Registry.create(tree);
+    const registry = Registry.create("content", tree);
     const feed = registry.activate(editCountView);
     const state = feed.getSnapshot();
 
@@ -74,7 +76,7 @@ describe("Registry.create", () => {
 
   it("activate marks view as active", () => {
     const tree = History.fromEpochs([]);
-    const registry = Registry.create(tree);
+    const registry = Registry.create("content", tree);
     registry.activate(editCountView);
 
     expect(registry.isActive("edit-count")).toBe(true);
@@ -85,7 +87,7 @@ describe("Registry.create", () => {
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
 
-    const registry = Registry.create(tree);
+    const registry = Registry.create("content", tree);
     const feed1 = registry.activate(editCountView);
     const feed2 = registry.activate(editCountView);
 
@@ -97,7 +99,7 @@ describe("Registry.create", () => {
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
 
-    const registry = Registry.create(tree1);
+    const registry = Registry.create("content", tree1);
     const countFeed = registry.activate(editCountView);
     const maxFeed = registry.activate(maxIdView);
 
@@ -119,7 +121,7 @@ describe("Registry.create", () => {
 
   it("deactivate removes view", () => {
     const tree = History.fromEpochs([]);
-    const registry = Registry.create(tree);
+    const registry = Registry.create("content", tree);
     registry.activate(editCountView);
     registry.deactivate("edit-count");
 
@@ -131,7 +133,7 @@ describe("Registry.create", () => {
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
 
-    const registry = Registry.create(tree1);
+    const registry = Registry.create("content", tree1);
     const feed = registry.activate(editCountView);
     const cb = vi.fn();
     feed.subscribe(cb);
@@ -147,7 +149,7 @@ describe("Registry.create", () => {
 
   it("destroy clears all feeds", () => {
     const tree = History.fromEpochs([]);
-    const registry = Registry.create(tree);
+    const registry = Registry.create("content", tree);
     registry.activate(editCountView);
     registry.activate(maxIdView);
     registry.destroy();
@@ -160,7 +162,7 @@ describe("Registry.create", () => {
     const tree1 = History.fromEpochs([
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
-    const registry = Registry.create(tree1);
+    const registry = Registry.create("content", tree1);
     const feed1 = registry.activate(editCountView);
 
     const tree2 = History.fromEpochs([

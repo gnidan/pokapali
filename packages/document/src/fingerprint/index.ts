@@ -1,1 +1,1 @@
-export { view } from "./view.js";
+export { view, channelMeasured } from "./view.js";

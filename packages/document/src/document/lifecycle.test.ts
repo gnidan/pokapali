@@ -7,9 +7,10 @@
  * Each level activates additional views on all
  * channels.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import type { Codec } from "@pokapali/codec";
 import { Edit } from "#history";
+import * as State from "../state/index.js";
 import { Document } from "./document.js";
 
 // -- Helpers --
@@ -104,17 +105,7 @@ describe("Document lifecycle", () => {
       doc.activate("active");
 
       // merged-payload feed should be available
-      const feed = ch.activate({
-        name: "merged-payload",
-        description: "",
-        measured: {
-          monoid: {
-            empty: new Uint8Array([]),
-            append: (a, b) => new Uint8Array([...a, ...b]),
-          },
-          measure: () => new Uint8Array([]),
-        },
-      });
+      const feed = ch.activate(State.view(fakeCodec()));
       // If already activated by lifecycle, calling
       // activate again returns the existing feed
       const snap = feed.getSnapshot();

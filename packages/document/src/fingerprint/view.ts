@@ -33,8 +33,8 @@ function measureEpochHash(ep: Epoch): Uint8Array {
 }
 
 /**
- * Create a View that produces an order-independent
- * content hash.
+ * Create the per-channel Measured for a Fingerprint
+ * view. SHA-256 + XOR: order-independent content hash.
  *
  * The monoid:
  * - identity: 32 zero bytes
@@ -43,18 +43,34 @@ function measureEpochHash(ep: Epoch): Uint8Array {
  * The measure: XOR of SHA-256 hashes of all edit
  * payloads in the epoch.
  */
-export function view(): View<Uint8Array> {
-  const measured: Measured<Uint8Array, Epoch> = {
+export function channelMeasured(): Measured<Uint8Array, Epoch> {
+  return {
     monoid: {
       empty: new Uint8Array(32),
       append: xor,
     },
     measure: measureEpochHash,
   };
+}
+
+/**
+ * Create a multi-channel Fingerprint View spanning
+ * content and comments channels.
+ *
+ * Each channel uses the same SHA-256 + XOR measured.
+ * The combine function XORs both channel results.
+ */
+export function view(): View<Uint8Array> {
+  const measured = channelMeasured();
 
   return ViewCompanion.create({
     name: "content-hash",
     description: "Order-independent content hash " + "(SHA-256 + XOR)",
-    measured,
+    channels: {
+      content: measured,
+      comments: measured,
+    },
+    combine: (results) =>
+      xor(results.content as Uint8Array, results.comments as Uint8Array),
   });
 }

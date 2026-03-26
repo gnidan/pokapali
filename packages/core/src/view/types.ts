@@ -6,7 +6,7 @@ import type { History } from "@pokapali/document";
 import { View, Status } from "@pokapali/document";
 
 export type MonoidalView<V> = View<V>;
-export const monoidalView = View.create;
+export const monoidalView = View.singleChannel;
 
 /**
  * A view that depends on other views' resolved values.

@@ -1,9 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import fc from "fast-check";
-import type { Measured } from "@pokapali/finger-tree";
-import { toArray } from "@pokapali/finger-tree";
 import { fromEpochs } from "../epoch/tree.js";
-import { edit, epoch, closedBoundary, openBoundary } from "../epoch/types.js";
+import { edit, epoch, closedBoundary } from "../epoch/types.js";
 import type { Epoch } from "../epoch/types.js";
 import type { CrdtCodec } from "../codec/codec.js";
 import { evaluateMonoidal, createCache } from "./evaluate.js";
@@ -174,10 +172,11 @@ describe("evaluateAt properties", () => {
           // Manual foldl over first N epochs
           const n = Math.min(position, epochs.length);
           const prefix = epochs.slice(0, n);
+          const m = mergeView.channels["content"]!;
           const expected = prefix.reduce((acc, ep) => {
-            const epValue = mergeView.measured.measure(ep);
-            return mergeView.measured.monoid.append(acc, epValue);
-          }, mergeView.measured.monoid.empty);
+            const epValue = m.measure(ep);
+            return m.monoid.append(acc, epValue);
+          }, m.monoid.empty);
 
           expect(actual).toEqual(expected);
         },
@@ -195,6 +194,7 @@ describe("evaluateAt cache sharing", () => {
     const spiedView = monoidalView({
       name: "spied-count",
       description: "Spied edit count",
+      channel: "test",
       measured: {
         monoid: {
           empty: 0,

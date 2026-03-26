@@ -8,6 +8,7 @@ import type { Codec } from "@pokapali/codec";
 import { epochMeasured, Edit } from "#history";
 import * as State from "#state";
 import * as Fingerprint from "#fingerprint";
+import { View } from "../view.js";
 import { Document } from "./document.js";
 
 // -- Helpers --
@@ -78,7 +79,14 @@ describe("Document e2e integration", () => {
     const content = doc.channel("content");
     const comments = doc.channel("comments");
 
-    const mergeView = State.view(codec);
+    // Multi-channel merge view covering both channels
+    const measured = State.channelMeasured(codec);
+    const mergeView = View.create({
+      name: "merged-payload",
+      description: "Merged state across channels",
+      channels: { content: measured, comments: measured },
+      combine: (r) => r as Record<string, Uint8Array>,
+    });
     const hashView = Fingerprint.view();
 
     const contentMergeFeed = content.activate(mergeView);
@@ -213,8 +221,15 @@ describe("Document e2e integration", () => {
 
     const content = doc.channel("content");
     const comments = doc.channel("comments");
-    const contentFeed = content.activate(State.view(codec));
-    const commentsFeed = comments.activate(State.view(codec));
+    const m = State.channelMeasured(codec);
+    const mergeView = View.create({
+      name: "merged-payload",
+      description: "Merged state across channels",
+      channels: { content: m, comments: m },
+      combine: (r) => r as Record<string, Uint8Array>,
+    });
+    const contentFeed = content.activate(mergeView);
+    const commentsFeed = comments.activate(mergeView);
 
     const cb1 = vi.fn();
     const cb2 = vi.fn();

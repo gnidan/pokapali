@@ -12,7 +12,7 @@ import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
 import type { SubdocManager } from "@pokapali/subdocs";
 import type { Codec } from "@pokapali/codec";
-import { type Document, State, Fingerprint } from "@pokapali/document";
+import { type Document, View, State, Fingerprint } from "@pokapali/document";
 
 export interface ParallelVerifyResult {
   match: boolean;
@@ -43,12 +43,22 @@ export const ParallelVerifier: {
       const epochs = toArray(ch.tree);
       const epochCount = epochs.length;
 
-      const mergeView = State.view(codec);
+      const mergeView = View.singleChannel({
+        name: "merged-payload",
+        description: "Merged CRDT state via codec.merge",
+        channel: channelName,
+        measured: State.channelMeasured(codec),
+      });
       const feed = ch.activate(mergeView);
       const mergeState = feed.getSnapshot();
       ch.deactivate(mergeView.name);
 
-      const hashView = Fingerprint.view();
+      const hashView = View.singleChannel({
+        name: "content-hash",
+        description: "Order-independent content hash",
+        channel: channelName,
+        measured: Fingerprint.channelMeasured(),
+      });
       const hashFeed = ch.activate(hashView);
       const hashState = hashFeed.getSnapshot();
       ch.deactivate(hashView.name);

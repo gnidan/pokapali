@@ -15,7 +15,7 @@ export interface ViewRegistry {
 }
 
 export function createViewRegistry(initialTree: History): ViewRegistry {
-  const inner = Registry.create(initialTree);
+  const inner = Registry.create("content", initialTree);
   const wrappers = new Map<string, Feed<Status<unknown>>>();
 
   return {

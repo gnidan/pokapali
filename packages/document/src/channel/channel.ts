@@ -20,7 +20,7 @@ import {
   Epoch,
   Boundary,
 } from "#history";
-import type { View, Status } from "../view.js";
+import type { View } from "../view.js";
 import type { Feed } from "../feed/feed.js";
 import { Registry } from "../registry/registry.js";
 
@@ -50,7 +50,7 @@ export const Channel = {
     ]);
 
     let tree: History = initialTree;
-    const registry = Registry.create(tree);
+    const registry = Registry.create(name, tree);
     let destroyed = false;
 
     function updateTree(newTree: History): void {

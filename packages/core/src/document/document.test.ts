@@ -40,11 +40,14 @@ const editCountMeasured: Measured<number, Epoch> = {
   measure: (ep) => ep.edits.length,
 };
 
-const editCountView = monoidalView({
-  name: "edit-count",
-  description: "Total edit count",
-  measured: editCountMeasured,
-});
+function editCountView(channel: string) {
+  return monoidalView({
+    name: "edit-count",
+    description: "Total edit count",
+    channel,
+    measured: editCountMeasured,
+  });
+}
 
 // -- Tests --
 
@@ -112,8 +115,8 @@ describe("createDocument", () => {
     const content = doc.channel("content");
     const comments = doc.channel("comments");
 
-    const feed1 = content.activate(editCountView);
-    const feed2 = comments.activate(editCountView);
+    const feed1 = content.activate(editCountView("content"));
+    const feed2 = comments.activate(editCountView("comments"));
 
     const cb1 = vi.fn();
     const cb2 = vi.fn();

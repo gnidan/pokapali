@@ -5,13 +5,18 @@
  * their Feeds, and propagates tree changes to all
  * active feeds.
  */
-import type { View, Status } from "../view.js";
+import type { Measured } from "@pokapali/finger-tree";
+import type { View } from "../view.js";
 import type { Feed } from "../feed/feed.js";
 import { Feed as FeedCompanion } from "../feed/feed.js";
-import type { History } from "#history";
+import type { Epoch, History } from "#history";
 
 /**
  * Registry for active monoidal view feeds.
+ *
+ * Each Registry belongs to a specific channel.
+ * When activating a View, it extracts the Measured
+ * for its channel from `view.channels`.
  */
 export interface Registry {
   /** Activate a view, returning its feed. Idempotent. */
@@ -31,9 +36,9 @@ export interface Registry {
  */
 export const Registry = {
   /**
-   * Create a Registry with an initial history tree.
+   * Create a Registry for a named channel.
    */
-  create(initialTree: History): Registry {
+  create(channelName: string, initialTree: History): Registry {
     let currentTree = initialTree;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const feeds = new Map<string, Feed<any>>();
@@ -45,7 +50,14 @@ export const Registry = {
           return existing as Feed<V>;
         }
 
-        const feed = FeedCompanion.create(view, currentTree);
+        const measured = view.channels[channelName] as Measured<V, Epoch>;
+        if (!measured) {
+          throw new Error(
+            `View "${view.name}" has no channel ` + `"${channelName}"`,
+          );
+        }
+
+        const feed = FeedCompanion.create(measured, currentTree);
         feeds.set(view.name, feed);
         return feed;
       },

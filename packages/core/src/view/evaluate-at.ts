@@ -3,7 +3,7 @@
  * @pokapali/document for backwards compatibility.
  */
 import type { View, Cache } from "@pokapali/document";
-import { inspect } from "@pokapali/document";
+import { foldTree } from "@pokapali/document";
 import type { History } from "@pokapali/document";
 
 export function evaluateAt<V>(
@@ -12,5 +12,11 @@ export function evaluateAt<V>(
   position: number,
   cache: Cache<V>,
 ): V {
-  return inspect(view, tree, cache, { at: position });
+  // Assumes single-channel view — compat shim, to be
+  // deleted
+  const channel = Object.keys(view.channels)[0]!;
+  const measured = view.channels[channel]!;
+  return foldTree(measured, tree, cache, {
+    at: position,
+  });
 }

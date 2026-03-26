@@ -3,7 +3,7 @@
  * for backwards compatibility.
  */
 import type { View, Cache } from "@pokapali/document";
-import { Cache as CacheCompanion, inspect } from "@pokapali/document";
+import { Cache as CacheCompanion, foldTree } from "@pokapali/document";
 import type { History } from "@pokapali/document";
 
 export type ViewCache<V> = Cache<V>;
@@ -25,5 +25,9 @@ export function evaluateMonoidal<V>(
   tree: History,
   cache: ViewCache<V>,
 ): V {
-  return inspect(view, tree, cache);
+  // Assumes single-channel view — compat shim, to be
+  // deleted
+  const channel = Object.keys(view.channels)[0]!;
+  const measured = view.channels[channel]!;
+  return foldTree(measured, tree, cache);
 }

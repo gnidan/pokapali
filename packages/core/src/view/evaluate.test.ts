@@ -1,14 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import fc from "fast-check";
 import type { Measured } from "@pokapali/finger-tree";
-import { toArray, foldl } from "@pokapali/finger-tree";
-import { epochMeasured } from "../epoch/index-monoid.js";
+import { foldl } from "@pokapali/finger-tree";
 import { fromEpochs } from "../epoch/tree.js";
 import { edit, epoch, closedBoundary, openBoundary } from "../epoch/types.js";
 import type { Epoch } from "../epoch/types.js";
 import { monoidalView } from "./types.js";
 import { evaluateMonoidal, createCache, seedCache } from "./evaluate.js";
-import type { ViewCache } from "./evaluate.js";
 
 // -- Helpers --
 
@@ -39,6 +37,7 @@ const editCountMeasured: Measured<number, Epoch> = {
 const editCountView = monoidalView({
   name: "edit-count",
   description: "Total edit count",
+  channel: "test",
   measured: editCountMeasured,
 });
 
@@ -88,6 +87,7 @@ describe("evaluateMonoidal", () => {
     const spiedView = monoidalView({
       name: "spied",
       description: "Spied edit count",
+      channel: "test",
       measured: spiedMeasured,
     });
 
@@ -133,6 +133,7 @@ describe("createCache + seedCache", () => {
     const spiedView = monoidalView({
       name: "spied",
       description: "Spied edit count",
+      channel: "test",
       measured: spiedMeasured,
     });
 

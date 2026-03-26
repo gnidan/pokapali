@@ -41,7 +41,12 @@ const editCountMeasured: Measured<number, Epoch> = {
 const editCountView = View.create({
   name: "edit-count",
   description: "Total edit count",
-  measured: editCountMeasured,
+  channels: {
+    content: editCountMeasured,
+    comments: editCountMeasured,
+  },
+  combine: (results) =>
+    (results.content as number) + (results.comments as number),
 });
 
 // -- Tests --

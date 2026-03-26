@@ -12,7 +12,7 @@ export { Capability } from "./capability/index.js";
 export type { Credential } from "./credential.js";
 
 // View system
-export { View, Cache, Status, inspect } from "./view.js";
+export { View, Cache, Status, foldTree } from "./view.js";
 export { Feed } from "./feed/index.js";
 export { Registry } from "./registry/index.js";
 export * as State from "./state/index.js";

@@ -6,7 +6,6 @@ import { fromEpochs } from "../epoch/tree.js";
 import { edit, epoch, closedBoundary, openBoundary } from "../epoch/types.js";
 import type { Epoch } from "../epoch/types.js";
 import { createViewFeed } from "./view-feed.js";
-import type { ViewFeed } from "./view-feed.js";
 import { monoidalView } from "./types.js";
 
 // -- Helpers --
@@ -35,6 +34,7 @@ const editCountMeasured: Measured<number, Epoch> = {
 const editCountView = monoidalView({
   name: "edit-count",
   description: "Total edit count",
+  channel: "content",
   measured: editCountMeasured,
 });
 
@@ -101,8 +101,12 @@ describe("createViewFeed", () => {
     const spiedView = monoidalView({
       name: "spied",
       description: "Spied edit count",
+      channel: "content",
       measured: {
-        monoid: { empty: 0, append: (a: number, b: number) => a + b },
+        monoid: {
+          empty: 0,
+          append: (a: number, b: number) => a + b,
+        },
         measure: measureSpy,
       },
     });

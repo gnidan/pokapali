@@ -11,13 +11,14 @@
  * Evaluation is synchronous. The internal Cache is
  * reused across updates for structural sharing.
  */
-import type { View, Status, Cache } from "../view.js";
+import type { Measured } from "@pokapali/finger-tree";
+import type { Status, Cache } from "../view.js";
 import {
   Status as StatusCompanion,
   Cache as CacheCompanion,
-  inspect,
+  foldTree,
 } from "../view.js";
-import type { History } from "#history";
+import type { Epoch, History } from "#history";
 
 /**
  * A reactive feed for a monoidal view evaluation.
@@ -41,19 +42,19 @@ export interface Feed<V> {
  */
 export const Feed = {
   /**
-   * Create a Feed for a monoidal view.
+   * Create a Feed for a monoidal fold.
    *
-   * Immediately evaluates the view on the given tree
-   * (pending → ready). Maintains an internal Cache
-   * that persists across updates for structural
-   * sharing.
+   * Takes a `Measured<V, Epoch>` and immediately
+   * evaluates on the given tree (pending → ready).
+   * Maintains an internal Cache that persists across
+   * updates for structural sharing.
    */
-  create<V>(view: View<V>, tree: History): Feed<V> {
+  create<V>(measured: Measured<V, Epoch>, tree: History): Feed<V> {
     const cache: Cache<V> = CacheCompanion.create();
     const subs = new Set<() => void>();
     let destroyed = false;
 
-    const initial = inspect(view, tree, cache);
+    const initial = foldTree(measured, tree, cache);
     let state: Status<V> = StatusCompanion.ready(initial);
 
     function notify(): void {
@@ -86,7 +87,7 @@ export const Feed = {
           notify();
         }
 
-        const value = inspect(view, newTree, cache);
+        const value = foldTree(measured, newTree, cache);
         state = StatusCompanion.ready(value);
         notify();
       },

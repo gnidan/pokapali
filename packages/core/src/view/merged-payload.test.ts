@@ -1,12 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import fc from "fast-check";
-import { snoc, toArray, foldl } from "@pokapali/finger-tree";
+import { snoc } from "@pokapali/finger-tree";
 import { epochMeasured } from "../epoch/index-monoid.js";
 import { fromEpochs } from "../epoch/tree.js";
 import { edit, epoch, closedBoundary, openBoundary } from "../epoch/types.js";
-import type { Epoch } from "../epoch/types.js";
 import type { CrdtCodec } from "../codec/codec.js";
-import { evaluateMonoidal, createCache, seedCache } from "./evaluate.js";
+import { evaluateMonoidal, createCache } from "./evaluate.js";
 import { mergedPayloadView } from "./merged-payload.js";
 
 // -- Helpers --
@@ -126,7 +124,7 @@ describe("mergedPayloadView", () => {
     const codec = fakeCodec();
     const view = mergedPayloadView(codec);
 
-    const measureSpy = vi.spyOn(view.measured, "measure");
+    const measureSpy = vi.spyOn(view.channels["content"]!, "measure");
 
     // Use 8 epochs to ensure internal Node objects
     // exist in the middle spine for structural sharing

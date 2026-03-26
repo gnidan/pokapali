@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { Codec } from "@pokapali/codec";
-import type { Epoch } from "#history";
 import { Epoch as EpochCompanion, Boundary, Edit, History } from "#history";
-import { Cache, inspect } from "../view.js";
-import { view } from "./view.js";
+import { Cache, foldTree } from "../view.js";
+import { view, channelMeasured } from "./view.js";
 
 // -- Fake codec --
 
@@ -61,16 +60,16 @@ describe("State.view", () => {
   });
 
   it("empty tree → codec.empty()", () => {
-    const v = view(setCodec);
+    const m = channelMeasured(setCodec);
     const tree = History.fromEpochs([]);
     const cache = Cache.create<Uint8Array>();
-    const result = inspect(v, tree, cache);
+    const result = foldTree(m, tree, cache);
 
     expect(result).toEqual(new Uint8Array([]));
   });
 
   it("single epoch merges payloads", () => {
-    const v = view(setCodec);
+    const m = channelMeasured(setCodec);
     const tree = History.fromEpochs([
       EpochCompanion.create(
         [fakeEdit(3), fakeEdit(1), fakeEdit(2)],
@@ -78,32 +77,32 @@ describe("State.view", () => {
       ),
     ]);
     const cache = Cache.create<Uint8Array>();
-    const result = inspect(v, tree, cache);
+    const result = foldTree(m, tree, cache);
 
     expect(result).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it("multiple epochs fold left-to-right", () => {
-    const v = view(setCodec);
+    const m = channelMeasured(setCodec);
     const tree = History.fromEpochs([
       EpochCompanion.create([fakeEdit(1), fakeEdit(2)], Boundary.closed()),
       EpochCompanion.create([fakeEdit(3)], Boundary.closed()),
       EpochCompanion.create([fakeEdit(4), fakeEdit(5)], Boundary.closed()),
     ]);
     const cache = Cache.create<Uint8Array>();
-    const result = inspect(v, tree, cache);
+    const result = foldTree(m, tree, cache);
 
     expect(result).toEqual(new Uint8Array([1, 2, 3, 4, 5]));
   });
 
   it("duplicate payloads are idempotent", () => {
-    const v = view(setCodec);
+    const m = channelMeasured(setCodec);
     const tree = History.fromEpochs([
       EpochCompanion.create([fakeEdit(1), fakeEdit(1)], Boundary.closed()),
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
     const cache = Cache.create<Uint8Array>();
-    const result = inspect(v, tree, cache);
+    const result = foldTree(m, tree, cache);
 
     expect(result).toEqual(new Uint8Array([1]));
   });

@@ -83,15 +83,40 @@ export const Document = {
     const channels = new Map<string, Channel>();
     let currentLevel: Level = "background";
 
+    // Cached views — created lazily once.
+    let stateView: ReturnType<typeof State.view>;
+    let fpView: ReturnType<typeof Fingerprint.view>;
+
+    function getStateView() {
+      if (!stateView) {
+        stateView = State.view(opts.codec!);
+      }
+      return stateView;
+    }
+
+    function getFpView() {
+      if (!fpView) {
+        fpView = Fingerprint.view();
+      }
+      return fpView;
+    }
+
     /** Activate views for the given level on a
-     *  single channel. */
+     *  single channel. Only activates views that
+     *  include this channel. */
     function activateChannel(ch: Channel, level: Level): void {
       const idx = levelIndex(level);
       if (idx >= levelIndex("active")) {
-        ch.activate(State.view(opts.codec!));
+        const sv = getStateView();
+        if (ch.name in sv.channels) {
+          ch.activate(sv);
+        }
       }
       if (idx >= levelIndex("syncing")) {
-        ch.activate(Fingerprint.view());
+        const fv = getFpView();
+        if (ch.name in fv.channels) {
+          ch.activate(fv);
+        }
       }
       // inspecting: level flag only — diff is
       // computed on demand, not as a monoidal view

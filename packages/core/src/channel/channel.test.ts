@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import fc from "fast-check";
 import type { Measured } from "@pokapali/finger-tree";
 import { toArray } from "@pokapali/finger-tree";
-import { edit, epoch, openBoundary } from "../epoch/types.js";
+import { edit } from "../epoch/types.js";
 import type { Epoch } from "../epoch/types.js";
 import type { CrdtCodec } from "../codec/codec.js";
 import { monoidalView } from "../view/types.js";
@@ -62,6 +62,7 @@ const editCountMeasured: Measured<number, Epoch> = {
 const editCountView = monoidalView({
   name: "edit-count",
   description: "Total edit count",
+  channel: "content",
   measured: editCountMeasured,
 });
 

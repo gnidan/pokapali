@@ -6,8 +6,7 @@ import type { Epoch } from "./history/epoch.js";
 import { Epoch as EpochCompanion, Boundary } from "./history/epoch.js";
 import { Edit } from "./history/edit.js";
 import { History } from "./history/history.js";
-import { epochMeasured } from "./history/summary.js";
-import { View, Status, Cache, inspect } from "./view.js";
+import { View, Status, Cache, foldTree } from "./view.js";
 
 // -- Helpers --
 
@@ -32,36 +31,84 @@ const editCountMeasured: Measured<number, Epoch> = {
   measure: (ep) => ep.edits.length,
 };
 
-const editCountView = View.create({
-  name: "edit-count",
-  description: "Total edit count",
-  measured: editCountMeasured,
-});
-
 // -- View.create tests --
 
 describe("View.create", () => {
-  it("creates a view with metadata", () => {
+  it("creates a view with channels and combine", () => {
     const view = View.create({
       name: "epoch-count",
       description: "Counts epochs",
-      measured: editCountMeasured,
+      channels: { test: editCountMeasured },
+      combine: (results) => results.test as number,
     });
 
     expect(view.name).toBe("epoch-count");
     expect(view.description).toBe("Counts epochs");
-    expect(view.measured).toBe(editCountMeasured);
+    expect(view.channels.test).toBe(editCountMeasured);
+    expect(view.combine({ test: 42 })).toBe(42);
   });
 
-  it("measured field has correct monoid", () => {
+  it("channels field has correct monoid", () => {
     const view = View.create({
       name: "test",
       description: "test view",
+      channels: { ch: editCountMeasured },
+      combine: (results) => results.ch as number,
+    });
+
+    const m = view.channels.ch!;
+    expect(m.monoid.empty).toBe(0);
+    expect(m.monoid.append(2, 3)).toBe(5);
+  });
+
+  it("multi-channel view with combine", () => {
+    const sumMeasured: Measured<number, Epoch> = {
+      monoid: { empty: 0, append: (a, b) => a + b },
+      measure: (ep) => ep.edits.length,
+    };
+
+    const view = View.create({
+      name: "total",
+      description: "Sum across channels",
+      channels: {
+        content: sumMeasured,
+        comments: sumMeasured,
+      },
+      combine: (results) =>
+        (results.content as number) + (results.comments as number),
+    });
+
+    expect(Object.keys(view.channels)).toEqual(["content", "comments"]);
+    expect(view.combine({ content: 3, comments: 5 })).toBe(8);
+  });
+});
+
+// -- View.singleChannel tests --
+
+describe("View.singleChannel", () => {
+  it("creates a single-channel view", () => {
+    const view = View.singleChannel({
+      name: "edit-count",
+      description: "Total edit count",
+      channel: "content",
       measured: editCountMeasured,
     });
 
-    expect(view.measured.monoid.empty).toBe(0);
-    expect(view.measured.monoid.append(2, 3)).toBe(5);
+    expect(view.name).toBe("edit-count");
+    expect(view.description).toBe("Total edit count");
+    expect(Object.keys(view.channels)).toEqual(["content"]);
+    expect(view.channels.content).toBe(editCountMeasured);
+  });
+
+  it("combine returns the channel value", () => {
+    const view = View.singleChannel({
+      name: "test",
+      description: "test",
+      channel: "ch",
+      measured: editCountMeasured,
+    });
+
+    expect(view.combine({ ch: 99 })).toBe(99);
   });
 });
 
@@ -116,18 +163,13 @@ describe("Cache", () => {
 
   it("Cache.seed pre-populates", () => {
     const measureSpy = vi.fn((ep: Epoch) => ep.edits.length);
-    const spiedView = View.create({
-      name: "spied",
-      description: "Spied edit count",
-      measured: {
-        monoid: {
-          empty: 0,
-          append: (a: number, b: number) => a + b,
-        },
-        measure: measureSpy,
+    const spiedMeasured: Measured<number, Epoch> = {
+      monoid: {
+        empty: 0,
+        append: (a: number, b: number) => a + b,
       },
-    });
-
+      measure: measureSpy,
+    };
     const tree = History.fromEpochs([
       EpochCompanion.create([fakeEdit(1), fakeEdit(2)], Boundary.closed()),
       EpochCompanion.create([fakeEdit(3)], Boundary.closed()),
@@ -137,19 +179,19 @@ describe("Cache", () => {
     const cache = Cache.create<number>();
     Cache.seed(cache, tree, 5);
 
-    const result = inspect(spiedView, tree, cache);
+    const result = foldTree(spiedMeasured, tree, cache);
     expect(result).toBe(5);
     expect(measureSpy).not.toHaveBeenCalled();
   });
 });
 
-// -- inspect tests --
+// -- foldTree tests --
 
-describe("inspect", () => {
+describe("foldTree", () => {
   it("empty tree → monoid identity", () => {
     const tree = History.fromEpochs([]);
     const cache = Cache.create<number>();
-    expect(inspect(editCountView, tree, cache)).toBe(0);
+    expect(foldTree(editCountMeasured, tree, cache)).toBe(0);
   });
 
   it("single epoch", () => {
@@ -160,7 +202,7 @@ describe("inspect", () => {
       ),
     ]);
     const cache = Cache.create<number>();
-    expect(inspect(editCountView, tree, cache)).toBe(3);
+    expect(foldTree(editCountMeasured, tree, cache)).toBe(3);
   });
 
   it("multiple epochs", () => {
@@ -174,22 +216,18 @@ describe("inspect", () => {
       EpochCompanion.create([], Boundary.open()),
     ]);
     const cache = Cache.create<number>();
-    expect(inspect(editCountView, tree, cache)).toBe(6);
+    expect(foldTree(editCountMeasured, tree, cache)).toBe(6);
   });
 
   it("cache hit avoids recomputation", () => {
     const measureSpy = vi.fn((ep: Epoch) => ep.edits.length);
-    const spiedView = View.create({
-      name: "spied",
-      description: "Spied edit count",
-      measured: {
-        monoid: {
-          empty: 0,
-          append: (a: number, b: number) => a + b,
-        },
-        measure: measureSpy,
+    const spiedMeasured: Measured<number, Epoch> = {
+      monoid: {
+        empty: 0,
+        append: (a: number, b: number) => a + b,
       },
-    });
+      measure: measureSpy,
+    };
 
     const tree = History.fromEpochs([
       EpochCompanion.create([fakeEdit(1), fakeEdit(2)], Boundary.closed()),
@@ -198,24 +236,24 @@ describe("inspect", () => {
     ]);
 
     const cache = Cache.create<number>();
-    inspect(spiedView, tree, cache);
+    foldTree(spiedMeasured, tree, cache);
     expect(measureSpy).toHaveBeenCalledTimes(3);
 
     measureSpy.mockClear();
-    inspect(spiedView, tree, cache);
+    foldTree(spiedMeasured, tree, cache);
     expect(measureSpy).not.toHaveBeenCalled();
   });
 });
 
-// -- inspect with { at } --
+// -- foldTree with { at } --
 
-describe("inspect with { at }", () => {
+describe("foldTree with { at }", () => {
   it("position 0 → monoid identity", () => {
     const tree = History.fromEpochs([
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
     const cache = Cache.create<number>();
-    expect(inspect(editCountView, tree, cache, { at: 0 })).toBe(0);
+    expect(foldTree(editCountMeasured, tree, cache, { at: 0 })).toBe(0);
   });
 
   it("position 1 → first epoch only", () => {
@@ -224,7 +262,7 @@ describe("inspect with { at }", () => {
       EpochCompanion.create([fakeEdit(3)], Boundary.closed()),
     ]);
     const cache = Cache.create<number>();
-    expect(inspect(editCountView, tree, cache, { at: 1 })).toBe(2);
+    expect(foldTree(editCountMeasured, tree, cache, { at: 1 })).toBe(2);
   });
 
   it("position = all → same as full", () => {
@@ -234,8 +272,8 @@ describe("inspect with { at }", () => {
       EpochCompanion.create([fakeEdit(3)], Boundary.closed()),
     ]);
     const cache = Cache.create<number>();
-    expect(inspect(editCountView, tree, cache, { at: 3 })).toBe(
-      inspect(editCountView, tree, cache),
+    expect(foldTree(editCountMeasured, tree, cache, { at: 3 })).toBe(
+      foldTree(editCountMeasured, tree, cache),
     );
   });
 
@@ -245,16 +283,16 @@ describe("inspect with { at }", () => {
     ]);
     const cache = Cache.create<number>();
     expect(
-      inspect(editCountView, tree, cache, {
+      foldTree(editCountMeasured, tree, cache, {
         at: 10,
       }),
-    ).toBe(inspect(editCountView, tree, cache));
+    ).toBe(foldTree(editCountMeasured, tree, cache));
   });
 });
 
 // -- Property tests --
 
-describe("inspect properties", () => {
+describe("foldTree properties", () => {
   const arbEpoch = fc
     .record({
       editCount: fc.integer({ min: 0, max: 10 }),
@@ -273,7 +311,7 @@ describe("inspect properties", () => {
       ),
     );
 
-  it("inspect = naive foldl over toArray", () => {
+  it("foldTree = naive foldl over toArray", () => {
     fc.assert(
       fc.property(
         fc.array(arbEpoch, {
@@ -283,7 +321,7 @@ describe("inspect properties", () => {
         (epochs) => {
           const tree = History.fromEpochs(epochs);
           const cache = Cache.create<number>();
-          const evaluated = inspect(editCountView, tree, cache);
+          const evaluated = foldTree(editCountMeasured, tree, cache);
           const naive = foldl(
             tree,
             (acc: number, ep: Epoch) =>

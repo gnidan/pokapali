@@ -16,8 +16,7 @@ import type { View } from "../view.js";
 import { View as ViewCompanion } from "../view.js";
 
 /**
- * Create a View that folds edit payloads using
- * codec.merge.
+ * Create the per-channel Measured for a State view.
  *
  * The monoid:
  * - identity: codec.empty()
@@ -26,8 +25,8 @@ import { View as ViewCompanion } from "../view.js";
  * The measure: merge all edit payloads in the epoch
  * into a single state.
  */
-export function view(codec: Codec): View<Uint8Array> {
-  const measured: Measured<Uint8Array, Epoch> = {
+export function channelMeasured(codec: Codec): Measured<Uint8Array, Epoch> {
+  return {
     monoid: {
       empty: codec.empty(),
       append: (a, b) => codec.merge(a, b),
@@ -40,10 +39,17 @@ export function view(codec: Codec): View<Uint8Array> {
       return state;
     },
   };
+}
 
-  return ViewCompanion.create({
+/**
+ * Create a single-channel State View that folds edit
+ * payloads using codec.merge on the "content" channel.
+ */
+export function view(codec: Codec): View<Uint8Array> {
+  return ViewCompanion.singleChannel({
     name: "merged-payload",
     description: "Merged CRDT state via codec.merge fold",
-    measured,
+    channel: "content",
+    measured: channelMeasured(codec),
   });
 }

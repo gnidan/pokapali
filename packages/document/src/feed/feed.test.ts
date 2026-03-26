@@ -9,7 +9,6 @@ import {
   History,
   epochMeasured,
 } from "#history";
-import { View } from "../view.js";
 import { Feed } from "./feed.js";
 
 // -- Helpers --
@@ -35,12 +34,6 @@ const editCountMeasured: Measured<number, Epoch> = {
   measure: (ep) => ep.edits.length,
 };
 
-const editCountView = View.create({
-  name: "edit-count",
-  description: "Total edit count",
-  measured: editCountMeasured,
-});
-
 // -- Feed tests --
 
 describe("Feed.create", () => {
@@ -49,7 +42,7 @@ describe("Feed.create", () => {
       EpochCompanion.create([fakeEdit(1), fakeEdit(2)], Boundary.closed()),
     ]);
 
-    const feed = Feed.create(editCountView, tree);
+    const feed = Feed.create(editCountMeasured, tree);
     const state = feed.getSnapshot();
 
     expect(state.tag).toBe("ready");
@@ -63,7 +56,7 @@ describe("Feed.create", () => {
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
 
-    const feed = Feed.create(editCountView, tree1);
+    const feed = Feed.create(editCountMeasured, tree1);
     const cb = vi.fn();
     feed.subscribe(cb);
 
@@ -81,7 +74,7 @@ describe("Feed.create", () => {
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
 
-    const feed = Feed.create(editCountView, tree1);
+    const feed = Feed.create(editCountMeasured, tree1);
     const snapshots: string[] = [];
     feed.subscribe(() => {
       snapshots.push(feed.getSnapshot().tag);
@@ -103,17 +96,13 @@ describe("Feed.create", () => {
 
   it("structural sharing: cache hits", () => {
     const measureSpy = vi.fn((ep: Epoch) => ep.edits.length);
-    const spiedView = View.create({
-      name: "spied",
-      description: "Spied edit count",
-      measured: {
-        monoid: {
-          empty: 0,
-          append: (a: number, b: number) => a + b,
-        },
-        measure: measureSpy,
+    const spiedMeasured: Measured<number, Epoch> = {
+      monoid: {
+        empty: 0,
+        append: (a: number, b: number) => a + b,
       },
-    });
+      measure: measureSpy,
+    };
 
     const tree1 = History.fromEpochs([
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
@@ -126,7 +115,7 @@ describe("Feed.create", () => {
       EpochCompanion.create([fakeEdit(8)], Boundary.closed()),
     ]);
 
-    const feed = Feed.create(spiedView, tree1);
+    const feed = Feed.create(spiedMeasured, tree1);
     const firstCalls = measureSpy.mock.calls.length;
     expect(firstCalls).toBe(8);
 
@@ -151,7 +140,7 @@ describe("Feed.create", () => {
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
 
-    const feed = Feed.create(editCountView, tree1);
+    const feed = Feed.create(editCountMeasured, tree1);
     const cb = vi.fn();
     feed.subscribe(cb);
     feed.destroy();
@@ -170,7 +159,7 @@ describe("Feed.create", () => {
       EpochCompanion.create([fakeEdit(1)], Boundary.closed()),
     ]);
 
-    const feed = Feed.create(editCountView, tree1);
+    const feed = Feed.create(editCountMeasured, tree1);
     const cb1 = vi.fn();
     const cb2 = vi.fn();
     feed.subscribe(cb1);
