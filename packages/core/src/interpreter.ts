@@ -61,6 +61,18 @@ export interface EffectHandlers extends SnapshotOps {
   emitStatus(status: DocStatus): void;
   emitSaveState(saveState: SaveState): void;
   emitValidationError(info: { cid: string; message: string }): void;
+
+  // Epoch lifecycle (optional — omit for
+  // consumers that don't support epochs)
+  writeViewCache?(
+    channel: string,
+    epochIndex: number,
+  ): Promise<{ viewName: string; entries: number }[] | void>;
+  materializeSnapshot?(
+    channel: string,
+    epochIndex: number,
+  ): Promise<CID | null>;
+  populateViewCache?(viewName: string, entries: number): void;
 }
 
 // ------------------------------------------------
@@ -526,6 +538,84 @@ export async function runInterpreter(
     // Save state
     if (prev.saveState !== next.saveState) {
       effects.emitSaveState(next.saveState);
+    }
+
+    // --- Epoch lifecycle ---
+
+    // convergence-detected → dispatch epoch-closed
+    if (fact.type === "convergence-detected") {
+      const ch = next.epochs.channels[fact.channel];
+      feedback.push({
+        type: "epoch-closed",
+        ts: Date.now(),
+        channel: fact.channel,
+        epochIndex: ch?.openEpochCount ?? 0,
+      });
+    }
+
+    // epoch-closed → write view cache + materialize
+    if (fact.type === "epoch-closed") {
+      if (effects.writeViewCache) {
+        effects
+          .writeViewCache(fact.channel, fact.epochIndex)
+          .then((results) => {
+            if (!results) return;
+            for (const r of results) {
+              feedback.push({
+                type: "view-cache-written",
+                ts: Date.now(),
+                viewName: r.viewName,
+                entries: r.entries,
+              });
+            }
+          })
+          .catch((err: unknown) => {
+            log.warn(
+              "writeViewCache failed:",
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+      }
+
+      if (effects.materializeSnapshot) {
+        effects
+          .materializeSnapshot(fact.channel, fact.epochIndex)
+          .then((cid) => {
+            if (cid) {
+              feedback.push({
+                type: "snapshot-materialized",
+                ts: Date.now(),
+                channel: fact.channel,
+                epochIndex: fact.epochIndex,
+                cid,
+              });
+            }
+          })
+          .catch((err: unknown) => {
+            log.warn(
+              "materializeSnapshot failed:",
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+      }
+    }
+
+    // snapshot-materialized → announce
+    if (fact.type === "snapshot-materialized") {
+      const block = effects.getBlock(fact.cid);
+      if (block) {
+        effects.announce(fact.cid, block, fact.epochIndex);
+      } else {
+        log.warn(
+          "snapshot announce skipped:" + " block not cached",
+          fact.cid.toString().slice(0, 16) + "...",
+        );
+      }
+    }
+
+    // view-cache-loaded → populate caches
+    if (fact.type === "view-cache-loaded") {
+      effects.populateViewCache?.(fact.viewName, fact.entries);
     }
 
     // --- On-demand wake-ups ---

@@ -2264,3 +2264,200 @@ describe("interpreter chain prefetch", () => {
     expect(effects.fetchBlock).not.toHaveBeenCalled();
   });
 });
+
+// --- Epoch interpreter effects tests ---
+
+describe("interpreter epoch effects", () => {
+  it("dispatches epoch-closed on " + "convergence-detected", async () => {
+    const hash = new Uint8Array([1, 2, 3]);
+
+    const { feedback } = await runWithFacts([
+      {
+        type: "convergence-detected",
+        ts: 1000,
+        channel: "content",
+        hash,
+      },
+    ]);
+
+    const closed = feedback.find((f) => f.type === "epoch-closed");
+    expect(closed).toBeDefined();
+    expect((closed as any).channel).toBe("content");
+  });
+
+  it("calls writeViewCache on epoch-closed", async () => {
+    const writeViewCache = vi.fn().mockResolvedValue(undefined);
+
+    const { effects } = await runWithFacts(
+      [
+        {
+          type: "epoch-closed",
+          ts: 1000,
+          channel: "content",
+          epochIndex: 0,
+        },
+      ],
+      { writeViewCache },
+    );
+
+    expect(writeViewCache).toHaveBeenCalledWith("content", 0);
+  });
+
+  it("calls materializeSnapshot on " + "epoch-closed", async () => {
+    const materializeSnapshot = vi.fn().mockResolvedValue(null);
+
+    await runWithFacts(
+      [
+        {
+          type: "epoch-closed",
+          ts: 1000,
+          channel: "content",
+          epochIndex: 0,
+        },
+      ],
+      { materializeSnapshot },
+    );
+
+    expect(materializeSnapshot).toHaveBeenCalledWith("content", 0);
+  });
+
+  it(
+    "pushes snapshot-materialized when " + "materializeSnapshot returns CID",
+    async () => {
+      const cid = await fakeCid(150);
+      const materializeSnapshot = vi.fn().mockResolvedValue(cid);
+
+      const { feedback } = await runWithFacts(
+        [
+          {
+            type: "epoch-closed",
+            ts: 1000,
+            channel: "content",
+            epochIndex: 0,
+          },
+        ],
+        { materializeSnapshot },
+      );
+
+      const mat = feedback.find((f) => f.type === "snapshot-materialized");
+      expect(mat).toBeDefined();
+      expect((mat as any).cid).toEqual(cid);
+      expect((mat as any).channel).toBe("content");
+      expect((mat as any).epochIndex).toBe(0);
+    },
+  );
+
+  it(
+    "does not push snapshot-materialized when " +
+      "materializeSnapshot returns null",
+    async () => {
+      const materializeSnapshot = vi.fn().mockResolvedValue(null);
+
+      const { feedback } = await runWithFacts(
+        [
+          {
+            type: "epoch-closed",
+            ts: 1000,
+            channel: "content",
+            epochIndex: 0,
+          },
+        ],
+        { materializeSnapshot },
+      );
+
+      expect(feedback.some((f) => f.type === "snapshot-materialized")).toBe(
+        false,
+      );
+    },
+  );
+
+  it("announces on snapshot-materialized", async () => {
+    const cid = await fakeCid(151);
+    const block = fakeBlock(151);
+
+    const { effects } = await runWithFacts(
+      [
+        {
+          type: "snapshot-materialized",
+          ts: 1000,
+          channel: "content",
+          epochIndex: 0,
+          cid,
+        },
+      ],
+      {
+        getBlock: vi.fn().mockReturnValue(block),
+      },
+    );
+
+    expect(effects.announce).toHaveBeenCalledWith(cid, block, 0);
+  });
+
+  it(
+    "does not announce snapshot-materialized " + "when block unavailable",
+    async () => {
+      const cid = await fakeCid(152);
+
+      const { effects } = await runWithFacts(
+        [
+          {
+            type: "snapshot-materialized",
+            ts: 1000,
+            channel: "content",
+            epochIndex: 0,
+            cid,
+          },
+        ],
+        {
+          getBlock: vi.fn().mockReturnValue(null),
+        },
+      );
+
+      expect(effects.announce).not.toHaveBeenCalled();
+    },
+  );
+
+  it("calls populateViewCache on " + "view-cache-loaded", async () => {
+    const populateViewCache = vi.fn();
+
+    await runWithFacts(
+      [
+        {
+          type: "view-cache-loaded",
+          ts: 1000,
+          viewName: "state",
+          entries: 3,
+        },
+      ],
+      { populateViewCache },
+    );
+
+    expect(populateViewCache).toHaveBeenCalledWith("state", 3);
+  });
+
+  it(
+    "pushes view-cache-written after " + "writeViewCache succeeds",
+    async () => {
+      const writeViewCache = vi
+        .fn()
+        .mockResolvedValue([{ viewName: "merged-payload", entries: 5 }]);
+
+      const { feedback } = await runWithFacts(
+        [
+          {
+            type: "epoch-closed",
+            ts: 1000,
+            channel: "content",
+            epochIndex: 0,
+          },
+        ],
+        { writeViewCache },
+      );
+
+      const written = feedback.find((f) => f.type === "view-cache-written");
+      expect(written).toBeDefined();
+      expect((written as any).viewName).toBe("merged-payload");
+      expect((written as any).entries).toBe(5);
+    },
+  );
+});
