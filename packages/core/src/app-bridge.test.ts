@@ -269,24 +269,30 @@ describe("App ↔ Document bridge", () => {
         codec: fakeCodec(),
       });
 
-      // Create a doc WITHOUT populating the WeakMap
-      // (clear the ref temporarily)
+      // Suppress WeakMap population so the mock
+      // creates a Doc without a bridged Document.
       const origRef = docDocumentsRef;
       docDocumentsRef = null as any;
 
-      // Need a doc not in the WeakMap — create one
-      // with a fresh mock that doesn't set WeakMap
-      // Since we can't easily bypass the mock, just
-      // verify the fallback by checking that
-      // Document.create is available.
-      //
-      // Restore and verify the main path works.
+      standaloneCreateSpy.mockClear();
+
+      // Create a doc — no WeakMap entry, so App
+      // must fall back to Document.create().
+      await app.create();
+
+      // Restore for subsequent tests
       docDocumentsRef = origRef;
 
-      // This test documents the expected fallback
-      // behavior: when no bridged Document exists,
-      // App creates a standalone one.
-      expect(standaloneCreateSpy).toBeDefined();
+      // App should have called Document.create()
+      // as fallback since no bridged Document
+      // was in the WeakMap.
+      expect(standaloneCreateSpy).toHaveBeenCalledTimes(1);
+
+      // Lifecycle should still work via the
+      // standalone Document
+      const id = [...app.documents.keys()][0]!;
+      app.activate(id, "active");
+      expect(app.levelOf(id)).toBe("active");
     },
   );
 
