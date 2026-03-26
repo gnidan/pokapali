@@ -110,8 +110,12 @@ export type Fact =
       ts: number;
       peerId: string;
     }
-  // --- Persistence ---
-  | { type: "content-dirty"; ts: number; clockSum: number }
+  // --- Persistence --- // Phase 7: adapt or remove
+  | {
+      type: "content-dirty";
+      ts: number;
+      clockSum: number;
+    }
   | { type: "publish-started"; ts: number }
   | {
       type: "publish-succeeded";
@@ -119,7 +123,59 @@ export type Fact =
       cid: CID;
       seq: number;
     }
-  | { type: "publish-failed"; ts: number; error: string }
+  | {
+      type: "publish-failed";
+      ts: number;
+      error: string;
+    }
+  // --- Epoch lifecycle ---
+  | {
+      type: "epoch-closed";
+      ts: number;
+      channel: string;
+      epochIndex: number;
+    }
+  | {
+      type: "convergence-detected";
+      ts: number;
+      channel: string;
+      hash: Uint8Array;
+    }
+  | {
+      type: "snapshot-materialized";
+      ts: number;
+      channel: string;
+      epochIndex: number;
+      cid: CID;
+    }
+  // --- Edit lifecycle ---
+  | {
+      type: "edit-received";
+      ts: number;
+      channel: string;
+      editHash: Uint8Array;
+      origin: "local" | "remote";
+    }
+  | {
+      type: "edit-verified";
+      ts: number;
+      channel: string;
+      editHash: Uint8Array;
+      author: Uint8Array;
+    }
+  // --- View cache ---
+  | {
+      type: "view-cache-loaded";
+      ts: number;
+      viewName: string;
+      entries: number;
+    }
+  | {
+      type: "view-cache-written";
+      ts: number;
+      viewName: string;
+      entries: number;
+    }
   // --- Discovery ---
   | {
       type: "pinner-discovered";
@@ -239,6 +295,7 @@ export interface DocState {
   connectivity: Connectivity;
   content: ContentState;
   announce: AnnounceState;
+  epochs: EpochState;
 
   pendingQueries: ReadonlyMap<string, { sentAt: number }>;
   ipnsStatus: IpnsResolutionStatus;
@@ -247,6 +304,18 @@ export interface DocState {
   status: DocStatus;
   /** Derived from content + chain. */
   saveState: SaveState;
+}
+
+export interface ChannelEpochState {
+  openEpochCount: number;
+  lastConvergenceHash: Uint8Array | null;
+  dirty: boolean;
+}
+
+export interface EpochState {
+  channels: Readonly<Record<string, ChannelEpochState>>;
+  viewCacheStale: ReadonlySet<string>;
+  pendingSnapshots: ReadonlySet<string>;
 }
 
 export interface ChainState {
@@ -362,6 +431,12 @@ export const INITIAL_CHAIN: ChainState = {
   maxSeq: 0,
 };
 
+export const INITIAL_EPOCHS: EpochState = {
+  channels: {},
+  viewCacheStale: new Set(),
+  pendingSnapshots: new Set(),
+};
+
 export function initialDocState(identity: {
   ipnsName: string;
   role: DocRole;
@@ -378,6 +453,7 @@ export function initialDocState(identity: {
       lastAnnounceAt: 0,
       lastGuaranteeQueryAt: 0,
     },
+    epochs: INITIAL_EPOCHS,
     pendingQueries: new Map(),
     ipnsStatus: { phase: "idle" },
     status: "offline",

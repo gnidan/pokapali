@@ -18,6 +18,7 @@ import {
   reduceContent,
   reduceAnnounce,
   reduceGossip,
+  reduceEpochs,
   deriveStatus,
   deriveSaveState,
 } from "./reducers.js";
@@ -27,6 +28,7 @@ import {
   INITIAL_CONNECTIVITY,
   INITIAL_CONTENT,
   INITIAL_GOSSIP,
+  INITIAL_EPOCHS,
 } from "./facts.js";
 import type {
   Fact,
@@ -34,6 +36,7 @@ import type {
   ContentState,
   DocState,
   AnnounceState,
+  EpochState,
 } from "./facts.js";
 
 async function fakeCid(n: number): Promise<CID> {
@@ -1542,6 +1545,257 @@ describe("reducer invariants (fast-check)", () => {
         }
       }),
       { numRuns: 100 },
+    );
+  });
+});
+
+// ------------------------------------------------
+// Level 5: Epoch reducer
+// ------------------------------------------------
+
+describe("reduceEpochs", () => {
+  it("epoch-closed increments openEpochCount", () => {
+    const state = INITIAL_EPOCHS;
+    const next = reduceEpochs(state, {
+      type: "epoch-closed",
+      ts: 1,
+      channel: "content",
+      epochIndex: 0,
+    });
+    expect(next.channels.content!.openEpochCount).toBe(1);
+    expect(next.channels.content!.dirty).toBe(true);
+  });
+
+  it("epoch-closed accumulates across" + " multiple calls", () => {
+    let state = INITIAL_EPOCHS;
+    for (let i = 0; i < 5; i++) {
+      state = reduceEpochs(state, {
+        type: "epoch-closed",
+        ts: i,
+        channel: "content",
+        epochIndex: i,
+      });
+    }
+    expect(state.channels.content!.openEpochCount).toBe(5);
+  });
+
+  it("convergence-detected sets hash and" + " clears dirty", () => {
+    let state = INITIAL_EPOCHS;
+    state = reduceEpochs(state, {
+      type: "epoch-closed",
+      ts: 1,
+      channel: "content",
+      epochIndex: 0,
+    });
+    expect(state.channels.content!.dirty).toBe(true);
+
+    const hash = new Uint8Array(8).fill(0xab);
+    state = reduceEpochs(state, {
+      type: "convergence-detected",
+      ts: 2,
+      channel: "content",
+      hash,
+    });
+    expect(state.channels.content!.lastConvergenceHash).toBe(hash);
+    expect(state.channels.content!.dirty).toBe(false);
+  });
+
+  it("snapshot-materialized removes from" + " pendingSnapshots", () => {
+    const state: EpochState = {
+      ...INITIAL_EPOCHS,
+      pendingSnapshots: new Set(["content:3", "comments:1"]),
+    };
+    const next = reduceEpochs(state, {
+      type: "snapshot-materialized",
+      ts: 1,
+      channel: "content",
+      epochIndex: 3,
+      cid: null as never,
+    });
+    expect(next.pendingSnapshots.has("content:3")).toBe(false);
+    expect(next.pendingSnapshots.has("comments:1")).toBe(true);
+  });
+
+  it("edit-received sets dirty if not dirty", () => {
+    const state = INITIAL_EPOCHS;
+    const next = reduceEpochs(state, {
+      type: "edit-received",
+      ts: 1,
+      channel: "content",
+      editHash: new Uint8Array([1]),
+      origin: "local",
+    });
+    expect(next.channels.content!.dirty).toBe(true);
+  });
+
+  it("edit-received is no-op when already" + " dirty", () => {
+    let state = INITIAL_EPOCHS;
+    state = reduceEpochs(state, {
+      type: "edit-received",
+      ts: 1,
+      channel: "content",
+      editHash: new Uint8Array([1]),
+      origin: "local",
+    });
+    const ref = state;
+    state = reduceEpochs(state, {
+      type: "edit-received",
+      ts: 2,
+      channel: "content",
+      editHash: new Uint8Array([2]),
+      origin: "remote",
+    });
+    expect(state).toBe(ref);
+  });
+
+  it("view-cache-loaded removes from" + " viewCacheStale", () => {
+    const state: EpochState = {
+      ...INITIAL_EPOCHS,
+      viewCacheStale: new Set(["merged-payload", "content-hash"]),
+    };
+    const next = reduceEpochs(state, {
+      type: "view-cache-loaded",
+      ts: 1,
+      viewName: "merged-payload",
+      entries: 10,
+    });
+    expect(next.viewCacheStale.has("merged-payload")).toBe(false);
+    expect(next.viewCacheStale.has("content-hash")).toBe(true);
+  });
+
+  it("view-cache-written removes from" + " viewCacheStale", () => {
+    const state: EpochState = {
+      ...INITIAL_EPOCHS,
+      viewCacheStale: new Set(["content-hash"]),
+    };
+    const next = reduceEpochs(state, {
+      type: "view-cache-written",
+      ts: 1,
+      viewName: "content-hash",
+      entries: 5,
+    });
+    expect(next.viewCacheStale.has("content-hash")).toBe(false);
+  });
+
+  it("independent channels don't" + " interfere", () => {
+    let state = INITIAL_EPOCHS;
+    state = reduceEpochs(state, {
+      type: "epoch-closed",
+      ts: 1,
+      channel: "content",
+      epochIndex: 0,
+    });
+    state = reduceEpochs(state, {
+      type: "epoch-closed",
+      ts: 2,
+      channel: "comments",
+      epochIndex: 0,
+    });
+    expect(state.channels.content!.openEpochCount).toBe(1);
+    expect(state.channels.comments!.openEpochCount).toBe(1);
+  });
+
+  it("unrelated facts are no-ops", () => {
+    const state = INITIAL_EPOCHS;
+    const next = reduceEpochs(state, {
+      type: "tick",
+      ts: 1,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("wired into top-level reduce", async () => {
+    const state = initial();
+    const next = reduce(state, {
+      type: "epoch-closed",
+      ts: 1,
+      channel: "content",
+      epochIndex: 0,
+    });
+    expect(next.epochs.channels.content!.openEpochCount).toBe(1);
+  });
+});
+
+// ------------------------------------------------
+// Level 6: Epoch reducer property tests
+// ------------------------------------------------
+
+describe("epoch reducer properties", () => {
+  const arbChannel = fc.constantFrom("content", "comments", "meta");
+
+  const arbEpochClosed = fc.record({
+    type: fc.constant("epoch-closed" as const),
+    ts: fc.nat(),
+    channel: arbChannel,
+    epochIndex: fc.nat({ max: 100 }),
+  });
+
+  const arbConvergence = fc.record({
+    type: fc.constant("convergence-detected" as const),
+    ts: fc.nat(),
+    channel: arbChannel,
+    hash: fc
+      .uint8Array({ minLength: 8, maxLength: 8 })
+      .map((a) => a as Uint8Array),
+  });
+
+  const arbEditReceived = fc.record({
+    type: fc.constant("edit-received" as const),
+    ts: fc.nat(),
+    channel: arbChannel,
+    editHash: fc
+      .uint8Array({ minLength: 4, maxLength: 4 })
+      .map((a) => a as Uint8Array),
+    origin: fc.constantFrom("local" as const, "remote" as const),
+  });
+
+  const arbEpochFact = fc.oneof(
+    arbEpochClosed,
+    arbConvergence,
+    arbEditReceived,
+  );
+
+  it("openEpochCount only grows" + " (never decreases)", () => {
+    fc.assert(
+      fc.property(
+        fc.array(arbEpochFact, {
+          maxLength: 50,
+        }),
+        (facts) => {
+          let state = INITIAL_EPOCHS;
+          const counts: Record<string, number> = {};
+          for (const fact of facts) {
+            state = reduceEpochs(state, fact as Fact);
+            for (const [ch, v] of Object.entries(state.channels)) {
+              const prev = counts[ch] ?? 0;
+              expect(v.openEpochCount).toBeGreaterThanOrEqual(prev);
+              counts[ch] = v.openEpochCount;
+            }
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it("convergence clears dirty" + " for its channel", () => {
+    fc.assert(
+      fc.property(
+        fc.array(arbEpochFact, {
+          maxLength: 50,
+        }),
+        (facts) => {
+          let state = INITIAL_EPOCHS;
+          for (const fact of facts) {
+            state = reduceEpochs(state, fact as Fact);
+            if (fact.type === "convergence-detected") {
+              const ch = state.channels[fact.channel];
+              expect(ch?.dirty).toBe(false);
+            }
+          }
+        },
+      ),
+      { numRuns: 200 },
     );
   });
 });

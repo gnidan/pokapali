@@ -16,6 +16,8 @@ import type {
   GossipState,
   ContentState,
   AnnounceState,
+  EpochState,
+  ChannelEpochState,
   DocStatus,
   SaveState,
   CidSource,
@@ -503,6 +505,85 @@ export function deriveSaveState(
 }
 
 // ------------------------------------------------
+// Epoch reducer
+// ------------------------------------------------
+
+const INITIAL_CHANNEL_EPOCH: ChannelEpochState = {
+  openEpochCount: 0,
+  lastConvergenceHash: null,
+  dirty: false,
+};
+
+function ensureChannel(state: EpochState, channel: string): ChannelEpochState {
+  return state.channels[channel] ?? INITIAL_CHANNEL_EPOCH;
+}
+
+function withChannel(
+  state: EpochState,
+  channel: string,
+  ch: ChannelEpochState,
+): EpochState {
+  if (state.channels[channel] === ch) return state;
+  return {
+    ...state,
+    channels: { ...state.channels, [channel]: ch },
+  };
+}
+
+export function reduceEpochs(state: EpochState, fact: Fact): EpochState {
+  switch (fact.type) {
+    case "epoch-closed": {
+      const ch = ensureChannel(state, fact.channel);
+      return withChannel(state, fact.channel, {
+        ...ch,
+        openEpochCount: ch.openEpochCount + 1,
+        dirty: true,
+      });
+    }
+
+    case "convergence-detected": {
+      const ch = ensureChannel(state, fact.channel);
+      return withChannel(state, fact.channel, {
+        ...ch,
+        lastConvergenceHash: fact.hash,
+        dirty: false,
+      });
+    }
+
+    case "snapshot-materialized": {
+      const key = `${fact.channel}:${fact.epochIndex}`;
+      const next = new Set(state.pendingSnapshots);
+      next.delete(key);
+      return { ...state, pendingSnapshots: next };
+    }
+
+    case "edit-received": {
+      const ch = ensureChannel(state, fact.channel);
+      if (ch.dirty) return state;
+      return withChannel(state, fact.channel, {
+        ...ch,
+        dirty: true,
+      });
+    }
+
+    case "view-cache-loaded": {
+      const next = new Set(state.viewCacheStale);
+      next.delete(fact.viewName);
+      return { ...state, viewCacheStale: next };
+    }
+
+    case "view-cache-written": {
+      const next = new Set(state.viewCacheStale);
+      next.delete(fact.viewName);
+      return { ...state, viewCacheStale: next };
+    }
+
+    default:
+      return state;
+  }
+}
+
+// ------------------------------------------------
 // Top-level combiner
 // ------------------------------------------------
 
@@ -511,6 +592,7 @@ export function reduce(state: DocState, fact: Fact): DocState {
   const connectivity = reduceConnectivity(state.connectivity, fact);
   const content = reduceContent(state.content, fact);
   const announce = reduceAnnounce(state.announce, fact);
+  const epochs = reduceEpochs(state.epochs, fact);
   const pendingQueries = reducePendingQueries(state.pendingQueries, fact);
   const ipnsStatus = reduceIpnsStatus(state.ipnsStatus, fact);
 
@@ -521,6 +603,7 @@ export function reduce(state: DocState, fact: Fact): DocState {
     connectivity === state.connectivity &&
     content === state.content &&
     announce === state.announce &&
+    epochs === state.epochs &&
     pendingQueries === state.pendingQueries &&
     ipnsStatus === state.ipnsStatus
   ) {
@@ -530,27 +613,13 @@ export function reduce(state: DocState, fact: Fact): DocState {
   const status = deriveStatus(connectivity);
   const saveState = deriveSaveState(content, chain);
 
-  // Only create new object if derived values also
-  // changed
-  if (
-    chain === state.chain &&
-    connectivity === state.connectivity &&
-    content === state.content &&
-    announce === state.announce &&
-    pendingQueries === state.pendingQueries &&
-    ipnsStatus === state.ipnsStatus &&
-    status === state.status &&
-    saveState === state.saveState
-  ) {
-    return state;
-  }
-
   return {
     ...state,
     chain,
     connectivity,
     content,
     announce,
+    epochs,
     pendingQueries,
     ipnsStatus,
     status,
