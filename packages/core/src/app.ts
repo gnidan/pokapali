@@ -11,6 +11,7 @@
 
 import { pokapali } from "./index.js";
 import type { PokapaliConfig, PokapaliApp } from "./index.js";
+import { docDocuments } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
 import type { Level } from "@pokapali/document";
 import type { Codec } from "@pokapali/codec";
@@ -103,7 +104,11 @@ export const App: {
 
     function registerDoc(id: string, doc: Doc): void {
       docs.set(id, doc);
-      lifecycles.set(id, createLifecycle());
+      // Use bridged Document from createDoc's WeakMap
+      // if available; otherwise fall back to creating
+      // a standalone Document.
+      const bridged = docDocuments.get(doc);
+      lifecycles.set(id, bridged ?? createLifecycle());
     }
 
     function removeDoc(id: string): void {

@@ -53,6 +53,7 @@ import { buildDiagnostics } from "./doc-diagnostics.js";
 import type { Diagnostics } from "./doc-diagnostics.js";
 import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
+import type { Document } from "@pokapali/document";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
@@ -347,11 +348,23 @@ export interface DocParams {
   /** How many parent blocks to prefetch after
    *  tip-advanced. Default 3, set 0 to disable. */
   prefetchDepth?: number;
+  /** Optional Document from @pokapali/document for
+   *  lifecycle bridge. Stored in docDocuments WeakMap
+   *  and destroyed on teardown. */
+  document?: Document;
 }
 
 // Pure status derivation functions extracted to
 // doc-status.ts (computeStatus, computeSaveState,
 // deriveLoadingState, loadingStateChanged).
+
+/**
+ * WeakMap from Doc → Document (from @pokapali/document).
+ * Populated by createDoc when a Document is provided.
+ * Used by App to access the lifecycle container for
+ * each managed Doc without a public API change.
+ */
+export const docDocuments = new WeakMap<Doc, Document>();
 
 /**
  * Populate the _meta subdoc with initial signing
@@ -1425,6 +1438,8 @@ export function createDoc(params: DocParams): Doc {
       params.awareness.doc.destroy();
     }
     subdocManager.destroy();
+    // Destroy bridged Document if present
+    params.document?.destroy();
     // Only release Helia if p2pReady resolved (we
     // acquired it) or if inline path (no p2pReady).
     if (p2pResolved || !params.p2pReady) {
@@ -1448,7 +1463,7 @@ export function createDoc(params: DocParams): Doc {
     },
   };
 
-  return {
+  const doc = {
     channel(name: string): Y.Doc {
       assertNotDestroyed();
       try {
@@ -1978,4 +1993,10 @@ export function createDoc(params: DocParams): Doc {
       teardown();
     },
   } as Doc;
+
+  if (params.document) {
+    docDocuments.set(doc, params.document);
+  }
+
+  return doc;
 }

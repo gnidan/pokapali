@@ -38,6 +38,7 @@ import type { Doc } from "./create-doc.js";
 import { createDocPersistence } from "./persistence.js";
 import type { DocPersistence } from "./persistence.js";
 import { loadIdentity } from "./identity.js";
+import { Document } from "@pokapali/document";
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -272,6 +273,22 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       }
     })();
 
+    // Create a Document (from @pokapali/document)
+    // alongside the Doc for lifecycle bridge. Uses
+    // placeholder identity/capability — lifecycle
+    // management doesn't need real values.
+    const document = Document.create({
+      identity: {
+        publicKey: new Uint8Array(32),
+        privateKey: new Uint8Array(64),
+      },
+      capability: {
+        channels: new Set(channels),
+        canPushSnapshots: false,
+        isAdmin: false,
+      },
+    });
+
     return createDoc({
       subdocManager,
       awareness,
@@ -293,6 +310,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       persistence: docPersistence,
       hasCachedState: init.hasCachedState,
       identity,
+      document,
     });
   }
 
