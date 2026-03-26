@@ -4,7 +4,7 @@ import type { Ed25519KeyPair } from "@pokapali/crypto";
 import type { Capability } from "@pokapali/capability";
 import type { Epoch } from "../epoch/types.js";
 import { edit } from "../epoch/types.js";
-import { monoidalView } from "../view/types.js";
+import { View } from "@pokapali/document";
 import { createDocument } from "./document.js";
 
 // -- Helpers --
@@ -41,7 +41,7 @@ const editCountMeasured: Measured<number, Epoch> = {
 };
 
 function editCountView(channel: string) {
-  return monoidalView({
+  return View.singleChannel({
     name: "edit-count",
     description: "Total edit count",
     channel,

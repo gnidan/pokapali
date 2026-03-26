@@ -5,8 +5,7 @@ import { toArray } from "@pokapali/finger-tree";
 import { edit } from "../epoch/types.js";
 import type { Epoch } from "../epoch/types.js";
 import type { CrdtCodec } from "../codec/codec.js";
-import { monoidalView } from "../view/types.js";
-import { mergedPayloadView } from "../view/merged-payload.js";
+import { View, State } from "@pokapali/document";
 import { createChannel } from "./channel.js";
 
 // -- Helpers --
@@ -59,7 +58,7 @@ const editCountMeasured: Measured<number, Epoch> = {
   measure: (ep) => ep.edits.length,
 };
 
-const editCountView = monoidalView({
+const editCountView = View.singleChannel({
   name: "edit-count",
   description: "Total edit count",
   channel: "content",
@@ -129,7 +128,7 @@ describe("createChannel", () => {
 
   it("view activation tracks edits via feed", () => {
     const codec = fakeCodec();
-    const view = mergedPayloadView(codec);
+    const view = State.view(codec);
 
     const ch = createChannel("content");
     const feed = ch.activate(view);
@@ -166,7 +165,7 @@ describe("createChannel", () => {
 
   it("view correct after closeEpoch — no edits lost", () => {
     const codec = fakeCodec();
-    const view = mergedPayloadView(codec);
+    const view = State.view(codec);
 
     const ch = createChannel("content");
     const feed = ch.activate(view);
@@ -211,7 +210,7 @@ describe("createChannel", () => {
 
   it("deactivate mid-lifecycle, re-activate gets current value", () => {
     const codec = fakeCodec();
-    const view = mergedPayloadView(codec);
+    const view = State.view(codec);
 
     const ch = createChannel("content");
     const feed1 = ch.activate(view);

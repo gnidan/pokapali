@@ -10,9 +10,7 @@ import type { Capability } from "@pokapali/capability";
 import { epochMeasured } from "../epoch/index-monoid.js";
 import { edit } from "../epoch/types.js";
 import type { CrdtCodec } from "../codec/codec.js";
-import { mergedPayloadView } from "../view/merged-payload.js";
-import { contentHashView } from "../view/content-hash.js";
-import { monoidalView } from "../view/types.js";
+import { View, State, Fingerprint } from "@pokapali/document";
 import { createDocument } from "./document.js";
 
 // -- Helpers --
@@ -44,7 +42,7 @@ function fakeEdit(id: number, channel = "content") {
 }
 
 function commentsMergeView(codec: CrdtCodec) {
-  return monoidalView({
+  return View.singleChannel({
     name: "merged-payload",
     description: "Merged CRDT state via codec.merge fold",
     channel: "comments",
@@ -106,8 +104,8 @@ describe("Document e2e integration", () => {
     const comments = doc.channel("comments");
 
     // Step 2: Activate views on each channel
-    const mergeView = mergedPayloadView(codec);
-    const hashView = contentHashView();
+    const mergeView = State.view(codec);
+    const hashView = Fingerprint.view();
 
     const contentMergeFeed = content.activate(mergeView);
     const contentHashFeed = content.activate(hashView);
@@ -210,7 +208,7 @@ describe("Document e2e integration", () => {
     });
 
     const ch = doc.channel("content");
-    const feed = ch.activate(mergedPayloadView(codec));
+    const feed = ch.activate(State.view(codec));
 
     const snapshots: string[] = [];
     feed.subscribe(() => {
@@ -244,7 +242,7 @@ describe("Document e2e integration", () => {
 
     const content = doc.channel("content");
     const comments = doc.channel("comments");
-    const contentFeed = content.activate(mergedPayloadView(codec));
+    const contentFeed = content.activate(State.view(codec));
     const commentsFeed = comments.activate(commentsMergeView(codec));
 
     const cb1 = vi.fn();
