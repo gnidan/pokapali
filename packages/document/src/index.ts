@@ -6,7 +6,7 @@ export {
   type DocumentCapability,
   type Level,
 } from "./document/index.js";
-export { inspect, evaluateAt } from "./inspect.js";
+export { inspect } from "./inspect.js";
 
 // Capability + Credential
 export { Capability } from "./capability/index.js";

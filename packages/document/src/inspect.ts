@@ -18,45 +18,22 @@ import type { Document } from "./document/document.js";
  * One-shot: folds each channel tree, combines results.
  * No caching or subscriptions — use Document.activate
  * for reactive evaluation.
- */
-export function inspect<V>(view: View<V>, document: Document): V {
-  const results: Record<string, unknown> = {};
-
-  for (const [channelName, measured] of Object.entries(view.channels)) {
-    const ch = document.channel(channelName);
-    const cache = Cache.create();
-    results[channelName] = foldTree(measured, ch.tree, cache);
-  }
-
-  return view.combine(results);
-}
-
-/**
- * Evaluate a View against a Document up to a specific
- * epoch index (prefix evaluation).
  *
- * Folds each channel tree using `foldTree` with the
- * `{ at }` option, which splits the tree at the given
- * epoch count and folds only the left prefix.
- *
- * @param view       The monoidal view to evaluate
- * @param document   The document to evaluate against
- * @param epochIndex Number of epochs to include
- * @returns The folded monoidal value
+ * With `{ upTo: n }`, folds only the first `n` epochs
+ * (prefix evaluation) instead of the full tree.
  */
-export function evaluateAt<V>(
+export function inspect<V>(
   view: View<V>,
   document: Document,
-  epochIndex: number,
+  opts?: { upTo: number },
 ): V {
   const results: Record<string, unknown> = {};
+  const foldOpts = opts ? { at: opts.upTo } : undefined;
 
   for (const [channelName, measured] of Object.entries(view.channels)) {
     const ch = document.channel(channelName);
     const cache = Cache.create();
-    results[channelName] = foldTree(measured, ch.tree, cache, {
-      at: epochIndex,
-    });
+    results[channelName] = foldTree(measured, ch.tree, cache, foldOpts);
   }
 
   return view.combine(results);
