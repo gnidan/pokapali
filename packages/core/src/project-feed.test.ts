@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import fc from "fast-check";
 import { createFeed } from "./feed.js";
 import { projectFeed } from "./project-feed.js";
 
@@ -113,5 +114,45 @@ describe("projectFeed", () => {
     source._update({ a: 3 });
     expect(cb2).toHaveBeenCalledTimes(1);
     expect(projected.getSnapshot()).toBe(3);
+  });
+
+  it("notifications = distinct projected " + "values (dedup property)", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            a: fc.integer({ min: 0, max: 5 }),
+            b: fc.integer({ min: 0, max: 100 }),
+          }),
+          { minLength: 1, maxLength: 50 },
+        ),
+        (updates) => {
+          const first = updates[0]!;
+          const source = createFeed({
+            a: first.a,
+            b: first.b,
+          });
+          const projected = projectFeed(source, (s) => s.a);
+
+          const cb = vi.fn();
+          projected.subscribe(cb);
+
+          // Count expected distinct changes
+          let prev = first.a;
+          let expected = 0;
+          for (let i = 1; i < updates.length; i++) {
+            source._update(updates[i]!);
+            if (updates[i]!.a !== prev) {
+              expected++;
+              prev = updates[i]!.a;
+            }
+          }
+
+          expect(cb).toHaveBeenCalledTimes(expected);
+          expect(projected.getSnapshot()).toBe(prev);
+        },
+      ),
+      { numRuns: 200 },
+    );
   });
 });

@@ -337,4 +337,32 @@ describe("foldTree properties", () => {
       { numRuns: 200 },
     );
   });
+
+  it(
+    "foldTree(m, tree, cache, { at: n }) = " + "foldTree over first n epochs",
+    () => {
+      fc.assert(
+        fc.property(
+          fc.array(arbEpoch, {
+            minLength: 0,
+            maxLength: 20,
+          }),
+          fc.nat({ max: 25 }),
+          (epochs, n) => {
+            const tree = History.fromEpochs(epochs);
+            const cache1 = Cache.create<number>();
+            const cache2 = Cache.create<number>();
+
+            const atN = foldTree(editCountMeasured, tree, cache1, { at: n });
+
+            const prefix = History.fromEpochs(epochs.slice(0, n));
+            const full = foldTree(editCountMeasured, prefix, cache2);
+
+            expect(atN).toBe(full);
+          },
+        ),
+        { numRuns: 200 },
+      );
+    },
+  );
 });

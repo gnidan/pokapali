@@ -241,6 +241,60 @@ const arbTick = fc.record({
   ts: fc.nat({ max: 200_000 }),
 });
 
+const arbChannel = fc.constantFrom("content", "comments");
+
+const arbEpochClosed = fc.record({
+  type: fc.constant("epoch-closed" as const),
+  ts: fc.nat({ max: 200_000 }),
+  channel: arbChannel,
+  epochIndex: fc.nat({ max: 10 }),
+});
+
+const arbConvergenceDetected = fc.record({
+  type: fc.constant("convergence-detected" as const),
+  ts: fc.nat({ max: 200_000 }),
+  channel: arbChannel,
+  hash: fc.constant(new Uint8Array([1, 2, 3])),
+});
+
+const arbSnapshotMaterialized = fc.record({
+  type: fc.constant("snapshot-materialized" as const),
+  ts: fc.nat({ max: 200_000 }),
+  channel: arbChannel,
+  epochIndex: fc.nat({ max: 10 }),
+  cid: arbPoolCid,
+});
+
+const arbEditReceived = fc.record({
+  type: fc.constant("edit-received" as const),
+  ts: fc.nat({ max: 200_000 }),
+  channel: arbChannel,
+  editHash: fc.constant(new Uint8Array([4, 5, 6])),
+  origin: fc.constantFrom("local" as const, "remote" as const),
+});
+
+const arbEditVerified = fc.record({
+  type: fc.constant("edit-verified" as const),
+  ts: fc.nat({ max: 200_000 }),
+  channel: arbChannel,
+  editHash: fc.constant(new Uint8Array([7, 8, 9])),
+  author: fc.constant(new Uint8Array([10, 11])),
+});
+
+const arbViewCacheLoaded = fc.record({
+  type: fc.constant("view-cache-loaded" as const),
+  ts: fc.nat({ max: 200_000 }),
+  viewName: fc.constantFrom("state", "index"),
+  entries: fc.nat({ max: 100 }),
+});
+
+const arbViewCacheWritten = fc.record({
+  type: fc.constant("view-cache-written" as const),
+  ts: fc.nat({ max: 200_000 }),
+  viewName: fc.constantFrom("state", "index"),
+  entries: fc.nat({ max: 100 }),
+});
+
 // Combined: all fact types except node-change
 // (requires KnownNode which is complex to generate
 // and does not affect reducer state)
@@ -273,6 +327,13 @@ const arbFact: fc.Arbitrary<Fact> = fc.oneof(
   { weight: 1, arbitrary: arbIpnsResolveCompleted },
   { weight: 1, arbitrary: arbReannounceTick },
   { weight: 1, arbitrary: arbTick },
+  { weight: 1, arbitrary: arbEpochClosed },
+  { weight: 1, arbitrary: arbConvergenceDetected },
+  { weight: 1, arbitrary: arbSnapshotMaterialized },
+  { weight: 1, arbitrary: arbEditReceived },
+  { weight: 1, arbitrary: arbEditVerified },
+  { weight: 1, arbitrary: arbViewCacheLoaded },
+  { weight: 1, arbitrary: arbViewCacheWritten },
 ) as fc.Arbitrary<Fact>;
 
 // ------------------------------------------------
@@ -750,4 +811,117 @@ describe("stateful reducer properties", () => {
       { numRuns: NUM_RUNS },
     );
   });
+
+  // ------------------------------------------------
+  // EpochState properties
+  // ------------------------------------------------
+
+  it("openEpochCount only increases " + "(monotonic per channel)", () => {
+    fc.assert(
+      fc.property(fc.array(arbFact, { maxLength: SEQ_LEN }), (facts) => {
+        let state = initial();
+        const seen = new Map<string, number>();
+
+        for (const fact of facts) {
+          state = reduce(state, fact);
+          for (const [ch, chState] of Object.entries(state.epochs.channels)) {
+            const prev = seen.get(ch) ?? 0;
+            expect(chState.openEpochCount).toBeGreaterThanOrEqual(prev);
+            seen.set(ch, chState.openEpochCount);
+          }
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it("dirty flag: convergence-detected " + "clears dirty", () => {
+    fc.assert(
+      fc.property(fc.array(arbFact, { maxLength: SEQ_LEN }), (facts) => {
+        let state = initial();
+        for (const fact of facts) {
+          state = reduce(state, fact);
+
+          if (fact.type === "convergence-detected") {
+            const ch = state.epochs.channels[fact.channel];
+            if (ch) {
+              expect(ch.dirty).toBe(false);
+            }
+          }
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it("pendingSnapshots: snapshot-materialized " + "removes entry", () => {
+    fc.assert(
+      fc.property(fc.array(arbFact, { maxLength: SEQ_LEN }), (facts) => {
+        let state = initial();
+        for (const fact of facts) {
+          state = reduce(state, fact);
+
+          if (fact.type === "snapshot-materialized") {
+            const key = `${fact.channel}:${fact.epochIndex}`;
+            expect(state.epochs.pendingSnapshots.has(key)).toBe(false);
+          }
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it("viewCacheStale: view-cache-written " + "removes entry", () => {
+    fc.assert(
+      fc.property(fc.array(arbFact, { maxLength: SEQ_LEN }), (facts) => {
+        let state = initial();
+        for (const fact of facts) {
+          state = reduce(state, fact);
+
+          if (fact.type === "view-cache-written") {
+            expect(state.epochs.viewCacheStale.has(fact.viewName)).toBe(false);
+          }
+
+          if (fact.type === "view-cache-loaded") {
+            expect(state.epochs.viewCacheStale.has(fact.viewName)).toBe(false);
+          }
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it(
+    "per-channel isolation: epoch facts on " +
+      "one channel don't affect others",
+    () => {
+      fc.assert(
+        fc.property(fc.array(arbFact, { maxLength: SEQ_LEN }), (facts) => {
+          let state = initial();
+          for (const fact of facts) {
+            const prevChannels = {
+              ...state.epochs.channels,
+            };
+            state = reduce(state, fact);
+
+            // epoch-closed / convergence-detected /
+            // edit-received only affect their channel
+            if (
+              fact.type === "epoch-closed" ||
+              fact.type === "convergence-detected" ||
+              fact.type === "edit-received"
+            ) {
+              for (const [ch, prev] of Object.entries(prevChannels)) {
+                if (ch !== fact.channel) {
+                  const curr = state.epochs.channels[ch];
+                  expect(curr).toBe(prev);
+                }
+              }
+            }
+          }
+        }),
+        { numRuns: NUM_RUNS },
+      );
+    },
+  );
 });
