@@ -32,7 +32,9 @@ export interface Channel {
   readonly tree: History;
   appendEdit(edit: Edit): void;
   closeEpoch(): void;
+  /** @internal Called by Document — use Document.activate instead. */
   activate<V>(view: View<V>): Pick<Feed<V>, "getSnapshot" | "subscribe">;
+  /** @internal Called by Document — use Document.deactivate instead. */
   deactivate(viewName: string): void;
   destroy(): void;
 }

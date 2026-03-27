@@ -1,17 +1,17 @@
 /**
- * Tests for Document lifecycle states.
+ * Tests for Document view activation lifecycle.
  *
- * Levels (progressive enrichment):
- *   background → active → syncing → inspecting
- *
- * Each level activates additional views on all
- * channels.
+ * Document.activate(view) registers a monoidal view,
+ * delegates per-channel evaluation, and combines
+ * results. Document.deactivate(viewName) removes it.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { Codec } from "@pokapali/codec";
 import { Edit } from "#history";
 import * as State from "../state/index.js";
+import * as Fingerprint from "../fingerprint/index.js";
 import { Document } from "./document.js";
+import { inspect } from "../inspect.js";
 
 // -- Helpers --
 
@@ -70,161 +70,272 @@ function fakeEdit(id: number, channel = "content") {
 
 // -- Tests --
 
-describe("Document lifecycle", () => {
-  it("starts at background level", () => {
+describe("Document view activation", () => {
+  it("activate returns a feed with ready status", () => {
+    const codec = fakeCodec();
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
     });
 
-    expect(doc.level).toBe("background");
-  });
+    const feed = doc.activate(State.view(codec));
+    const snap = feed.getSnapshot();
 
-  it("activate('active') transitions level", () => {
-    const doc = Document.create({
-      identity: fakeIdentity(),
-      capability: fakeCapability(),
-      codec: fakeCodec(),
-    });
-
-    doc.activate("active");
-
-    expect(doc.level).toBe("active");
+    expect(snap.tag).toBe("ready");
+    doc.destroy();
   });
 
   it(
-    "activate('active') enables merged-payload " + "view on existing channels",
+    "activate is idempotent — same view returns " + "same feed behavior",
     () => {
+      const codec = fakeCodec();
       const doc = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
-        codec: fakeCodec(),
       });
 
-      const ch = doc.channel("content");
-      doc.activate("active");
+      const feed1 = doc.activate(State.view(codec));
+      const feed2 = doc.activate(State.view(codec));
 
-      // merged-payload feed should be available
-      const feed = ch.activate(State.view(fakeCodec()));
-      // If already activated by lifecycle, calling
-      // activate again returns the existing feed
-      const snap = feed.getSnapshot();
-      expect(snap.tag === "ready" || snap.tag === "stale").toBe(true);
+      expect(feed1.getSnapshot()).toBe(feed2.getSnapshot());
+      doc.destroy();
     },
   );
 
-  it("activate('syncing') activates content-hash " + "view on channels", () => {
+  it("deactivate removes the view", () => {
+    const codec = fakeCodec();
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
-      codec: fakeCodec(),
+    });
+
+    const feed = doc.activate(State.view(codec));
+    expect(feed.getSnapshot().tag).toBe("ready");
+
+    doc.deactivate("merged-payload");
+
+    // Re-activating creates a fresh feed
+    const feed2 = doc.activate(State.view(codec));
+    expect(feed2.getSnapshot().tag).toBe("ready");
+    doc.destroy();
+  });
+
+  it("feed reflects edits on the channel", () => {
+    const codec = fakeCodec();
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    doc.activate(State.view(codec));
+    const ch = doc.channel("content");
+
+    ch.appendEdit(fakeEdit(42));
+
+    const feed = doc.activate(State.view(codec));
+    const snap = feed.getSnapshot();
+    expect(snap.tag).toBe("ready");
+    if (snap.tag === "ready") {
+      expect(snap.value).toEqual(new Uint8Array([42]));
+    }
+
+    doc.destroy();
+  });
+
+  it("feed notifies subscribers on tree change", () => {
+    const codec = fakeCodec();
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    const feed = doc.activate(State.view(codec));
+    const cb = vi.fn();
+    feed.subscribe(cb);
+
+    doc.channel("content").appendEdit(fakeEdit(1));
+
+    expect(cb).toHaveBeenCalled();
+    doc.destroy();
+  });
+
+  it("multi-channel view combines per-channel " + "results", () => {
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    const ch1 = doc.channel("content");
+    const ch2 = doc.channel("comments");
+    ch1.appendEdit(fakeEdit(1, "content"));
+    ch2.appendEdit(fakeEdit(2, "comments"));
+
+    const feed = doc.activate(Fingerprint.view());
+    const snap = feed.getSnapshot();
+
+    expect(snap.tag).toBe("ready");
+    if (snap.tag === "ready") {
+      // Fingerprint XORs SHA-256 hashes across
+      // channels — result should be non-zero
+      expect(snap.value.length).toBe(32);
+      const allZero = snap.value.every((b) => b === 0);
+      expect(allZero).toBe(false);
+    }
+
+    doc.destroy();
+  });
+
+  it("new channel created after activation gets " + "views", () => {
+    const codec = fakeCodec();
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    // Activate state view before creating channel
+    const feed = doc.activate(State.view(codec));
+
+    // Create channel after activation
+    const ch = doc.channel("content");
+    ch.appendEdit(fakeEdit(5));
+
+    const snap = feed.getSnapshot();
+    expect(snap.tag).toBe("ready");
+    if (snap.tag === "ready") {
+      expect(snap.value).toEqual(new Uint8Array([5]));
+    }
+
+    doc.destroy();
+  });
+
+  it("deactivate is a no-op for unknown views", () => {
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    expect(() => doc.deactivate("nonexistent")).not.toThrow();
+    doc.destroy();
+  });
+
+  it("destroy cleans up all active views", () => {
+    const codec = fakeCodec();
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    const feed = doc.activate(State.view(codec));
+    const cb = vi.fn();
+    feed.subscribe(cb);
+
+    doc.destroy();
+
+    // After destroy, no more notifications
+    // (can't easily test this without channel
+    //  access, but at least no throw)
+  });
+
+  it("deprecated deactivate() with no args " + "removes all views", () => {
+    const codec = fakeCodec();
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
     });
 
     const ch = doc.channel("content");
     ch.appendEdit(fakeEdit(1));
 
-    doc.activate("syncing");
+    const stateFeed = doc.activate(State.view(codec));
+    const fpFeed = doc.activate(Fingerprint.view());
 
-    expect(doc.level).toBe("syncing");
-  });
+    expect(stateFeed.getSnapshot().tag).toBe("ready");
+    expect(fpFeed.getSnapshot().tag).toBe("ready");
 
-  it("activate('inspecting') sets level", () => {
-    const doc = Document.create({
-      identity: fakeIdentity(),
-      capability: fakeCapability(),
-      codec: fakeCodec(),
-    });
-
-    doc.activate("inspecting");
-
-    expect(doc.level).toBe("inspecting");
-  });
-
-  it("deactivate() returns to background", () => {
-    const doc = Document.create({
-      identity: fakeIdentity(),
-      capability: fakeCapability(),
-      codec: fakeCodec(),
-    });
-
-    doc.activate("syncing");
-    expect(doc.level).toBe("syncing");
-
+    // Deprecated: deactivate all
     doc.deactivate();
-    expect(doc.level).toBe("background");
+
+    // Re-activating produces fresh feeds
+    const stateFeed2 = doc.activate(State.view(codec));
+    expect(stateFeed2.getSnapshot()).not.toBe(stateFeed.getSnapshot());
+
+    doc.destroy();
   });
+});
 
-  it("activate without codec throws for " + "levels above background", () => {
-    const doc = Document.create({
-      identity: fakeIdentity(),
-      capability: fakeCapability(),
-    });
-
-    expect(() => doc.activate("active")).toThrow(/codec/i);
-  });
-
-  it("activate('background') is a no-op", () => {
-    const doc = Document.create({
-      identity: fakeIdentity(),
-      capability: fakeCapability(),
-    });
-
-    doc.activate("background");
-    expect(doc.level).toBe("background");
-  });
-
-  it("stepping up preserves lower-level views", () => {
+describe("inspect (one-shot evaluation)", () => {
+  it("returns combined value for single-channel " + "view", () => {
     const codec = fakeCodec();
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
-      codec,
     });
 
     const ch = doc.channel("content");
-    ch.appendEdit(fakeEdit(1));
+    ch.appendEdit(fakeEdit(10));
+    ch.appendEdit(fakeEdit(20));
 
-    doc.activate("active");
-    doc.activate("syncing");
+    const result = inspect(State.view(codec), doc);
+    expect(result).toEqual(new Uint8Array([10, 20]));
 
-    expect(doc.level).toBe("syncing");
-    // merged-payload still active (from active level)
+    doc.destroy();
   });
 
-  it("stepping down deactivates higher-level " + "views", () => {
+  it("returns combined value for multi-channel " + "view", () => {
+    const doc = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    const ch1 = doc.channel("content");
+    const ch2 = doc.channel("comments");
+    ch1.appendEdit(fakeEdit(1, "content"));
+    ch2.appendEdit(fakeEdit(2, "comments"));
+
+    const result = inspect(Fingerprint.view(), doc);
+
+    // SHA-256 + XOR of both channels
+    expect(result.length).toBe(32);
+    const allZero = result.every((b) => b === 0);
+    expect(allZero).toBe(false);
+
+    doc.destroy();
+  });
+
+  it("inspect does not require prior activation", () => {
     const codec = fakeCodec();
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
-      codec,
     });
 
-    doc.channel("content");
+    doc.channel("content").appendEdit(fakeEdit(7));
 
-    doc.activate("syncing");
-    expect(doc.level).toBe("syncing");
+    // inspect works without activate
+    const result = inspect(State.view(codec), doc);
+    expect(result).toEqual(new Uint8Array([7]));
 
-    doc.activate("active");
-    expect(doc.level).toBe("active");
-    // content-hash view deactivated, merged-payload
-    // still active
+    doc.destroy();
   });
 
-  it("new channels get views for current level", () => {
+  it("inspect result matches activated feed " + "snapshot", () => {
     const codec = fakeCodec();
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
-      codec,
     });
 
-    doc.activate("active");
+    doc.channel("content").appendEdit(fakeEdit(3));
 
-    // Create channel AFTER activation
-    const ch = doc.channel("content");
-    ch.appendEdit(fakeEdit(1));
+    const feed = doc.activate(State.view(codec));
+    const snap = feed.getSnapshot();
+    const oneShot = inspect(State.view(codec), doc);
 
-    // Channel should already have merged-payload
-    // active (no explicit activate needed)
+    expect(snap.tag).toBe("ready");
+    if (snap.tag === "ready") {
+      expect(snap.value).toEqual(oneShot);
+    }
+
+    doc.destroy();
   });
 });

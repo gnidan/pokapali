@@ -1,8 +1,7 @@
 /**
- * Property tests for Document lifecycle state machine.
+ * Property tests for Document view activation.
  *
  * Verifies invariants under random operation sequences:
- *   - Level tracking correctness
  *   - Activate/deactivate idempotency
  *   - View activation/deactivation consistency
  *   - New-channel view inheritance
@@ -11,9 +10,9 @@ import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 import type { Codec } from "@pokapali/codec";
 import { Document } from "./document.js";
-import type { Level } from "./document.js";
 import * as State from "#state";
 import * as Fingerprint from "#fingerprint";
+import { View } from "../view.js";
 import { Edit } from "#history";
 
 // -- Helpers --
@@ -71,201 +70,53 @@ function fakeEdit(id: number) {
   });
 }
 
-const LEVELS: Level[] = ["background", "active", "syncing", "inspecting"];
+const codec = fakeCodec();
+const stateView = State.view(codec);
+const fpView = Fingerprint.view();
+const views = [stateView, fpView];
 
-const LEVEL_INDEX: Record<Level, number> = {
-  background: 0,
-  active: 1,
-  syncing: 2,
-  inspecting: 3,
-};
-
-const levelArb = fc.constantFrom<Level>(...LEVELS);
-
-const nonBgLevelArb = fc.constantFrom<Level>("active", "syncing", "inspecting");
+const viewArb = fc.constantFrom(...views);
 
 type Op =
-  | { type: "activate"; level: Level }
-  | { type: "deactivate" }
-  | { type: "channel"; name: string };
+  | { type: "activate"; view: View<unknown> }
+  | { type: "deactivate"; viewName: string }
+  | { type: "channel"; name: string }
+  | { type: "edit"; id: number };
 
 const opArb: fc.Arbitrary<Op> = fc.oneof(
-  levelArb.map((level) => ({ type: "activate", level }) as Op),
-  fc.constant({ type: "deactivate" } as Op),
+  viewArb.map((view) => ({ type: "activate", view }) as Op),
+  fc.constantFrom("merged-payload", "content-hash").map(
+    (viewName) =>
+      ({
+        type: "deactivate",
+        viewName,
+      }) as Op,
+  ),
   fc
-    .constantFrom("ch-a", "ch-b", "ch-c")
+    .constantFrom("content", "comments", "extra")
     .map((name) => ({ type: "channel", name }) as Op),
+  fc.nat(255).map((id) => ({ type: "edit", id }) as Op),
 );
 
 // -- Tests --
 
-describe("Lifecycle property tests", () => {
-  it("idempotency: activate(L); activate(L)" + " → level === L", () => {
-    fc.assert(
-      fc.property(nonBgLevelArb, (level) => {
-        const doc = Document.create({
-          identity: fakeIdentity(),
-          capability: fakeCapability(),
-          codec: fakeCodec(),
-        });
-
-        doc.activate(level);
-        expect(doc.level).toBe(level);
-
-        // Second call should be idempotent
-        doc.activate(level);
-        expect(doc.level).toBe(level);
-
-        doc.destroy();
-      }),
-    );
-  });
-
+describe("View activation property tests", () => {
   it(
-    "level ordering: doc.level equals most" +
-      " recent activate or background after" +
-      " deactivate",
+    "idempotency: activate(v); activate(v) " + "returns consistent snapshots",
     () => {
       fc.assert(
-        fc.property(
-          fc.array(opArb, {
-            minLength: 1,
-            maxLength: 50,
-          }),
-          (ops) => {
-            const doc = Document.create({
-              identity: fakeIdentity(),
-              capability: fakeCapability(),
-              codec: fakeCodec(),
-            });
-
-            let expected: Level = "background";
-
-            for (const op of ops) {
-              switch (op.type) {
-                case "activate":
-                  if (op.level !== "background") {
-                    expected = op.level;
-                  }
-                  doc.activate(op.level);
-                  break;
-                case "deactivate":
-                  expected = "background";
-                  doc.deactivate();
-                  break;
-                case "channel":
-                  doc.channel(op.name);
-                  break;
-              }
-              expect(doc.level).toBe(expected);
-            }
-
-            doc.destroy();
-          },
-        ),
-      );
-    },
-  );
-
-  it(
-    "step-up preserves lower views:" + " merged-payload survives syncing",
-    () => {
-      const codec = fakeCodec();
-      const doc = Document.create({
-        identity: fakeIdentity(),
-        capability: fakeCapability(),
-        codec,
-      });
-
-      const ch = doc.channel("content");
-      ch.appendEdit(fakeEdit(1));
-
-      // Activate to "active" — get merged-payload
-      doc.activate("active");
-      const feedA = ch.activate(State.view(codec));
-
-      // Step up to "syncing"
-      doc.activate("syncing");
-
-      // merged-payload should be the same feed
-      // (not destroyed and recreated)
-      const feedB = ch.activate(State.view(codec));
-      expect(feedB).toBe(feedA);
-
-      doc.destroy();
-    },
-  );
-
-  it(
-    "step-down removes only higher views:" +
-      " content-hash removed, merged-payload" +
-      " preserved",
-    () => {
-      const codec = fakeCodec();
-      const doc = Document.create({
-        identity: fakeIdentity(),
-        capability: fakeCapability(),
-        codec,
-      });
-
-      const ch = doc.channel("content");
-      ch.appendEdit(fakeEdit(1));
-
-      // Activate to "syncing" — both views active
-      doc.activate("syncing");
-      const stateFeed = ch.activate(State.view(codec));
-      const fpFeed = ch.activate(Fingerprint.view());
-
-      // Step down to "active"
-      doc.activate("active");
-
-      // merged-payload preserved (same reference)
-      const stateFeed2 = ch.activate(State.view(codec));
-      expect(stateFeed2).toBe(stateFeed);
-
-      // content-hash was deactivated — new feed
-      const fpFeed2 = ch.activate(Fingerprint.view());
-      expect(fpFeed2).not.toBe(fpFeed);
-
-      doc.destroy();
-    },
-  );
-
-  it(
-    "new-channel view inheritance:" +
-      " channel created at any level gets" +
-      " exactly that level's views",
-    () => {
-      fc.assert(
-        fc.property(nonBgLevelArb, (level) => {
-          const codec = fakeCodec();
+        fc.property(viewArb, (view) => {
           const doc = Document.create({
             identity: fakeIdentity(),
             capability: fakeCapability(),
-            codec,
           });
 
-          doc.activate(level);
+          const feed1 = doc.activate(view);
+          expect(feed1.getSnapshot().tag).toBe("ready");
 
-          // Create channel AFTER activation
-          const ch = doc.channel("content");
-          const idx = LEVEL_INDEX[level];
-
-          // merged-payload should be active for
-          // active and above
-          if (idx >= LEVEL_INDEX["active"]) {
-            const feed = ch.activate(State.view(codec));
-            const snap = feed.getSnapshot();
-            expect(snap.tag === "ready" || snap.tag === "stale").toBe(true);
-          }
-
-          // content-hash should be active for
-          // syncing and above
-          if (idx >= LEVEL_INDEX["syncing"]) {
-            const feed = ch.activate(Fingerprint.view());
-            const snap = feed.getSnapshot();
-            expect(snap.tag === "ready" || snap.tag === "stale").toBe(true);
-          }
+          // Second call returns same snapshot ref
+          const feed2 = doc.activate(view);
+          expect(feed2.getSnapshot()).toBe(feed1.getSnapshot());
 
           doc.destroy();
         }),
@@ -273,59 +124,94 @@ describe("Lifecycle property tests", () => {
     },
   );
 
-  it(
-    "random operation sequence model:" +
-      " invariants hold after each operation",
-    () => {
-      fc.assert(
-        fc.property(
-          fc.array(opArb, {
-            minLength: 1,
-            maxLength: 100,
-          }),
-          (ops) => {
-            const codec = fakeCodec();
-            const doc = Document.create({
-              identity: fakeIdentity(),
-              capability: fakeCapability(),
-              codec,
-            });
+  it("deactivate + re-activate produces a " + "fresh feed", () => {
+    fc.assert(
+      fc.property(viewArb, (view) => {
+        const doc = Document.create({
+          identity: fakeIdentity(),
+          capability: fakeCapability(),
+        });
 
-            let expected: Level = "background";
-            const channels = new Set<string>();
+        doc.channel("content");
+        const feed1 = doc.activate(view);
+        const snap1 = feed1.getSnapshot();
 
-            for (const op of ops) {
-              switch (op.type) {
-                case "activate":
-                  if (op.level !== "background") {
-                    expected = op.level;
-                  }
-                  doc.activate(op.level);
-                  break;
-                case "deactivate":
-                  expected = "background";
-                  doc.deactivate();
-                  break;
-                case "channel":
-                  doc.channel(op.name);
-                  channels.add(op.name);
-                  break;
-              }
+        doc.deactivate(view.name);
+        const feed2 = doc.activate(view);
 
-              // Invariant 1: level is correct
-              expect(doc.level).toBe(expected);
+        // New feed — might be same value but
+        // different Status object
+        expect(feed2.getSnapshot().tag).toBe("ready");
 
-              // Invariant 2: no throws on
-              // channel access
-              for (const name of channels) {
-                expect(() => doc.channel(name)).not.toThrow();
-              }
+        doc.destroy();
+      }),
+    );
+  });
+
+  it("random operation sequence: no throws", () => {
+    fc.assert(
+      fc.property(
+        fc.array(opArb, {
+          minLength: 1,
+          maxLength: 100,
+        }),
+        (ops) => {
+          const doc = Document.create({
+            identity: fakeIdentity(),
+            capability: fakeCapability(),
+          });
+
+          for (const op of ops) {
+            switch (op.type) {
+              case "activate":
+                doc.activate(op.view);
+                break;
+              case "deactivate":
+                doc.deactivate(op.viewName);
+                break;
+              case "channel":
+                doc.channel(op.name);
+                break;
+              case "edit":
+                doc.channel("content").appendEdit(fakeEdit(op.id));
+                break;
             }
+          }
 
-            doc.destroy();
-          },
-        ),
-      );
-    },
-  );
+          doc.destroy();
+        },
+      ),
+    );
+  });
+
+  it("channel creation order does not affect " + "view result", () => {
+    const doc1 = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+    const doc2 = Document.create({
+      identity: fakeIdentity(),
+      capability: fakeCapability(),
+    });
+
+    // doc1: channel then activate
+    doc1.channel("content").appendEdit(fakeEdit(1));
+    const feed1 = doc1.activate(stateView);
+
+    // doc2: activate then channel
+    const feed2 = doc2.activate(stateView);
+    doc2.channel("content").appendEdit(fakeEdit(1));
+
+    const snap1 = feed1.getSnapshot();
+    const snap2 = feed2.getSnapshot();
+
+    expect(snap1.tag).toBe("ready");
+    expect(snap2.tag).toBe("ready");
+    if (snap1.tag === "ready" && snap2.tag === "ready") {
+      expect(snap1.value).toEqual(snap2.value);
+    }
+
+    doc1.destroy();
+    doc2.destroy();
+  });
 });
