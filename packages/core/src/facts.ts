@@ -147,6 +147,8 @@ export type Fact =
       channel: string;
       epochIndex: number;
       cid: CID;
+      /** IPNS sequence number at materialization. */
+      seq: number;
     }
   // --- Edit lifecycle ---
   | {
@@ -300,11 +302,37 @@ export interface DocState {
   pendingQueries: ReadonlyMap<string, { sentAt: number }>;
   ipnsStatus: IpnsResolutionStatus;
 
+  snapshotHistory: SnapshotHistory;
+
   /** Derived from connectivity. */
   status: DocStatus;
   /** Derived from content + chain. */
   saveState: SaveState;
 }
+
+// ------------------------------------------------
+// Snapshot history (epoch-based version tracking)
+// ------------------------------------------------
+
+export interface SnapshotRecord {
+  /** CID of the materialized snapshot. */
+  cid: CID;
+  /** IPNS sequence number at materialization. */
+  seq: number;
+  /** Timestamp when materialized. */
+  ts: number;
+  /** Which channel triggered the snapshot. */
+  channel: string;
+  /** Epoch index at time of snapshot. */
+  epochIndex: number;
+}
+
+export interface SnapshotHistory {
+  /** Materialized snapshots, newest first. */
+  records: ReadonlyArray<SnapshotRecord>;
+}
+
+export const INITIAL_SNAPSHOT_HISTORY: SnapshotHistory = { records: [] };
 
 export interface ChannelEpochState {
   openEpochCount: number;
@@ -454,6 +482,7 @@ export function initialDocState(identity: {
       lastGuaranteeQueryAt: 0,
     },
     epochs: INITIAL_EPOCHS,
+    snapshotHistory: INITIAL_SNAPSHOT_HISTORY,
     pendingQueries: new Map(),
     ipnsStatus: { phase: "idle" },
     status: "offline",
@@ -567,6 +596,25 @@ export function deriveVersionHistory(
   const entries = [...seen.values()].sort((a, b) => b.seq - a.seq);
 
   return { entries, walking };
+}
+
+/** Derive VersionHistory from epoch-based
+ *  SnapshotHistory. All entries are "available"
+ *  (locally materialized), walking is always false
+ *  (no chain-walk needed). Coexists with
+ *  deriveVersionHistory during transition. */
+export function deriveVersionHistoryFromSnapshots(
+  history: SnapshotHistory,
+): VersionHistory {
+  return {
+    entries: history.records.map((r) => ({
+      cid: r.cid,
+      seq: r.seq,
+      ts: r.ts,
+      status: "available" as const,
+    })),
+    walking: false,
+  };
 }
 
 export interface BestGuarantee {

@@ -2345,6 +2345,7 @@ describe("interpreter epoch effects", () => {
           channel: "content",
           epochIndex: 0,
           cid,
+          seq: 1,
         },
       ],
       {
@@ -2368,6 +2369,7 @@ describe("interpreter epoch effects", () => {
             channel: "content",
             epochIndex: 0,
             cid,
+            seq: 1,
           },
         ],
         {

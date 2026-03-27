@@ -263,6 +263,7 @@ const arbSnapshotMaterialized = fc.record({
   channel: arbChannel,
   epochIndex: fc.nat({ max: 10 }),
   cid: arbPoolCid,
+  seq: fc.nat({ max: 1000 }),
 });
 
 const arbEditReceived = fc.record({

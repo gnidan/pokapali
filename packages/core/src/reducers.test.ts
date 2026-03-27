@@ -19,6 +19,7 @@ import {
   reduceAnnounce,
   reduceGossip,
   reduceEpochs,
+  reduceSnapshotHistory,
   deriveStatus,
   deriveSaveState,
 } from "./reducers.js";
@@ -29,6 +30,7 @@ import {
   INITIAL_CONTENT,
   INITIAL_GOSSIP,
   INITIAL_EPOCHS,
+  INITIAL_SNAPSHOT_HISTORY,
 } from "./facts.js";
 import type {
   Fact,
@@ -37,6 +39,7 @@ import type {
   DocState,
   AnnounceState,
   EpochState,
+  SnapshotHistory,
 } from "./facts.js";
 
 async function fakeCid(n: number): Promise<CID> {
@@ -1611,6 +1614,7 @@ describe("reduceEpochs", () => {
       channel: "content",
       epochIndex: 3,
       cid: null as never,
+      seq: 1,
     });
     expect(next.pendingSnapshots.has("content:3")).toBe(false);
     expect(next.pendingSnapshots.has("comments:1")).toBe(true);
@@ -1797,5 +1801,85 @@ describe("epoch reducer properties", () => {
       ),
       { numRuns: 200 },
     );
+  });
+});
+
+describe("reduceSnapshotHistory", () => {
+  it("ignores non-snapshot-materialized facts", () => {
+    const state = INITIAL_SNAPSHOT_HISTORY;
+    const next = reduceSnapshotHistory(state, {
+      type: "gossip-message",
+      ts: 1,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("accumulates snapshot-materialized", async () => {
+    const cid = await fakeCid(180);
+    const state = INITIAL_SNAPSHOT_HISTORY;
+    const next = reduceSnapshotHistory(state, {
+      type: "snapshot-materialized",
+      ts: 1000,
+      channel: "content",
+      epochIndex: 2,
+      cid,
+      seq: 5,
+    });
+    expect(next.records).toHaveLength(1);
+    expect(next.records[0]!.cid).toEqual(cid);
+    expect(next.records[0]!.seq).toBe(5);
+    expect(next.records[0]!.ts).toBe(1000);
+    expect(next.records[0]!.channel).toBe("content");
+    expect(next.records[0]!.epochIndex).toBe(2);
+  });
+
+  it("prepends newest first", async () => {
+    const cid1 = await fakeCid(181);
+    const cid2 = await fakeCid(182);
+    const s1 = reduceSnapshotHistory(INITIAL_SNAPSHOT_HISTORY, {
+      type: "snapshot-materialized",
+      ts: 1000,
+      channel: "content",
+      epochIndex: 1,
+      cid: cid1,
+      seq: 3,
+    });
+    const s2 = reduceSnapshotHistory(s1, {
+      type: "snapshot-materialized",
+      ts: 2000,
+      channel: "content",
+      epochIndex: 2,
+      cid: cid2,
+      seq: 7,
+    });
+    expect(s2.records).toHaveLength(2);
+    expect(s2.records[0]!.seq).toBe(7);
+    expect(s2.records[1]!.seq).toBe(3);
+  });
+
+  it("wired into top-level reduce", async () => {
+    const cid = await fakeCid(183);
+    const state = initialDocState(IDENTITY);
+    const next = reduce(state, {
+      type: "snapshot-materialized",
+      ts: 1000,
+      channel: "content",
+      epochIndex: 0,
+      cid,
+      seq: 10,
+    });
+    expect(next.snapshotHistory.records).toHaveLength(1);
+    expect(next.snapshotHistory.records[0]!.seq).toBe(10);
+  });
+
+  it("structural sharing on no-op", () => {
+    const state: SnapshotHistory = {
+      records: [],
+    };
+    const next = reduceSnapshotHistory(state, {
+      type: "gossip-message",
+      ts: 1,
+    });
+    expect(next).toBe(state);
   });
 });

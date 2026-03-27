@@ -13,12 +13,14 @@ import {
   initialDocState,
   versionHistory,
   deriveVersionHistory,
+  deriveVersionHistoryFromSnapshots,
   bestGuarantee,
   isGuaranteeActive,
   CLOCK_SKEW_TOLERANCE_MS,
   INITIAL_CHAIN,
+  INITIAL_SNAPSHOT_HISTORY,
 } from "./facts.js";
-import type { ChainState, ChainEntry } from "./facts.js";
+import type { ChainState, ChainEntry, SnapshotHistory } from "./facts.js";
 import { deriveStatus, deriveSaveState } from "./reducers.js";
 
 async function fakeCid(n: number): Promise<CID> {
@@ -471,5 +473,81 @@ describe("deriveVersionHistory", () => {
     expect(h.entries).toHaveLength(1);
     // Should use interpreter status, not local
     expect(h.entries[0]!.status).toBe("available");
+  });
+});
+
+describe("deriveVersionHistoryFromSnapshots", () => {
+  it("returns empty for empty history", () => {
+    const h = deriveVersionHistoryFromSnapshots(INITIAL_SNAPSHOT_HISTORY);
+    expect(h.entries).toEqual([]);
+    expect(h.walking).toBe(false);
+  });
+
+  it("maps records to entries", async () => {
+    const cid = await fakeCid(200);
+    const history: SnapshotHistory = {
+      records: [
+        {
+          cid,
+          seq: 5,
+          ts: 1000,
+          channel: "content",
+          epochIndex: 2,
+        },
+      ],
+    };
+    const h = deriveVersionHistoryFromSnapshots(history);
+    expect(h.entries).toHaveLength(1);
+    expect(h.entries[0]!.cid).toEqual(cid);
+    expect(h.entries[0]!.seq).toBe(5);
+    expect(h.entries[0]!.ts).toBe(1000);
+    expect(h.entries[0]!.status).toBe("available");
+    expect(h.walking).toBe(false);
+  });
+
+  it("preserves newest-first order", async () => {
+    const cid1 = await fakeCid(201);
+    const cid2 = await fakeCid(202);
+    const history: SnapshotHistory = {
+      records: [
+        {
+          cid: cid2,
+          seq: 10,
+          ts: 2000,
+          channel: "content",
+          epochIndex: 3,
+        },
+        {
+          cid: cid1,
+          seq: 5,
+          ts: 1000,
+          channel: "content",
+          epochIndex: 1,
+        },
+      ],
+    };
+    const h = deriveVersionHistoryFromSnapshots(history);
+    expect(h.entries).toHaveLength(2);
+    expect(h.entries[0]!.seq).toBe(10);
+    expect(h.entries[1]!.seq).toBe(5);
+  });
+
+  it("all entries are available", async () => {
+    const cid = await fakeCid(203);
+    const history: SnapshotHistory = {
+      records: [
+        {
+          cid,
+          seq: 1,
+          ts: 500,
+          channel: "content",
+          epochIndex: 0,
+        },
+      ],
+    };
+    const h = deriveVersionHistoryFromSnapshots(history);
+    for (const e of h.entries) {
+      expect(e.status).toBe("available");
+    }
   });
 });

@@ -574,6 +574,10 @@ export async function runInterpreter(
                 channel: fact.channel,
                 epochIndex: fact.epochIndex,
                 cid,
+                // TODO(7a): populate from
+                // Codec.clockSum when write path
+                // is wired up.
+                seq: 0,
               });
             }
           })

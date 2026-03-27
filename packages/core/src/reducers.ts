@@ -22,8 +22,13 @@ import type {
   SaveState,
   CidSource,
   IpnsResolutionStatus,
+  SnapshotHistory,
 } from "./facts.js";
-import { EMPTY_SET, EMPTY_GUARANTEES } from "./facts.js";
+import {
+  EMPTY_SET,
+  EMPTY_GUARANTEES,
+  INITIAL_SNAPSHOT_HISTORY,
+} from "./facts.js";
 import { deriveStatus } from "./doc-status.js";
 
 // ------------------------------------------------
@@ -584,6 +589,31 @@ export function reduceEpochs(state: EpochState, fact: Fact): EpochState {
 }
 
 // ------------------------------------------------
+// Snapshot history reducer
+// ------------------------------------------------
+
+export function reduceSnapshotHistory(
+  state: SnapshotHistory,
+  fact: Fact,
+): SnapshotHistory {
+  if (fact.type !== "snapshot-materialized") {
+    return state;
+  }
+  return {
+    records: [
+      {
+        cid: fact.cid,
+        seq: fact.seq,
+        ts: fact.ts,
+        channel: fact.channel,
+        epochIndex: fact.epochIndex,
+      },
+      ...state.records,
+    ],
+  };
+}
+
+// ------------------------------------------------
 // Top-level combiner
 // ------------------------------------------------
 
@@ -593,6 +623,7 @@ export function reduce(state: DocState, fact: Fact): DocState {
   const content = reduceContent(state.content, fact);
   const announce = reduceAnnounce(state.announce, fact);
   const epochs = reduceEpochs(state.epochs, fact);
+  const snapshotHistory = reduceSnapshotHistory(state.snapshotHistory, fact);
   const pendingQueries = reducePendingQueries(state.pendingQueries, fact);
   const ipnsStatus = reduceIpnsStatus(state.ipnsStatus, fact);
 
@@ -604,6 +635,7 @@ export function reduce(state: DocState, fact: Fact): DocState {
     content === state.content &&
     announce === state.announce &&
     epochs === state.epochs &&
+    snapshotHistory === state.snapshotHistory &&
     pendingQueries === state.pendingQueries &&
     ipnsStatus === state.ipnsStatus
   ) {
@@ -620,6 +652,7 @@ export function reduce(state: DocState, fact: Fact): DocState {
     content,
     announce,
     epochs,
+    snapshotHistory,
     pendingQueries,
     ipnsStatus,
     status,

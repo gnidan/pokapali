@@ -244,6 +244,7 @@ describe("epoch lifecycle integration", () => {
           channel: "content",
           epochIndex: 0,
           cid,
+          seq: 1,
         },
       ],
       {
