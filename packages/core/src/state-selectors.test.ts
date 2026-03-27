@@ -246,6 +246,132 @@ describe("status subscription transitions", () => {
   );
 });
 
+describe("status reaching receiving", () => {
+  it(
+    "gossip-message with disconnected sync " + "produces receiving status",
+    () => {
+      const docStateFeed = createFeed(initial());
+      const statusFeed = projectFeed(docStateFeed, selectStatus);
+
+      const transitions: string[] = [];
+      statusFeed.subscribe(() => {
+        transitions.push(statusFeed.getSnapshot());
+      });
+
+      let state = initial();
+      const facts: Fact[] = [
+        // Subscribe to gossip first
+        {
+          type: "gossip-subscribed",
+          ts: 100,
+        },
+        // Receive a gossip message — triggers
+        // activity = "receiving"
+        {
+          type: "gossip-message",
+          ts: 200,
+        },
+      ];
+
+      for (const fact of facts) {
+        state = reduce(state, fact);
+        docStateFeed._update(state);
+      }
+
+      // gossip-subscribed → "connecting"
+      // gossip-message → "receiving"
+      expect(transitions).toEqual(["connecting", "receiving"]);
+    },
+  );
+});
+
+describe("status dedup suppression", () => {
+  it(
+    "duplicate sync-status-changed connected " + "fires only one notification",
+    () => {
+      const docStateFeed = createFeed(initial());
+      const statusFeed = projectFeed(docStateFeed, selectStatus);
+
+      const transitions: string[] = [];
+      statusFeed.subscribe(() => {
+        transitions.push(statusFeed.getSnapshot());
+      });
+
+      let state = initial();
+      const facts: Fact[] = [
+        {
+          type: "sync-status-changed",
+          ts: 100,
+          status: "connected" as const,
+        },
+        // Second identical fact — should be
+        // suppressed by projectFeed equality dedup
+        {
+          type: "sync-status-changed",
+          ts: 200,
+          status: "connected" as const,
+        },
+      ];
+
+      for (const fact of facts) {
+        state = reduce(state, fact);
+        docStateFeed._update(state);
+      }
+
+      // Only one "synced" notification despite
+      // two connected facts
+      expect(transitions).toEqual(["synced"]);
+    },
+  );
+});
+
+describe("awareness-only edge case (#224)", () => {
+  it(
+    "awareness connected + gossip subscribed " +
+      "without sync returns connecting",
+    () => {
+      const docStateFeed = createFeed(initial());
+      const statusFeed = projectFeed(docStateFeed, selectStatus);
+
+      const transitions: string[] = [];
+      statusFeed.subscribe(() => {
+        transitions.push(statusFeed.getSnapshot());
+      });
+
+      let state = initial();
+      const facts: Fact[] = [
+        // Subscribe to gossip
+        {
+          type: "gossip-subscribed",
+          ts: 100,
+        },
+        // Awareness connects (but sync is still
+        // disconnected)
+        {
+          type: "awareness-status-changed",
+          ts: 200,
+          connected: true,
+        },
+      ];
+
+      for (const fact of facts) {
+        state = reduce(state, fact);
+        docStateFeed._update(state);
+      }
+
+      // Both should be "connecting" — awareness
+      // alone does NOT produce "receiving" (#224)
+      expect(transitions).toEqual([
+        "connecting",
+        // Second fact doesn't change status
+        // (still "connecting"), so projectFeed
+        // dedup suppresses it
+      ]);
+      expect(statusFeed.getSnapshot()).toBe("connecting");
+    },
+  );
+});
+
 describe("saveState subscription transitions", () => {
   it(
     "unpublished → dirty → saving → saved " + "produces correct transitions",
