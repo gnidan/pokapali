@@ -11,7 +11,7 @@
  * into a single reactive feed.
  */
 import type { Ed25519KeyPair } from "@pokapali/crypto";
-import type { Codec } from "@pokapali/codec";
+import type { Codec, CodecSurface } from "@pokapali/codec";
 import type { Capability } from "../capability/capability.js";
 import type { Channel } from "../channel/channel.js";
 import { Channel as ChannelCompanion } from "../channel/channel.js";
@@ -19,6 +19,7 @@ import type { View } from "../view.js";
 import type { Feed } from "../feed/feed.js";
 import type { Status } from "../view.js";
 import { Status as StatusCompanion } from "../view.js";
+import type { Edit } from "../history/edit.js";
 import * as State from "../state/index.js";
 import * as Fingerprint from "../fingerprint/index.js";
 
@@ -46,6 +47,20 @@ export type Level = "background" | "active" | "syncing" | "inspecting";
  */
 export interface Document {
   channel(name: string): Channel;
+  /**
+   * Get or create a CodecSurface for a channel.
+   *
+   * The surface is a live editing handle backed
+   * by the codec's internal CRDT document. Local
+   * edits on the surface are automatically wired
+   * to `channel.appendEdit`. Remote edits
+   * appended to the channel are forwarded to
+   * `surface.applyEdit`.
+   *
+   * Requires a codec — throws if none was provided
+   * to `Document.create`.
+   */
+  surface(channel: string): CodecSurface;
   readonly identity: Ed25519KeyPair;
   readonly capability: Capability;
   /**
@@ -121,10 +136,43 @@ export const Document = {
       ActiveView<any>
     >();
 
+    // Surface support: edit listeners notify
+    // surfaces when remote edits arrive.
+    const editListeners = new Map<string, (edit: Edit) => void>();
+    const surfaces = new Map<
+      string,
+      { surface: CodecSurface; unsub: () => void }
+    >();
+
     function getOrCreateChannel(name: string): Channel {
       let ch = channels.get(name);
       if (!ch) {
-        ch = ChannelCompanion.create(name);
+        const raw = ChannelCompanion.create(name);
+        // Wrap appendEdit to notify edit listeners
+        ch = {
+          get name() {
+            return raw.name;
+          },
+          get tree() {
+            return raw.tree;
+          },
+          appendEdit(edit: Edit) {
+            raw.appendEdit(edit);
+            editListeners.get(name)?.(edit);
+          },
+          closeEpoch() {
+            raw.closeEpoch();
+          },
+          activate(view) {
+            return raw.activate(view);
+          },
+          deactivate(viewName) {
+            raw.deactivate(viewName);
+          },
+          destroy() {
+            raw.destroy();
+          },
+        };
         channels.set(name, ch);
         // Activate any existing views that include
         // this channel
@@ -242,6 +290,49 @@ export const Document = {
     const doc: Document = {
       channel: getOrCreateChannel,
 
+      surface(channelName: string): CodecSurface {
+        if (!opts.codec) {
+          throw new Error(
+            "A codec is required for " +
+              "surface(). Pass a codec to " +
+              "Document.create().",
+          );
+        }
+
+        const existing = surfaces.get(channelName);
+        if (existing) return existing.surface;
+
+        const s = opts.codec.createSurface();
+        const ch = getOrCreateChannel(channelName);
+        const identity = opts.identity;
+
+        // Wire local edits from surface to channel
+        const unsub = s.onLocalEdit((payload: Uint8Array) => {
+          const edit: Edit = {
+            payload,
+            timestamp: Date.now(),
+            author: Buffer.from(identity.publicKey).toString("hex"),
+            channel: channelName,
+            origin: "local",
+            signature: new Uint8Array(),
+          };
+          ch.appendEdit(edit);
+        });
+
+        // Wire remote edits to surface
+        editListeners.set(channelName, (edit) => {
+          if (edit.origin !== "local") {
+            s.applyEdit(edit.payload);
+          }
+        });
+
+        surfaces.set(channelName, {
+          surface: s,
+          unsub,
+        });
+        return s;
+      },
+
       get identity() {
         return opts.identity;
       },
@@ -306,6 +397,12 @@ export const Document = {
         for (const name of [...activeViews.keys()]) {
           deactivateView(name);
         }
+        for (const [, { surface, unsub }] of surfaces) {
+          unsub();
+          surface.destroy();
+        }
+        surfaces.clear();
+        editListeners.clear();
         for (const ch of channels.values()) {
           ch.destroy();
         }
