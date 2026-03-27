@@ -67,8 +67,6 @@ function mockEffects(overrides?: Partial<EffectHandlers>): EffectHandlers {
     emitGossipActivity: vi.fn(),
     emitLoading: vi.fn(),
     emitGuarantee: vi.fn(),
-    emitStatus: vi.fn(),
-    emitSaveState: vi.fn(),
     emitValidationError: vi.fn(),
     ...overrides,
   };
@@ -765,30 +763,6 @@ describe("interpreter markReady", () => {
 // --- Event emission tests ---
 
 describe("interpreter event emission", () => {
-  it("emits status on connectivity change", async () => {
-    const { effects } = await runWithFacts([
-      {
-        type: "sync-status-changed",
-        ts: 1,
-        status: "connected",
-      },
-    ]);
-
-    expect(effects.emitStatus).toHaveBeenCalledWith("synced");
-  });
-
-  it("emits saveState on content change", async () => {
-    const { effects } = await runWithFacts([
-      {
-        type: "content-dirty",
-        ts: 1,
-        clockSum: 10,
-      },
-    ]);
-
-    expect(effects.emitSaveState).toHaveBeenCalledWith("dirty");
-  });
-
   it("emits gossipActivity on gossip change", async () => {
     const { effects } = await runWithFacts([
       {
@@ -966,18 +940,6 @@ describe("interpreter event emission", () => {
     );
 
     expect(effects.emitGuarantee).toHaveBeenCalledWith(cid, expect.any(Map));
-  });
-
-  it("does not emit status when unchanged", async () => {
-    const { effects } = await runWithFacts([{ type: "tick", ts: 1 }]);
-
-    expect(effects.emitStatus).not.toHaveBeenCalled();
-  });
-
-  it("does not emit saveState when unchanged", async () => {
-    const { effects } = await runWithFacts([{ type: "tick", ts: 1 }]);
-
-    expect(effects.emitSaveState).not.toHaveBeenCalled();
   });
 
   it("does not emit ack for non-tip CID", async () => {

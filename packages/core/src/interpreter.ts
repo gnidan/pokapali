@@ -13,8 +13,6 @@ import type {
   DocState,
   ChainEntry,
   CidSource,
-  DocStatus,
-  SaveState,
   GossipActivity,
 } from "./facts.js";
 import type { AsyncQueue } from "./sources.js";
@@ -58,8 +56,6 @@ export interface EffectHandlers extends SnapshotOps {
       }
     >,
   ): void;
-  emitStatus(status: DocStatus): void;
-  emitSaveState(saveState: SaveState): void;
   emitValidationError(info: { cid: string; message: string }): void;
 
   // Epoch lifecycle (optional — omit for
@@ -528,16 +524,6 @@ export async function runInterpreter(
       prev.connectivity.gossip.activity !== next.connectivity.gossip.activity
     ) {
       effects.emitGossipActivity(next.connectivity.gossip.activity);
-    }
-
-    // Status
-    if (prev.status !== next.status) {
-      effects.emitStatus(next.status);
-    }
-
-    // Save state
-    if (prev.saveState !== next.saveState) {
-      effects.emitSaveState(next.saveState);
     }
 
     // --- Epoch lifecycle ---

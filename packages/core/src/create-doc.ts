@@ -65,7 +65,7 @@ import {
   createFeed,
 } from "./sources.js";
 import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
-import { reduce, reduceChain } from "./reducers.js";
+import { reduce, reduceChain, deriveSaveState } from "./reducers.js";
 import {
   initialDocState,
   bestGuarantee,
@@ -86,12 +86,13 @@ import type {
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
 import {
-  computeStatus,
-  computeSaveState,
+  deriveStatus,
   deriveLoadingState,
   loadingStateChanged,
   MESH_GRACE_MS,
 } from "./doc-status.js";
+import { projectFeed } from "./project-feed.js";
+import { selectStatus, selectSaveState } from "./state-selectors.js";
 
 const log = createLogger("core");
 
@@ -468,7 +469,6 @@ export function createDoc(params: DocParams): Doc {
   type EventCb = (...args: any[]) => void;
   const eventSubs = new Map<string, Map<EventCb, () => void>>();
 
-  // --- Status tracking (fallback for no-interpreter) --
   let gossipActivity: GossipActivity = "inactive";
   let isSaving = false;
   let lastSaveError: string | null = null;
@@ -490,44 +490,6 @@ export function createDoc(params: DocParams): Doc {
   // Standalone awareness: prefer awarenessRoom's if
   // available, otherwise use the standalone param.
   const awareness: Awareness = awarenessRoom?.awareness ?? params.awareness!;
-
-  let lastStatus = computeStatus(
-    liveSyncManager?.status ?? "disconnected",
-    liveAwarenessRoom?.connected ?? false,
-    gossipActivity,
-    docCreatedAt,
-  );
-  let lastSaveState = computeSaveState(subdocManager.isDirty, isSaving);
-
-  function checkStatus() {
-    const next = computeStatus(
-      liveSyncManager?.status ?? "disconnected",
-      liveAwarenessRoom?.connected ?? false,
-      gossipActivity,
-      docCreatedAt,
-    );
-    if (next !== lastStatus) {
-      lastStatus = next;
-      statusFeed._update(next);
-    }
-  }
-
-  // After grace period expires, re-check status so
-  // it transitions from "connecting" to "offline"
-  // if nothing has connected.
-  const graceTimer = setTimeout(() => checkStatus(), MESH_GRACE_MS + 50);
-
-  function checkSaveState() {
-    const next = computeSaveState(
-      subdocManager.isDirty,
-      isSaving,
-      lastSaveError,
-    );
-    if (next !== lastSaveState) {
-      lastSaveState = next;
-      saveStateFeed._update(next);
-    }
-  }
 
   function computeClockSum(): number {
     let sum = 0;
@@ -560,9 +522,74 @@ export function createDoc(params: DocParams): Doc {
     { guaranteeUntil: number; retainUntil: number }
   >();
   // --- Feeds ---
-  const statusFeed: WritableFeed<DocStatus> = createFeed<DocStatus>(lastStatus);
-  const saveStateFeed: WritableFeed<SaveState> =
-    createFeed<SaveState>(lastSaveState);
+  // DocState feed — source of truth for derived
+  // status and saveState projections. Updated in
+  // captureState() as the interpreter produces new
+  // state.
+  const docStateInit = initialDocState({
+    ipnsName,
+    role: cap.isAdmin ? "admin" : cap.channels.size > 0 ? "writer" : "reader",
+    channels,
+    appId: params.appId ?? "",
+  });
+  // Set createdAt for mesh grace period and
+  // re-derive status so initial value is
+  // "connecting" instead of "offline".
+  docStateInit.connectivity = {
+    ...docStateInit.connectivity,
+    createdAt: docCreatedAt,
+  };
+  docStateInit.status = deriveStatus(docStateInit.connectivity);
+  const docStateFeed: WritableFeed<DocState> =
+    createFeed<DocState>(docStateInit);
+  const statusFeed: Feed<DocStatus> = projectFeed(docStateFeed, selectStatus);
+  const saveStateFeed: Feed<SaveState> = projectFeed(
+    docStateFeed,
+    selectSaveState,
+  );
+
+  // Synchronous local-state push: updates
+  // docStateFeed immediately when local vars
+  // (isSaving, isDirty, etc.) change, so
+  // projectFeed projections respond without
+  // waiting for the async interpreter pipeline.
+  // The interpreter eventually converges to the
+  // same state when facts are processed.
+  function syncSaveState() {
+    const current = docStateFeed.getSnapshot();
+    const nextContent = {
+      ...current.content,
+      isDirty: subdocManager.isDirty,
+      isSaving,
+      lastSaveError,
+    };
+    // Use localChain when available — it's updated
+    // synchronously by publish() before the async
+    // interpreter pipeline processes the facts.
+    const chain = localChain ?? current.chain;
+    const next = deriveSaveState(nextContent, chain);
+    if (next !== current.saveState) {
+      docStateFeed._update({
+        ...current,
+        content: nextContent,
+        saveState: next,
+      });
+    }
+  }
+
+  // After grace period expires, re-derive status
+  // so it transitions from "connecting" to "offline"
+  // if nothing has connected.
+  const graceTimer = setTimeout(() => {
+    const current = docStateFeed.getSnapshot();
+    const fresh = deriveStatus(current.connectivity);
+    if (fresh !== current.status) {
+      docStateFeed._update({
+        ...current,
+        status: fresh,
+      });
+    }
+  }, MESH_GRACE_MS + 50);
   let lastTipInfo: VersionInfo | null = null;
   const tipFeed: WritableFeed<VersionInfo | null> =
     createFeed<VersionInfo | null>(null, (a, b) => {
@@ -673,7 +700,7 @@ export function createDoc(params: DocParams): Doc {
     // Clear save error on new edits — user is back
     // to "dirty" state, previous error is stale.
     lastSaveError = null;
-    checkSaveState();
+    syncSaveState();
     dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
     awareness?.setLocalStateField("clockSum", computeClockSum());
     factQueue?.push({
@@ -688,7 +715,6 @@ export function createDoc(params: DocParams): Doc {
   // deferred until p2pReady resolves.
   function wireSyncBridges(sm: SyncManager, ar: AwarenessRoom): void {
     sm.onStatusChange(() => {
-      checkStatus();
       factQueue?.push({
         type: "sync-status-changed",
         ts: Date.now(),
@@ -696,7 +722,6 @@ export function createDoc(params: DocParams): Doc {
       });
     });
     ar.onStatusChange(() => {
-      checkStatus();
       factQueue?.push({
         type: "awareness-status-changed",
         ts: Date.now(),
@@ -716,7 +741,7 @@ export function createDoc(params: DocParams): Doc {
     // Defer to next microtask so callers can attach
     // event listeners first.
     queueMicrotask(() => {
-      checkSaveState();
+      syncSaveState();
       dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
       factQueue?.push({
         type: "content-dirty",
@@ -848,7 +873,14 @@ export function createDoc(params: DocParams): Doc {
       channels,
       appId,
     });
+    // Carry createdAt for mesh grace period
+    init.connectivity = {
+      ...init.connectivity,
+      createdAt: docCreatedAt,
+    };
+    init.status = deriveStatus(init.connectivity);
     interpreterState = init;
+    docStateFeed._update(init);
 
     const fq = factQueue;
 
@@ -908,6 +940,7 @@ export function createDoc(params: DocParams): Doc {
     ) {
       for await (const item of stream) {
         interpreterState = item.next;
+        docStateFeed._update(item.next);
 
         // Update tip feed (cached to avoid
         // allocations when nothing changed)
@@ -1128,7 +1161,6 @@ export function createDoc(params: DocParams): Doc {
 
       emitGossipActivity: (activity) => {
         gossipActivity = activity;
-        checkStatus();
         gossipActivityFeed._update(activity);
       },
 
@@ -1151,12 +1183,6 @@ export function createDoc(params: DocParams): Doc {
         lastEmittedGuarantees = new Map(guarantees);
       },
 
-      // Status and saveState are tracked locally
-      // (synchronous). The interpreter's derived
-      // values are redundant — local handlers
-      // already fire events.
-      emitStatus: () => {},
-      emitSaveState: () => {},
       emitValidationError: (info) => {
         validationErrorFeed._update(info);
       },
@@ -1352,7 +1378,6 @@ export function createDoc(params: DocParams): Doc {
         for (const ch of accessedChannels) {
           deps.syncManager.connectChannel(ch);
         }
-        checkStatus();
 
         // Relay sharing (deferred)
         if (deps.roomDiscovery && awareness) {
@@ -1625,7 +1650,7 @@ export function createDoc(params: DocParams): Doc {
       }
 
       isSaving = true;
-      checkSaveState();
+      syncSaveState();
       factQueue?.push({
         type: "publish-started",
         ts: Date.now(),
@@ -1645,7 +1670,7 @@ export function createDoc(params: DocParams): Doc {
       } catch (err) {
         isSaving = false;
         lastSaveError = err instanceof Error ? err.message : String(err);
-        checkSaveState();
+        syncSaveState();
         factQueue?.push({
           type: "publish-failed",
           ts: Date.now(),
@@ -1665,7 +1690,6 @@ export function createDoc(params: DocParams): Doc {
 
       isSaving = false;
       lastSaveError = null;
-      checkSaveState();
 
       // Build the facts that describe this publish.
       const now = Date.now();
@@ -1722,6 +1746,11 @@ export function createDoc(params: DocParams): Doc {
       // Update versions feed synchronously so
       // subscribers see the new version immediately.
       updateVersionsFeed();
+
+      // Sync saveState after localChain is set so
+      // deriveSaveState sees chain.tip and returns
+      // "saved" instead of "unpublished".
+      syncSaveState();
 
       // Push to interpreter for side effects
       // (announce, acks, gossip, etc.)

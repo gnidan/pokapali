@@ -281,8 +281,6 @@ describe("snapshot validation integration", () => {
         emitGossipActivity: vi.fn(),
         emitLoading: vi.fn(),
         emitGuarantee: vi.fn(),
-        emitStatus: vi.fn(),
-        emitSaveState: vi.fn(),
         emitValidationError: vi.fn(),
         ...overrides,
       };
