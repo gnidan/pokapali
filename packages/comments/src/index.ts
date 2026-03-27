@@ -11,9 +11,12 @@ import { createLogger } from "@pokapali/log";
 import {
   anchorFromRelativePositions,
   createAnchor as createAnchorImpl,
+  createPayloadResolver,
   resolveAnchor,
+  resolveAnchorFromPayload,
+  deriveTypeAccessor,
 } from "./anchor.js";
-import type { Anchor, ResolvedAnchor } from "./anchor.js";
+import type { Anchor, ResolvedAnchor, ContentTypeAccessor } from "./anchor.js";
 import type { Feed } from "./feed.js";
 import { createFeed } from "./feed.js";
 import {
@@ -26,10 +29,16 @@ import {
 import { verifyAuthor } from "./verify.js";
 import type { ClientIdMapping, ClientIdentityInfo } from "./verify.js";
 
-export { anchorFromRelativePositions };
+export {
+  anchorFromRelativePositions,
+  createPayloadResolver,
+  resolveAnchorFromPayload,
+  deriveTypeAccessor,
+};
 export type {
   Anchor,
   ResolvedAnchor,
+  ContentTypeAccessor,
   Feed,
   ClientIdMapping,
   ClientIdentityInfo,
@@ -93,6 +102,17 @@ export interface CommentsOptions {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   contentType?: Y.AbstractType<any>;
+  /**
+   * When provided, anchor resolution uses this
+   * merged CRDT payload (from State view) instead
+   * of the live contentDoc. A single temporary
+   * Y.Doc is created per rebuild (not per anchor).
+   *
+   * Anchor creation still uses the live contentType.
+   * This bridges the gap between the monoidal view
+   * system and Yjs RelativePosition resolution.
+   */
+  contentPayload?: Feed<Uint8Array | null>;
 }
 
 // ── Factory ───────────────────────────────────────
@@ -140,6 +160,14 @@ export function comments<T>(
         " for Tiptap/ProseMirror).",
     );
   }
+  // Bridge mode: resolve anchors from merged CRDT
+  // payload instead of live Y.Doc.
+  const bridgeAccessor: ContentTypeAccessor | null = options.contentPayload
+    ? deriveTypeAccessor(contentDoc, contentType)
+    : null;
+  let latestPayload: Uint8Array | null =
+    options.contentPayload?.getSnapshot() ?? null;
+
   const feed = createFeed<Comment<T>[]>(
     [],
     () => false, // always notify — we rebuild arrays
@@ -149,18 +177,27 @@ export function comments<T>(
     const topLevel: Comment<T>[] = [];
     const childrenOf = new Map<string, Comment<T>[]>();
 
+    // Bridge mode: create one temp doc per rebuild
+    // instead of one per anchor.
+    const resolver =
+      bridgeAccessor && latestPayload
+        ? createPayloadResolver(latestPayload, bridgeAccessor)
+        : null;
+
     // First pass: build all Comment objects.
     const all = new Map<string, Comment<T>>();
     map.forEach((entry, id) => {
       const stored = readComment<T>(entry);
       const anchor =
         stored.anchorStart && stored.anchorEnd
-          ? resolveAnchor(
-              contentDoc,
-              contentType,
-              stored.anchorStart,
-              stored.anchorEnd,
-            )
+          ? resolver
+            ? resolver.resolve(stored.anchorStart, stored.anchorEnd)
+            : resolveAnchor(
+                contentDoc,
+                contentType,
+                stored.anchorStart,
+                stored.anchorEnd,
+              )
           : null;
       const comment: Comment<T> = {
         id,
@@ -204,6 +241,7 @@ export function comments<T>(
     }
     topLevel.sort((a, b) => a.ts - b.ts);
 
+    resolver?.destroy();
     return topLevel;
   }
 
@@ -217,11 +255,21 @@ export function comments<T>(
   };
   map.observeDeep(onMapChange);
 
-  // Observe content type for anchor re-resolution.
+  // Observe content for anchor re-resolution.
+  // Bridge mode subscribes to the payload feed;
+  // direct mode observes the live content type.
   const onContentChange = () => {
     rebuild();
   };
-  contentType.observeDeep(onContentChange);
+  let unsubPayload: (() => void) | null = null;
+  if (options.contentPayload) {
+    unsubPayload = options.contentPayload.subscribe(() => {
+      latestPayload = options.contentPayload!.getSnapshot();
+      rebuild();
+    });
+  } else {
+    contentType.observeDeep(onContentChange);
+  }
 
   // Observe clientIdMapping for re-verification.
   const unsubMapping = options.clientIdMapping.subscribe(rebuild);
@@ -304,7 +352,11 @@ export function comments<T>(
       if (destroyed) return;
       destroyed = true;
       map.unobserveDeep(onMapChange);
-      contentType.unobserveDeep(onContentChange);
+      if (unsubPayload) {
+        unsubPayload();
+      } else {
+        contentType.unobserveDeep(onContentChange);
+      }
       unsubMapping();
       log.debug("destroyed comments instance");
     },

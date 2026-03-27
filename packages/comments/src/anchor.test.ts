@@ -3,7 +3,10 @@ import * as Y from "yjs";
 import {
   anchorFromRelativePositions,
   createAnchor,
+  createPayloadResolver,
   resolveAnchor,
+  resolveAnchorFromPayload,
+  deriveTypeAccessor,
 } from "./anchor.js";
 
 function makeContentDoc(text: string) {
@@ -188,6 +191,157 @@ describe("anchor", () => {
         expect(resolved.start).toBe(3);
         expect(resolved.end).toBe(3);
       }
+    });
+  });
+
+  describe("deriveTypeAccessor", () => {
+    it("returns getText accessor for Y.Text", () => {
+      const doc = new Y.Doc();
+      const text = doc.getText("content");
+      const accessor = deriveTypeAccessor(doc, text);
+
+      const other = new Y.Doc();
+      const result = accessor(other);
+      expect(result).toBe(other.getText("content"));
+    });
+
+    it("returns getXmlFragment accessor for " + "Y.XmlFragment", () => {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment("editor");
+      const accessor = deriveTypeAccessor(doc, frag);
+
+      const other = new Y.Doc();
+      const result = accessor(other);
+      expect(result).toBe(other.getXmlFragment("editor"));
+    });
+  });
+
+  describe("resolveAnchorFromPayload", () => {
+    it("resolves anchors against merged CRDT " + "payload", () => {
+      const { doc, text } = makeContentDoc("hello world");
+      const anchor = createAnchor(text, 0, 5);
+      const accessor = deriveTypeAccessor(doc, text);
+
+      // Encode the doc state as a payload
+      const payload = Y.encodeStateAsUpdate(doc);
+
+      const resolved = resolveAnchorFromPayload(
+        payload,
+        accessor,
+        anchor.start,
+        anchor.end,
+      );
+
+      expect(resolved.status).toBe("resolved");
+      if (resolved.status === "resolved") {
+        expect(resolved.start).toBe(0);
+        expect(resolved.end).toBe(5);
+      }
+    });
+
+    it("tracks positions after edits in " + "payload", () => {
+      const { doc, text } = makeContentDoc("hello world");
+      const anchor = createAnchor(text, 6, 11);
+      const accessor = deriveTypeAccessor(doc, text);
+
+      // Edit the doc, then encode
+      text.insert(0, "hey ");
+      const payload = Y.encodeStateAsUpdate(doc);
+
+      const resolved = resolveAnchorFromPayload(
+        payload,
+        accessor,
+        anchor.start,
+        anchor.end,
+      );
+
+      expect(resolved.status).toBe("resolved");
+      if (resolved.status === "resolved") {
+        expect(resolved.start).toBe(10);
+        expect(resolved.end).toBe(15);
+      }
+    });
+
+    it("returns pending for empty payload", () => {
+      const { doc, text } = makeContentDoc("hello");
+      const anchor = createAnchor(text, 0, 3);
+      const accessor = deriveTypeAccessor(doc, text);
+
+      // Empty doc payload
+      const emptyDoc = new Y.Doc();
+      const payload = Y.encodeStateAsUpdate(emptyDoc);
+
+      const resolved = resolveAnchorFromPayload(
+        payload,
+        accessor,
+        anchor.start,
+        anchor.end,
+      );
+      expect(resolved.status).toBe("pending");
+    });
+
+    it("works with XmlFragment content type", () => {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment("default");
+      frag.insert(0, [new Y.XmlText("para one")]);
+      frag.insert(1, [new Y.XmlText("para two")]);
+
+      const anchor = createAnchor(frag, 0, 2);
+      const accessor = deriveTypeAccessor(doc, frag);
+      const payload = Y.encodeStateAsUpdate(doc);
+
+      const resolved = resolveAnchorFromPayload(
+        payload,
+        accessor,
+        anchor.start,
+        anchor.end,
+      );
+
+      expect(resolved.status).toBe("resolved");
+      if (resolved.status === "resolved") {
+        expect(resolved.start).toBe(0);
+        expect(resolved.end).toBe(2);
+      }
+    });
+  });
+
+  describe("createPayloadResolver", () => {
+    it("resolves multiple anchors with one doc", () => {
+      const { doc, text } = makeContentDoc("hello world");
+      const a1 = createAnchor(text, 0, 5);
+      const a2 = createAnchor(text, 6, 11);
+      const accessor = deriveTypeAccessor(doc, text);
+      const payload = Y.encodeStateAsUpdate(doc);
+
+      const resolver = createPayloadResolver(payload, accessor);
+
+      const r1 = resolver.resolve(a1.start, a1.end);
+      const r2 = resolver.resolve(a2.start, a2.end);
+      resolver.destroy();
+
+      expect(r1.status).toBe("resolved");
+      expect(r2.status).toBe("resolved");
+      if (r1.status === "resolved" && r2.status === "resolved") {
+        expect(r1.start).toBe(0);
+        expect(r1.end).toBe(5);
+        expect(r2.start).toBe(6);
+        expect(r2.end).toBe(11);
+      }
+    });
+
+    it("returns pending for empty payload", () => {
+      const { doc, text } = makeContentDoc("hello");
+      const anchor = createAnchor(text, 0, 3);
+      const accessor = deriveTypeAccessor(doc, text);
+
+      const emptyDoc = new Y.Doc();
+      const payload = Y.encodeStateAsUpdate(emptyDoc);
+
+      const resolver = createPayloadResolver(payload, accessor);
+      const resolved = resolver.resolve(anchor.start, anchor.end);
+      resolver.destroy();
+
+      expect(resolved.status).toBe("pending");
     });
   });
 });

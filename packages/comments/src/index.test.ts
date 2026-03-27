@@ -611,6 +611,133 @@ describe("comments()", () => {
     });
   });
 
+  describe("contentPayload bridge", () => {
+    function setupBridge() {
+      const commentsDoc = new Y.Doc();
+      const contentDoc = new Y.Doc();
+      const text = contentDoc.getText("default");
+      text.insert(0, "hello world");
+
+      const mappingFeed = createFeed<ClientIdMapping>(new Map());
+      const payloadFeed: WritableFeed<Uint8Array | null> =
+        createFeed<Uint8Array | null>(null);
+
+      const c = comments<TestData>(commentsDoc, contentDoc, {
+        author: "alice-pubkey",
+        clientIdMapping: mappingFeed,
+        contentType: text,
+        contentPayload: payloadFeed,
+      });
+      return {
+        c,
+        commentsDoc,
+        contentDoc,
+        text,
+        payloadFeed,
+      };
+    }
+
+    it("resolves anchors from payload instead " + "of live doc", () => {
+      const { c, contentDoc, text, payloadFeed } = setupBridge();
+
+      c.add({
+        content: "about hello",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
+
+      // Push payload from the live doc
+      payloadFeed._update(Y.encodeStateAsUpdate(contentDoc));
+
+      const list = c.feed.getSnapshot();
+      expect(list[0]!.anchor!.status).toBe("resolved");
+      if (list[0]!.anchor!.status === "resolved") {
+        expect(list[0]!.anchor!.start).toBe(0);
+        expect(list[0]!.anchor!.end).toBe(5);
+      }
+      c.destroy();
+    });
+
+    it("re-resolves when payload updates with " + "shifted positions", () => {
+      const { c, contentDoc, text, payloadFeed } = setupBridge();
+
+      // Anchor "world" at indices 6-11
+      c.add({
+        content: "about world",
+        anchor: c.createAnchor(6, 11),
+        data: DEFAULT_DATA,
+      });
+
+      // Push initial payload
+      payloadFeed._update(Y.encodeStateAsUpdate(contentDoc));
+
+      // Edit the live doc
+      text.insert(0, "hey ");
+
+      // Push updated payload
+      payloadFeed._update(Y.encodeStateAsUpdate(contentDoc));
+
+      const list = c.feed.getSnapshot();
+      const anchor = list[0]!.anchor!;
+      expect(anchor.status).toBe("resolved");
+      if (anchor.status === "resolved") {
+        // "world" shifted by 4 chars
+        expect(anchor.start).toBe(10);
+        expect(anchor.end).toBe(15);
+      }
+      c.destroy();
+    });
+
+    it("falls back to live doc when payload " + "is null", () => {
+      const { c, payloadFeed } = setupBridge();
+
+      c.add({
+        content: "anchored",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
+
+      // payloadFeed is still null — should use
+      // live doc for resolution
+      const list = c.feed.getSnapshot();
+      expect(list[0]!.anchor!.status).toBe("resolved");
+      c.destroy();
+    });
+
+    it("payload subscription triggers rebuild", () => {
+      const { c, contentDoc, payloadFeed } = setupBridge();
+
+      c.add({
+        content: "test",
+        anchor: c.createAnchor(0, 5),
+        data: DEFAULT_DATA,
+      });
+
+      const cb = vi.fn();
+      c.feed.subscribe(cb);
+
+      // Push payload — should trigger rebuild
+      payloadFeed._update(Y.encodeStateAsUpdate(contentDoc));
+
+      expect(cb).toHaveBeenCalled();
+      c.destroy();
+    });
+
+    it("destroy cleans up payload subscription", () => {
+      const { c, contentDoc, payloadFeed } = setupBridge();
+
+      c.destroy();
+
+      const cb = vi.fn();
+      c.feed.subscribe(cb);
+
+      // Push after destroy — should NOT trigger
+      payloadFeed._update(Y.encodeStateAsUpdate(contentDoc));
+
+      expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
   describe("CRDT sync", () => {
     it("syncs comments across two docs", () => {
       const doc1 = new Y.Doc();
