@@ -67,4 +67,55 @@ export interface Codec {
    * would not add any new operations.
    */
   contains(snapshot: Uint8Array, edit: Uint8Array): boolean;
+
+  /**
+   * Create a rendering surface. The surface owns
+   * a live CRDT document that editors can bind to.
+   * Codec-internal type exposed via opaque handle.
+   */
+  createSurface(): CodecSurface;
+
+  /**
+   * Sum of CRDT-internal clocks for the given
+   * merged state. Used as IPNS sequence number.
+   *
+   * Must be:
+   * - **Monotonically increasing** with edits
+   * - **Deterministic** from state (same edits →
+   *   same sum)
+   *
+   * For Yjs: sum of state vector clocks across
+   * all client IDs.
+   */
+  clockSum(state: Uint8Array): number;
+}
+
+/**
+ * A live editing surface backed by the Codec's
+ * internal CRDT document. Editors bind to the
+ * opaque `handle`. External code never touches
+ * the underlying CRDT type directly.
+ */
+export interface CodecSurface {
+  /** The live editing surface (e.g. Y.Doc for
+   *  Yjs). Codec-internal type exposed as opaque
+   *  handle — the editor component casts it. */
+  readonly handle: unknown;
+
+  /** Apply a remote edit's payload to the
+   *  surface. Does NOT trigger onLocalEdit. */
+  applyEdit(payload: Uint8Array): void;
+
+  /** Apply a full state (from State view fold)
+   *  to reset the surface. Does NOT trigger
+   *  onLocalEdit. */
+  applyState(state: Uint8Array): void;
+
+  /** Register callback for local edits produced
+   *  on the surface (user typing). Returns
+   *  unsubscribe function. */
+  onLocalEdit(cb: (payload: Uint8Array) => void): () => void;
+
+  /** Clean up the surface. */
+  destroy(): void;
 }

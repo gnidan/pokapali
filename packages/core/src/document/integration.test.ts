@@ -86,6 +86,12 @@ function fakeCodec(): CrdtCodec {
       }
       return false;
     },
+    createSurface() {
+      throw new Error("not implemented");
+    },
+    clockSum() {
+      return 0;
+    },
   };
 }
 

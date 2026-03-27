@@ -31,6 +31,12 @@ const setCodec: Codec = {
     const snapSet = new Set(snapshot);
     return [...edit].every((x) => snapSet.has(x));
   },
+  createSurface() {
+    throw new Error("not implemented");
+  },
+  clockSum() {
+    return 0;
+  },
 };
 
 // -- Helpers --

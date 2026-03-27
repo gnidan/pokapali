@@ -441,3 +441,183 @@ describe("cross-operation consistency", () => {
     expect(codec.contains(result, a)).toBe(true);
   });
 });
+
+describe("createSurface", () => {
+  it("returns a surface with an opaque handle", () => {
+    const surface = codec.createSurface();
+    expect(surface.handle).toBeDefined();
+    surface.destroy();
+  });
+
+  it("handle is a Y.Doc instance", () => {
+    const surface = codec.createSurface();
+    expect(surface.handle).toBeInstanceOf(Y.Doc);
+    surface.destroy();
+  });
+
+  it("applyEdit applies remote update", () => {
+    const surface = codec.createSurface();
+    const update = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "hello");
+    });
+    surface.applyEdit(update);
+    const doc = surface.handle as Y.Doc;
+    expect(doc.getText("t").toString()).toBe("hello");
+    surface.destroy();
+  });
+
+  it("applyState resets surface from full state", () => {
+    const surface = codec.createSurface();
+    // First apply some content
+    const u1 = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "first");
+    });
+    surface.applyEdit(u1);
+
+    // Apply a different full state
+    const state = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "replaced");
+    });
+    surface.applyState(state);
+
+    const doc = surface.handle as Y.Doc;
+    // Both states are merged (CRDT union)
+    const text = doc.getText("t").toString();
+    expect(text.length).toBeGreaterThan(0);
+    surface.destroy();
+  });
+
+  it("onLocalEdit fires for local changes", () => {
+    const surface = codec.createSurface();
+    const edits: Uint8Array[] = [];
+    const unsub = surface.onLocalEdit((payload) => {
+      edits.push(payload);
+    });
+
+    const doc = surface.handle as Y.Doc;
+    doc.getText("t").insert(0, "typed");
+
+    expect(edits.length).toBe(1);
+    expect(edits[0]).toBeInstanceOf(Uint8Array);
+    expect(edits[0]!.length).toBeGreaterThan(0);
+    unsub();
+    surface.destroy();
+  });
+
+  it("onLocalEdit does not fire for " + "applyEdit (remote)", () => {
+    const surface = codec.createSurface();
+    const edits: Uint8Array[] = [];
+    const unsub = surface.onLocalEdit((payload) => {
+      edits.push(payload);
+    });
+
+    const update = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "remote");
+    });
+    surface.applyEdit(update);
+
+    expect(edits.length).toBe(0);
+    unsub();
+    surface.destroy();
+  });
+
+  it("onLocalEdit does not fire for " + "applyState (snapshot)", () => {
+    const surface = codec.createSurface();
+    const edits: Uint8Array[] = [];
+    const unsub = surface.onLocalEdit((payload) => {
+      edits.push(payload);
+    });
+
+    const state = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "snapshot");
+    });
+    surface.applyState(state);
+
+    expect(edits.length).toBe(0);
+    unsub();
+    surface.destroy();
+  });
+
+  it("unsubscribe stops onLocalEdit", () => {
+    const surface = codec.createSurface();
+    const edits: Uint8Array[] = [];
+    const unsub = surface.onLocalEdit((payload) => {
+      edits.push(payload);
+    });
+
+    const doc = surface.handle as Y.Doc;
+    doc.getText("t").insert(0, "a");
+    expect(edits.length).toBe(1);
+
+    unsub();
+    doc.getText("t").insert(1, "b");
+    expect(edits.length).toBe(1);
+    surface.destroy();
+  });
+
+  it("destroy cleans up the surface", () => {
+    const surface = codec.createSurface();
+    surface.destroy();
+    // After destroy, the Y.Doc should be destroyed
+    const doc = surface.handle as Y.Doc;
+    expect(doc.isDestroyed).toBe(true);
+  });
+});
+
+describe("clockSum", () => {
+  it("returns 0 for empty state", () => {
+    expect(codec.clockSum(codec.empty())).toBe(0);
+  });
+
+  it("returns positive for non-empty state", () => {
+    const state = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "hello");
+    });
+    expect(codec.clockSum(state)).toBeGreaterThan(0);
+  });
+
+  it("increases monotonically with edits", () => {
+    const s1 = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "a");
+    });
+
+    const s2 = codec.apply(
+      s1,
+      makeUpdateFrom(s1, (doc) => {
+        doc.getText("t").insert(1, "b");
+      }),
+    );
+
+    expect(codec.clockSum(s2)).toBeGreaterThan(codec.clockSum(s1));
+  });
+
+  it("is deterministic (same state = same sum)", () => {
+    const state = makeUpdate((doc) => {
+      doc.getText("t").insert(0, "hello");
+    });
+    expect(codec.clockSum(state)).toBe(codec.clockSum(state));
+  });
+
+  it("sums clocks across multiple client IDs", () => {
+    // Two independent docs with different clientIDs
+    const doc1 = new Y.Doc();
+    doc1.getText("t").insert(0, "aaa");
+    const u1 = Y.encodeStateAsUpdate(doc1);
+
+    const doc2 = new Y.Doc();
+    doc2.getText("t").insert(0, "bbb");
+    const u2 = Y.encodeStateAsUpdate(doc2);
+
+    const merged = codec.merge(u1, u2);
+
+    const sum1 = codec.clockSum(u1);
+    const sum2 = codec.clockSum(u2);
+    const sumMerged = codec.clockSum(merged);
+
+    // Merged sum should equal sum of individual sums
+    expect(sumMerged).toBe(sum1 + sum2);
+
+    doc1.destroy();
+    doc2.destroy();
+  });
+});

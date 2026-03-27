@@ -7,7 +7,10 @@
  * only created for `apply` when needed.
  */
 import * as Y from "yjs";
-import type { Codec } from "./codec.js";
+import type { Codec, CodecSurface } from "./codec.js";
+
+const REMOTE_ORIGIN = "remote";
+const SNAPSHOT_ORIGIN = "snapshot";
 
 /**
  * Shared empty-doc update, computed once.
@@ -63,5 +66,42 @@ export const yjsCodec: Codec = {
       }
     }
     return true;
+  },
+
+  createSurface(): CodecSurface {
+    const doc = new Y.Doc();
+    return {
+      get handle() {
+        return doc;
+      },
+      applyEdit(payload) {
+        Y.applyUpdate(doc, payload, REMOTE_ORIGIN);
+      },
+      applyState(state) {
+        Y.applyUpdate(doc, state, SNAPSHOT_ORIGIN);
+      },
+      onLocalEdit(cb) {
+        const handler = (update: Uint8Array, origin: unknown) => {
+          if (origin === REMOTE_ORIGIN) return;
+          if (origin === SNAPSHOT_ORIGIN) return;
+          cb(update);
+        };
+        doc.on("update", handler);
+        return () => doc.off("update", handler);
+      },
+      destroy() {
+        doc.destroy();
+      },
+    };
+  },
+
+  clockSum(state: Uint8Array): number {
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, state);
+    const sv = Y.decodeStateVector(Y.encodeStateVector(doc));
+    doc.destroy();
+    let sum = 0;
+    for (const clock of sv.values()) sum += clock;
+    return sum;
   },
 };

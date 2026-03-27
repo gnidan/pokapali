@@ -51,6 +51,12 @@ function fakeCodec(containedIds: Set<number>): Codec {
     apply: (base, update) => new Uint8Array([...base, ...update]),
     empty: () => new Uint8Array([]),
     contains: (_snapshot, editPayload) => containedIds.has(editPayload[0]!),
+    createSurface() {
+      throw new Error("not implemented");
+    },
+    clockSum() {
+      return 0;
+    },
   };
 }
 

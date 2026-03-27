@@ -1,2 +1,2 @@
-export type { Codec } from "./codec.js";
+export type { Codec, CodecSurface } from "./codec.js";
 export { yjsCodec } from "./yjs-codec.js";

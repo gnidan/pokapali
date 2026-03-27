@@ -113,6 +113,12 @@ function yjsCodec(): Codec {
       const d = Y.encodeStateAsUpdate(editDoc, sv);
       return d.length <= 2;
     },
+    createSurface() {
+      throw new Error("not implemented");
+    },
+    clockSum() {
+      return 0;
+    },
   };
 }
 

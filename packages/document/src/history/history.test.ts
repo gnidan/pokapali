@@ -304,6 +304,12 @@ describe("History.backfill", () => {
         }
         return false;
       },
+      createSurface() {
+        throw new Error("not implemented");
+      },
+      clockSum() {
+        return 0;
+      },
     };
 
     const result = History.backfill(snapshots, edits, codec);

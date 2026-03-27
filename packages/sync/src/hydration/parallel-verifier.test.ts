@@ -106,6 +106,12 @@ function yjsCodec(): Codec {
       // Empty diff = [0, 0] in Yjs
       return diff.length <= 2;
     },
+    createSurface() {
+      throw new Error("not implemented");
+    },
+    clockSum() {
+      return 0;
+    },
   };
 }
 
