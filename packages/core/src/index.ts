@@ -39,6 +39,7 @@ import { createDocPersistence } from "./persistence.js";
 import type { DocPersistence } from "./persistence.js";
 import { loadIdentity } from "./identity.js";
 import { Document } from "@pokapali/document";
+import { yjsCodec } from "@pokapali/codec";
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -287,6 +288,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         canPushSnapshots: false,
         isAdmin: false,
       },
+      codec: yjsCodec,
     });
 
     return createDoc({
