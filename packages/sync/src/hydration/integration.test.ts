@@ -186,6 +186,7 @@ describe("Phase 4 hydration integration", () => {
       document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
+        codec: yjsCodec(),
       });
       edits = Edits.create({
         subdocManager: manager,
@@ -277,6 +278,7 @@ describe("Phase 4 hydration integration", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: yjsCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,

@@ -24,6 +24,22 @@ function fakeCapability() {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fakeCodec(): any {
+  return {
+    merge: () => new Uint8Array(),
+    diff: () => new Uint8Array(),
+    clockSum: () => 0,
+    createSurface: () => ({
+      handle: {},
+      applyEdit: () => {},
+      applyState: () => {},
+      onLocalEdit: () => () => {},
+      destroy: () => {},
+    }),
+  };
+}
+
 /**
  * Create a mock SubdocManager with real Y.Docs
  * per channel. whenLoaded resolves immediately
@@ -78,6 +94,7 @@ describe("Edits.create", () => {
     doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
   });
 

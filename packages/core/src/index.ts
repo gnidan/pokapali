@@ -295,6 +295,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       subdocManager,
       awareness,
       p2pReady,
+      codec: yjsCodec,
       cap,
       keys,
       ipnsName,

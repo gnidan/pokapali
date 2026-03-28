@@ -57,8 +57,8 @@ export interface Document {
    * appended to the channel are forwarded to
    * `surface.applyEdit`.
    *
-   * Requires a codec — throws if none was provided
-   * to `Document.create`.
+   * Requires a codec to have been provided to
+   * `Document.create`.
    */
   surface(channel: string): CodecSurface;
   /** True if a surface has been created for this
@@ -128,7 +128,7 @@ export const Document = {
   create(opts: {
     identity: Ed25519KeyPair;
     capability: Capability;
-    codec?: Codec;
+    codec: Codec;
   }): Document {
     const channels = new Map<string, Channel>();
     let deprecatedLevel: Level = "background";
@@ -297,14 +297,6 @@ export const Document = {
       channel: getOrCreateChannel,
 
       surface(channelName: string): CodecSurface {
-        if (!opts.codec) {
-          throw new Error(
-            "A codec is required for " +
-              "surface(). Pass a codec to " +
-              "Document.create().",
-          );
-        }
-
         const existing = surfaces.get(channelName);
         if (existing) return existing.surface;
 
@@ -362,14 +354,6 @@ export const Document = {
         if (typeof viewOrLevel === "string") {
           // Deprecated level-based activation
           if (viewOrLevel === "background") return;
-          if (!opts.codec) {
-            throw new Error(
-              "A codec is required for " +
-                "level-based activation. " +
-                "Pass a codec to " +
-                "Document.create().",
-            );
-          }
           deprecatedLevel = viewOrLevel;
           if (
             viewOrLevel === "active" ||

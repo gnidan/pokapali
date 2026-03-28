@@ -55,11 +55,26 @@ const fakeCap: Capability = {
   isAdmin: false,
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fakeCodec: any = {
+  merge: () => new Uint8Array(),
+  diff: () => new Uint8Array(),
+  clockSum: () => 0,
+  createSurface: () => ({
+    handle: {},
+    applyEdit: () => {},
+    applyState: () => {},
+    onLocalEdit: () => () => {},
+    destroy: () => {},
+  }),
+};
+
 async function makeDocument(channelName: string, epochs: Epoch[]) {
   const identity = await generateIdentityKeypair();
   const doc = Document.create({
     identity,
     capability: fakeCap,
+    codec: fakeCodec,
   });
 
   const ch = doc.channel(channelName);
@@ -145,6 +160,7 @@ describe("inspect with { upTo }", () => {
     const doc = Document.create({
       identity,
       capability: fakeCap,
+      codec: fakeCodec,
     });
 
     const content = doc.channel("content");

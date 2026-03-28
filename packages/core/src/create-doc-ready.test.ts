@@ -164,6 +164,7 @@ describe("ready() after interpreter crash (#39)", () => {
       appId: "test",
       primaryChannel: "content",
       signalingUrls: [],
+      codec: {} as any,
       syncOpts: {
         peerOpts: {},
         pubsub: {
@@ -245,6 +246,7 @@ describe("ready() after interpreter crash (#39)", () => {
       appId: "test",
       primaryChannel: "content",
       signalingUrls: [],
+      codec: {} as any,
       syncOpts: {
         peerOpts: {},
         pubsub: {
@@ -318,6 +320,7 @@ describe("ready() after interpreter crash (#39)", () => {
       appId: "test",
       primaryChannel: "content",
       signalingUrls: [],
+      codec: {} as any,
       syncOpts: {
         peerOpts: {},
         pubsub: {
@@ -386,6 +389,7 @@ describe("ready() after interpreter crash (#39)", () => {
       appId: "test",
       primaryChannel: "content",
       signalingUrls: [],
+      codec: {} as any,
       syncOpts: {
         peerOpts: {},
         pubsub: {

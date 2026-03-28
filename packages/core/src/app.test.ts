@@ -3,6 +3,40 @@
  * with document registry and lifecycle management.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Codec } from "@pokapali/codec";
+
+function fakeCodec(): Codec {
+  return {
+    merge: (a, b) => {
+      const c = new Uint8Array([...a, ...b]);
+      c.sort();
+      return c;
+    },
+    diff: (state, base) => {
+      const s = new Set(base);
+      return new Uint8Array([...state].filter((b) => !s.has(b)));
+    },
+    apply: (base, update) => {
+      const c = new Uint8Array([...base, ...update]);
+      c.sort();
+      return c;
+    },
+    empty: () => new Uint8Array([]),
+    contains: (snap, edit) => {
+      const id = edit[0]!;
+      for (const b of snap) {
+        if (b === id) return true;
+      }
+      return false;
+    },
+    createSurface() {
+      throw new Error("not implemented");
+    },
+    clockSum() {
+      return 0;
+    },
+  };
+}
 
 // Mock pokapali() and its Doc return values
 const mockDestroy = vi.fn();
@@ -56,6 +90,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     expect(app).toBeDefined();
@@ -67,6 +102,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     const doc = await app.create();
@@ -79,6 +115,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     const url = "https://example.com/doc/abc123#somecapability";
@@ -93,6 +130,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     const url = "https://example.com/doc/abc123#somecapability";
@@ -107,6 +145,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     const doc = await app.create();
@@ -122,6 +161,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     app.close("nonexistent");
@@ -134,6 +174,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     await app.create();
@@ -150,6 +191,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     expect(app.isDocUrl("https://example.com/doc/abc#cap")).toBe(true);
@@ -160,6 +202,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     expect(app.docIdFromUrl("https://example.com/doc/abc#cap")).toBe("abc");
@@ -170,6 +213,7 @@ describe("App", () => {
       appId: "my-app",
       channels: ["content", "meta"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     expect(app.appId).toBe("my-app");
@@ -181,6 +225,7 @@ describe("App", () => {
     const app = await App.create({
       channels: ["content"],
       origin: "https://example.com",
+      codec: fakeCodec(),
     });
 
     expect(app.appId).toBe("");

@@ -19,9 +19,8 @@ import { Document } from "@pokapali/document";
 
 /** Extended config adding codec for view lifecycle. */
 export interface AppConfig extends PokapaliConfig {
-  /** Codec for CRDT operations. Required for
-   *  lifecycle levels above background. */
-  codec?: Codec;
+  /** Codec for CRDT operations. */
+  codec: Codec;
 }
 
 export interface App {

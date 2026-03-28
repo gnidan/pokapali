@@ -57,6 +57,20 @@ const fakeCap: Capability = {
   isAdmin: false,
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fakeCodec: any = {
+  merge: () => new Uint8Array(),
+  diff: () => new Uint8Array(),
+  clockSum: () => 0,
+  createSurface: () => ({
+    handle: {},
+    applyEdit: () => {},
+    applyState: () => {},
+    onLocalEdit: () => () => {},
+    destroy: () => {},
+  }),
+};
+
 /**
  * Build a document with `epochCount` closed epochs,
  * each containing `editsPerEpoch` edits, plus one
@@ -70,6 +84,7 @@ async function makeDocument(
   const doc = Document.create({
     identity,
     capability: fakeCap,
+    codec: fakeCodec,
   });
 
   const ch = doc.channel("content");
@@ -96,6 +111,7 @@ async function makeDocumentFromSizes(sizes: number[]): Promise<Document> {
   const doc = Document.create({
     identity,
     capability: fakeCap,
+    codec: fakeCodec,
   });
 
   const ch = doc.channel("content");

@@ -115,6 +115,7 @@ describe("View activation property tests", () => {
           const doc = Document.create({
             identity: fakeIdentity(),
             capability: fakeCapability(),
+            codec: fakeCodec(),
           });
 
           const feed1 = doc.activate(view);
@@ -136,6 +137,7 @@ describe("View activation property tests", () => {
         const doc = Document.create({
           identity: fakeIdentity(),
           capability: fakeCapability(),
+          codec: fakeCodec(),
         });
 
         doc.channel("content");
@@ -165,6 +167,7 @@ describe("View activation property tests", () => {
           const doc = Document.create({
             identity: fakeIdentity(),
             capability: fakeCapability(),
+            codec: fakeCodec(),
           });
 
           for (const op of ops) {
@@ -194,10 +197,12 @@ describe("View activation property tests", () => {
     const doc1 = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
     const doc2 = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     // doc1: channel then activate

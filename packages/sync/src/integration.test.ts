@@ -40,6 +40,22 @@ function fakeCapability() {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fakeCodec(): any {
+  return {
+    merge: () => new Uint8Array(),
+    diff: () => new Uint8Array(),
+    clockSum: () => 0,
+    createSurface: () => ({
+      handle: {},
+      applyEdit: () => {},
+      applyState: () => {},
+      onLocalEdit: () => () => {},
+      destroy: () => {},
+    }),
+  };
+}
+
 function mockSubdocManager(channelNames: string[]): {
   manager: SubdocManager;
   docs: Map<string, Y.Doc>;
@@ -101,6 +117,7 @@ describe("Phase 4b bridge integration", () => {
       document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
+        codec: fakeCodec(),
       });
       edits = Edits.create({
         subdocManager: manager,
@@ -183,6 +200,7 @@ describe("Phase 4b bridge integration", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,
@@ -237,6 +255,7 @@ describe("Phase 4b bridge integration", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,
@@ -296,6 +315,7 @@ describe("Phase 4b bridge integration", () => {
       document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
+        codec: fakeCodec(),
       });
       edits = Edits.create({
         subdocManager: manager,
@@ -366,6 +386,7 @@ describe("Phase 4b bridge integration", () => {
       const doc2 = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
+        codec: fakeCodec(),
       });
 
       const ch2 = doc2.channel("content");

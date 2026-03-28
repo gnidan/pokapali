@@ -171,6 +171,7 @@ describe("verify", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: yjsCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,
@@ -209,6 +210,7 @@ describe("verify", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: yjsCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,
@@ -272,6 +274,7 @@ describe("verify", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: yjsCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,
@@ -335,6 +338,7 @@ describe("verify", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: yjsCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,
@@ -400,6 +404,7 @@ describe("verify", () => {
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: yjsCodec(),
     });
     edits = Edits.create({
       subdocManager: manager,
@@ -445,6 +450,7 @@ describe("verify", () => {
             const d = Document.create({
               identity: fakeIdentity(),
               capability: fakeCapability(),
+              codec: yjsCodec(),
             });
             const br = Edits.create({
               subdocManager: manager,

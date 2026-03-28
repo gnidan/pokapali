@@ -51,6 +51,7 @@ export interface RotateContext {
   syncOpts?: SyncOptions;
   pubsub?: PubSubLike;
   subdocManager: Subdocs;
+  codec: import("@pokapali/codec").Codec;
 }
 
 /**
@@ -177,6 +178,7 @@ export async function rotateDoc(
     syncOpts: ctx.syncOpts,
     pubsub: ctx.pubsub,
     roomDiscovery: newRoomDiscovery,
+    codec: ctx.codec,
   });
 
   // Create and store forwarding record

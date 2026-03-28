@@ -114,6 +114,7 @@ describe("snapshot materialization equivalence", () => {
           const doc = Document.create({
             identity,
             capability: fakeCap,
+            codec,
           });
           const ch = doc.channel("content");
 
@@ -167,6 +168,7 @@ describe("snapshot materialization equivalence", () => {
             const doc = Document.create({
               identity,
               capability: fakeCap,
+              codec,
             });
 
             const mgr = createSubdocManager("test-doc", channels);
@@ -234,6 +236,7 @@ describe("snapshot materialization equivalence", () => {
             const doc = Document.create({
               identity,
               capability: fakeCap,
+              codec,
             });
             const ch = doc.channel("content");
 
@@ -297,6 +300,7 @@ describe("snapshot materialization equivalence", () => {
       const doc = Document.create({
         identity,
         capability: fakeCap,
+        codec,
       });
       const ch = doc.channel("content");
 

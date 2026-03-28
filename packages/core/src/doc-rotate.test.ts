@@ -97,6 +97,7 @@ function baseContext(overrides?: Partial<RotateContext>): RotateContext {
       encodeAll: vi.fn(() => new Uint8Array()),
       metaDoc: {},
     } as unknown as RotateContext["subdocManager"],
+    codec: {} as any,
     ...overrides,
   } as RotateContext;
 }

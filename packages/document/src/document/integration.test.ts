@@ -80,6 +80,7 @@ describe("Document e2e integration", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const content = doc.channel("content");
@@ -190,6 +191,7 @@ describe("Document e2e integration", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch = doc.channel("content");
@@ -211,6 +213,7 @@ describe("Document e2e integration", () => {
     const doc = Document.create({
       identity,
       capability,
+      codec: fakeCodec(),
     });
 
     expect(doc.identity).toBe(identity);
@@ -223,6 +226,7 @@ describe("Document e2e integration", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const content = doc.channel("content");

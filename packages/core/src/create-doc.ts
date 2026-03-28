@@ -61,7 +61,7 @@ import {
   epochMeasured,
 } from "@pokapali/document";
 import { measureTree } from "@pokapali/finger-tree";
-import { yjsCodec } from "@pokapali/codec";
+import type { Codec } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
@@ -368,6 +368,9 @@ export interface DocParams {
   /** How many parent blocks to prefetch after
    *  tip-advanced. Default 3, set 0 to disable. */
   prefetchDepth?: number;
+  /** Codec used for epoch-tree fold and clock-sum
+   *  computation during publish(). */
+  codec: Codec;
   /** Optional Document from @pokapali/document for
    *  lifecycle bridge. Stored in docDocuments WeakMap
    *  and destroyed on teardown. */
@@ -1707,7 +1710,7 @@ export function createDoc(params: DocParams): Doc {
           return summary.editCount > 0;
         });
       if (hasTreeContent) {
-        const measured = State.channelMeasured(yjsCodec);
+        const measured = State.channelMeasured(params.codec);
         plaintext = {};
         clockSum = 0;
         for (const ch of channels) {
@@ -1718,7 +1721,7 @@ export function createDoc(params: DocParams): Doc {
             cache,
           );
           plaintext[ch] = state;
-          clockSum += yjsCodec.clockSum(state);
+          clockSum += params.codec.clockSum(state);
         }
         // Reset subdocManager dirty flag so save
         // state machinery transitions to "saved".
@@ -1867,6 +1870,7 @@ export function createDoc(params: DocParams): Doc {
           syncOpts: params.syncOpts,
           pubsub: params.pubsub,
           subdocManager,
+          codec: params.codec,
         },
         createDoc,
         populateMeta,

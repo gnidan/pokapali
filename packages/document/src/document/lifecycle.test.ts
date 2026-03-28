@@ -82,6 +82,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const feed = doc.activate(State.view(codec));
@@ -98,6 +99,7 @@ describe("Document view activation", () => {
       const doc = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
+        codec,
       });
 
       const feed1 = doc.activate(State.view(codec));
@@ -113,6 +115,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const feed = doc.activate(State.view(codec));
@@ -131,6 +134,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     doc.activate(State.view(codec));
@@ -153,6 +157,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const feed = doc.activate(State.view(codec));
@@ -169,6 +174,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch1 = doc.channel("content");
@@ -196,6 +202,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     // Activate state view before creating channel
@@ -218,6 +225,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     expect(() => doc.deactivate("nonexistent")).not.toThrow();
@@ -229,6 +237,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const feed = doc.activate(State.view(codec));
@@ -247,6 +256,7 @@ describe("Document view activation", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch = doc.channel("content");
@@ -275,6 +285,7 @@ describe("inspect (one-shot evaluation)", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch = doc.channel("content");
@@ -291,6 +302,7 @@ describe("inspect (one-shot evaluation)", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch1 = doc.channel("content");
@@ -313,6 +325,7 @@ describe("inspect (one-shot evaluation)", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     doc.channel("content").appendEdit(fakeEdit(7));
@@ -329,6 +342,7 @@ describe("inspect (one-shot evaluation)", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     doc.channel("content").appendEdit(fakeEdit(3));

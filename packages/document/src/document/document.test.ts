@@ -22,6 +22,22 @@ function fakeCapability() {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fakeCodec(): any {
+  return {
+    merge: () => new Uint8Array(),
+    diff: () => new Uint8Array(),
+    clockSum: () => 0,
+    createSurface: () => ({
+      handle: {},
+      applyEdit: () => {},
+      applyState: () => {},
+      onLocalEdit: () => () => {},
+      destroy: () => {},
+    }),
+  };
+}
+
 function fakeEdit(id: number) {
   return Edit.create({
     payload: new Uint8Array([id]),
@@ -56,6 +72,7 @@ describe("Document.create", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch = doc.channel("content");
@@ -66,6 +83,7 @@ describe("Document.create", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch1 = doc.channel("content");
@@ -77,6 +95,7 @@ describe("Document.create", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const content = doc.channel("content");
@@ -91,6 +110,7 @@ describe("Document.create", () => {
     const doc = Document.create({
       identity,
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     expect(doc.identity).toBe(identity);
@@ -101,6 +121,7 @@ describe("Document.create", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability,
+      codec: fakeCodec(),
     });
 
     expect(doc.capability).toBe(capability);
@@ -110,6 +131,7 @@ describe("Document.create", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const content = doc.channel("content");
@@ -136,6 +158,7 @@ describe("Document.create", () => {
     const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const before = doc.channel("content");

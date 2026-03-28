@@ -141,6 +141,8 @@ function baseParams() {
     primaryChannel: "content",
     signalingUrls: [],
     performInitialResolve: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    codec: {} as any,
   };
 }
 

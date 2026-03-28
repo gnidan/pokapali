@@ -84,15 +84,6 @@ function syncEdit(id: number, channel = "content"): Edit {
 // --- Tests ---
 
 describe("Document.surface", () => {
-  it("throws when no codec is provided", () => {
-    const doc = Document.create({
-      identity: fakeIdentity(),
-      capability: fakeCapability(),
-    });
-
-    expect(() => doc.surface("content")).toThrow(/codec/i);
-  });
-
   it("creates a CodecSurface via codec", () => {
     const surface = fakeSurface();
     const codec = fakeCodecWithSurface(surface);

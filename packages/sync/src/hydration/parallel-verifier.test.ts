@@ -124,6 +124,7 @@ describe("ParallelVerifier.create", () => {
     doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: yjsCodec(),
     });
   });
 
@@ -284,6 +285,7 @@ describe("ParallelVerifier.create", () => {
           const d = Document.create({
             identity: fakeIdentity(),
             capability: fakeCapability(),
+            codec: yjsCodec(),
           });
           const { manager, docs } = mockSubdocManager(["content"]);
           const codec = yjsCodec();
@@ -331,6 +333,7 @@ describe("ParallelVerifier.create", () => {
           const d = Document.create({
             identity: fakeIdentity(),
             capability: fakeCapability(),
+            codec: yjsCodec(),
           });
           const { manager, docs } = mockSubdocManager(["content"]);
           const codec = yjsCodec();
