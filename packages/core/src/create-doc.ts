@@ -1028,6 +1028,7 @@ export function createDoc(params: DocParams): Doc {
     const snapshotOps = createSnapshotOps({
       snapshotCodec: snapshotLC,
       subdocManager,
+      document: params.document,
       resolver,
       readKey: rk,
       getClockSum: computeClockSum,

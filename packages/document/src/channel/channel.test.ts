@@ -215,6 +215,73 @@ describe("Channel.create", () => {
     expect(epochs[1]!.edits).toHaveLength(0);
   });
 
+  describe("appendSnapshot", () => {
+    it("closes current epoch, appends snapshot epoch, opens fresh", () => {
+      const ch = Channel.create("content");
+      ch.appendEdit(fakeEdit(1));
+
+      const state = new Uint8Array([99]);
+      ch.appendSnapshot(state);
+
+      const epochs = toArray(ch.tree);
+      // 3 epochs: closed original, closed snapshot,
+      // fresh open
+      expect(epochs).toHaveLength(3);
+      expect(epochs[0]!.boundary.tag).toBe("closed");
+      expect(epochs[0]!.edits).toHaveLength(1);
+
+      expect(epochs[1]!.boundary.tag).toBe("closed");
+      expect(epochs[1]!.edits).toHaveLength(1);
+      expect(epochs[1]!.edits[0]!.payload).toEqual(state);
+      expect(epochs[1]!.edits[0]!.author).toBe("snapshot");
+      expect(epochs[1]!.edits[0]!.origin).toBe("hydrate");
+
+      expect(epochs[2]!.boundary.tag).toBe("open");
+      expect(epochs[2]!.edits).toHaveLength(0);
+    });
+
+    it("works on empty channel", () => {
+      const ch = Channel.create("content");
+      ch.appendSnapshot(new Uint8Array([42]));
+
+      const epochs = toArray(ch.tree);
+      expect(epochs).toHaveLength(3);
+      // First epoch is the closed empty original
+      expect(epochs[0]!.edits).toHaveLength(0);
+      expect(epochs[0]!.boundary.tag).toBe("closed");
+      // Snapshot epoch
+      expect(epochs[1]!.edits).toHaveLength(1);
+      expect(epochs[1]!.edits[0]!.payload).toEqual(new Uint8Array([42]));
+      // Fresh open epoch
+      expect(epochs[2]!.boundary.tag).toBe("open");
+    });
+
+    it("edits after snapshot go into fresh epoch", () => {
+      const ch = Channel.create("content");
+      ch.appendSnapshot(new Uint8Array([10]));
+      ch.appendEdit(fakeEdit(5));
+
+      const epochs = toArray(ch.tree);
+      expect(epochs).toHaveLength(3);
+      // Last epoch has the new edit
+      expect(epochs[2]!.edits).toHaveLength(1);
+      expect(epochs[2]!.edits[0]!.payload).toEqual(new Uint8Array([5]));
+    });
+
+    it("notifies view subscribers", () => {
+      const codec = fakeCodec();
+      const view = State.view(codec);
+      const ch = Channel.create("content");
+      const feed = ch.activate(view);
+
+      const cb = vi.fn();
+      feed.subscribe(cb);
+
+      ch.appendSnapshot(new Uint8Array([7]));
+      expect(cb).toHaveBeenCalled();
+    });
+  });
+
   it("deactivate mid-lifecycle, re-activate gets current", () => {
     const codec = fakeCodec();
     const view = State.view(codec);

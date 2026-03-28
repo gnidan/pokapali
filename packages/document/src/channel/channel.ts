@@ -13,10 +13,11 @@
  *     + snoc new empty open → registry.notifyTreeChanged
  */
 import { snoc, viewr } from "@pokapali/finger-tree";
-import type { History, Edit } from "#history";
+import type { History } from "#history";
 import {
   epochMeasured,
   History as HistoryCompanion,
+  Edit,
   Epoch,
   Boundary,
 } from "#history";
@@ -32,6 +33,15 @@ export interface Channel {
   readonly tree: History;
   appendEdit(edit: Edit): void;
   closeEpoch(): void;
+  /**
+   * Record a remote snapshot in the epoch tree.
+   *
+   * Closes the current epoch, appends a closed
+   * epoch with a synthetic edit whose payload is
+   * the full snapshot state, then opens a fresh
+   * epoch for future edits.
+   */
+  appendSnapshot(state: Uint8Array): void;
   /** @internal Called by Document — use Document.activate instead. */
   activate<V>(view: View<V>): Pick<Feed<V>, "getSnapshot" | "subscribe">;
   /** @internal Called by Document — use Document.deactivate instead. */
@@ -85,6 +95,32 @@ export const Channel = {
         const withClosed = snoc(epochMeasured, v.init, closed);
         updateTree(
           snoc(epochMeasured, withClosed, Epoch.create([], Boundary.open())),
+        );
+      },
+
+      appendSnapshot(state: Uint8Array) {
+        // 1. Close current open epoch
+        const v1 = viewr(epochMeasured, tree);
+        if (!v1) return;
+        const closed = Epoch.close(v1.last);
+        const afterClose = snoc(epochMeasured, v1.init, closed);
+
+        // 2. Append closed epoch with synthetic
+        //    edit carrying the full snapshot state
+        const syntheticEdit = Edit.create({
+          payload: state,
+          timestamp: Date.now(),
+          author: "snapshot",
+          channel: name,
+          origin: "hydrate",
+          signature: new Uint8Array(),
+        });
+        const snapshotEpoch = Epoch.create([syntheticEdit], Boundary.closed());
+        const afterSnapshot = snoc(epochMeasured, afterClose, snapshotEpoch);
+
+        // 3. Open fresh epoch for future edits
+        updateTree(
+          snoc(epochMeasured, afterSnapshot, Epoch.create([], Boundary.open())),
         );
       },
 

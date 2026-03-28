@@ -61,6 +61,9 @@ export interface Document {
    * to `Document.create`.
    */
   surface(channel: string): CodecSurface;
+  /** True if a surface has been created for this
+   *  channel (via a prior `surface()` call). */
+  hasSurface(channel: string): boolean;
   readonly identity: Ed25519KeyPair;
   readonly capability: Capability;
   /**
@@ -159,6 +162,9 @@ export const Document = {
           appendEdit(edit: Edit) {
             raw.appendEdit(edit);
             editListeners.get(name)?.(edit);
+          },
+          appendSnapshot(state: Uint8Array) {
+            raw.appendSnapshot(state);
           },
           closeEpoch() {
             raw.closeEpoch();
@@ -331,6 +337,10 @@ export const Document = {
           unsub,
         });
         return s;
+      },
+
+      hasSurface(channelName: string): boolean {
+        return surfaces.has(channelName);
       },
 
       get identity() {

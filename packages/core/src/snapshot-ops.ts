@@ -16,6 +16,7 @@ import { createLogger } from "@pokapali/log";
 import type { Subdocs } from "./subdocs/index.js";
 import type { SnapshotCodec } from "./snapshot-codec.js";
 import type { BlockResolver } from "./block-resolver.js";
+import type { Document } from "@pokapali/document";
 import { ValidationError } from "./errors.js";
 
 const log = createLogger("snapshot-ops");
@@ -62,14 +63,21 @@ export interface SnapshotOps {
 export interface SnapshotOpsOptions {
   snapshotCodec: SnapshotCodec;
   subdocManager: Subdocs;
+  document?: Document;
   resolver: BlockResolver;
   readKey: CryptoKey;
   getClockSum: () => number;
 }
 
 export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
-  const { snapshotCodec, subdocManager, resolver, readKey, getClockSum } =
-    options;
+  const {
+    snapshotCodec,
+    subdocManager,
+    document,
+    resolver,
+    readKey,
+    getClockSum,
+  } = options;
 
   return {
     decodeBlock(block: Uint8Array): BlockMetadata {
@@ -105,7 +113,18 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
       const applied = await snapshotCodec.applyRemote(
         cid,
         readKey,
-        (plaintext) => subdocManager.applySnapshot(plaintext),
+        (plaintext) => {
+          subdocManager.applySnapshot(plaintext);
+
+          if (document) {
+            for (const [ch, state] of Object.entries(plaintext)) {
+              document.channel(ch).appendSnapshot(state);
+              if (document.hasSurface(ch)) {
+                document.surface(ch).applyState(state);
+              }
+            }
+          }
+        },
       );
 
       if (applied) {
