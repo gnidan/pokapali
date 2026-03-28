@@ -350,4 +350,82 @@ describe("Channel mutation property", () => {
       { numRuns: 200 },
     );
   });
+
+  it("appendSnapshot tree invariants hold after every op", () => {
+    const arbOps = fc.array(
+      fc.oneof(
+        {
+          weight: 4,
+          arbitrary: fc.constant("append" as const),
+        },
+        {
+          weight: 1,
+          arbitrary: fc.constant("close" as const),
+        },
+        {
+          weight: 1,
+          arbitrary: fc.constant("snapshot" as const),
+        },
+      ),
+      { minLength: 1, maxLength: 50 },
+    );
+
+    fc.assert(
+      fc.property(arbOps, (ops) => {
+        const ch = Channel.create("content");
+        let appendCount = 0;
+        let closeCount = 0;
+        let snapshotCount = 0;
+        let nextId = 1;
+
+        function checkInvariants() {
+          const epochs = toArray(ch.tree);
+
+          // Last epoch is always open
+          const last = epochs[epochs.length - 1]!;
+          expect(last.boundary.tag).toBe("open");
+
+          // All non-last epochs are closed
+          for (let i = 0; i < epochs.length - 1; i++) {
+            expect(epochs[i]!.boundary.tag).toBe("closed");
+          }
+
+          // Total edits = appends + snapshots
+          // (each snapshot adds one synthetic edit)
+          const totalEdits = epochs.reduce(
+            (sum, ep) => sum + ep.edits.length,
+            0,
+          );
+          expect(totalEdits).toBe(appendCount + snapshotCount);
+
+          // Epoch count:
+          //   start with 1
+          //   each closeEpoch adds 1
+          //   each appendSnapshot adds 2 (close
+          //   current + snapshot epoch + fresh open,
+          //   net +2 since it replaces the old open)
+          expect(epochs.length).toBe(1 + closeCount + 2 * snapshotCount);
+        }
+
+        for (const op of ops) {
+          switch (op) {
+            case "append":
+              ch.appendEdit(fakeEdit(nextId++));
+              appendCount++;
+              break;
+            case "close":
+              ch.closeEpoch();
+              closeCount++;
+              break;
+            case "snapshot":
+              ch.appendSnapshot(new Uint8Array([nextId++]));
+              snapshotCount++;
+              break;
+          }
+          checkInvariants();
+        }
+      }),
+      { numRuns: 200 },
+    );
+  });
 });
