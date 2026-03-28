@@ -53,7 +53,14 @@ import { buildDiagnostics } from "./doc-diagnostics.js";
 import type { Diagnostics } from "./doc-diagnostics.js";
 import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
-import { type Document, State, Cache, foldTree } from "@pokapali/document";
+import {
+  type Document,
+  State,
+  Cache,
+  foldTree,
+  epochMeasured,
+} from "@pokapali/document";
+import { measureTree } from "@pokapali/finger-tree";
 import { yjsCodec } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
@@ -1663,16 +1670,20 @@ export function createDoc(params: DocParams): Doc {
       let plaintext: Record<string, Uint8Array>;
       let clockSum: number;
       // Use epoch tree fold when Document is available
-      // AND at least one channel has edits in its tree.
+      // AND at least one channel has actual edits in
+      // its tree. A fresh channel has a single empty
+      // epoch (tree.tag === "single") but zero edits.
       // During the transition period, edits may flow
       // through subdocManager directly (not yet via
       // Document.channel.appendEdit), so fall back
-      // when all trees are empty.
+      // when no channel has edits.
       const hasTreeContent =
         params.document &&
-        channels.some(
-          (ch) => params.document!.channel(ch).tree.tag !== "empty",
-        );
+        channels.some((ch) => {
+          const tree = params.document!.channel(ch).tree;
+          const summary = measureTree(epochMeasured, tree);
+          return summary.editCount > 0;
+        });
       if (hasTreeContent) {
         const measured = State.channelMeasured(yjsCodec);
         plaintext = {};

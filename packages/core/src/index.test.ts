@@ -107,12 +107,22 @@ vi.mock("./persistence.js", () => ({
   })),
 }));
 
+// Ed25519 public key for the all-zero seed, so
+// the mock identity forms a valid signing pair.
+const ZERO_SEED_PUBKEY = new Uint8Array([
+  59, 106, 39, 188, 206, 182, 164, 45, 98, 163, 168, 208, 42, 111, 13, 115, 101,
+  50, 21, 119, 29, 226, 67, 166, 58, 192, 72, 161, 139, 89, 218, 41,
+]);
+
 vi.mock("./identity.js", () => ({
   loadIdentity: vi.fn(async () => ({
-    publicKey: new Uint8Array(32),
+    publicKey: ZERO_SEED_PUBKEY,
     privateKey: new Uint8Array(32),
   })),
-  signParticipant: vi.fn(async () => ({ sig: "aa".repeat(32), v: 2 })),
+  signParticipant: vi.fn(async () => ({
+    sig: "aa".repeat(32),
+    v: 2,
+  })),
 }));
 
 vi.mock("@pokapali/blocks", async () => {
@@ -587,10 +597,7 @@ describe("@pokapali/core", () => {
   });
 
   describe("loadVersion()", () => {
-    // TODO: fix — snapshot signature validation
-    // fails with mock identity (all-zero keys).
-    // Pre-existing failure, not caused by S40.
-    it.skip("returns Y.Doc instances with content", async () => {
+    it("returns Y.Doc instances with content", async () => {
       const lib = pokapali(OPTS);
       const doc = await lib.create();
 
