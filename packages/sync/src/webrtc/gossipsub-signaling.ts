@@ -240,7 +240,33 @@ function routeMessage(adapter: GossipSubSignaling, msg: any): void {
 
   if (room.key) {
     if (typeof msg.data === "string") {
-      decryptJson(fromBase64(msg.data), room.key).then(execMessage);
+      decryptJson(fromBase64(msg.data), room.key).then(execMessage, (err) => {
+        // Second arg only catches decryptJson
+        // rejection — execMessage errors propagate.
+        //
+        // All signaling shares one GossipSub topic,
+        // so messages from other documents with
+        // different keys are common. These produce:
+        //
+        // OperationError: AES-GCM auth failure
+        //   (key mismatch)
+        // RangeError: garbage varint length from
+        //   ciphertext encoded with a different key
+        //
+        // Logged at debug to surface real key issues.
+        if (
+          err instanceof RangeError ||
+          (err instanceof DOMException && err.name === "OperationError")
+        ) {
+          log.debug(
+            "signaling decrypt failed for room",
+            roomName + ":",
+            err.message,
+          );
+          return;
+        }
+        throw err;
+      });
     }
   } else {
     execMessage(msg.data);
