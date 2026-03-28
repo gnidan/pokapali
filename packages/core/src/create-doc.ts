@@ -53,7 +53,8 @@ import { buildDiagnostics } from "./doc-diagnostics.js";
 import type { Diagnostics } from "./doc-diagnostics.js";
 import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
-import type { Document } from "@pokapali/document";
+import { type Document, State, Cache, foldTree } from "@pokapali/document";
+import { yjsCodec } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
@@ -1656,8 +1657,43 @@ export function createDoc(params: DocParams): Doc {
         ts: Date.now(),
       });
 
-      const plaintext = subdocManager.encodeAll();
-      const clockSum = computeClockSum();
+      // Materialize snapshot from epoch tree when
+      // Document is available; fall back to subdoc
+      // encoding otherwise.
+      let plaintext: Record<string, Uint8Array>;
+      let clockSum: number;
+      // Use epoch tree fold when Document is available
+      // AND at least one channel has edits in its tree.
+      // During the transition period, edits may flow
+      // through subdocManager directly (not yet via
+      // Document.channel.appendEdit), so fall back
+      // when all trees are empty.
+      const hasTreeContent =
+        params.document &&
+        channels.some(
+          (ch) => params.document!.channel(ch).tree.tag !== "empty",
+        );
+      if (hasTreeContent) {
+        const measured = State.channelMeasured(yjsCodec);
+        plaintext = {};
+        clockSum = 0;
+        for (const ch of channels) {
+          const cache = Cache.create<Uint8Array>();
+          const state = foldTree<Uint8Array>(
+            measured,
+            params.document!.channel(ch).tree,
+            cache,
+          );
+          plaintext[ch] = state;
+          clockSum += yjsCodec.clockSum(state);
+        }
+        // Reset subdocManager dirty flag so save
+        // state machinery transitions to "saved".
+        subdocManager.encodeAll();
+      } else {
+        plaintext = subdocManager.encodeAll();
+        clockSum = computeClockSum();
+      }
       let pushResult;
       try {
         pushResult = await snapshotLC.push(
