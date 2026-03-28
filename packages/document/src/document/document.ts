@@ -10,7 +10,7 @@
  * evaluation to each channel, and combines results
  * into a single reactive feed.
  */
-import type { Ed25519KeyPair } from "@pokapali/crypto";
+import { type Ed25519KeyPair, bytesToHex } from "@pokapali/crypto";
 import type { Codec, CodecSurface } from "@pokapali/codec";
 import type { Capability } from "../capability/capability.js";
 import type { Channel } from "../channel/channel.js";
@@ -311,7 +311,7 @@ export const Document = {
           const edit: Edit = {
             payload,
             timestamp: Date.now(),
-            author: Buffer.from(identity.publicKey).toString("hex"),
+            author: bytesToHex(identity.publicKey),
             channel: channelName,
             origin: "local",
             signature: new Uint8Array(),
