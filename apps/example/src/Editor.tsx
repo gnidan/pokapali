@@ -163,7 +163,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     return unsub;
   }, [doc]);
 
-  const contentDoc = doc.channel("content");
+  const contentDoc = doc.surface("content");
   const shouldMount = ready || !isReadOnly;
   // Writers always show the editor — they don't need
   // to wait for a snapshot load. Readers wait for

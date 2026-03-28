@@ -166,6 +166,17 @@ export interface DocUrls {
 
 export interface Doc {
   channel(name: string): Y.Doc;
+  /**
+   * Get or create a CodecSurface for a channel.
+   *
+   * Returns the surface's Y.Doc handle for use
+   * with TipTap Collaboration. Edits on this doc
+   * flow through the epoch tree via onLocalEdit.
+   *
+   * Requires a Document to have been provided at
+   * creation time — throws otherwise.
+   */
+  surface(name: string): Y.Doc;
   /** @deprecated Use `doc.awareness` directly. */
   readonly provider: {
     readonly awareness: Awareness;
@@ -1524,6 +1535,16 @@ export function createDoc(params: DocParams): Doc {
           `Unknown channel "${name}". ` + "Configured: " + channels.join(", "),
         );
       }
+    },
+
+    surface(name: string): Y.Doc {
+      assertNotDestroyed();
+      if (!params.document) {
+        throw new Error(
+          "surface() requires a Document." + " Pass a document to createDoc().",
+        );
+      }
+      return params.document.surface(name).handle as Y.Doc;
     },
 
     /** @deprecated Use doc.awareness directly. */
