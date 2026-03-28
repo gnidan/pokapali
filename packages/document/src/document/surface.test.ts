@@ -17,7 +17,7 @@ import { Document } from "./document.js";
 function fakeIdentity() {
   return {
     publicKey: new Uint8Array(32).fill(0xaa),
-    privateKey: new Uint8Array(64).fill(0xbb),
+    privateKey: new Uint8Array(32).fill(0xbb),
   };
 }
 
@@ -113,7 +113,7 @@ describe("Document.surface", () => {
     expect(codec.createSurface).toHaveBeenCalledTimes(1);
   });
 
-  it("wires onLocalEdit → Edit → appendEdit", () => {
+  it("wires onLocalEdit → Edit → appendEdit", async () => {
     const surface = fakeSurface();
     const codec = fakeCodecWithSurface(surface);
     const doc = Document.create({
@@ -129,10 +129,12 @@ describe("Document.surface", () => {
     const payload = new Uint8Array([42]);
     surface.fireLocalEdit(payload);
 
-    // Check the channel's tree has the edit
+    // Signing is async — wait for the edit to land
     const ch = doc.channel("content");
-    const summary = measureTree(epochMeasured, ch.tree);
-    expect(summary.editCount).toBe(1);
+    await vi.waitFor(() => {
+      const summary = measureTree(epochMeasured, ch.tree);
+      expect(summary.editCount).toBe(1);
+    });
 
     // Verify the edit payload matches
     const tip = viewr(epochMeasured, ch.tree);

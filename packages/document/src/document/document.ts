@@ -10,7 +10,7 @@
  * evaluation to each channel, and combines results
  * into a single reactive feed.
  */
-import { type Ed25519KeyPair, bytesToHex } from "@pokapali/crypto";
+import { type Ed25519KeyPair, bytesToHex, signBytes } from "@pokapali/crypto";
 import type { Codec, CodecSurface } from "@pokapali/codec";
 import type { Capability } from "../capability/capability.js";
 import type { Channel } from "../channel/channel.js";
@@ -306,15 +306,33 @@ export const Document = {
 
         // Wire local edits from surface to channel
         const unsub = s.onLocalEdit((payload: Uint8Array) => {
-          const edit: Edit = {
-            payload,
-            timestamp: Date.now(),
-            author: bytesToHex(identity.publicKey),
-            channel: channelName,
-            origin: "local",
-            signature: new Uint8Array(),
-          };
-          ch.appendEdit(edit);
+          signBytes(identity, payload).then(
+            (sig) => {
+              const edit: Edit = {
+                payload,
+                timestamp: Date.now(),
+                author: bytesToHex(identity.publicKey),
+                channel: channelName,
+                origin: "local",
+                signature: sig,
+              };
+              ch.appendEdit(edit);
+            },
+            () => {
+              // Signing failed — append with empty
+              // signature to keep epoch tree in sync
+              // with the Y.Doc surface.
+              const edit: Edit = {
+                payload,
+                timestamp: Date.now(),
+                author: bytesToHex(identity.publicKey),
+                channel: channelName,
+                origin: "local",
+                signature: new Uint8Array(),
+              };
+              ch.appendEdit(edit);
+            },
+          );
         });
 
         // Wire remote edits to surface
