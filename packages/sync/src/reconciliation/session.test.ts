@@ -289,39 +289,44 @@ describe("ReconciliationSession", () => {
       expect(got).toEqual(want);
     }
 
-    it("exchange terminates and delivers correct edits for arbitrary edit sets", () => {
-      fc.assert(
-        fc.property(
-          fc.uniqueArray(hashArb, {
-            minLength: 0,
-            maxLength: 20,
-            selector: (h) => Array.from(h).join(","),
-          }),
-          fc.uniqueArray(hashArb, {
-            minLength: 0,
-            maxLength: 10,
-            selector: (h) => Array.from(h).join(","),
-          }),
-          fc.uniqueArray(hashArb, {
-            minLength: 0,
-            maxLength: 10,
-            selector: (h) => Array.from(h).join(","),
-          }),
-          (shared, onlyA, onlyB) => {
-            const hashesA = [...shared, ...onlyA];
-            const hashesB = [...shared, ...onlyB];
-            const fpA = xorAll(hashesA);
-            const fpB = xorAll(hashesB);
-            const sessionA = createSession(hashesA, fpA, "ch");
-            const sessionB = createSession(hashesB, fpB, "ch");
-            const { editsForB, rounds } = runExchange(sessionA, sessionB);
-            expect(rounds).toBeLessThan(100);
-            // B receives exactly A's unique edits
-            expectSetEquals(editsForB, onlyA);
-          },
-        ),
-        { numRuns: 200 },
-      );
-    });
+    it(
+      "exchange terminates and delivers " +
+        "correct edits for arbitrary edit sets",
+      () => {
+        fc.assert(
+          fc.property(
+            fc.uniqueArray(hashArb, {
+              minLength: 0,
+              maxLength: 30,
+              selector: (h) => Array.from(h).join(","),
+            }),
+            (allHashes) => {
+              // Partition into shared / onlyA / onlyB
+              // with no cross-array overlap.
+              const n = allHashes.length;
+              const cut1 = Math.floor(n / 3);
+              const cut2 = Math.floor((2 * n) / 3);
+              const shared = allHashes.slice(0, cut1);
+              const onlyA = allHashes.slice(cut1, cut2);
+              const onlyB = allHashes.slice(cut2);
+
+              const hashesA = [...shared, ...onlyA];
+              const hashesB = [...shared, ...onlyB];
+              const fpA = xorAll(hashesA);
+              const fpB = xorAll(hashesB);
+
+              const sessionA = createSession(hashesA, fpA, "ch");
+              const sessionB = createSession(hashesB, fpB, "ch");
+              const { editsForB, rounds } = runExchange(sessionA, sessionB);
+
+              expect(rounds).toBeLessThan(100);
+              // B receives exactly A's unique edits
+              expectSetEquals(editsForB, onlyA);
+            },
+          ),
+          { numRuns: 200 },
+        );
+      },
+    );
   });
 });

@@ -34,6 +34,7 @@ const arbTrieQuery = fc.record({
   prefix: varBytes,
   depth: fc.nat({ max: 256 }),
   fingerprint: fingerprint32,
+  editCount: fc.nat({ max: 10000 }),
 });
 
 const arbTrieResponse = fc.record({
@@ -103,6 +104,7 @@ function deepEqualMsg(a: Message, b: Message): void {
       expect(a.prefix).toEqual(bb.prefix);
       expect(a.depth).toBe(bb.depth);
       expect(a.fingerprint).toEqual(bb.fingerprint);
+      expect(a.editCount).toBe(bb.editCount);
       break;
     }
     case MessageType.TRIE_RESPONSE: {

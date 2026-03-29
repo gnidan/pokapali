@@ -181,12 +181,14 @@ export function createSession(
     const rootFP = root.kind === "leaf" ? root.hash : root.fingerprint;
 
     // Query root (depth 0)
+    const rootEC = root.kind === "leaf" ? 1 : root.editCount;
     return {
       type: MessageType.TRIE_QUERY,
       channel,
       prefix: new Uint8Array(32),
       depth: 0,
       fingerprint: rootFP,
+      editCount: rootEC,
     };
   }
 
@@ -196,13 +198,21 @@ export function createSession(
     const root = ensureTrie();
     const local = queryPrefix(root, msg.prefix, msg.depth);
 
+    // Both fingerprint AND editCount must match to
+    // declare a subtree in sync. XOR fingerprint
+    // alone can't distinguish "one all-zeros hash"
+    // from "no hashes" (zero is the XOR identity).
+    const match =
+      bytesEqual(local.fingerprint, msg.fingerprint) &&
+      local.editCount === msg.editCount;
+
     return {
       type: MessageType.TRIE_RESPONSE,
       channel,
       prefix: msg.prefix,
       depth: msg.depth,
       fingerprint: local.fingerprint,
-      match: bytesEqual(local.fingerprint, msg.fingerprint),
+      match,
     };
   }
 
@@ -237,6 +247,7 @@ export function createSession(
         prefix: leftPfx,
         depth: msg.depth + 1,
         fingerprint: leftLocal.fingerprint,
+        editCount: leftLocal.editCount,
       };
     }
 
@@ -301,6 +312,7 @@ export function createSession(
       prefix: next.prefix,
       depth: next.depth,
       fingerprint: local.fingerprint,
+      editCount: local.editCount,
     };
   }
 

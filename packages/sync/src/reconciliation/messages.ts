@@ -57,6 +57,7 @@ export interface TrieQuery {
   depth: number;
   /** 32-byte fingerprint at this prefix. */
   fingerprint: Uint8Array;
+  editCount: number;
 }
 
 export interface TrieResponse {
@@ -121,6 +122,7 @@ export function encodeMessage(msg: Message): Uint8Array {
       writeVarUint8Array(enc, msg.prefix);
       writeVarUint(enc, msg.depth);
       writeVarUint8Array(enc, msg.fingerprint);
+      writeVarUint(enc, msg.editCount);
       break;
 
     case MessageType.TRIE_RESPONSE:
@@ -183,6 +185,7 @@ export function decodeMessage(bytes: Uint8Array): Message {
         prefix: readVarUint8Array(dec),
         depth: readVarUint(dec),
         fingerprint: readVarUint8Array(dec),
+        editCount: readVarUint(dec),
       };
 
     case MessageType.TRIE_RESPONSE: {
