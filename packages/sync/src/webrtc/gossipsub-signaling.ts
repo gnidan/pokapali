@@ -294,15 +294,25 @@ export class GossipSubSignaling extends Observable<string> {
     this.gossipHandler = (evt: CustomEvent) => {
       const msg = evt.detail;
       if (!msg || !msg.data) {
+        console.debug("[pokapali:gossipsub] message event" + " with no data");
         return;
       }
       if (msg.topic !== SIGNALING_TOPIC) {
+        console.debug(
+          "[pokapali:gossipsub] ignoring" + " non-signaling topic:",
+          msg.topic,
+        );
         return;
       }
 
       try {
         const text = new TextDecoder().decode(msg.data);
         const parsed = JSON.parse(text);
+        console.debug(
+          "[pokapali:gossipsub] recv",
+          parsed?.topic,
+          parsed?.data?.type,
+        );
         log.debug(`recv ${parsed?.topic}:`, parsed?.data?.type);
         this.emit("message", [parsed]);
       } catch {
@@ -311,6 +321,7 @@ export class GossipSubSignaling extends Observable<string> {
     };
 
     this.pubsub.addEventListener("message", this.gossipHandler);
+    console.debug("[pokapali:gossipsub] listening for" + " GossipSub messages");
 
     // Wire up signal routing (replaces y-webrtc's
     // setupSignalingHandlers)
@@ -331,6 +342,7 @@ export class GossipSubSignaling extends Observable<string> {
         // topic. Subscribe once; y-webrtc filters by
         // room name in the payload.
         if (!this.subscribedTopics.has(SIGNALING_TOPIC)) {
+          console.debug("[pokapali:gossipsub] subscribing to", SIGNALING_TOPIC);
           log.info("subscribe", SIGNALING_TOPIC);
           this.pubsub.subscribe(SIGNALING_TOPIC);
           this.subscribedTopics.add(SIGNALING_TOPIC);
@@ -357,14 +369,30 @@ export class GossipSubSignaling extends Observable<string> {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (message.data as any)?.type,
           );
-          this.pubsub.publish(SIGNALING_TOPIC, payload).catch((err) => {
-            const msg = (err as Error)?.message ?? "";
-            if (msg.includes("NoPeersSubscribed")) {
-              log.debug("publish: no peers yet");
-            } else if (msg) {
-              log.warn("publish error:", msg);
-            }
-          });
+          this.pubsub
+            .publish(SIGNALING_TOPIC, payload)
+            .then(() => {
+              console.debug(
+                "[pokapali:gossipsub] published",
+                message.topic,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (message.data as any)?.type,
+              );
+            })
+            .catch((err) => {
+              const msg = (err as Error)?.message ?? "";
+              if (msg.includes("NoPeersSubscribed")) {
+                console.debug(
+                  "[pokapali:gossipsub]" +
+                    " publish: no peers" +
+                    " subscribed to GS topic",
+                );
+                log.debug("publish: no peers yet");
+              } else if (msg) {
+                console.debug("[pokapali:gossipsub]" + " publish error:", msg);
+                log.warn("publish error:", msg);
+              }
+            });
         }
         break;
       }
@@ -384,6 +412,14 @@ export class GossipSubSignaling extends Observable<string> {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (p: any) => `${t}:${p.toString().slice(-8)}`,
           ),
+        );
+        console.debug(
+          "[pokapali:gossipsub] re-announce",
+          `gs-peers=${gsPeers.length}`,
+          `topics=${JSON.stringify(topics)}`,
+          `subs=${subs.length}`,
+          `providers=${this.providers.size}`,
+          subs.length > 0 ? subs : "",
         );
         log.debug(
           "re-announce,",

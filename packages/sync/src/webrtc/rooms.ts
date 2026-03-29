@@ -76,8 +76,9 @@ export function setupAwarenessRoom(
    *  connects. */
   existingAwareness?: Awareness,
 ): AwarenessRoom {
+  let gsAdapter: ReturnType<typeof createGossipSubSignaling> | null = null;
   if (options?.pubsub) {
-    createGossipSubSignaling(options.pubsub);
+    gsAdapter = createGossipSubSignaling(options.pubsub);
   }
 
   const signaling = options?.pubsub
@@ -96,6 +97,24 @@ export function setupAwarenessRoom(
       peerOpts: options.peerOpts,
     }),
   });
+
+  // Force an immediate announce now that the
+  // provider is registered. The initial announce
+  // in createGossipSubSignaling fires before the
+  // WebrtcProvider exists (adapter.providers is
+  // empty), so nothing is announced. Without this,
+  // the first real announce waits 15s for the
+  // re-announce interval.
+  //
+  // Deferred via setTimeout(0) so y-webrtc's async
+  // room.key derivation (.then() on the password
+  // import) resolves first. Without this, the
+  // announce goes out unencrypted and peers that
+  // already have room.key silently drop it.
+  if (gsAdapter) {
+    const adapter = gsAdapter;
+    setTimeout(() => adapter.emit("connect", []), 0);
+  }
 
   const statusListeners: Array<() => void> = [];
   const peerConnListeners: Array<
