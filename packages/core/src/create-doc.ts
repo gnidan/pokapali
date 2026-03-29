@@ -508,9 +508,6 @@ export function createDoc(params: DocParams): Doc {
   // knows to release Helia (avoids ref-count
   // underflow if Helia was never acquired).
   let p2pResolved = false;
-  // Channels accessed before sync was available —
-  // connected when p2pReady resolves (#199).
-  const accessedChannels = new Set<string>();
   // Channels already warned about missing write key —
   // avoids spamming console on repeated channel() calls.
   const warnedChannels = new Set<string>();
@@ -743,14 +740,11 @@ export function createDoc(params: DocParams): Doc {
   // Wire sync/awareness status bridges. These are
   // called immediately if deps are available, or
   // deferred until p2pReady resolves.
-  function wireSyncBridges(sm: SyncManager, ar: AwarenessRoom): void {
-    sm.onStatusChange(() => {
-      factQueue?.push({
-        type: "sync-status-changed",
-        ts: Date.now(),
-        status: sm.status,
-      });
-    });
+  function wireSyncBridges(_sm: SyncManager, ar: AwarenessRoom): void {
+    // Sync status facts are now emitted by
+    // transport.onConnectionChange inside
+    // wireDataChannel (below), not by
+    // SyncManager.onStatusChange.
     ar.onStatusChange(() => {
       factQueue?.push({
         type: "awareness-status-changed",
@@ -762,9 +756,9 @@ export function createDoc(params: DocParams): Doc {
     // Reconciliation: when a new peer connection
     // appears, create a data channel and wire up
     // edit reconciliation.
-    if (!sm.onPeerConnection) return;
+    if (!ar.onPeerConnection) return;
     unsubPeerConn?.();
-    unsubPeerConn = sm.onPeerConnection((pc, initiator) => {
+    unsubPeerConn = ar.onPeerConnection((pc, initiator) => {
       if (destroyed || !params.document) return;
       const doc = params.document;
 
@@ -778,6 +772,17 @@ export function createDoc(params: DocParams): Doc {
         });
         reconciliationWirings.add(wiring);
 
+        // Bridge transport connectivity → sync
+        // status facts (replaces the old
+        // WebrtcProvider status bridge).
+        const unsubConn = transport.onConnectionChange((connected) => {
+          factQueue?.push({
+            type: "sync-status-changed",
+            ts: Date.now(),
+            status: connected ? "connected" : "disconnected",
+          });
+        });
+
         // Start reconciliation when channel opens
         if (dc.readyState === "open") {
           wiring.reconcile();
@@ -789,8 +794,18 @@ export function createDoc(params: DocParams): Doc {
         }
 
         function cleanup() {
+          unsubConn();
           wiring.destroy();
           reconciliationWirings.delete(wiring);
+          // If no transports remain, push
+          // disconnected so status updates.
+          if (reconciliationWirings.size === 0) {
+            factQueue?.push({
+              type: "sync-status-changed",
+              ts: Date.now(),
+              status: "disconnected",
+            });
+          }
         }
 
         dc.addEventListener("close", cleanup);
@@ -1458,10 +1473,6 @@ export function createDoc(params: DocParams): Doc {
         liveSyncManager = deps.syncManager;
         liveAwarenessRoom = deps.awarenessRoom;
         wireSyncBridges(deps.syncManager, deps.awarenessRoom);
-        // Connect channels accessed before P2P
-        for (const ch of accessedChannels) {
-          deps.syncManager.connectChannel(ch);
-        }
 
         // Relay sharing (deferred)
         if (deps.roomDiscovery && awareness) {
@@ -1581,8 +1592,6 @@ export function createDoc(params: DocParams): Doc {
       assertNotDestroyed();
       try {
         const doc = subdocManager.subdoc(name);
-        accessedChannels.add(name);
-        liveSyncManager?.connectChannel(name);
         if (
           !cap.isAdmin &&
           cap.channels.size > 0 &&
