@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import * as fc from "fast-check";
 import { createSession } from "./session.js";
 import { MessageType, type Message } from "./messages.js";
 
@@ -46,7 +47,11 @@ type Edit = {
 function runExchange(
   a: ReturnType<typeof createSession>,
   b: ReturnType<typeof createSession>,
-): { editsForA: Edit[]; editsForB: Edit[] } {
+): {
+  editsForA: Edit[];
+  editsForB: Edit[];
+  rounds: number;
+} {
   const editsForA: Edit[] = [];
   const editsForB: Edit[] = [];
 
@@ -77,7 +82,7 @@ function runExchange(
     throw new Error(`Exchange did not converge in 100 rounds`);
   }
 
-  return { editsForA, editsForB };
+  return { editsForA, editsForB, rounds };
 }
 
 const CHANNEL = "content";
@@ -269,6 +274,54 @@ describe("ReconciliationSession", () => {
       expect(result).toHaveLength(2);
       expect(result[0]!.payload).toEqual(new Uint8Array([1, 2, 3]));
       expect(result[1]!.signature).toEqual(new Uint8Array([10, 11, 12]));
+    });
+  });
+
+  describe("property tests", () => {
+    const hashArb = fc.uint8Array({
+      minLength: 32,
+      maxLength: 32,
+    });
+
+    function expectSetEquals(edits: Edit[], expected: Uint8Array[]): void {
+      const got = new Set(edits.map((e) => hexHash(e.payload)));
+      const want = new Set(expected.map(hexHash));
+      expect(got).toEqual(want);
+    }
+
+    it("exchange terminates and delivers correct edits for arbitrary edit sets", () => {
+      fc.assert(
+        fc.property(
+          fc.uniqueArray(hashArb, {
+            minLength: 0,
+            maxLength: 20,
+            selector: (h) => Array.from(h).join(","),
+          }),
+          fc.uniqueArray(hashArb, {
+            minLength: 0,
+            maxLength: 10,
+            selector: (h) => Array.from(h).join(","),
+          }),
+          fc.uniqueArray(hashArb, {
+            minLength: 0,
+            maxLength: 10,
+            selector: (h) => Array.from(h).join(","),
+          }),
+          (shared, onlyA, onlyB) => {
+            const hashesA = [...shared, ...onlyA];
+            const hashesB = [...shared, ...onlyB];
+            const fpA = xorAll(hashesA);
+            const fpB = xorAll(hashesB);
+            const sessionA = createSession(hashesA, fpA, "ch");
+            const sessionB = createSession(hashesB, fpB, "ch");
+            const { editsForB, rounds } = runExchange(sessionA, sessionB);
+            expect(rounds).toBeLessThan(100);
+            // B receives exactly A's unique edits
+            expectSetEquals(editsForB, onlyA);
+          },
+        ),
+        { numRuns: 200 },
+      );
     });
   });
 });

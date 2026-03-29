@@ -284,5 +284,26 @@ describe("merkle-trie", () => {
         { numRuns: 200 },
       );
     });
+
+    it("insertion order does not affect root fingerprint", () => {
+      fc.assert(
+        fc.property(
+          fc.uniqueArray(hashArb, {
+            minLength: 1,
+            maxLength: 50,
+            selector: (h) => Array.from(h).join(","),
+          }),
+          (hashes) => {
+            const shuffled = [...hashes].sort(() => Math.random() - 0.5);
+            const trie1 = buildTrie(hashes);
+            const trie2 = buildTrie(shuffled);
+            const fp1 = trie1.kind === "leaf" ? trie1.hash : trie1.fingerprint;
+            const fp2 = trie2.kind === "leaf" ? trie2.hash : trie2.fingerprint;
+            expect(fp1).toEqual(fp2);
+          },
+        ),
+        { numRuns: 200 },
+      );
+    });
   });
 });

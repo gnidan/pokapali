@@ -105,6 +105,10 @@ export function createSession(
     depth: number;
   }> = [];
 
+  // Edits received from EDIT_BATCH messages,
+  // buffered until the queue is fully drained.
+  const receivedEdits: Edit[] = [];
+
   function ensureTrie(): TrieNode {
     if (trie === null) {
       trie = buildTrie(localHashes);
@@ -131,8 +135,14 @@ export function createSession(
         return handleTrieResponse(msg);
       case MessageType.EDIT_SET:
         return handleEditSet(msg);
-      case MessageType.EDIT_BATCH:
-        return msg.edits;
+      case MessageType.EDIT_BATCH: {
+        receivedEdits.push(...msg.edits);
+        // Continue exploring queued subtrees
+        const next = drainQueue();
+        if (next !== null) return next;
+        // Queue empty — return all buffered edits
+        return receivedEdits.length > 0 ? [...receivedEdits] : null;
+      }
       case MessageType.FULL_STATE:
         return [
           {
@@ -146,8 +156,14 @@ export function createSession(
   function handleReconcileStart(
     msg: Extract<Message, { type: typeof MessageType.RECONCILE_START }>,
   ): Message | null {
-    // Already in sync
-    if (bytesEqual(msg.fingerprint, localFingerprint)) {
+    // Already in sync — fingerprints AND edit counts
+    // must both match. XOR fingerprint alone can't
+    // distinguish "one all-zeros hash" from "no hashes"
+    // since the zero hash is the XOR identity.
+    if (
+      bytesEqual(msg.fingerprint, localFingerprint) &&
+      msg.editCount === localHashes.length
+    ) {
       return null;
     }
 
@@ -272,23 +288,20 @@ export function createSession(
   }
 
   function drainQueue(): Message | null {
-    while (queryQueue.length > 0) {
-      const next = queryQueue.shift()!;
-      const root = ensureTrie();
-      const local = queryPrefix(root, next.prefix, next.depth);
+    if (queryQueue.length === 0) return null;
+    const next = queryQueue.shift()!;
+    const root = ensureTrie();
+    const local = queryPrefix(root, next.prefix, next.depth);
 
-      // Skip empty subtrees
-      if (local.editCount === 0) continue;
-
-      return {
-        type: MessageType.TRIE_QUERY,
-        channel,
-        prefix: next.prefix,
-        depth: next.depth,
-        fingerprint: local.fingerprint,
-      };
-    }
-    return null;
+    // Don't skip empty local subtrees — the remote
+    // may have edits there that we need to receive.
+    return {
+      type: MessageType.TRIE_QUERY,
+      channel,
+      prefix: next.prefix,
+      depth: next.depth,
+      fingerprint: local.fingerprint,
+    };
   }
 
   return {
