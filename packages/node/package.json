@@ -62,9 +62,11 @@
     "helia": "^5.5.1",
     "interface-datastore": "^9.0.2",
     "ipns": "^10.0.0",
+    "lib0": "^0.2.117",
     "multiformats": "^13.3.0"
   },
   "devDependencies": {
+    "fast-check": "^4.6.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
