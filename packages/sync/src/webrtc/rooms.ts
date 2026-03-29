@@ -18,6 +18,14 @@ export interface SyncManager {
    *  is a no-op. Ignored if no key exists for the
    *  namespace. */
   connectChannel(ns: string): void;
+  /** Register a callback that fires when a new
+   *  RTCPeerConnection is created by y-webrtc.
+   *  `initiator` is true if we initiated the
+   *  connection (relevant for data channel
+   *  creation). */
+  onPeerConnection(
+    cb: (pc: RTCPeerConnection, initiator: boolean) => void,
+  ): () => void;
   destroy(): void;
 }
 
@@ -47,11 +55,42 @@ export function setupNamespaceRooms(
 
   const statusListeners: Array<(s: SyncStatus) => void> = [];
   const connectedChannels = new Set<string>();
+  const peerConnListeners: Array<
+    (pc: RTCPeerConnection, initiator: boolean) => void
+  > = [];
+  // Track peer IDs we've already notified about to
+  // avoid duplicate notifications when the same peer
+  // appears across multiple provider "peers" events.
+  const notifiedPeers = new Set<string>();
 
   function notifyStatus() {
     const s = aggregateStatus(providers);
     for (const cb of statusListeners) cb(s);
   }
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  function watchPeers(provider: WebrtcProvider): void {
+    provider.on("peers", (change: { added: string[]; removed: string[] }) => {
+      const room = (provider as any).room;
+      if (!room) return;
+      const conns = room.webrtcConns as Map<string, any>;
+      for (const peerId of change.added) {
+        if (notifiedPeers.has(peerId)) continue;
+        const conn = conns.get(peerId);
+        const pc = conn?.peer?._pc as RTCPeerConnection | undefined;
+        if (!pc) continue;
+        notifiedPeers.add(peerId);
+        const initiator = !!conn.peer.initiator;
+        for (const cb of peerConnListeners) {
+          cb(pc, initiator);
+        }
+      }
+      for (const peerId of change.removed) {
+        notifiedPeers.delete(peerId);
+      }
+    });
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   function connectChannel(ns: string): void {
     if (connectedChannels.has(ns)) return;
@@ -70,6 +109,7 @@ export function setupNamespaceRooms(
       }),
     });
     provider.on("status", notifyStatus);
+    watchPeers(provider);
     providers.push(provider);
   }
 
@@ -81,8 +121,17 @@ export function setupNamespaceRooms(
       statusListeners.push(cb);
     },
     connectChannel,
+    onPeerConnection(cb: (pc: RTCPeerConnection, initiator: boolean) => void) {
+      peerConnListeners.push(cb);
+      return () => {
+        const idx = peerConnListeners.indexOf(cb);
+        if (idx >= 0) peerConnListeners.splice(idx, 1);
+      };
+    },
     destroy() {
       statusListeners.length = 0;
+      peerConnListeners.length = 0;
+      notifiedPeers.clear();
       for (const p of providers) {
         p.off("status", notifyStatus);
         p.disconnect();

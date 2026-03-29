@@ -21,6 +21,11 @@ import type {
   SyncOptions,
   PubSubLike,
 } from "@pokapali/sync";
+import { createReconcileChannel, createTransport } from "@pokapali/sync";
+import {
+  createReconciliationWiring,
+  type ReconciliationWiring,
+} from "./reconciliation-wiring.js";
 import { createSnapshotOps } from "./snapshot-ops.js";
 import { CID } from "multiformats/cid";
 import { getHelia, releaseHelia } from "./helia.js";
@@ -509,6 +514,9 @@ export function createDoc(params: DocParams): Doc {
   // Channels already warned about missing write key —
   // avoids spamming console on repeated channel() calls.
   const warnedChannels = new Set<string>();
+  // Active reconciliation wirings (one per peer).
+  const reconciliationWirings = new Set<ReconciliationWiring>();
+  let unsubPeerConn: (() => void) | null = null;
   // Standalone awareness: prefer awarenessRoom's if
   // available, otherwise use the standalone param.
   const awareness: Awareness = awarenessRoom?.awareness ?? params.awareness!;
@@ -748,6 +756,59 @@ export function createDoc(params: DocParams): Doc {
         type: "awareness-status-changed",
         ts: Date.now(),
         connected: ar.connected,
+      });
+    });
+
+    // Reconciliation: when a new peer connection
+    // appears, create a data channel and wire up
+    // edit reconciliation.
+    if (!sm.onPeerConnection) return;
+    unsubPeerConn?.();
+    unsubPeerConn = sm.onPeerConnection((pc, initiator) => {
+      if (destroyed || !params.document) return;
+      const doc = params.document;
+
+      function wireDataChannel(dc: RTCDataChannel): void {
+        const transport = createTransport(dc);
+        const wiring = createReconciliationWiring({
+          channels,
+          getChannel: (name) => doc.channel(name),
+          codec: params.codec,
+          transport,
+        });
+        reconciliationWirings.add(wiring);
+
+        // Start reconciliation when channel opens
+        if (dc.readyState === "open") {
+          wiring.reconcile();
+        } else {
+          dc.addEventListener("open", () => {
+            if (!reconciliationWirings.has(wiring)) return;
+            wiring.reconcile();
+          });
+        }
+
+        function cleanup() {
+          wiring.destroy();
+          reconciliationWirings.delete(wiring);
+        }
+
+        dc.addEventListener("close", cleanup);
+        dc.addEventListener("error", cleanup);
+      }
+
+      // Initiator creates the data channel
+      if (initiator) {
+        wireDataChannel(createReconcileChannel(pc));
+      }
+
+      // Both sides listen for incoming data
+      // channels (responder receives the
+      // initiator's channel).
+      pc.addEventListener("datachannel", (event) => {
+        if (event.channel.label === "pokapali-reconcile") {
+          wireDataChannel(event.channel);
+        }
       });
     });
   }
@@ -1476,6 +1537,10 @@ export function createDoc(params: DocParams): Doc {
     }
     params.roomDiscovery?.stop();
     params.persistence?.destroy();
+    // Tear down reconciliation wirings
+    unsubPeerConn?.();
+    for (const w of reconciliationWirings) w.destroy();
+    reconciliationWirings.clear();
     liveSyncManager?.destroy();
     liveAwarenessRoom?.destroy();
     // Clean up standalone awareness + backing doc
