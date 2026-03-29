@@ -759,10 +759,20 @@ export function createDoc(params: DocParams): Doc {
     if (!ar.onPeerConnection) return;
     unsubPeerConn?.();
     unsubPeerConn = ar.onPeerConnection((pc, initiator) => {
+      console.debug(
+        "[pokapali:create-doc] onPeerConnection",
+        initiator ? "(initiator)" : "(responder)",
+        `state=${pc.connectionState}`,
+      );
       if (destroyed || !params.document) return;
       const doc = params.document;
 
       function wireDataChannel(dc: RTCDataChannel): void {
+        console.debug(
+          "[pokapali:create-doc] wireDataChannel",
+          `label=${dc.label}`,
+          `state=${dc.readyState}`,
+        );
         const transport = createTransport(dc);
         const wiring = createReconciliationWiring({
           channels,

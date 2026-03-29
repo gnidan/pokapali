@@ -108,21 +108,68 @@ export function setupAwarenessRoom(
   }
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
+  function notifyPeer(peerId: string, conn: any): void {
+    if (notifiedPeers.has(peerId)) return;
+    const pc = conn?.peer?._pc as RTCPeerConnection | undefined;
+    if (!pc) return;
+    notifiedPeers.add(peerId);
+    const initiator = !!conn.peer.initiator;
+    console.debug(
+      "[pokapali:rooms] peer ready",
+      peerId.slice(0, 8),
+      initiator ? "(initiator)" : "(responder)",
+    );
+    for (const cb of peerConnListeners) {
+      cb(pc, initiator);
+    }
+  }
+
   function watchPeers(p: WebrtcProvider): void {
     p.on("peers", (change: { added: string[]; removed: string[] }) => {
       const room = (p as any).room;
-      if (!room) return;
+      if (!room) {
+        console.debug("[pokapali:rooms] peers event" + " but no room");
+        return;
+      }
       const conns = room.webrtcConns as Map<string, any>;
+      console.debug(
+        "[pokapali:rooms] peers event:" +
+          ` +${change.added.length}` +
+          ` -${change.removed.length}`,
+        `total=${conns.size}`,
+      );
       for (const peerId of change.added) {
         if (notifiedPeers.has(peerId)) continue;
         const conn = conns.get(peerId);
-        const pc = conn?.peer?._pc as RTCPeerConnection | undefined;
-        if (!pc) continue;
-        notifiedPeers.add(peerId);
-        const initiator = !!conn.peer.initiator;
-        for (const cb of peerConnListeners) {
-          cb(pc, initiator);
+        if (!conn?.peer) {
+          console.debug(
+            "[pokapali:rooms] no conn" + " for peer",
+            peerId.slice(0, 8),
+          );
+          continue;
         }
+
+        // Try immediately — _pc may already
+        // exist for fast (same-browser) conns.
+        const pc = conn.peer._pc as RTCPeerConnection | undefined;
+        if (pc) {
+          notifyPeer(peerId, conn);
+          continue;
+        }
+
+        // Cross-browser: _pc may not exist yet
+        // because ICE negotiation is in progress.
+        // Listen for simple-peer's "connect"
+        // event which fires after the underlying
+        // RTCPeerConnection is established.
+        console.debug(
+          "[pokapali:rooms] _pc not ready" + " for peer",
+          peerId.slice(0, 8),
+          "— waiting for connect event",
+        );
+        conn.peer.once("connect", () => {
+          notifyPeer(peerId, conn);
+        });
       }
       for (const peerId of change.removed) {
         notifiedPeers.delete(peerId);

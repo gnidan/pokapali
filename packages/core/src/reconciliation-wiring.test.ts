@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { Channel, Edit } from "@pokapali/document";
+import fc from "fast-check";
+import { Channel, Edit, State, Cache, foldTree } from "@pokapali/document";
 import { toArray } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
 import type { ReconciliationTransport } from "@pokapali/sync";
@@ -289,5 +290,149 @@ describe("ReconciliationWiring", () => {
     // After destroy, further messages should not
     // cause errors (transport listener removed)
     expect(() => wiring.destroy()).not.toThrow();
+  });
+
+  describe("property tests", () => {
+    function hexPayload(p: Uint8Array): string {
+      return Array.from(p)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    const channelNameArb = fc.stringMatching(/^[a-z]{1,10}$/);
+    const payloadArb = fc.uint8Array({
+      minLength: 1,
+      maxLength: 50,
+    });
+
+    it(
+      "multi-channel: N channels converge " +
+        "independently, no cross-channel leaks",
+      () => {
+        fc.assert(
+          fc.property(
+            fc.uniqueArray(channelNameArb, {
+              minLength: 2,
+              maxLength: 4,
+            }),
+            fc.uniqueArray(payloadArb, {
+              minLength: 0,
+              maxLength: 30,
+              selector: (p) => Array.from(p).join(","),
+            }),
+            (channelNames, allPayloads) => {
+              // Distribute payloads round-robin across
+              // channels, alternating A/B. Some channels
+              // may end up with 0 edits on one side,
+              // exercising the FULL_STATE late-joiner
+              // path.
+              const perChannel = new Map<
+                string,
+                {
+                  onlyA: Uint8Array[];
+                  onlyB: Uint8Array[];
+                }
+              >();
+              for (const name of channelNames) {
+                perChannel.set(name, {
+                  onlyA: [],
+                  onlyB: [],
+                });
+              }
+              for (let i = 0; i < allPayloads.length; i++) {
+                const chName = channelNames[i % channelNames.length]!;
+                const bucket = perChannel.get(chName)!;
+                if (i % 2 === 0) {
+                  bucket.onlyA.push(allPayloads[i]!);
+                } else {
+                  bucket.onlyB.push(allPayloads[i]!);
+                }
+              }
+
+              // Build channels for A and B
+              const channelsA = new Map<string, Channel>();
+              const channelsB = new Map<string, Channel>();
+              for (const name of channelNames) {
+                const chA = Channel.create(name);
+                const chB = Channel.create(name);
+                const { onlyA, onlyB } = perChannel.get(name)!;
+                for (const p of onlyA) {
+                  chA.appendEdit(makeEdit(p, name));
+                }
+                for (const p of onlyB) {
+                  chB.appendEdit(makeEdit(p, name));
+                }
+                channelsA.set(name, chA);
+                channelsB.set(name, chB);
+              }
+
+              const codec = mockCodec();
+              const { transportA, transportB, drain } = mockTransportPair();
+
+              const wiringA = createReconciliationWiring({
+                channels: channelNames,
+                getChannel: (name) => channelsA.get(name)!,
+                codec,
+                transport: transportA,
+              });
+              const wiringB = createReconciliationWiring({
+                channels: channelNames,
+                getChannel: (name) => channelsB.get(name)!,
+                codec,
+                transport: transportB,
+              });
+
+              wiringA.reconcile();
+              wiringB.reconcile();
+              drain();
+
+              // Convergence: both sides have the same
+              // total payload bytes per channel. We
+              // compare fold LENGTHS (not bytes)
+              // because the concat-merge codec is
+              // order-sensitive and edit insertion
+              // order differs between peers. Length
+              // is order-independent for concat.
+              const measured = State.channelMeasured(codec);
+              for (const name of channelNames) {
+                const lenA = foldTree<Uint8Array>(
+                  measured,
+                  channelsA.get(name)!.tree,
+                  Cache.create<Uint8Array>(),
+                ).length;
+                const lenB = foldTree<Uint8Array>(
+                  measured,
+                  channelsB.get(name)!.tree,
+                  Cache.create<Uint8Array>(),
+                ).length;
+                expect(lenA).toBe(lenB);
+              }
+
+              // No cross-channel leaks: folded state
+              // length per channel must equal the sum
+              // of all payload lengths for that
+              // channel (and no more).
+              for (const name of channelNames) {
+                const { onlyA, onlyB } = perChannel.get(name)!;
+                const expectedLen = [...onlyA, ...onlyB].reduce(
+                  (n, p) => n + p.length,
+                  0,
+                );
+                const actualLen = foldTree<Uint8Array>(
+                  measured,
+                  channelsA.get(name)!.tree,
+                  Cache.create<Uint8Array>(),
+                ).length;
+                expect(actualLen).toBe(expectedLen);
+              }
+
+              wiringA.destroy();
+              wiringB.destroy();
+            },
+          ),
+          { numRuns: 200 },
+        );
+      },
+    );
   });
 });

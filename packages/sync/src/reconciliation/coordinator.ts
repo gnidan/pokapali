@@ -80,6 +80,13 @@ export function createCoordinator(
   let inSession: Session | null = null;
 
   let inDone = false;
+  // Once a FULL_STATE snapshot is applied, skip all
+  // further edit application. Both session directions
+  // may independently try to deliver data — the
+  // snapshot already contains the peer's full state,
+  // so individual edits from the other direction are
+  // redundant and would cause double-application.
+  let snapshotApplied = false;
 
   function start(): void {
     const hashes = collectEditHashes(channel);
@@ -186,6 +193,11 @@ export function createCoordinator(
   }
 
   function verifyAndApply(edits: WireEdit[]): void {
+    // If a snapshot was already applied, the peer's
+    // full state is already present — skip redundant
+    // individual edits from the other session direction.
+    if (snapshotApplied) return;
+
     const index = buildEditIndex(channel);
 
     for (const e of edits) {
@@ -197,6 +209,7 @@ export function createCoordinator(
         if (applier.applySnapshot) {
           applier.applySnapshot(e.payload);
         }
+        snapshotApplied = true;
         // No applySnapshot → skip silently. Creating
         // an Edit from snapshot bytes = data corruption.
         continue;

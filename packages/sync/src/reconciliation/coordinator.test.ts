@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
+import fc from "fast-check";
 import { sha256 } from "@noble/hashes/sha256";
 import { Channel, Edit } from "@pokapali/document";
+import { channelFingerprint } from "./edit-resolver.js";
 import { type Message, MessageType } from "./messages.js";
 import {
   createCoordinator,
@@ -337,5 +339,175 @@ describe("ReconciliationCoordinator", () => {
       expect(coordA.done).toBe(true);
       expect(coordB.done).toBe(true);
     });
+  });
+
+  describe("property tests", () => {
+    const payloadArb = fc.uint8Array({
+      minLength: 1,
+      maxLength: 100,
+    });
+
+    function hexPayload(p: Uint8Array): string {
+      return Array.from(p)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    function payloadSet(edits: Edit[]): Set<string> {
+      return new Set(edits.map((e) => hexPayload(e.payload)));
+    }
+
+    it(
+      "bidirectional convergence: applied " +
+        "edits equal set difference, " +
+        "fingerprints match",
+      () => {
+        fc.assert(
+          fc.property(
+            fc.uniqueArray(payloadArb, {
+              minLength: 0,
+              maxLength: 30,
+              selector: (p) => Array.from(p).join(","),
+            }),
+            (allPayloads) => {
+              const n = allPayloads.length;
+              const cut1 = Math.floor(n / 3);
+              const cut2 = Math.floor((2 * n) / 3);
+              const shared = allPayloads.slice(0, cut1);
+              const onlyA = allPayloads.slice(cut1, cut2);
+              const onlyB = allPayloads.slice(cut2);
+
+              const chA = Channel.create("content");
+              const chB = Channel.create("content");
+
+              for (const p of [...shared, ...onlyA]) {
+                chA.appendEdit(makeEdit(p));
+              }
+              for (const p of [...shared, ...onlyB]) {
+                chB.appendEdit(makeEdit(p));
+              }
+
+              const senderA = mockSender();
+              const senderB = mockSender();
+              const applierA = mockApplier();
+              const applierB = mockApplier();
+
+              const coordA = createCoordinator({
+                channel: chA,
+                channelName: "content",
+                sender: senderA,
+                applier: applierA,
+              });
+              const coordB = createCoordinator({
+                channel: chB,
+                channelName: "content",
+                sender: senderB,
+                applier: applierB,
+              });
+
+              runExchange(coordA, senderA, coordB, senderB);
+
+              // A receives exactly B-only edits
+              const aGot = payloadSet(applierA.applied);
+              const aWant = new Set(onlyB.map(hexPayload));
+              expect(aGot).toEqual(aWant);
+
+              // B receives exactly A-only edits
+              const bGot = payloadSet(applierB.applied);
+              const bWant = new Set(onlyA.map(hexPayload));
+              expect(bGot).toEqual(bWant);
+
+              // After applying received edits to
+              // channels, fingerprints must match.
+              for (const e of applierA.applied) {
+                chA.appendEdit(e);
+              }
+              for (const e of applierB.applied) {
+                chB.appendEdit(e);
+              }
+              expect(channelFingerprint(chA)).toEqual(channelFingerprint(chB));
+            },
+          ),
+          { numRuns: 200 },
+        );
+      },
+    );
+
+    it(
+      "hash resolution: payloads and " + "signatures survive the full pipeline",
+      () => {
+        const sigArb = fc.uint8Array({
+          minLength: 4,
+          maxLength: 64,
+        });
+
+        fc.assert(
+          fc.property(
+            fc.uniqueArray(fc.tuple(payloadArb, sigArb), {
+              minLength: 1,
+              maxLength: 20,
+              selector: ([p]) => Array.from(p).join(","),
+            }),
+            (editPairs) => {
+              const chA = Channel.create("content");
+              const chB = Channel.create("content");
+
+              const edits: Edit[] = [];
+              for (const [payload, sig] of editPairs) {
+                const edit = Edit.create({
+                  payload,
+                  timestamp: Date.now(),
+                  author: "test-author",
+                  channel: "content",
+                  origin: "local",
+                  signature: sig,
+                });
+                edits.push(edit);
+                chA.appendEdit(edit);
+              }
+
+              const senderA = mockSender();
+              const senderB = mockSender();
+              const applierA = mockApplier();
+              const applierB = mockApplier();
+
+              const coordA = createCoordinator({
+                channel: chA,
+                channelName: "content",
+                sender: senderA,
+                applier: applierA,
+              });
+              const coordB = createCoordinator({
+                channel: chB,
+                channelName: "content",
+                sender: senderB,
+                applier: applierB,
+              });
+
+              runExchange(coordA, senderA, coordB, senderB);
+
+              // B receives all edits from A
+              expect(applierB.applied).toHaveLength(edits.length);
+
+              // Build lookup by payload hex
+              const origByPayload = new Map(
+                edits.map((e) => [hexPayload(e.payload), e]),
+              );
+
+              for (const received of applierB.applied) {
+                const key = hexPayload(received.payload);
+                const orig = origByPayload.get(key);
+                expect(orig).toBeDefined();
+                // Payload survived
+                expect(received.payload).toEqual(orig!.payload);
+                // Signature survived
+                expect(received.signature).toEqual(orig!.signature);
+              }
+            },
+          ),
+          { numRuns: 200 },
+        );
+      },
+    );
   });
 });
