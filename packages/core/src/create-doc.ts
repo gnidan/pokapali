@@ -751,7 +751,20 @@ export function createDoc(params: DocParams): Doc {
   // Bridge Y.Doc updates → epoch tree so the
   // reconciliation protocol has edits to send.
   // Skips snapshot-apply and persistence origins.
+  //
+  // Two paths exist:
+  // 1. doc.channel() — TipTap writes directly to
+  //    subdocManager's subdoc (null origin). We
+  //    capture those here and route through
+  //    channel.appendEdit + scheduleReconcile.
+  // 2. doc.surface() — TipTap writes to the codec
+  //    surface's Y.Doc (a different Y.Doc). The
+  //    surface's onLocalEdit already calls
+  //    ch.appendEdit, but scheduleReconcile is
+  //    not called. We register a lazy listener on
+  //    the surface Y.Doc in the surface() method.
   const editBridgeCleanups: Array<() => void> = [];
+  const surfaceBridged = new Set<string>();
   if (params.document) {
     for (const name of channels) {
       const ydoc = subdocManager.subdoc(name);
@@ -1719,7 +1732,30 @@ export function createDoc(params: DocParams): Doc {
           "surface() requires a Document." + " Pass a document to createDoc().",
         );
       }
-      return params.document.surface(name).handle as Y.Doc;
+      const handle = params.document.surface(name).handle as Y.Doc;
+
+      // Lazily register a reconciliation trigger
+      // on the surface Y.Doc. The surface's
+      // onLocalEdit already puts edits in the
+      // epoch tree via ch.appendEdit(), but
+      // scheduleReconcile() isn't called (the
+      // subdocManager edit bridge listens on a
+      // different Y.Doc). This bridges the gap.
+      if (!surfaceBridged.has(name)) {
+        surfaceBridged.add(name);
+        const handler = (_update: Uint8Array, origin: unknown) => {
+          // Skip remote/snapshot origins — only
+          // local edits should trigger reconcile.
+          if (origin === "remote" || origin === "snapshot") {
+            return;
+          }
+          scheduleReconcile();
+        };
+        handle.on("update", handler);
+        editBridgeCleanups.push(() => handle.off("update", handler));
+      }
+
+      return handle;
     },
 
     /** @deprecated Use doc.awareness directly. */
