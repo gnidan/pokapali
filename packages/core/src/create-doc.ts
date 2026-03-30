@@ -849,6 +849,13 @@ export function createDoc(params: DocParams): Doc {
           getChannel: (name) => doc.channel(name),
           codec: params.codec,
           transport,
+          onRemoteEdit: (channelName, edit) => {
+            const ydoc = subdocManager.subdoc(channelName);
+            // Use "reconcile" origin so the
+            // send-side edit bridge (origin != null
+            // check) doesn't re-capture this.
+            Y.applyUpdate(ydoc, edit.payload, "reconcile");
+          },
         });
         reconciliationWirings.add(wiring);
 

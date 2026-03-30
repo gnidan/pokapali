@@ -10,7 +10,7 @@
  * @module
  */
 
-import type { Channel } from "@pokapali/document";
+import type { Channel, Edit } from "@pokapali/document";
 import { State, Cache, foldTree } from "@pokapali/document";
 import type { Codec } from "@pokapali/codec";
 import {
@@ -30,6 +30,10 @@ export interface ReconciliationWiringOptions {
   codec: Codec;
   transport: ReconciliationTransport;
   trustedKeys?: Set<string>;
+  /** Called after a remote edit is applied to the
+   *  epoch tree. Use this to apply the edit payload
+   *  to the Y.Doc so it appears in the editor. */
+  onRemoteEdit?: (channelName: string, edit: Edit) => void;
 }
 
 export interface ReconciliationWiring {
@@ -76,7 +80,10 @@ export function createReconciliationWiring(
           send: (msg) => opts.transport.send(ch, msg),
         },
         applier: {
-          apply: (edit) => channel.appendEdit(edit),
+          apply: (edit) => {
+            channel.appendEdit(edit);
+            opts.onRemoteEdit?.(ch, edit);
+          },
           applySnapshot: (s) => channel.appendSnapshot(s),
         },
         trustedKeys: opts.trustedKeys,
