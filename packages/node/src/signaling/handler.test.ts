@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import * as fc from "fast-check";
 import { SignalType, encodeSignal, decodeSignal } from "./protocol.js";
 import { createRoomRegistry } from "./registry.js";
 import {
@@ -385,6 +386,133 @@ describe("frame encoding", () => {
     expect(frames).toHaveLength(2);
     expect(frames[0]).toEqual(msg1);
     expect(frames[1]).toEqual(msg2);
+  });
+});
+
+describe("frame reassembly (property)", () => {
+  /**
+   * For any list of messages and any set of split
+   * points, createFrameReader must yield exactly the
+   * original messages in order.
+   */
+  it(
+    "reassembles frames split at arbitrary " + "byte boundaries",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.array(fc.uint8Array({ minLength: 0, maxLength: 2048 }), {
+            minLength: 1,
+            maxLength: 10,
+          }),
+          fc.array(fc.nat(), { minLength: 0, maxLength: 30 }),
+          async (messages, rawSplitPoints) => {
+            // Encode all messages with length prefix
+            const frames = messages.map(frameLengthPrefix);
+            const totalLen = frames.reduce((s, f) => s + f.length, 0);
+            const combined = new Uint8Array(totalLen);
+            let offset = 0;
+            for (const f of frames) {
+              combined.set(f, offset);
+              offset += f.length;
+            }
+
+            // Deduplicate, sort, clamp split points
+            const splits = [
+              ...new Set(rawSplitPoints.map((p) => p % (totalLen + 1))),
+            ].sort((a, b) => a - b);
+
+            // Split combined buffer into chunks
+            const chunks: Uint8Array[] = [];
+            let prev = 0;
+            for (const s of splits) {
+              if (s > prev) {
+                chunks.push(combined.slice(prev, s));
+                prev = s;
+              }
+            }
+            if (prev < totalLen) {
+              chunks.push(combined.slice(prev));
+            }
+
+            // Feed through createFrameReader
+            const source = (async function* () {
+              for (const c of chunks) {
+                yield { subarray: () => c };
+              }
+            })();
+
+            const result: Uint8Array[] = [];
+            for await (const f of createFrameReader(source)) {
+              result.push(f);
+            }
+
+            expect(result).toHaveLength(messages.length);
+            for (let i = 0; i < messages.length; i++) {
+              expect(result[i]).toEqual(messages[i]);
+            }
+          },
+        ),
+        { numRuns: 200 },
+      );
+    },
+    30_000,
+  );
+
+  it("handles single-byte chunks", async () => {
+    const msg = new Uint8Array([0xaa, 0xbb, 0xcc]);
+    const framed = frameLengthPrefix(msg);
+
+    const source = (async function* () {
+      for (let i = 0; i < framed.length; i++) {
+        yield {
+          subarray: () => framed.slice(i, i + 1),
+        };
+      }
+    })();
+
+    const result: Uint8Array[] = [];
+    for await (const f of createFrameReader(source)) {
+      result.push(f);
+    }
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(msg);
+  });
+
+  it("handles zero-length body", async () => {
+    const msg = new Uint8Array(0);
+    const framed = frameLengthPrefix(msg);
+
+    const source = (async function* () {
+      yield { subarray: () => framed };
+    })();
+
+    const result: Uint8Array[] = [];
+    for await (const f of createFrameReader(source)) {
+      result.push(f);
+    }
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(msg);
+  });
+
+  it("handles large messages (>65535 bytes)", async () => {
+    const msg = new Uint8Array(70_000);
+    for (let i = 0; i < msg.length; i++) {
+      msg[i] = i & 0xff;
+    }
+    const framed = frameLengthPrefix(msg);
+
+    // Split at the header boundary (byte 4)
+    const source = (async function* () {
+      yield { subarray: () => framed.slice(0, 4) };
+      yield { subarray: () => framed.slice(4) };
+    })();
+
+    const result: Uint8Array[] = [];
+    for await (const f of createFrameReader(source)) {
+      result.push(f);
+    }
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(msg);
   });
 });
 

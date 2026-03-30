@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
+import * as fc from "fast-check";
 import {
   createPeerManager,
   encodeWebRTCSignal,
   decodeWebRTCSignal,
   WebRTCSignalType,
 } from "./peer-connection.js";
+import type { WebRTCSignal } from "./peer-connection.js";
 import type { SignalingClient } from "./client.js";
 
 // -------------------------------------------------------
@@ -53,6 +55,84 @@ describe("WebRTC signal encoding", () => {
     if (decoded.type === WebRTCSignalType.ICE_CANDIDATE) {
       expect(decoded.candidate).toEqual(candidate);
     }
+  });
+});
+
+describe("WebRTC signal decode robustness", () => {
+  it("throws descriptive error on corrupt JSON", () => {
+    // discriminant byte + invalid JSON
+    const corrupt = new Uint8Array([
+      WebRTCSignalType.SDP_OFFER,
+      ...new TextEncoder().encode("{not valid json"),
+    ]);
+    expect(() => decodeWebRTCSignal(corrupt)).toThrow(
+      /malformed WebRTC signal/i,
+    );
+  });
+
+  it("throws on empty payload (no JSON)", () => {
+    const empty = new Uint8Array([WebRTCSignalType.SDP_OFFER]);
+    expect(() => decodeWebRTCSignal(empty)).toThrow(/malformed WebRTC signal/i);
+  });
+
+  it("throws on unknown signal type", () => {
+    const unknown = new Uint8Array([0xff, ...new TextEncoder().encode("{}")]);
+    expect(() => decodeWebRTCSignal(unknown)).toThrow(
+      /unknown WebRTC signal type/i,
+    );
+  });
+});
+
+describe("WebRTC signal encoding (property)", () => {
+  const arbSdpSignal: fc.Arbitrary<WebRTCSignal> = fc.record({
+    type: fc.constantFrom(
+      WebRTCSignalType.SDP_OFFER,
+      WebRTCSignalType.SDP_ANSWER,
+    ) as fc.Arbitrary<
+      typeof WebRTCSignalType.SDP_OFFER | typeof WebRTCSignalType.SDP_ANSWER
+    >,
+    sdp: fc.record({
+      type: fc.string(),
+      sdp: fc.string(),
+    }),
+  });
+
+  const arbIceSignal: fc.Arbitrary<WebRTCSignal> = fc.record({
+    type: fc.constant(WebRTCSignalType.ICE_CANDIDATE) as fc.Arbitrary<
+      typeof WebRTCSignalType.ICE_CANDIDATE
+    >,
+    candidate: fc.record({
+      candidate: fc.string(),
+      sdpMid: fc.option(fc.string(), {
+        nil: null,
+      }),
+      sdpMLineIndex: fc.option(fc.integer(), {
+        nil: null,
+      }),
+    }),
+  });
+
+  const arbSignal = fc.oneof(arbSdpSignal, arbIceSignal);
+
+  it("round-trips arbitrary signals", () => {
+    fc.assert(
+      fc.property(arbSignal, (signal) => {
+        const bytes = encodeWebRTCSignal(signal);
+        const decoded = decodeWebRTCSignal(bytes);
+        expect(decoded).toEqual(signal);
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("first byte is the discriminant", () => {
+    fc.assert(
+      fc.property(arbSignal, (signal) => {
+        const bytes = encodeWebRTCSignal(signal);
+        expect(bytes[0]).toBe(signal.type);
+      }),
+      { numRuns: 100 },
+    );
   });
 });
 

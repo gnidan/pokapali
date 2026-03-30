@@ -74,15 +74,24 @@ export function encodeWebRTCSignal(signal: WebRTCSignal): Uint8Array {
 export function decodeWebRTCSignal(bytes: Uint8Array): WebRTCSignal {
   const type = bytes[0] as WebRTCSignalType;
   const json = decoder.decode(bytes.subarray(1));
-  const data = JSON.parse(json);
+
+  let data: unknown;
+  try {
+    data = JSON.parse(json);
+  } catch {
+    throw new Error(
+      `Malformed WebRTC signal: invalid JSON ` +
+        `(type=${type}, ${json.length} bytes)`,
+    );
+  }
 
   switch (type) {
     case WebRTCSignalType.SDP_OFFER:
-      return { type, sdp: data };
+      return { type, sdp: data } as WebRTCSignal;
     case WebRTCSignalType.SDP_ANSWER:
-      return { type, sdp: data };
+      return { type, sdp: data } as WebRTCSignal;
     case WebRTCSignalType.ICE_CANDIDATE:
-      return { type, candidate: data };
+      return { type, candidate: data } as WebRTCSignal;
     default:
       throw new Error(`Unknown WebRTC signal type: ${type}`);
   }
