@@ -285,6 +285,7 @@ export function setupSignaledAwarenessRoom(
   });
 
   // Join the signaling room
+  console.log("[P2P-DIAG] setupSignaledAwarenessRoom: joining", roomName);
   signalingClient.joinRoom(roomName);
 
   return {

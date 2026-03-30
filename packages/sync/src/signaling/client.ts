@@ -92,8 +92,16 @@ export function createSignalingClient(
   }
 
   function enqueue(bytes: Uint8Array): void {
-    if (closed) return;
+    if (closed) {
+      console.log("[P2P-DIAG] client enqueue: DROPPED (closed)");
+      return;
+    }
     outQueue.push(frameLengthPrefix(bytes));
+    console.log(
+      "[P2P-DIAG] client enqueue: queued,",
+      "queueLen=" + outQueue.length,
+      "hasResolver=" + !!outResolve,
+    );
     if (outResolve) {
       const r = outResolve;
       outResolve = null;
@@ -115,8 +123,12 @@ export function createSignalingClient(
   }
 
   // Start sink
-  stream.sink(outbound()).catch(() => {
-    /* stream closed */
+  console.log("[P2P-DIAG] client: starting stream.sink");
+  stream.sink(outbound()).catch((err) => {
+    console.log(
+      "[P2P-DIAG] client: stream.sink error:",
+      (err as Error)?.message ?? err,
+    );
   });
 
   // Read inbound messages
@@ -124,6 +136,7 @@ export function createSignalingClient(
     try {
       for await (const frame of createFrameReader(stream.source)) {
         const msg = decodeSignal(frame);
+        console.log("[P2P-DIAG] client inbound msg type:", msg.type);
         switch (msg.type) {
           case SignalType.PEER_JOINED:
             log.debug("peer joined:", msg.peerId, msg.room);
@@ -167,6 +180,7 @@ export function createSignalingClient(
 
   return {
     joinRoom(room: string): void {
+      console.log("[P2P-DIAG] client joinRoom:", room);
       joinedRooms.add(room);
       send({
         type: SignalType.JOIN_ROOM,
