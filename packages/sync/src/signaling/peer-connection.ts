@@ -330,6 +330,11 @@ export function createPeerManager(
       const pc = getOrCreatePC(peerId);
 
       if (isInitiator(peerId)) {
+        // Create a data channel before the offer so
+        // the SDP includes media lines and ICE
+        // negotiation actually starts.
+        pc.createDataChannel("_init");
+
         // Create and send SDP offer
         void (async () => {
           try {
