@@ -768,11 +768,25 @@ export function createDoc(params: DocParams): Doc {
       const doc = params.document;
 
       function wireDataChannel(dc: RTCDataChannel): void {
-        console.debug(
-          "[pokapali:create-doc] wireDataChannel",
+        dc.binaryType = "arraybuffer";
+        console.log(
+          "[P2P-DIAG] wireDataChannel",
           `label=${dc.label}`,
           `state=${dc.readyState}`,
+          `binaryType=${dc.binaryType}`,
         );
+
+        // Track data channel state transitions
+        dc.addEventListener("open", () => {
+          console.log("[P2P-DIAG] DC open:", dc.label);
+        });
+        dc.addEventListener("close", () => {
+          console.log("[P2P-DIAG] DC close:", dc.label);
+        });
+        dc.addEventListener("error", (evt) => {
+          console.log("[P2P-DIAG] DC error:", dc.label, evt);
+        });
+
         const transport = createTransport(dc);
         const wiring = createReconciliationWiring({
           channels,
@@ -786,6 +800,7 @@ export function createDoc(params: DocParams): Doc {
         // status facts (replaces the old
         // WebrtcProvider status bridge).
         const unsubConn = transport.onConnectionChange((connected) => {
+          console.log("[P2P-DIAG] transport connection:", connected);
           factQueue?.push({
             type: "sync-status-changed",
             ts: Date.now(),
@@ -795,10 +810,12 @@ export function createDoc(params: DocParams): Doc {
 
         // Start reconciliation when channel opens
         if (dc.readyState === "open") {
+          console.log("[P2P-DIAG] reconcile (immediate):", dc.label);
           wiring.reconcile();
         } else {
           dc.addEventListener("open", () => {
             if (!reconciliationWirings.has(wiring)) return;
+            console.log("[P2P-DIAG] reconcile (deferred):", dc.label);
             wiring.reconcile();
           });
         }

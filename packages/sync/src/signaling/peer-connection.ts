@@ -263,7 +263,7 @@ export function createPeerManager(
       console.log("[P2P-DIAG] signaling state:", rpid, pc!.signalingState);
     };
 
-    // Connection state → notify listeners
+    // Connection state logging + cleanup
     pc.onconnectionstatechange = () => {
       console.log(
         "[P2P-DIAG] connection state:",
@@ -277,9 +277,6 @@ export function createPeerManager(
           remotePeerId,
           initiator ? "(initiator)" : "(responder)",
         );
-        for (const cb of connCbs) {
-          cb(pc!, initiator);
-        }
       }
       if (
         pc!.connectionState === "failed" ||
@@ -288,6 +285,16 @@ export function createPeerManager(
         peers.delete(remotePeerId);
       }
     };
+
+    // Notify listeners immediately so they can
+    // register datachannel handlers before the
+    // connection completes. Waiting until
+    // "connected" is too late — datachannel events
+    // can fire as soon as setRemoteDescription
+    // processes the offer.
+    for (const cb of connCbs) {
+      cb(pc!, initiator);
+    }
 
     return pc;
   }

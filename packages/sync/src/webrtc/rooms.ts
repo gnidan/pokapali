@@ -264,6 +264,7 @@ export function setupSignaledAwarenessRoom(
     // Initiator creates the awareness DC
     if (initiator) {
       const dc = pc.createDataChannel("pokapali-awareness");
+      dc.binaryType = "arraybuffer";
       const cleanup = syncAwareness(awareness, dc);
       cleanups.push(cleanup);
       dc.addEventListener("close", cleanup);
@@ -272,16 +273,22 @@ export function setupSignaledAwarenessRoom(
     // Responder receives the awareness DC
     pc.addEventListener("datachannel", (evt: RTCDataChannelEvent) => {
       if (evt.channel.label === "pokapali-awareness") {
+        evt.channel.binaryType = "arraybuffer";
         const cleanup = syncAwareness(awareness, evt.channel);
         cleanups.push(cleanup);
         evt.channel.addEventListener("close", cleanup);
       }
     });
 
-    if (!connected) {
-      connected = true;
-      for (const cb of statusListeners) cb();
-    }
+    // Track connection state independently —
+    // onPeerConnection fires at PC creation, not
+    // when connected.
+    pc.addEventListener("connectionstatechange", () => {
+      if (pc.connectionState === "connected" && !connected) {
+        connected = true;
+        for (const cb of statusListeners) cb();
+      }
+    });
   });
 
   // Join the signaling room

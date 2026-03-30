@@ -323,7 +323,7 @@ describe("PeerManager", () => {
     manager.destroy();
   });
 
-  it("onPeerConnection fires when connected", async () => {
+  it("onPeerConnection fires at PC creation", async () => {
     const { manager, pcs, firePeerJoined } = setup("aaa-local");
 
     const connections: {
@@ -337,8 +337,7 @@ describe("PeerManager", () => {
     firePeerJoined("room1", "zzz-remote");
     await tick();
 
-    pcs[0]!.simulateConnected();
-
+    // Callback fires at creation, not "connected"
     expect(connections).toHaveLength(1);
     expect(connections[0]!.initiator).toBe(true);
     expect(connections[0]!.pc).toBe(pcs[0]);
