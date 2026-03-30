@@ -558,6 +558,28 @@ describe("PeerManager", () => {
 
     expect(pcs[0]!.close).toHaveBeenCalled();
   });
+
+  it("ignores duplicate PEER_JOINED for " + "same peer", async () => {
+    const { client, manager, pcs, firePeerJoined } = setup("aaa-local");
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    // First join creates PC and sends offer
+    expect(pcs).toHaveLength(1);
+    expect(client.sendSignal).toHaveBeenCalledTimes(1);
+
+    // Duplicate PEER_JOINED (e.g. from relay
+    // forwarding) should be ignored
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    // No second PC created, no second offer
+    expect(pcs).toHaveLength(1);
+    expect(client.sendSignal).toHaveBeenCalledTimes(1);
+
+    manager.destroy();
+  });
 });
 
 // -------------------------------------------------------

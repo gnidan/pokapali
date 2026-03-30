@@ -240,16 +240,16 @@ export function createPeerManager(
       );
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pc as any).onicecandidateerror = (evt: any) => {
+    pc.addEventListener("icecandidateerror", (evt: Event) => {
+      const e = evt as RTCPeerConnectionIceErrorEvent;
       console.log(
         "[P2P-DIAG] ICE error:",
         rpid,
-        evt.errorCode,
-        evt.errorText,
-        evt.url,
+        e.errorCode,
+        e.errorText,
+        e.url,
       );
-    };
+    });
 
     pc.oniceconnectionstatechange = () => {
       console.log("[P2P-DIAG] ICE state:", rpid, pc!.iceConnectionState);
@@ -307,6 +307,17 @@ export function createPeerManager(
   unsubs.push(
     client.onPeerJoined((room, peerId) => {
       if (room !== roomName) return;
+
+      // Dedup: if we already have a connection for
+      // this peer, ignore the duplicate PEER_JOINED
+      // (can happen via relay forwarding).
+      if (peers.has(peerId)) {
+        console.log(
+          "[P2P-DIAG] PEER_JOINED dedup (ignored):",
+          peerId.slice(0, 12),
+        );
+        return;
+      }
 
       console.log(
         "[P2P-DIAG] PEER_JOINED:",
