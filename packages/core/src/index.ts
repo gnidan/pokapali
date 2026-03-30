@@ -22,7 +22,12 @@ import {
   createSignalingClient,
   SIGNALING_PROTOCOL,
 } from "@pokapali/sync";
-import type { SyncOptions, PubSubLike, SignalingStream } from "@pokapali/sync";
+import type {
+  SyncOptions,
+  PubSubLike,
+  SignalingStream,
+  AwarenessRoom,
+} from "@pokapali/sync";
 import {
   lookupForwardingRecord,
   decodeForwardingRecord,
@@ -264,47 +269,28 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         const helia = getHelia();
         const roomDiscovery = startRoomDiscovery(helia, appId);
 
-        // Try to open a signaling stream to a
-        // connected relay for direct WebRTC peer
-        // discovery. Falls back to GossipSub-based
-        // awareness if no relay supports the
-        // protocol.
-        let awarenessRoom = await (async () => {
-          const localPeerId = helia.libp2p.peerId.toString();
-          for (const pid of roomDiscovery.relayPeerIds) {
-            const conn = helia.libp2p
-              .getConnections()
-              .find((c) => c.remotePeer.toString() === pid);
-            if (!conn) continue;
-            try {
-              const stream = await helia.libp2p.dialProtocol(
-                conn.remotePeer,
-                SIGNALING_PROTOCOL,
-              );
-              const client = createSignalingClient(
-                stream as unknown as SignalingStream,
-              );
-              log.info("signaling connected to relay:", pid.slice(0, 12));
-              const rtcConfig = syncOpts.peerOpts?.config;
-              return setupSignaledAwarenessRoom(
-                ipnsName,
-                localPeerId,
-                client,
-                awareness,
-                rtcConfig ? { rtcConfig } : undefined,
-              );
-            } catch (err) {
-              log.debug(
-                "signaling dial failed for:",
-                pid.slice(0, 12),
-                (err as Error)?.message ?? err,
-              );
-            }
-          }
-          return null;
-        })();
+        // Wait for relay discovery, then open a
+        // signaling stream for WebRTC peer discovery.
+        // Falls back to y-webrtc if signaling fails.
+        const RELAY_WAIT_MS = 30_000;
+        log.info("waiting for relay discovery...");
 
-        if (!awarenessRoom) {
+        let awarenessRoom: AwarenessRoom;
+        try {
+          const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
+          log.info("relay discovered:", relayPid.slice(0, 12));
+          awarenessRoom = await trySignaling(
+            helia,
+            relayPid,
+            ipnsName,
+            awareness,
+            syncOpts,
+          );
+        } catch (err) {
+          log.warn(
+            "signaling setup failed, falling back:",
+            (err as Error)?.message ?? err,
+          );
           awarenessRoom = setupAwarenessRoom(
             ipnsName,
             keys.awarenessRoomPassword ?? "",
@@ -465,6 +451,41 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
 export { App } from "./app.js";
 export type { AppConfig } from "./app.js";
+
+// --- Signaling helper ---
+
+async function trySignaling(
+  helia: ReturnType<typeof getHelia>,
+  relayPid: string,
+  ipnsName: string,
+  awareness: Awareness,
+  syncOpts: SyncOptions,
+): Promise<AwarenessRoom> {
+  const localPeerId = helia.libp2p.peerId.toString();
+  const conn = helia.libp2p
+    .getConnections()
+    .find((c) => c.remotePeer.toString() === relayPid);
+  if (!conn) {
+    throw new Error("relay connection lost: " + relayPid.slice(0, 12));
+  }
+
+  log.info("opening signaling stream to:", relayPid.slice(0, 12));
+  const stream = await helia.libp2p.dialProtocol(
+    conn.remotePeer,
+    SIGNALING_PROTOCOL,
+  );
+  const client = createSignalingClient(stream as unknown as SignalingStream);
+  log.info("signaling connected to relay:", relayPid.slice(0, 12));
+
+  const rtcConfig = syncOpts.peerOpts?.config;
+  return setupSignaledAwarenessRoom(
+    ipnsName,
+    localPeerId,
+    client,
+    awareness,
+    rtcConfig ? { rtcConfig } : undefined,
+  );
+}
 
 // --- Re-exports ---
 

@@ -64,6 +64,9 @@ export interface RoomDiscovery {
   relayEntries(): RelayEntry[];
   /** Try dialing relays learned from another peer. */
   addExternalRelays(entries: RelayEntry[]): void;
+  /** Resolves when at least one relay is connected,
+   *  or rejects after timeoutMs. */
+  waitForRelay(timeoutMs: number): Promise<string>;
   stop(): void;
 }
 
@@ -88,6 +91,9 @@ export function startRoomDiscovery(
   const relayAddrs = new Map<string, string[]>();
 
   let running = false;
+
+  // Waiters for first relay connection
+  const relayWaiters: Array<(pid: string) => void> = [];
 
   const secure =
     typeof globalThis.location !== "undefined" &&
@@ -128,9 +134,15 @@ export function startRoomDiscovery(
   }
 
   function trackRelay(pid: string, addrs: string[]) {
+    const isNew = !relayPeerIds.has(pid);
     relayPeerIds.add(pid);
     relayAddrs.set(pid, addrs);
     tagRelay(pid);
+    if (isNew && relayWaiters.length > 0) {
+      for (const resolve of relayWaiters.splice(0)) {
+        resolve(pid);
+      }
+    }
   }
 
   function untrackRelay(pid: string) {
@@ -478,6 +490,24 @@ export function startRoomDiscovery(
     },
     addExternalRelays(entries: RelayEntry[]) {
       addExternalRelays(entries);
+    },
+    waitForRelay(timeoutMs: number): Promise<string> {
+      // Already have a relay — resolve immediately
+      if (relayPeerIds.size > 0) {
+        const first = relayPeerIds.values().next().value!;
+        return Promise.resolve(first);
+      }
+      return new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const idx = relayWaiters.indexOf(resolve);
+          if (idx >= 0) relayWaiters.splice(idx, 1);
+          reject(new Error("No relay found within " + `${timeoutMs}ms`));
+        }, timeoutMs);
+        relayWaiters.push((pid: string) => {
+          clearTimeout(timer);
+          resolve(pid);
+        });
+      });
     },
     stop() {
       stopped = true;
