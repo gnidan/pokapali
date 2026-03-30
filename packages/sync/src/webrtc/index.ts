@@ -1,10 +1,4 @@
 export {
-  createGossipSubSignaling,
-  GossipSubSignaling,
-  type PubSubLike,
-} from "./gossipsub-signaling.js";
-
-export {
   createThrottledInterval,
   type ThrottledInterval,
   type ThrottledIntervalOptions,
@@ -19,6 +13,7 @@ export {
   type SyncOptions,
   type AwarenessRoom,
   type SignaledAwarenessOptions,
+  type PubSubLike,
 } from "./rooms.js";
 
 export type { Awareness } from "y-protocols/awareness";

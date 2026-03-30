@@ -16,7 +16,6 @@ const log = createLogger("relay");
 export const MAX_CONNECTIONS = 512;
 
 export const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
-export const SIGNALING_TOPIC = "/pokapali/signaling";
 
 const RAW_CODEC = 0x55;
 

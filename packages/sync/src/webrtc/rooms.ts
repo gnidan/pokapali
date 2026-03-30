@@ -2,16 +2,25 @@ import * as Y from "yjs";
 import { WebrtcProvider } from "y-webrtc";
 import type { Awareness } from "y-protocols/awareness";
 import type { SubdocManager } from "@pokapali/subdocs";
-import {
-  createGossipSubSignaling,
-  type PubSubLike,
-} from "./gossipsub-signaling.js";
 import type { SignalingClient } from "../signaling/client.js";
 import { createPeerManager } from "../signaling/peer-connection.js";
 import { syncAwareness } from "../signaling/awareness-sync.js";
 
 export type { Awareness } from "y-protocols/awareness";
 export type { SubdocManager } from "@pokapali/subdocs";
+
+/**
+ * Minimal PubSub interface compatible with libp2p's
+ * GossipSub. Used by core for announce, node-registry,
+ * and discovery — not for signaling.
+ */
+export interface PubSubLike {
+  subscribe(topic: string): void;
+  unsubscribe(topic: string): void;
+  publish(topic: string, data: Uint8Array): Promise<unknown>;
+  addEventListener(type: string, handler: (evt: CustomEvent) => void): void;
+  removeEventListener(type: string, handler: (evt: CustomEvent) => void): void;
+}
 
 export interface SyncManager {
   readonly status: SyncStatus;
@@ -79,19 +88,10 @@ export function setupAwarenessRoom(
    *  connects. */
   existingAwareness?: Awareness,
 ): AwarenessRoom {
-  let gsAdapter: ReturnType<typeof createGossipSubSignaling> | null = null;
-  if (options?.pubsub) {
-    gsAdapter = createGossipSubSignaling(options.pubsub);
-  }
-
-  const signaling = options?.pubsub
-    ? [...signalingUrls, "libp2p:gossipsub"]
-    : signalingUrls;
-
   const dummyDoc = existingAwareness?.doc ?? new Y.Doc();
   const roomName = `${ipnsName}:awareness`;
   const provider = new WebrtcProvider(roomName, dummyDoc, {
-    signaling,
+    signaling: signalingUrls,
     password: awarenessPassword,
     ...(existingAwareness && {
       awareness: existingAwareness,
@@ -100,24 +100,6 @@ export function setupAwarenessRoom(
       peerOpts: options.peerOpts,
     }),
   });
-
-  // Force an immediate announce now that the
-  // provider is registered. The initial announce
-  // in createGossipSubSignaling fires before the
-  // WebrtcProvider exists (adapter.providers is
-  // empty), so nothing is announced. Without this,
-  // the first real announce waits 15s for the
-  // re-announce interval.
-  //
-  // Deferred via setTimeout(0) so y-webrtc's async
-  // room.key derivation (.then() on the password
-  // import) resolves first. Without this, the
-  // announce goes out unencrypted and peers that
-  // already have room.key silently drop it.
-  if (gsAdapter) {
-    const adapter = gsAdapter;
-    setTimeout(() => adapter.emit("connect", []), 0);
-  }
 
   const statusListeners: Array<() => void> = [];
   const peerConnListeners: Array<

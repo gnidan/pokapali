@@ -1,6 +1,4 @@
 export {
-  createGossipSubSignaling,
-  GossipSubSignaling,
   type PubSubLike,
   createThrottledInterval,
   type ThrottledInterval,

@@ -16,7 +16,6 @@ import { createLogger } from "@pokapali/log";
 import {
   MAX_CONNECTIONS,
   DISCOVERY_TOPIC,
-  SIGNALING_TOPIC,
   PROVIDE_INTERVAL_MS,
   CAPS_INTERVAL_MS,
   DEFAULT_WS_PORT,
@@ -25,6 +24,9 @@ import {
   openBlockstore,
   networkCID,
 } from "./relay-utils.js";
+import { createRoomRegistry } from "./signaling/registry.js";
+import { handleSignalingStream } from "./signaling/handler.js";
+import { SIGNALING_PROTOCOL } from "./signaling/protocol.js";
 import {
   NODE_CAPS_TOPIC,
   setupCapsListener,
@@ -202,6 +204,16 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
     }
   }
 
+  // --- Signaling protocol handler ---
+
+  const signalingRegistry = createRoomRegistry();
+  await helia.libp2p.handle(SIGNALING_PROTOCOL, ({ stream, connection }) => {
+    handleSignalingStream(connection.remotePeer.toString(), stream, {
+      registry: signalingRegistry,
+    });
+  });
+  log.info("registered", SIGNALING_PROTOCOL);
+
   // --- PubSub subscriptions ---
 
   // Services type doesn't include pubsub since we
@@ -209,9 +221,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   const pubsub = (helia.libp2p.services as Record<string, unknown>)
     .pubsub as PubSub;
   pubsub.subscribe(DISCOVERY_TOPIC);
-  pubsub.subscribe(SIGNALING_TOPIC);
   log.info("subscribed to", DISCOVERY_TOPIC);
-  log.info("subscribed to", SIGNALING_TOPIC);
 
   // --- Capabilities + dynamic subscription ---
 
@@ -297,6 +307,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         "certificate:provision",
         onCertProvision,
       );
+      await helia.libp2p.unhandle(SIGNALING_PROTOCOL);
       await helia.stop();
       log.info("stopped");
     },
