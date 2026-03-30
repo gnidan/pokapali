@@ -10,6 +10,7 @@
 import {
   encodeAwarenessUpdate,
   applyAwarenessUpdate,
+  removeAwarenessStates,
 } from "y-protocols/awareness";
 import type { Awareness } from "y-protocols/awareness";
 
@@ -25,6 +26,10 @@ export function syncAwareness(
   awareness: Awareness,
   dc: RTCDataChannel,
 ): () => void {
+  // Track remote client IDs received through this
+  // channel so we can remove them on disconnect.
+  const remoteClients = new Set<number>();
+
   function sendFullState(): void {
     const clients = Array.from(awareness.getStates().keys());
     if (clients.length === 0) return;
@@ -63,7 +68,16 @@ export function syncAwareness(
           ? data
           : null;
     if (!bytes) return;
+
+    // Track which clients came from this peer
+    // before applying (so we know what to clean up)
+    const before = new Set(awareness.getStates().keys());
     applyAwarenessUpdate(awareness, bytes, dc);
+    for (const id of awareness.getStates().keys()) {
+      if (!before.has(id) && id !== awareness.clientID) {
+        remoteClients.add(id);
+      }
+    }
   }
 
   function onOpen(): void {
@@ -84,5 +98,13 @@ export function syncAwareness(
     awareness.off("update", onAwarenessUpdate);
     dc.removeEventListener("message", onMessage);
     dc.removeEventListener("open", onOpen);
+    // Remove remote peer's awareness states
+    if (remoteClients.size > 0) {
+      removeAwarenessStates(
+        awareness,
+        Array.from(remoteClients),
+        "peer-disconnect",
+      );
+    }
   };
 }

@@ -60,6 +60,7 @@ import { rotateDoc } from "./doc-rotate.js";
 import type { RotateResult } from "./doc-rotate.js";
 import {
   type Document,
+  Edit,
   State,
   Cache,
   foldTree,
@@ -519,8 +520,18 @@ export function createDoc(params: DocParams): Doc {
   // Debounced to avoid re-running on every keystroke.
   function scheduleReconcile(): void {
     if (reconcileTimer) return;
+    console.log(
+      "[P2P-DIAG] scheduleReconcile: edit captured,",
+      reconciliationWirings.size,
+      "wirings",
+    );
     reconcileTimer = setTimeout(() => {
       reconcileTimer = null;
+      console.log(
+        "[P2P-DIAG] reconcile triggered for",
+        reconciliationWirings.size,
+        "wirings",
+      );
       for (const w of reconciliationWirings) {
         w.reconcile();
       }
@@ -737,6 +748,37 @@ export function createDoc(params: DocParams): Doc {
   // tracks them internally but the local tracking
   // is authoritative for getters and events.
 
+  // Bridge Y.Doc updates → epoch tree so the
+  // reconciliation protocol has edits to send.
+  // Skips snapshot-apply and persistence origins.
+  const editBridgeCleanups: Array<() => void> = [];
+  if (params.document) {
+    for (const name of channels) {
+      const ydoc = subdocManager.subdoc(name);
+      const channel = params.document.channel(name);
+      const handler = (update: Uint8Array, origin: unknown) => {
+        // Only capture local user edits (null origin
+        // from TipTap/ProseMirror). Skip persistence
+        // hydration, snapshot application, awareness
+        // sync, and any other non-local origins.
+        if (origin != null) return;
+        channel.appendEdit(
+          Edit.create({
+            payload: update,
+            timestamp: Date.now(),
+            author: "",
+            channel: name,
+            origin: "local",
+            signature: new Uint8Array([]),
+          }),
+        );
+        scheduleReconcile();
+      };
+      ydoc.on("update", handler);
+      editBridgeCleanups.push(() => ydoc.off("update", handler));
+    }
+  }
+
   subdocManager.on("dirty", () => {
     // Clear save error on new edits — user is back
     // to "dirty" state, previous error is stale.
@@ -749,8 +791,6 @@ export function createDoc(params: DocParams): Doc {
       ts: Date.now(),
       clockSum: computeClockSum(),
     });
-    // Sync new edits to connected peers
-    scheduleReconcile();
   });
 
   // Wire sync/awareness status bridges. These are
@@ -1577,6 +1617,9 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch();
       stopIPNSWatch = null;
     }
+    // Tear down edit bridge
+    for (const cleanup of editBridgeCleanups) cleanup();
+    editBridgeCleanups.length = 0;
     // Unsubscribe all event→Feed bridges
     for (const map of eventSubs.values()) {
       for (const unsub of map.values()) unsub();
