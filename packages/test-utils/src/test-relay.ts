@@ -13,6 +13,13 @@ import { yamux } from "@chainsafe/libp2p-yamux";
 import { identify } from "@libp2p/identify";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
 import { circuitRelayServer } from "@libp2p/circuit-relay-v2";
+import {
+  SIGNALING_PROTOCOL,
+  createRoomRegistry,
+  handleSignalingStream,
+  createRelayForwarder,
+} from "@pokapali/node";
+import type { RelaySignalingStream } from "@pokapali/node";
 
 export interface TestRelay {
   /** ws://127.0.0.1:<port>/ws/p2p/<peerId> */
@@ -63,6 +70,28 @@ export async function createTestRelay(
   });
 
   const pid = node.peerId.toString();
+
+  // Register signaling protocol handler so browsers
+  // can use the dedicated stream for WebRTC peer
+  // discovery instead of GossipSub.
+  const signalingRegistry = createRoomRegistry();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pubsubSvc = node.services.pubsub as any;
+  const signalingForwarder = createRelayForwarder(
+    pubsubSvc,
+    pid,
+    signalingRegistry,
+  );
+  await node.handle(SIGNALING_PROTOCOL, ({ stream, connection }) => {
+    handleSignalingStream(
+      connection.remotePeer.toString(),
+      stream as unknown as RelaySignalingStream,
+      {
+        registry: signalingRegistry,
+        forwarder: signalingForwarder,
+      },
+    );
+  });
   const wsAddr = node
     .getMultiaddrs()
     .find((ma) => ma.toString().includes("/ws"));
@@ -109,6 +138,8 @@ export async function createTestRelay(
       if (stopped) return;
       stopped = true;
       if (capsInterval) clearInterval(capsInterval);
+      signalingForwarder.stop();
+      await node.unhandle(SIGNALING_PROTOCOL);
       await node.stop();
     },
   };

@@ -147,6 +147,7 @@ interface DocInit {
  *   `@pokapali/node` for Node.js.
  */
 export function pokapali(options: PokapaliConfig): PokapaliApp {
+  console.log("[P2P-DIAG] pokapali() called");
   if (typeof window === "undefined") {
     throw new Error(
       "@pokapali/core requires a browser environment." +
@@ -178,6 +179,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
    *  and P2P layer setup run in the background via
    *  p2pReady. */
   async function initDoc(init: DocInit): Promise<Doc> {
+    console.log("[P2P-DIAG] initDoc() entered");
     const { ipnsName, keys, signingKey, identity } = init;
 
     const cap = inferCapability(keys, channels);
@@ -230,6 +232,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
     // Layer B: Helia + P2P — runs in background.
     const p2pReady = (async () => {
+      console.log("[P2P-DIAG] p2pReady IIFE entered");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let blockstore: any;
       if (persistenceEnabled && !isHeliaLive()) {
@@ -242,7 +245,11 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           docPersistence.closeBlockstore = () => bsRef.close();
         }
       }
+
+      console.log("[P2P-DIAG] calling acquireHelia...");
       await acquireHelia({ bootstrapPeers, blockstore });
+
+      console.log("[P2P-DIAG] acquireHelia resolved");
 
       try {
         const pubsub = getHeliaPubsub() as unknown as PubSubLike;
@@ -267,17 +274,23 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         );
 
         const helia = getHelia();
+
+        console.log("[P2P-DIAG] starting room discovery");
         const roomDiscovery = startRoomDiscovery(helia, appId);
 
         // Wait for relay discovery, then open a
         // signaling stream for WebRTC peer discovery.
         // Falls back to y-webrtc if signaling fails.
         const RELAY_WAIT_MS = 30_000;
+
+        console.log("[P2P-DIAG] waiting for relay...");
         log.info("waiting for relay discovery...");
 
         let awarenessRoom: AwarenessRoom;
         try {
           const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
+
+          console.log("[P2P-DIAG] relay found:", relayPid.slice(0, 12));
           log.info("relay discovered:", relayPid.slice(0, 12));
           awarenessRoom = await trySignaling(
             helia,
@@ -287,6 +300,10 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
             syncOpts,
           );
         } catch (err) {
+          console.log(
+            "[P2P-DIAG] signaling FAILED:",
+            (err as Error)?.message ?? err,
+          );
           log.warn(
             "signaling setup failed, falling back:",
             (err as Error)?.message ?? err,
@@ -461,6 +478,7 @@ async function trySignaling(
   awareness: Awareness,
   syncOpts: SyncOptions,
 ): Promise<AwarenessRoom> {
+  console.log("[P2P-DIAG] trySignaling() entered");
   const localPeerId = helia.libp2p.peerId.toString();
   const conn = helia.libp2p
     .getConnections()
@@ -469,11 +487,14 @@ async function trySignaling(
     throw new Error("relay connection lost: " + relayPid.slice(0, 12));
   }
 
+  console.log("[P2P-DIAG] dialProtocol SIGNALING...");
   log.info("opening signaling stream to:", relayPid.slice(0, 12));
   const stream = await helia.libp2p.dialProtocol(
     conn.remotePeer,
     SIGNALING_PROTOCOL,
   );
+
+  console.log("[P2P-DIAG] signaling stream OPEN");
   const client = createSignalingClient(stream as unknown as SignalingStream);
   log.info("signaling connected to relay:", relayPid.slice(0, 12));
 

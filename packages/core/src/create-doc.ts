@@ -1476,8 +1476,10 @@ export function createDoc(params: DocParams): Doc {
 
   // Deferred P2P: wire up when Helia finishes
   if (params.p2pReady && !params.pubsub) {
+    console.log("[P2P-DIAG] create-doc: p2pReady .then() registered");
     params.p2pReady
       .then((deps) => {
+        console.log("[P2P-DIAG] create-doc: p2pReady RESOLVED");
         if (destroyed) return;
         p2pResolved = true;
         liveSyncManager = deps.syncManager;
@@ -1514,6 +1516,7 @@ export function createDoc(params: DocParams): Doc {
         startP2PLayer(deps.pubsub, deps.roomDiscovery);
       })
       .catch((err) => {
+        console.log("[P2P-DIAG] create-doc: p2pReady REJECTED:", err);
         log.warn("p2pReady failed:", err);
         // Ensure ready() resolves even without P2P
         markReady();

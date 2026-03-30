@@ -22,6 +22,18 @@ export {
 } from "./relay.js";
 export { announceTopic } from "@pokapali/core/announce";
 
+// Signaling handler (for test relays and custom nodes)
+export { SIGNALING_PROTOCOL } from "./signaling/protocol.js";
+export { createRoomRegistry } from "./signaling/registry.js";
+export type { RoomRegistry } from "./signaling/registry.js";
+export { handleSignalingStream } from "./signaling/handler.js";
+export type { SignalingStream as RelaySignalingStream } from "./signaling/handler.js";
+export {
+  createRelayForwarder,
+  RELAY_SIGNALING_TOPIC,
+} from "./signaling/relay-forward.js";
+export type { RelayForwarder } from "./signaling/relay-forward.js";
+
 export type {
   HttpConfig,
   HttpsConfig,

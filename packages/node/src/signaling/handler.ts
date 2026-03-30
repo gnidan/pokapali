@@ -17,6 +17,7 @@ import {
   type SignalMessage,
 } from "./protocol.js";
 import type { RoomRegistry } from "./registry.js";
+import type { RelayForwarder } from "./relay-forward.js";
 
 const log = createLogger("signaling");
 
@@ -33,6 +34,9 @@ export interface SignalingStream {
 
 export interface HandlerOptions {
   registry: RoomRegistry;
+  /** If provided, the handler broadcasts join/leave
+   *  events to other relays via GossipSub. */
+  forwarder?: RelayForwarder;
 }
 
 /**
@@ -45,7 +49,7 @@ export function handleSignalingStream(
   stream: SignalingStream,
   options: HandlerOptions,
 ): void {
-  const { registry } = options;
+  const { registry, forwarder } = options;
   const outQueue: Uint8Array[] = [];
   let outResolve: (() => void) | null = null;
   let closed = false;
@@ -101,6 +105,7 @@ export function handleSignalingStream(
     const leftRooms = registry.leaveAll(peerId);
     for (const room of leftRooms) {
       log.debug("peer left (disconnect):", peerId, room);
+      forwarder?.onLocalLeave(room, peerId);
       const peerLeftMsg = encodeSignal({
         type: SignalType.PEER_LEFT,
         room,
@@ -165,12 +170,14 @@ export function handleSignalingStream(
         }
         // Add to registry after notifications
         registry.join(msg.room, senderEntry);
+        forwarder?.onLocalJoin(msg.room, fromPeerId);
         break;
       }
 
       case SignalType.LEAVE_ROOM: {
         log.debug("leave:", fromPeerId, msg.room);
         registry.leave(msg.room, fromPeerId);
+        forwarder?.onLocalLeave(msg.room, fromPeerId);
         const leftMsg = encodeSignal({
           type: SignalType.PEER_LEFT,
           room: msg.room,

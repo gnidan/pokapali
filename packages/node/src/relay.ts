@@ -28,6 +28,10 @@ import { createRoomRegistry } from "./signaling/registry.js";
 import { handleSignalingStream } from "./signaling/handler.js";
 import { SIGNALING_PROTOCOL } from "./signaling/protocol.js";
 import {
+  createRelayForwarder,
+  RELAY_SIGNALING_TOPIC,
+} from "./signaling/relay-forward.js";
+import {
   NODE_CAPS_TOPIC,
   setupCapsListener,
   setupDynamicSubscription,
@@ -205,11 +209,16 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   }
 
   // --- Signaling protocol handler ---
+  // Forwarder is created below after pubsub is
+  // available; the handler closure captures it.
 
   const signalingRegistry = createRoomRegistry();
+  let signalingForwarder: ReturnType<typeof createRelayForwarder> | null = null;
+
   await helia.libp2p.handle(SIGNALING_PROTOCOL, ({ stream, connection }) => {
     handleSignalingStream(connection.remotePeer.toString(), stream, {
       registry: signalingRegistry,
+      forwarder: signalingForwarder ?? undefined,
     });
   });
   log.info("registered", SIGNALING_PROTOCOL);
@@ -223,11 +232,20 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
   pubsub.subscribe(DISCOVERY_TOPIC);
   log.info("subscribed to", DISCOVERY_TOPIC);
 
+  // --- Relay-to-relay signaling forwarding ---
+
+  const selfPeerId = helia.libp2p.peerId.toString();
+  signalingForwarder = createRelayForwarder(
+    pubsub,
+    selfPeerId,
+    signalingRegistry,
+  );
+  log.info("subscribed to", RELAY_SIGNALING_TOPIC);
+
   // --- Capabilities + dynamic subscription ---
 
   pubsub.subscribe(NODE_CAPS_TOPIC);
   const roles = config.roles ?? ["relay"];
-  const selfPeerId = helia.libp2p.peerId.toString();
   const knownPeerRoles = new Map<string, string[]>();
 
   const removeCapsListener = setupCapsListener(
@@ -307,6 +325,7 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         "certificate:provision",
         onCertProvision,
       );
+      signalingForwarder?.stop();
       await helia.libp2p.unhandle(SIGNALING_PROTOCOL);
       await helia.stop();
       log.info("stopped");
