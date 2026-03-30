@@ -863,7 +863,16 @@ export function createDoc(params: DocParams): Doc {
           codec: params.codec,
           transport,
           onRemoteEdit: (channelName, edit) => {
+            console.log(
+              "[P2P-DIAG] onRemoteEdit:",
+              channelName,
+              "payload=",
+              edit.payload.length,
+              "bytes",
+            );
             const ydoc = subdocManager.subdoc(channelName);
+            // Apply to subdocManager's subdoc for
+            // publish fallback + dirty tracking.
             // Use "reconcile" origin so the
             // send-side edit bridge (origin != null
             // check) doesn't re-capture this.

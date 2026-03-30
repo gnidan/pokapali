@@ -81,8 +81,20 @@ export function createReconciliationWiring(
         },
         applier: {
           apply: (edit) => {
-            channel.appendEdit(edit);
-            opts.onRemoteEdit?.(ch, edit);
+            // Re-tag origin as "sync" so the
+            // Document's surface editListener
+            // recognizes it as remote and forwards
+            // to the surface Y.Doc. Edits arrive
+            // with origin "local" (set by the
+            // sender's edit bridge) but on the
+            // receiving side they must be treated
+            // as remote.
+            const remoteEdit: Edit = {
+              ...edit,
+              origin: "sync",
+            };
+            channel.appendEdit(remoteEdit);
+            opts.onRemoteEdit?.(ch, remoteEdit);
           },
           applySnapshot: (s) => channel.appendSnapshot(s),
         },
