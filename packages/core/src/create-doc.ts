@@ -513,6 +513,20 @@ export function createDoc(params: DocParams): Doc {
   const warnedChannels = new Set<string>();
   // Active reconciliation wirings (one per peer).
   const reconciliationWirings = new Set<ReconciliationWiring>();
+  let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Re-trigger reconciliation when local edits arrive.
+  // Debounced to avoid re-running on every keystroke.
+  function scheduleReconcile(): void {
+    if (reconcileTimer) return;
+    reconcileTimer = setTimeout(() => {
+      reconcileTimer = null;
+      for (const w of reconciliationWirings) {
+        w.reconcile();
+      }
+    }, 100);
+  }
+
   let unsubPeerConn: (() => void) | null = null;
   // Standalone awareness: prefer awarenessRoom's if
   // available, otherwise use the standalone param.
@@ -735,6 +749,8 @@ export function createDoc(params: DocParams): Doc {
       ts: Date.now(),
       clockSum: computeClockSum(),
     });
+    // Sync new edits to connected peers
+    scheduleReconcile();
   });
 
   // Wire sync/awareness status bridges. These are
@@ -1579,6 +1595,7 @@ export function createDoc(params: DocParams): Doc {
     params.roomDiscovery?.stop();
     params.persistence?.destroy();
     // Tear down reconciliation wirings
+    if (reconcileTimer) clearTimeout(reconcileTimer);
     unsubPeerConn?.();
     for (const w of reconciliationWirings) w.destroy();
     reconciliationWirings.clear();
