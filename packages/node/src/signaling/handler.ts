@@ -129,14 +129,18 @@ export function handleSignalingStream(
 
   // Read inbound messages
   void (async () => {
+    log.info("stream reader started for:", peerId.slice(0, 12));
     try {
       const reader = createFrameReader(stream.source);
       for await (const frame of reader) {
+        log.info("frame from:", peerId.slice(0, 12), "size:", frame.length);
         const msg = decodeSignal(frame);
+        log.info("decoded msg type:", msg.type, "from:", peerId.slice(0, 12));
         processMessage(peerId, msg, entry);
       }
+      log.info("stream ended for:", peerId.slice(0, 12));
     } catch (err) {
-      log.debug("stream read error:", peerId, err);
+      log.info("stream read error:", peerId.slice(0, 12), err);
     } finally {
       cleanup();
     }
@@ -149,19 +153,36 @@ export function handleSignalingStream(
   ): void {
     switch (msg.type) {
       case SignalType.JOIN_ROOM: {
-        log.debug("join:", fromPeerId, msg.room);
+        log.info("JOIN_ROOM from:", fromPeerId.slice(0, 12), "room:", msg.room);
         // Notify existing members
         const existing = registry.members(msg.room);
+        log.info(
+          "  existing members:",
+          existing.length,
+          existing.map((m) => m.peerId.slice(0, 12)),
+        );
         const joinedMsg = encodeSignal({
           type: SignalType.PEER_JOINED,
           room: msg.room,
           peerId: fromPeerId,
         });
         for (const member of existing) {
+          log.info(
+            "  notify existing:",
+            member.peerId.slice(0, 12),
+            "about joiner:",
+            fromPeerId.slice(0, 12),
+          );
           member.send(joinedMsg);
         }
         // Notify joiner about existing members
         for (const member of existing) {
+          log.info(
+            "  notify joiner:",
+            fromPeerId.slice(0, 12),
+            "about existing:",
+            member.peerId.slice(0, 12),
+          );
           sendToSelf({
             type: SignalType.PEER_JOINED,
             room: msg.room,
@@ -170,6 +191,11 @@ export function handleSignalingStream(
         }
         // Add to registry after notifications
         registry.join(msg.room, senderEntry);
+        log.info(
+          "  registered, room now has:",
+          registry.members(msg.room).length,
+          "members",
+        );
         forwarder?.onLocalJoin(msg.room, fromPeerId);
         break;
       }
