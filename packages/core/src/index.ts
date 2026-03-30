@@ -15,8 +15,14 @@ import type { Ed25519KeyPair } from "@pokapali/crypto";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { Subdocs } from "./subdocs/index.js";
-import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
-import type { SyncOptions, PubSubLike } from "@pokapali/sync";
+import {
+  setupNamespaceRooms,
+  setupAwarenessRoom,
+  setupSignaledAwarenessRoom,
+  createSignalingClient,
+  SIGNALING_PROTOCOL,
+} from "@pokapali/sync";
+import type { SyncOptions, PubSubLike, SignalingStream } from "@pokapali/sync";
 import {
   lookupForwardingRecord,
   decodeForwardingRecord,
@@ -33,6 +39,7 @@ import {
 import { acquireNodeRegistry } from "./node-registry.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
 import { docIdFromUrl } from "./url-utils.js";
+import { createLogger } from "@pokapali/log";
 import { createDoc, populateMeta } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
 import { createDocPersistence } from "./persistence.js";
@@ -40,6 +47,8 @@ import type { DocPersistence } from "./persistence.js";
 import { loadIdentity } from "./identity.js";
 import { Document } from "@pokapali/document";
 import { yjsCodec } from "@pokapali/codec";
+
+const log = createLogger("core");
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -252,15 +261,58 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           syncOpts,
         );
 
-        const awarenessRoom = setupAwarenessRoom(
-          ipnsName,
-          keys.awarenessRoomPassword ?? "",
-          signalingUrls,
-          syncOpts,
-          awareness,
-        );
+        const helia = getHelia();
+        const roomDiscovery = startRoomDiscovery(helia, appId);
 
-        const roomDiscovery = startRoomDiscovery(getHelia(), appId);
+        // Try to open a signaling stream to a
+        // connected relay for direct WebRTC peer
+        // discovery. Falls back to GossipSub-based
+        // awareness if no relay supports the
+        // protocol.
+        let awarenessRoom = await (async () => {
+          const localPeerId = helia.libp2p.peerId.toString();
+          for (const pid of roomDiscovery.relayPeerIds) {
+            const conn = helia.libp2p
+              .getConnections()
+              .find((c) => c.remotePeer.toString() === pid);
+            if (!conn) continue;
+            try {
+              const stream = await helia.libp2p.dialProtocol(
+                conn.remotePeer,
+                SIGNALING_PROTOCOL,
+              );
+              const client = createSignalingClient(
+                stream as unknown as SignalingStream,
+              );
+              log.info("signaling connected to relay:", pid.slice(0, 12));
+              const rtcConfig = syncOpts.peerOpts?.config;
+              return setupSignaledAwarenessRoom(
+                ipnsName,
+                localPeerId,
+                client,
+                awareness,
+                rtcConfig ? { rtcConfig } : undefined,
+              );
+            } catch (err) {
+              log.debug(
+                "signaling dial failed for:",
+                pid.slice(0, 12),
+                (err as Error)?.message ?? err,
+              );
+            }
+          }
+          return null;
+        })();
+
+        if (!awarenessRoom) {
+          awarenessRoom = setupAwarenessRoom(
+            ipnsName,
+            keys.awarenessRoomPassword ?? "",
+            signalingUrls,
+            syncOpts,
+            awareness,
+          );
+        }
 
         return {
           pubsub,

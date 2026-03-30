@@ -6,6 +6,9 @@ import {
   createGossipSubSignaling,
   type PubSubLike,
 } from "./gossipsub-signaling.js";
+import type { SignalingClient } from "../signaling/client.js";
+import { createPeerManager } from "../signaling/peer-connection.js";
+import { syncAwareness } from "../signaling/awareness-sync.js";
 
 export type { Awareness } from "y-protocols/awareness";
 export type { SubdocManager } from "@pokapali/subdocs";
@@ -227,6 +230,101 @@ export function setupAwarenessRoom(
       provider.disconnect();
       provider.destroy();
       dummyDoc.destroy();
+    },
+  };
+}
+
+// -------------------------------------------------------
+// Signaling-based awareness room
+// -------------------------------------------------------
+
+export interface SignaledAwarenessOptions {
+  rtcConfig?: RTCConfiguration;
+}
+
+/**
+ * Set up an awareness room using the dedicated
+ * signaling protocol instead of GossipSub.
+ *
+ * Uses SignalingClient for peer discovery and
+ * SDP/ICE exchange. WebRTC connections are created
+ * directly (no y-webrtc / simple-peer). Awareness
+ * is synced over a dedicated data channel using
+ * y-protocols/awareness.
+ *
+ * Returns the same AwarenessRoom interface as
+ * setupAwarenessRoom so wireDataChannel in
+ * create-doc.ts continues to work unchanged.
+ */
+export function setupSignaledAwarenessRoom(
+  ipnsName: string,
+  localPeerId: string,
+  signalingClient: SignalingClient,
+  awareness: Awareness,
+  options?: SignaledAwarenessOptions,
+): AwarenessRoom {
+  const roomName = `${ipnsName}:awareness`;
+  let connected = false;
+  const statusListeners: Array<() => void> = [];
+  const cleanups: Array<() => void> = [];
+
+  const peerManager = createPeerManager(
+    signalingClient,
+    roomName,
+    localPeerId,
+    { rtcConfig: options?.rtcConfig },
+  );
+
+  // Wire awareness sync on each new peer
+  // connection. Also set up the awareness data
+  // channel for the responder side.
+  const unsubPC = peerManager.onPeerConnection((pc, initiator) => {
+    // Initiator creates the awareness DC
+    if (initiator) {
+      const dc = pc.createDataChannel("pokapali-awareness");
+      const cleanup = syncAwareness(awareness, dc);
+      cleanups.push(cleanup);
+      dc.addEventListener("close", cleanup);
+    }
+
+    // Responder receives the awareness DC
+    pc.addEventListener("datachannel", (evt: RTCDataChannelEvent) => {
+      if (evt.channel.label === "pokapali-awareness") {
+        const cleanup = syncAwareness(awareness, evt.channel);
+        cleanups.push(cleanup);
+        evt.channel.addEventListener("close", cleanup);
+      }
+    });
+
+    if (!connected) {
+      connected = true;
+      for (const cb of statusListeners) cb();
+    }
+  });
+
+  // Join the signaling room
+  signalingClient.joinRoom(roomName);
+
+  return {
+    get awareness(): Awareness {
+      return awareness;
+    },
+    get connected(): boolean {
+      return connected;
+    },
+    onStatusChange(cb: () => void) {
+      statusListeners.push(cb);
+    },
+    onPeerConnection(cb: (pc: RTCPeerConnection, initiator: boolean) => void) {
+      return peerManager.onPeerConnection(cb);
+    },
+    destroy() {
+      signalingClient.leaveRoom(roomName);
+      unsubPC();
+      peerManager.destroy();
+      for (const cleanup of cleanups) cleanup();
+      cleanups.length = 0;
+      statusListeners.length = 0;
     },
   };
 }

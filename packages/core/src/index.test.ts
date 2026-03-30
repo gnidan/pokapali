@@ -34,8 +34,11 @@ vi.mock("./helia.js", () => ({
       get: vi.fn().mockRejectedValue(new Error("Not found")),
     },
     libp2p: {
+      peerId: { toString: () => "mock-peer-id" },
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
+      getConnections: vi.fn(() => []),
+      dialProtocol: vi.fn().mockRejectedValue(new Error("not supported")),
     },
   })),
   isHeliaLive: vi.fn(() => false),

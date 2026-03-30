@@ -7,13 +7,27 @@ export {
   type ThrottledIntervalOptions,
   setupNamespaceRooms,
   setupAwarenessRoom,
+  setupSignaledAwarenessRoom,
   type SyncManager,
   type SyncStatus,
   type SyncOptions,
   type AwarenessRoom,
+  type SignaledAwarenessOptions,
   type Awareness,
   type SubdocManager,
 } from "./webrtc/index.js";
+
+// Signaling
+export {
+  createSignalingClient,
+  type SignalingClient,
+  type SignalingStream,
+} from "./signaling/client.js";
+export {
+  SIGNALING_PROTOCOL,
+  SignalType,
+  type SignalMessage,
+} from "./signaling/protocol.js";
 
 export { Edits } from "./edits.js";
 export { Convergence } from "./convergence.js";

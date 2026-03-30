@@ -13,10 +13,12 @@ export {
 export {
   setupNamespaceRooms,
   setupAwarenessRoom,
+  setupSignaledAwarenessRoom,
   type SyncManager,
   type SyncStatus,
   type SyncOptions,
   type AwarenessRoom,
+  type SignaledAwarenessOptions,
 } from "./rooms.js";
 
 export type { Awareness } from "y-protocols/awareness";
