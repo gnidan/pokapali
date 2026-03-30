@@ -135,6 +135,58 @@ export function createPeerManager(
   const connCbs = new Set<PeerConnectionCb>();
   const unsubs: Array<() => void> = [];
 
+  // ICE candidate buffering: candidates that arrive
+  // before setRemoteDescription are buffered here
+  // and flushed once the remote description is set.
+  const iceBuf = new Map<string, RTCIceCandidateInit[]>();
+  const remoteDescSet = new Set<string>();
+
+  function bufferOrAddCandidate(
+    peerId: string,
+    candidate: RTCIceCandidateInit,
+  ): void {
+    const pc = peers.get(peerId);
+    if (!pc) return;
+    if (remoteDescSet.has(peerId)) {
+      void pc.addIceCandidate(candidate).catch((err) => {
+        log.debug("addIceCandidate failed:", err);
+      });
+    } else {
+      let buf = iceBuf.get(peerId);
+      if (!buf) {
+        buf = [];
+        iceBuf.set(peerId, buf);
+      }
+      buf.push(candidate);
+      console.log(
+        "[P2P-DIAG] ICE candidate buffered for:",
+        peerId.slice(0, 12),
+        "count:",
+        buf.length,
+      );
+    }
+  }
+
+  function flushIceCandidates(peerId: string): void {
+    remoteDescSet.add(peerId);
+    const buf = iceBuf.get(peerId);
+    if (!buf || buf.length === 0) return;
+    const pc = peers.get(peerId);
+    if (!pc) return;
+    console.log(
+      "[P2P-DIAG] flushing",
+      buf.length,
+      "buffered ICE candidates for:",
+      peerId.slice(0, 12),
+    );
+    for (const candidate of buf) {
+      void pc.addIceCandidate(candidate).catch((err) => {
+        log.debug("addIceCandidate (flush) failed:", err);
+      });
+    }
+    iceBuf.delete(peerId);
+  }
+
   const makePC =
     options?.createPC ?? (() => new RTCPeerConnection(options?.rtcConfig));
 
@@ -246,6 +298,8 @@ export function createPeerManager(
       pc.close();
       peers.delete(remotePeerId);
     }
+    iceBuf.delete(remotePeerId);
+    remoteDescSet.delete(remotePeerId);
   }
 
   // Peer joined → create PC and (if initiator)
@@ -322,6 +376,7 @@ export function createPeerManager(
               await pc.setRemoteDescription(
                 signal.sdp as RTCSessionDescriptionInit,
               );
+              flushIceCandidates(fromPeerId);
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               console.log("[P2P-DIAG] SDP answer sent to:", fpid);
@@ -357,6 +412,7 @@ export function createPeerManager(
           }
           void pc
             .setRemoteDescription(signal.sdp as RTCSessionDescriptionInit)
+            .then(() => flushIceCandidates(fromPeerId))
             .catch((err) => {
               console.log(
                 "[P2P-DIAG] setRemoteDescription failed:",
@@ -369,16 +425,7 @@ export function createPeerManager(
         }
 
         case WebRTCSignalType.ICE_CANDIDATE: {
-          const pc = peers.get(fromPeerId);
-          if (!pc) return;
-          void pc.addIceCandidate(signal.candidate).catch((err) => {
-            console.log(
-              "[P2P-DIAG] addIceCandidate failed:",
-              fpid,
-              (err as Error)?.message,
-            );
-            log.warn("addIceCandidate failed:", err);
-          });
+          bufferOrAddCandidate(fromPeerId, signal.candidate);
           break;
         }
       }
@@ -399,6 +446,8 @@ export function createPeerManager(
       }
       peers.clear();
       connCbs.clear();
+      iceBuf.clear();
+      remoteDescSet.clear();
     },
   };
 }

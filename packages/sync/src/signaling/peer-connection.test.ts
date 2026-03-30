@@ -418,6 +418,18 @@ describe("PeerManager", () => {
     firePeerJoined("room1", "zzz-remote");
     await tick();
 
+    // Send SDP answer so remote description is set
+    // (ICE candidates are buffered until then)
+    fireSignal(
+      "room1",
+      "zzz-remote",
+      encodeWebRTCSignal({
+        type: WebRTCSignalType.SDP_ANSWER,
+        sdp: { type: "answer", sdp: "mock-answer" },
+      }),
+    );
+    await tick();
+
     fireSignal(
       "room1",
       "zzz-remote",
@@ -433,6 +445,47 @@ describe("PeerManager", () => {
     await tick();
 
     expect(pcs[0]!.addIceCandidate).toHaveBeenCalled();
+
+    manager.destroy();
+  });
+
+  it("buffers ICE candidates until remote description set", async () => {
+    const { manager, pcs, firePeerJoined, fireSignal } = setup("aaa-local");
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    // Send ICE candidate BEFORE SDP answer
+    fireSignal(
+      "room1",
+      "zzz-remote",
+      encodeWebRTCSignal({
+        type: WebRTCSignalType.ICE_CANDIDATE,
+        candidate: {
+          candidate: "early-candidate",
+          sdpMid: "0",
+          sdpMLineIndex: 0,
+        },
+      }),
+    );
+    await tick();
+
+    // Should NOT have called addIceCandidate yet
+    expect(pcs[0]!.addIceCandidate).not.toHaveBeenCalled();
+
+    // Now send SDP answer → triggers flush
+    fireSignal(
+      "room1",
+      "zzz-remote",
+      encodeWebRTCSignal({
+        type: WebRTCSignalType.SDP_ANSWER,
+        sdp: { type: "answer", sdp: "mock-answer" },
+      }),
+    );
+    await tick();
+
+    // Now the buffered candidate should be flushed
+    expect(pcs[0]!.addIceCandidate).toHaveBeenCalledTimes(1);
 
     manager.destroy();
   });
