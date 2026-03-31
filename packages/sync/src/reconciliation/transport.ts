@@ -10,7 +10,10 @@
  * @module
  */
 
+import { createLogger } from "@pokapali/log";
 import { encodeMessage, decodeMessage, type Message } from "./messages.js";
+
+const diagLog = createLogger("p2p-diag");
 
 // -------------------------------------------------------
 // Frame encoding / decoding
@@ -70,8 +73,8 @@ export function createTransport(
     if (destroyed) return;
     const frame = new Uint8Array(event.data as ArrayBuffer);
     const { channelName, message } = decodeFrame(frame);
-    console.log(
-      "[P2P-DIAG] transport recv:",
+    diagLog.debug(
+      "transport recv:",
       channelName,
       "type=",
       message.type,
@@ -104,8 +107,8 @@ export function createTransport(
   return {
     send(channelName: string, msg: Message): void {
       const frame = encodeFrame(channelName, msg);
-      console.log(
-        "[P2P-DIAG] transport send:",
+      diagLog.debug(
+        "transport send:",
         channelName,
         "type=",
         msg.type,

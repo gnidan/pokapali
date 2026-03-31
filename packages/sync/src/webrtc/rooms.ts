@@ -2,9 +2,12 @@ import * as Y from "yjs";
 import { WebrtcProvider } from "y-webrtc";
 import type { Awareness } from "y-protocols/awareness";
 import type { SubdocManager } from "@pokapali/subdocs";
+import { createLogger } from "@pokapali/log";
 import type { SignalingClient } from "../signaling/client.js";
 import { createPeerManager } from "../signaling/peer-connection.js";
 import { syncAwareness } from "../signaling/awareness-sync.js";
+
+const diagLog = createLogger("p2p-diag");
 
 export type { Awareness } from "y-protocols/awareness";
 export type { SubdocManager } from "@pokapali/subdocs";
@@ -295,7 +298,7 @@ export function setupSignaledAwarenessRoom(
   });
 
   // Join the signaling room
-  console.log("[P2P-DIAG] setupSignaledAwarenessRoom: joining", roomName);
+  diagLog.debug("setupSignaledAwarenessRoom: joining", roomName);
   signalingClient.joinRoom(roomName);
 
   return {

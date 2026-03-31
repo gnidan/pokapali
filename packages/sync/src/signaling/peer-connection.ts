@@ -13,6 +13,7 @@ import { createLogger } from "@pokapali/log";
 import type { SignalingClient } from "./client.js";
 
 const log = createLogger("peer-connection");
+const diagLog = createLogger("p2p-diag");
 
 // -------------------------------------------------------
 // WebRTC signal sub-protocol
@@ -165,8 +166,8 @@ export function createPeerManager(
         iceBuf.set(peerId, buf);
       }
       buf.push(candidate);
-      console.log(
-        "[P2P-DIAG] ICE candidate buffered for:",
+      diagLog.debug(
+        "ICE candidate buffered for:",
         peerId.slice(0, 12),
         "count:",
         buf.length,
@@ -180,8 +181,8 @@ export function createPeerManager(
     if (!buf || buf.length === 0) return;
     const pc = peers.get(peerId);
     if (!pc) return;
-    console.log(
-      "[P2P-DIAG] flushing",
+    diagLog.debug(
+      "flushing",
       buf.length,
       "buffered ICE candidates for:",
       peerId.slice(0, 12),
@@ -212,8 +213,8 @@ export function createPeerManager(
     const tag = initiator ? "initiator" : "responder";
     const rpid = remotePeerId.slice(0, 12);
 
-    console.log(
-      "[P2P-DIAG] PC created:",
+    diagLog.debug(
+      "PC created:",
       rpid,
       tag,
       "iceServers:",
@@ -223,11 +224,11 @@ export function createPeerManager(
     // ICE candidate trickle
     pc.onicecandidate = (evt) => {
       if (!evt.candidate) {
-        console.log("[P2P-DIAG] ICE gathering done:", rpid);
+        diagLog.debug("ICE gathering done:", rpid);
         return;
       }
-      console.log(
-        "[P2P-DIAG] ICE candidate:",
+      diagLog.debug(
+        "ICE candidate:",
         rpid,
         evt.candidate.type,
         evt.candidate.address,
@@ -249,35 +250,24 @@ export function createPeerManager(
 
     pc.addEventListener("icecandidateerror", (evt: Event) => {
       const e = evt as RTCPeerConnectionIceErrorEvent;
-      console.log(
-        "[P2P-DIAG] ICE error:",
-        rpid,
-        e.errorCode,
-        e.errorText,
-        e.url,
-      );
+      diagLog.debug("ICE error:", rpid, e.errorCode, e.errorText, e.url);
     });
 
     pc.oniceconnectionstatechange = () => {
-      console.log("[P2P-DIAG] ICE state:", rpid, pc!.iceConnectionState);
+      diagLog.debug("ICE state:", rpid, pc!.iceConnectionState);
     };
 
     pc.onicegatheringstatechange = () => {
-      console.log("[P2P-DIAG] ICE gathering:", rpid, pc!.iceGatheringState);
+      diagLog.debug("ICE gathering:", rpid, pc!.iceGatheringState);
     };
 
     pc.onsignalingstatechange = () => {
-      console.log("[P2P-DIAG] signaling state:", rpid, pc!.signalingState);
+      diagLog.debug("signaling state:", rpid, pc!.signalingState);
     };
 
     // Connection state logging + cleanup
     pc.onconnectionstatechange = () => {
-      console.log(
-        "[P2P-DIAG] connection state:",
-        rpid,
-        pc!.connectionState,
-        tag,
-      );
+      diagLog.debug("connection state:", rpid, pc!.connectionState, tag);
       if (pc!.connectionState === "connected") {
         log.debug(
           "connected to:",
@@ -316,15 +306,12 @@ export function createPeerManager(
       // this peer, ignore the duplicate PEER_JOINED
       // (can happen via relay forwarding).
       if (peers.has(peerId)) {
-        console.log(
-          "[P2P-DIAG] PEER_JOINED dedup (ignored):",
-          peerId.slice(0, 12),
-        );
+        diagLog.debug("PEER_JOINED dedup (ignored):", peerId.slice(0, 12));
         return;
       }
 
-      console.log(
-        "[P2P-DIAG] PEER_JOINED:",
+      diagLog.debug(
+        "PEER_JOINED:",
         peerId.slice(0, 12),
         "room:",
         room,
@@ -344,10 +331,10 @@ export function createPeerManager(
         // Create and send SDP offer
         void (async () => {
           try {
-            console.log("[P2P-DIAG] creating offer for:", peerId.slice(0, 12));
+            diagLog.debug("creating offer for:", peerId.slice(0, 12));
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            console.log("[P2P-DIAG] offer sent to:", peerId.slice(0, 12));
+            diagLog.debug("offer sent to:", peerId.slice(0, 12));
             client.sendSignal(
               roomName,
               peerId,
@@ -360,8 +347,8 @@ export function createPeerManager(
               }),
             );
           } catch (err) {
-            console.log(
-              "[P2P-DIAG] offer FAILED:",
+            diagLog.debug(
+              "offer FAILED:",
               peerId.slice(0, 12),
               (err as Error)?.message,
             );
@@ -391,7 +378,7 @@ export function createPeerManager(
 
       switch (signal.type) {
         case WebRTCSignalType.SDP_OFFER: {
-          console.log("[P2P-DIAG] SDP offer from:", fpid);
+          diagLog.debug("SDP offer from:", fpid);
           const pc = getOrCreatePC(fromPeerId);
           void (async () => {
             try {
@@ -401,7 +388,7 @@ export function createPeerManager(
               flushIceCandidates(fromPeerId);
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
-              console.log("[P2P-DIAG] SDP answer sent to:", fpid);
+              diagLog.debug("SDP answer sent to:", fpid);
               client.sendSignal(
                 roomName,
                 fromPeerId,
@@ -414,11 +401,7 @@ export function createPeerManager(
                 }),
               );
             } catch (err) {
-              console.log(
-                "[P2P-DIAG] answer FAILED:",
-                fpid,
-                (err as Error)?.message,
-              );
+              diagLog.debug("answer FAILED:", fpid, (err as Error)?.message);
               log.warn("answer failed:", err);
             }
           })();
@@ -426,18 +409,18 @@ export function createPeerManager(
         }
 
         case WebRTCSignalType.SDP_ANSWER: {
-          console.log("[P2P-DIAG] SDP answer from:", fpid);
+          diagLog.debug("SDP answer from:", fpid);
           const pc = peers.get(fromPeerId);
           if (!pc) {
-            console.log("[P2P-DIAG] no PC for answer from:", fpid);
+            diagLog.debug("no PC for answer from:", fpid);
             return;
           }
           void pc
             .setRemoteDescription(signal.sdp as RTCSessionDescriptionInit)
             .then(() => flushIceCandidates(fromPeerId))
             .catch((err) => {
-              console.log(
-                "[P2P-DIAG] setRemoteDescription failed:",
+              diagLog.debug(
+                "setRemoteDescription failed:",
                 fpid,
                 (err as Error)?.message,
               );

@@ -13,6 +13,7 @@ import { createLogger } from "@pokapali/log";
 import { SignalType, encodeSignal, decodeSignal } from "./protocol.js";
 
 const log = createLogger("signaling-client");
+const diagLog = createLogger("p2p-diag");
 
 // -------------------------------------------------------
 // Stream interface
@@ -93,12 +94,12 @@ export function createSignalingClient(
 
   function enqueue(bytes: Uint8Array): void {
     if (closed) {
-      console.log("[P2P-DIAG] client enqueue: DROPPED (closed)");
+      diagLog.debug("client enqueue: DROPPED (closed)");
       return;
     }
     outQueue.push(frameLengthPrefix(bytes));
-    console.log(
-      "[P2P-DIAG] client enqueue: queued,",
+    diagLog.debug(
+      "client enqueue: queued,",
       "queueLen=" + outQueue.length,
       "hasResolver=" + !!outResolve,
     );
@@ -123,12 +124,9 @@ export function createSignalingClient(
   }
 
   // Start sink
-  console.log("[P2P-DIAG] client: starting stream.sink");
+  diagLog.debug("client: starting stream.sink");
   stream.sink(outbound()).catch((err) => {
-    console.log(
-      "[P2P-DIAG] client: stream.sink error:",
-      (err as Error)?.message ?? err,
-    );
+    diagLog.debug("client: stream.sink error:", (err as Error)?.message ?? err);
   });
 
   // Read inbound messages
@@ -136,7 +134,7 @@ export function createSignalingClient(
     try {
       for await (const frame of createFrameReader(stream.source)) {
         const msg = decodeSignal(frame);
-        console.log("[P2P-DIAG] client inbound msg type:", msg.type);
+        diagLog.debug("client inbound msg type:", msg.type);
         switch (msg.type) {
           case SignalType.PEER_JOINED:
             log.debug("peer joined:", msg.peerId, msg.room);
@@ -180,7 +178,7 @@ export function createSignalingClient(
 
   return {
     joinRoom(room: string): void {
-      console.log("[P2P-DIAG] client joinRoom:", room);
+      diagLog.debug("client joinRoom:", room);
       joinedRooms.add(room);
       send({
         type: SignalType.JOIN_ROOM,
