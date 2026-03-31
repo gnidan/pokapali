@@ -25,9 +25,6 @@ export interface PubSubLike {
 export interface SyncManager {
   readonly status: SyncStatus;
   onStatusChange(cb: (s: SyncStatus) => void): void;
-  /** @deprecated No-op — reconciliation handles
-   *  channel sync. Retained for API compatibility. */
-  connectChannel(ns: string): void;
   destroy(): void;
 }
 
@@ -57,7 +54,6 @@ export function setupNamespaceRooms(
       return "disconnected";
     },
     onStatusChange() {},
-    connectChannel() {},
     destroy() {},
   };
 }
@@ -66,11 +62,14 @@ export interface AwarenessRoom {
   readonly awareness: Awareness;
   readonly connected: boolean;
   onStatusChange(cb: () => void): void;
-  /** Register a callback that fires when a new
-   *  RTCPeerConnection is created by y-webrtc.
-   *  `initiator` is true if we initiated the
-   *  connection (relevant for data channel
-   *  creation). */
+  /** Fires when a new RTCPeerConnection is created
+   *  but BEFORE the SDP offer. Use this to add data
+   *  channels so they're included in negotiation. */
+  onPeerCreated(
+    cb: (pc: RTCPeerConnection, initiator: boolean) => void,
+  ): () => void;
+  /** Fires when an RTCPeerConnection reaches
+   *  "connected" state. */
   onPeerConnection(
     cb: (pc: RTCPeerConnection, initiator: boolean) => void,
   ): () => void;
@@ -195,6 +194,12 @@ export function setupAwarenessRoom(
     onStatusChange(cb: () => void) {
       statusListeners.push(cb);
     },
+    onPeerCreated() {
+      // y-webrtc doesn't expose pre-SDP hooks;
+      // data channels must be added via
+      // onPeerConnection instead.
+      return () => {};
+    },
     onPeerConnection(cb: (pc: RTCPeerConnection, initiator: boolean) => void) {
       peerConnListeners.push(cb);
       return () => {
@@ -257,11 +262,11 @@ export function setupSignaledAwarenessRoom(
     { rtcConfig: options?.rtcConfig },
   );
 
-  // Wire awareness sync on each new peer
-  // connection. Also set up the awareness data
-  // channel for the responder side.
-  const unsubPC = peerManager.onPeerConnection((pc, initiator) => {
-    // Initiator creates the awareness DC
+  // Add data channels BEFORE the SDP offer so ICE
+  // negotiation has something to work with. The
+  // initiator creates the awareness DC; both sides
+  // listen for incoming DCs.
+  const unsubCreated = peerManager.onPeerCreated((pc, initiator) => {
     if (initiator) {
       const dc = pc.createDataChannel("pokapali-awareness");
       dc.binaryType = "arraybuffer";
@@ -279,16 +284,14 @@ export function setupSignaledAwarenessRoom(
         evt.channel.addEventListener("close", cleanup);
       }
     });
+  });
 
-    // Track connection state independently —
-    // onPeerConnection fires at PC creation, not
-    // when connected.
-    pc.addEventListener("connectionstatechange", () => {
-      if (pc.connectionState === "connected" && !connected) {
-        connected = true;
-        for (const cb of statusListeners) cb();
-      }
-    });
+  // Track connection status
+  const unsubPC = peerManager.onPeerConnection(() => {
+    if (!connected) {
+      connected = true;
+      for (const cb of statusListeners) cb();
+    }
   });
 
   // Join the signaling room
@@ -305,11 +308,15 @@ export function setupSignaledAwarenessRoom(
     onStatusChange(cb: () => void) {
       statusListeners.push(cb);
     },
+    onPeerCreated(cb: (pc: RTCPeerConnection, initiator: boolean) => void) {
+      return peerManager.onPeerCreated(cb);
+    },
     onPeerConnection(cb: (pc: RTCPeerConnection, initiator: boolean) => void) {
       return peerManager.onPeerConnection(cb);
     },
     destroy() {
       signalingClient.leaveRoom(roomName);
+      unsubCreated();
       unsubPC();
       peerManager.destroy();
       for (const cleanup of cleanups) cleanup();

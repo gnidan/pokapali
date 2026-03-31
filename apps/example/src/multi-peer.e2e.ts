@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 
 const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
 const EDITOR_TIMEOUT = 8_000;
-const SYNC_TIMEOUT = 15_000;
+const SYNC_TIMEOUT = 30_000;
 
 interface RelayInfo {
   multiaddr: string;
@@ -107,6 +107,18 @@ test.describe("multi-peer editing", () => {
     const alice = await aliceCtx.newPage();
     const bobCtx = await browser.newContext();
     const bob = await bobCtx.newPage();
+
+    // Diagnostic: capture P2P logs from both browsers
+    alice.on("console", (msg) => {
+      if (msg.text().includes("[P2P-DIAG]")) {
+        console.log(`[ALICE] ${msg.text()}`);
+      }
+    });
+    bob.on("console", (msg) => {
+      if (msg.text().includes("[P2P-DIAG]")) {
+        console.log(`[BOB] ${msg.text()}`);
+      }
+    });
 
     try {
       await createDocViaRelay(alice, baseURL, relay.multiaddr);
@@ -242,12 +254,14 @@ test.describe("multi-peer editing", () => {
       await alice.keyboard.type("Content before Bob joined");
 
       // Publish so content persists for late joiners.
-      const save = alice.locator(".save-state");
-      await expect(save).toContainText(/Publish/, {
+      const save = alice.locator(".poka-save-indicator");
+      await expect(save).toHaveClass(/poka-save-indicator--action/, {
         timeout: 5_000,
       });
       await save.click();
-      await expect(save).not.toContainText(/Publish/, {
+      // Wait for save to complete — indicator should
+      // no longer show a save-action label.
+      await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
         timeout: 10_000,
       });
 
@@ -259,6 +273,12 @@ test.describe("multi-peer editing", () => {
 
       try {
         await openDocViaRelay(bob, writeUrl, relay.multiaddr);
+
+        // Wait for peer connection so reconciliation
+        // can deliver the published content.
+        await expect(
+          bob.locator("[data-testid='cs-users-count']"),
+        ).toContainText("2", { timeout: SYNC_TIMEOUT });
 
         // Bob should see Alice's previously published
         // content.

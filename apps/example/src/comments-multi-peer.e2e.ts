@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 
 const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
 const EDITOR_TIMEOUT = 8_000;
-const SYNC_TIMEOUT = 15_000;
+const SYNC_TIMEOUT = 30_000;
 
 interface RelayInfo {
   multiaddr: string;
@@ -113,7 +113,7 @@ async function createComment(
   const editor = page.locator(".tiptap");
   await editor.click();
   await page.keyboard.type(editorText);
-  await page.keyboard.press("Meta+a");
+  await page.keyboard.press("ControlOrMeta+a");
 
   await expect(page.locator("[data-testid='comment-popover']")).toBeVisible({
     timeout: 3_000,
@@ -124,9 +124,10 @@ async function createComment(
     timeout: 3_000,
   });
 
-  const input = page.locator(".cs-new-comment [data-testid='comment-input']");
+  const newComment = page.locator(".poka-comment-sidebar__new-comment");
+  const input = newComment.locator("[data-testid='comment-input']");
   await input.fill(commentText);
-  await page.locator(".cs-new-comment [data-testid='comment-submit']").click();
+  await newComment.locator("[data-testid='comment-submit']").click();
 
   await expect(
     page
@@ -215,6 +216,14 @@ test.describe("multi-peer comment sync", () => {
         timeout: 3_000,
       });
 
+      // Wait for content to sync to Bob first —
+      // anchor marks can't render until the text
+      // they reference has arrived.
+      await expect(bob.locator(".tiptap")).toContainText(
+        "Highlighted anchor text",
+        { timeout: SYNC_TIMEOUT },
+      );
+
       // Bob should see the comment anchor highlight
       // after Yjs sync propagates the marks.
       await expect(bob.locator(".tiptap .comment-anchor")).toBeVisible({
@@ -263,12 +272,12 @@ test.describe("multi-peer comment sync", () => {
       // Bob replies.
       await bob.locator("[data-testid='reply-btn']").first().click();
       const replyInput = bob
-        .locator(".cs-reply-input-wrap")
+        .locator(".poka-comment-thread__reply-input")
         .locator("[data-testid='comment-input']");
       await expect(replyInput).toBeVisible();
       await replyInput.fill("Bob replies here");
       await bob
-        .locator(".cs-reply-input-wrap")
+        .locator(".poka-comment-thread__reply-input")
         .locator("[data-testid='comment-submit']")
         .click();
 

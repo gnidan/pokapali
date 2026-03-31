@@ -43,14 +43,16 @@ async function typeAndPublish(
   await editor.click();
   await page.keyboard.type(text);
 
-  const save = page.locator(".save-state");
-  await expect(save).toContainText(/Publish/, {
+  const save = page.locator(".poka-save-indicator");
+  // Wait for actionable state (dirty or unpublished)
+  // — NOT /Save/ which also matches "Saved".
+  await expect(save).toHaveClass(/poka-save-indicator--action/, {
     timeout: 5_000,
   });
 
   await save.click();
 
-  await expect(save).not.toHaveClass(/save-action/, {
+  await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
     timeout: PUBLISH_TIMEOUT,
   });
 }
@@ -64,15 +66,15 @@ async function replaceAndPublish(
 ) {
   const editor = page.locator(".tiptap");
   await editor.click();
-  await page.keyboard.press("Meta+a");
+  await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.type(text);
 
-  const save = page.locator(".save-state");
-  await expect(save).toContainText(/Publish/, {
+  const save = page.locator(".poka-save-indicator");
+  await expect(save).toHaveClass(/poka-save-indicator--action/, {
     timeout: 5_000,
   });
   await save.click();
-  await expect(save).not.toHaveClass(/save-action/, {
+  await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
     timeout: PUBLISH_TIMEOUT,
   });
 }

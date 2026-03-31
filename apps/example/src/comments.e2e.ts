@@ -36,8 +36,8 @@ async function createDoc(page: import("@playwright/test").Page) {
 
 /**
  * Type text into the editor, then select all of it.
- * Uses Ctrl/Meta+A which reliably fires selectionchange
- * in headless Chromium.
+ * Uses ControlOrMeta+A so it works on both macOS
+ * (Meta) and Linux CI (Control).
  */
 async function typeAndSelect(
   page: import("@playwright/test").Page,
@@ -48,7 +48,7 @@ async function typeAndSelect(
   await page.keyboard.type(text);
 
   // Select all text in the editor.
-  await page.keyboard.press("Meta+a");
+  await page.keyboard.press("ControlOrMeta+a");
 }
 
 /**
@@ -72,9 +72,15 @@ async function createComment(
     timeout: 3_000,
   });
 
-  const input = page.locator(".cs-new-comment [data-testid='comment-input']");
+  const input = page.locator(
+    ".poka-comment-sidebar__new-comment " + "[data-testid='comment-input']",
+  );
   await input.fill(commentText);
-  await page.locator(".cs-new-comment [data-testid='comment-submit']").click();
+  await page
+    .locator(
+      ".poka-comment-sidebar__new-comment " + "[data-testid='comment-submit']",
+    )
+    .click();
 
   await expect(
     page
@@ -205,7 +211,9 @@ test.describe("comment creation", () => {
 
     // Input should be present within the new-comment
     // section (not the reply section).
-    const input = page.locator(".cs-new-comment [data-testid='comment-input']");
+    const input = page.locator(
+      ".poka-comment-sidebar__new-comment " + "[data-testid='comment-input']",
+    );
     await expect(input).toBeVisible();
   });
 
@@ -232,7 +240,7 @@ test.describe("comment creation", () => {
     });
 
     const submit = page.locator(
-      ".cs-new-comment [data-testid='comment-submit']",
+      ".poka-comment-sidebar__new-comment [data-testid='comment-submit']",
     );
     await expect(submit).toBeDisabled();
   });
@@ -250,12 +258,14 @@ test.describe("comment creation", () => {
       timeout: 3_000,
     });
 
-    const input = page.locator(".cs-new-comment [data-testid='comment-input']");
+    const input = page.locator(
+      ".poka-comment-sidebar__new-comment " + "[data-testid='comment-input']",
+    );
     await input.fill("Submitted with keyboard");
 
     // Focus the textarea and press Cmd+Enter.
     await input.focus();
-    await page.keyboard.press("Meta+Enter");
+    await page.keyboard.press("ControlOrMeta+Enter");
 
     const item = page.locator("[data-testid='comment-item']");
     await expect(item).toBeVisible({ timeout: 3_000 });
@@ -268,11 +278,11 @@ test.describe("comment creation", () => {
 
     const item = page.locator("[data-testid='comment-item']");
     // Author should be a truncated pubkey.
-    const author = item.locator(".cs-author");
+    const author = item.locator(".poka-comment__author");
     await expect(author).toBeVisible();
 
     // Timestamp should show "just now".
-    const timestamp = item.locator(".cs-timestamp");
+    const timestamp = item.locator(".poka-comment__timestamp");
     await expect(timestamp).toContainText("just now");
   });
 
@@ -341,13 +351,13 @@ test.describe("comment threading", () => {
 
     // Reply input should appear inside the reply wrap.
     const replyInput = page
-      .locator(".cs-reply-input-wrap")
+      .locator(".poka-comment-thread__reply-input")
       .locator("[data-testid='comment-input']");
     await expect(replyInput).toBeVisible();
     await replyInput.fill("A reply");
 
     const replySubmit = page
-      .locator(".cs-reply-input-wrap")
+      .locator(".poka-comment-thread__reply-input")
       .locator("[data-testid='comment-submit']");
     await replySubmit.click();
 
@@ -357,8 +367,11 @@ test.describe("comment threading", () => {
       timeout: 3_000,
     });
 
-    // The reply should have the .cs-reply class.
-    const reply = page.locator("[data-testid='comment-item'].cs-reply");
+    // The reply should have the
+    // .poka-comment--reply class.
+    const reply = page.locator(
+      "[data-testid='comment-item']" + ".poka-comment--reply",
+    );
     await expect(reply).toBeVisible();
     await expect(reply).toContainText("A reply");
   });
@@ -370,11 +383,11 @@ test.describe("comment threading", () => {
     // First reply.
     await page.locator("[data-testid='reply-btn']").first().click();
     const replyInput1 = page
-      .locator(".cs-reply-input-wrap")
+      .locator(".poka-comment-thread__reply-input")
       .locator("[data-testid='comment-input']");
     await replyInput1.fill("Reply one");
     await page
-      .locator(".cs-reply-input-wrap")
+      .locator(".poka-comment-thread__reply-input")
       .locator("[data-testid='comment-submit']")
       .click();
 
@@ -385,11 +398,11 @@ test.describe("comment threading", () => {
     // Second reply.
     await page.locator("[data-testid='reply-btn']").first().click();
     const replyInput2 = page
-      .locator(".cs-reply-input-wrap")
+      .locator(".poka-comment-thread__reply-input")
       .locator("[data-testid='comment-input']");
     await replyInput2.fill("Reply two");
     await page
-      .locator(".cs-reply-input-wrap")
+      .locator(".poka-comment-thread__reply-input")
       .locator("[data-testid='comment-submit']")
       .click();
 
@@ -398,8 +411,11 @@ test.describe("comment threading", () => {
       timeout: 3_000,
     });
 
-    // Both replies should have .cs-reply class.
-    const replies = page.locator("[data-testid='comment-item'].cs-reply");
+    // Both replies should have
+    // .poka-comment--reply class.
+    const replies = page.locator(
+      "[data-testid='comment-item']" + ".poka-comment--reply",
+    );
     await expect(replies).toHaveCount(2);
   });
 
@@ -409,11 +425,11 @@ test.describe("comment threading", () => {
 
     await page.locator("[data-testid='reply-btn']").first().click();
 
-    const replyWrap = page.locator(".cs-reply-input-wrap");
+    const replyWrap = page.locator(".poka-comment-thread__reply-input");
     await expect(replyWrap).toBeVisible();
 
     // Click cancel.
-    await replyWrap.locator(".cs-btn-cancel").click();
+    await replyWrap.locator(".poka-btn--cancel").click();
     await expect(replyWrap).not.toBeVisible();
   });
 });
@@ -428,7 +444,7 @@ test.describe("resolve and reopen", () => {
     await page.locator("[data-testid='resolve-btn']").click();
 
     // Resolved toggle should appear.
-    const toggle = page.locator(".cs-resolved-toggle");
+    const toggle = page.locator(".poka-comment-sidebar__resolved-toggle");
     await expect(toggle).toBeVisible({ timeout: 3_000 });
     await expect(toggle).toContainText("1 resolved");
 
@@ -436,7 +452,10 @@ test.describe("resolve and reopen", () => {
     // or selection hint (no open comments remain).
     // The resolved comment is hidden until toggled.
     const openItems = page.locator(
-      ".cs-sidebar-body > .cs-thread:not(.cs-thread-resolved) [data-testid='comment-item']",
+      ".poka-comment-sidebar__body > " +
+        ".poka-comment-thread" +
+        ":not(.poka-comment-thread--resolved) " +
+        "[data-testid='comment-item']",
     );
     await expect(openItems).toHaveCount(0);
   });
@@ -447,12 +466,14 @@ test.describe("resolve and reopen", () => {
 
     await page.locator("[data-testid='resolve-btn']").click();
 
-    const toggle = page.locator(".cs-resolved-toggle");
+    const toggle = page.locator(".poka-comment-sidebar__resolved-toggle");
     await expect(toggle).toBeVisible({ timeout: 3_000 });
     await toggle.click();
 
     // Resolved comment should be visible with class.
-    const resolved = page.locator("[data-testid='comment-item'].cs-resolved");
+    const resolved = page.locator(
+      "[data-testid='comment-item'].poka-comment--resolved",
+    );
     await expect(resolved).toBeVisible();
     await expect(resolved).toContainText("Will be resolved");
   });
@@ -463,12 +484,14 @@ test.describe("resolve and reopen", () => {
 
     // Resolve.
     await page.locator("[data-testid='resolve-btn']").click();
-    const toggle = page.locator(".cs-resolved-toggle");
+    const toggle = page.locator(".poka-comment-sidebar__resolved-toggle");
     await expect(toggle).toBeVisible({ timeout: 3_000 });
 
     // Show resolved, then click Reopen.
     await toggle.click();
-    const resolved = page.locator("[data-testid='comment-item'].cs-resolved");
+    const resolved = page.locator(
+      "[data-testid='comment-item'].poka-comment--resolved",
+    );
     await expect(resolved).toBeVisible();
 
     // The Reopen button replaces Reply/Resolve on
@@ -482,7 +505,7 @@ test.describe("resolve and reopen", () => {
     });
 
     const openItem = page.locator(
-      "[data-testid='comment-item']:not(.cs-resolved)",
+      "[data-testid='comment-item']:not(.poka-comment--resolved)",
     );
     await expect(openItem).toBeVisible();
     await expect(openItem).toContainText("Resolve then reopen");
@@ -504,7 +527,7 @@ test.describe("delete comment", () => {
     await expect(item).toBeVisible();
 
     // As the author, Delete button should be visible.
-    const deleteBtn = item.locator(".cs-btn-danger");
+    const deleteBtn = item.locator(".poka-btn--danger");
     await expect(deleteBtn).toBeVisible();
     await deleteBtn.click();
 
@@ -514,7 +537,7 @@ test.describe("delete comment", () => {
     });
 
     // Empty state should show.
-    await expect(page.locator(".cs-empty")).toBeVisible();
+    await expect(page.locator(".poka-comment-sidebar__empty")).toBeVisible();
   });
 });
 
@@ -528,7 +551,7 @@ test.describe("multiple comments", () => {
     await createComment(page, "First paragraph", "Comment on first");
 
     // Close sidebar to create a new selection.
-    await page.locator(".cs-sidebar-close").click();
+    await page.locator(".poka-comment-sidebar__close").click();
     await expect(
       page.locator("[data-testid='comment-sidebar']"),
     ).not.toBeVisible();
@@ -552,10 +575,15 @@ test.describe("multiple comments", () => {
       timeout: 3_000,
     });
 
-    const input = page.locator(".cs-new-comment [data-testid='comment-input']");
+    const input = page.locator(
+      ".poka-comment-sidebar__new-comment " + "[data-testid='comment-input']",
+    );
     await input.fill("Comment on second");
     await page
-      .locator(".cs-new-comment [data-testid='comment-submit']")
+      .locator(
+        ".poka-comment-sidebar__new-comment " +
+          "[data-testid='comment-submit']",
+      )
       .click();
 
     // Should now have 2 comment items.
@@ -576,7 +604,7 @@ test.describe("multiple comments", () => {
     await createComment(page, "Badge test text", "First comment for badge");
 
     // Close sidebar to see the toggle button.
-    await page.locator(".cs-sidebar-close").click();
+    await page.locator(".poka-comment-sidebar__close").click();
 
     // Badge should show "1".
     await expect(badge).toBeVisible({ timeout: 3_000 });
@@ -597,7 +625,7 @@ test.describe("sidebar behavior", () => {
     await expect(sidebar).toBeVisible({ timeout: 3_000 });
 
     // Should show the selection hint.
-    const hint = page.locator(".cs-selection-hint");
+    const hint = page.locator(".poka-comment-sidebar__hint");
     await expect(hint).toBeVisible();
   });
 
@@ -609,8 +637,9 @@ test.describe("sidebar behavior", () => {
     const sidebar = page.locator("[data-testid='comment-sidebar']");
     await expect(sidebar).toBeVisible({ timeout: 3_000 });
 
-    await expect(page.locator(".cs-empty")).toBeVisible();
-    await expect(page.locator(".cs-empty")).toContainText("No comments yet");
+    const empty = page.locator(".poka-comment-sidebar__empty");
+    await expect(empty).toBeVisible();
+    await expect(empty).toContainText("No comments yet");
   });
 
   test("close button hides sidebar", async ({ page }) => {
@@ -620,7 +649,7 @@ test.describe("sidebar behavior", () => {
     const sidebar = page.locator("[data-testid='comment-sidebar']");
     await expect(sidebar).toBeVisible({ timeout: 3_000 });
 
-    await page.locator(".cs-sidebar-close").click();
+    await page.locator(".poka-comment-sidebar__close").click();
     await expect(sidebar).not.toBeVisible();
   });
 
@@ -654,7 +683,7 @@ test.describe("comment edge cases", () => {
     // Select all — reliable in headless Chromium
     // (Shift+Arrow doesn't always trigger
     // selectionchange).
-    await page.keyboard.press("Meta+a");
+    await page.keyboard.press("ControlOrMeta+a");
 
     const popover = page.locator("[data-testid='comment-popover']");
     await expect(popover).toBeVisible({ timeout: 5_000 });
@@ -669,7 +698,7 @@ test.describe("comment edge cases", () => {
     // Select all — reliable in headless Chromium
     // (Shift+Arrow doesn't always trigger
     // selectionchange).
-    await page.keyboard.press("Meta+a");
+    await page.keyboard.press("ControlOrMeta+a");
 
     const popover = page.locator("[data-testid='comment-popover']");
     await expect(popover).toBeVisible({ timeout: 5_000 });
@@ -749,7 +778,7 @@ test.describe("click highlighted text (#192)", () => {
     await createComment(page, "Anchored text here", "Click-to-open test");
 
     // Close the sidebar first.
-    await page.locator(".cs-sidebar-close").click();
+    await page.locator(".poka-comment-sidebar__close").click();
     await expect(
       page.locator("[data-testid='comment-sidebar']"),
     ).not.toBeVisible();
@@ -796,11 +825,14 @@ test.describe("comment ordering (#193)", () => {
       timeout: 3_000,
     });
     const input1 = page.locator(
-      ".cs-new-comment [data-testid='comment-input']",
+      ".poka-comment-sidebar__new-comment [data-testid='comment-input']",
     );
     await input1.fill("Comment on second");
     await page
-      .locator(".cs-new-comment [data-testid='comment-submit']")
+      .locator(
+        ".poka-comment-sidebar__new-comment " +
+          "[data-testid='comment-submit']",
+      )
       .click();
     await expect(
       page
@@ -809,7 +841,7 @@ test.describe("comment ordering (#193)", () => {
     ).toBeVisible({ timeout: 3_000 });
 
     // Close sidebar, then comment on "First paragraph".
-    await page.locator(".cs-sidebar-close").click();
+    await page.locator(".poka-comment-sidebar__close").click();
     const firstP = editor.locator("p").filter({ hasText: "First paragraph" });
     await firstP.click({ clickCount: 3 });
     await expect(page.locator("[data-testid='comment-popover']")).toBeVisible({
@@ -820,11 +852,14 @@ test.describe("comment ordering (#193)", () => {
       timeout: 3_000,
     });
     const input2 = page.locator(
-      ".cs-new-comment [data-testid='comment-input']",
+      ".poka-comment-sidebar__new-comment [data-testid='comment-input']",
     );
     await input2.fill("Comment on first");
     await page
-      .locator(".cs-new-comment [data-testid='comment-submit']")
+      .locator(
+        ".poka-comment-sidebar__new-comment " +
+          "[data-testid='comment-submit']",
+      )
       .click();
     await expect(
       page

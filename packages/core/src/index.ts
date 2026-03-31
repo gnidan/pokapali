@@ -17,7 +17,6 @@ import { Awareness } from "y-protocols/awareness";
 import { Subdocs } from "./subdocs/index.js";
 import {
   setupNamespaceRooms,
-  setupAwarenessRoom,
   setupSignaledAwarenessRoom,
   createSignalingClient,
   SIGNALING_PROTOCOL,
@@ -147,7 +146,6 @@ interface DocInit {
  *   `@pokapali/node` for Node.js.
  */
 export function pokapali(options: PokapaliConfig): PokapaliApp {
-  console.log("[P2P-DIAG] pokapali() called");
   if (typeof window === "undefined") {
     throw new Error(
       "@pokapali/core requires a browser environment." +
@@ -179,7 +177,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
    *  and P2P layer setup run in the background via
    *  p2pReady. */
   async function initDoc(init: DocInit): Promise<Doc> {
-    console.log("[P2P-DIAG] initDoc() entered");
     const { ipnsName, keys, signingKey, identity } = init;
 
     const cap = inferCapability(keys, channels);
@@ -232,7 +229,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
     // Layer B: Helia + P2P — runs in background.
     const p2pReady = (async () => {
-      console.log("[P2P-DIAG] p2pReady IIFE entered");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let blockstore: any;
       if (persistenceEnabled && !isHeliaLive()) {
@@ -246,10 +242,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         }
       }
 
-      console.log("[P2P-DIAG] calling acquireHelia...");
       await acquireHelia({ bootstrapPeers, blockstore });
-
-      console.log("[P2P-DIAG] acquireHelia resolved");
 
       try {
         const pubsub = getHeliaPubsub() as unknown as PubSubLike;
@@ -275,22 +268,42 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
         const helia = getHelia();
 
-        console.log("[P2P-DIAG] starting room discovery");
         const roomDiscovery = startRoomDiscovery(helia, appId);
+
+        // Bootstrap peers are dialed by libp2p but
+        // peer-discovery doesn't know they're relays.
+        // Feed them as external relays so they get
+        // tracked in relayPeerIds.
+        if (bootstrapPeers?.length) {
+          const entries = bootstrapPeers
+            .map((addr) => {
+              const m = addr.match(/\/p2p\/([^/]+)$/);
+              return m ? { peerId: m[1], addrs: [addr] } : null;
+            })
+            .filter(
+              (e): e is { peerId: string; addrs: string[] } => e !== null,
+            );
+          if (entries.length > 0) {
+            roomDiscovery.addExternalRelays(entries);
+          }
+        }
 
         // Wait for relay discovery, then open a
         // signaling stream for WebRTC peer discovery.
-        // Falls back to y-webrtc if signaling fails.
+        // If the initial wait times out, resolve with
+        // a placeholder and retry signaling in the
+        // background — relays often connect after the
+        // DHT finishes its slow initial lookup.
         const RELAY_WAIT_MS = 30_000;
+        const RETRY_RELAY_WAIT_MS = 120_000;
 
-        console.log("[P2P-DIAG] waiting for relay...");
         log.info("waiting for relay discovery...");
 
         let awarenessRoom: AwarenessRoom;
+        let upgradeAwareness: Promise<AwarenessRoom> | undefined;
         try {
           const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
 
-          console.log("[P2P-DIAG] relay found:", relayPid.slice(0, 12));
           log.info("relay discovered:", relayPid.slice(0, 12));
           awarenessRoom = await trySignaling(
             helia,
@@ -300,21 +313,22 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
             syncOpts,
           );
         } catch (err) {
-          console.log(
-            "[P2P-DIAG] signaling FAILED:",
-            (err as Error)?.message ?? err,
-          );
           log.warn(
-            "signaling setup failed, falling back:",
+            "signaling setup failed, retrying in bg:",
             (err as Error)?.message ?? err,
           );
-          awarenessRoom = setupAwarenessRoom(
+          awarenessRoom = placeholderAwarenessRoom(awareness);
+          upgradeAwareness = retrySignaling(
+            helia,
+            roomDiscovery,
             ipnsName,
-            keys.awarenessRoomPassword ?? "",
-            signalingUrls,
-            syncOpts,
             awareness,
+            syncOpts,
+            RETRY_RELAY_WAIT_MS,
           );
+          // Prevent unhandled-rejection if createDoc
+          // hasn't attached its handler yet.
+          upgradeAwareness.catch(() => {});
         }
 
         return {
@@ -322,6 +336,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           syncManager,
           awarenessRoom,
           roomDiscovery,
+          upgradeAwareness,
         };
       } catch (err) {
         releaseHelia();
@@ -478,7 +493,6 @@ async function trySignaling(
   awareness: Awareness,
   syncOpts: SyncOptions,
 ): Promise<AwarenessRoom> {
-  console.log("[P2P-DIAG] trySignaling() entered");
   const localPeerId = helia.libp2p.peerId.toString();
   const conn = helia.libp2p
     .getConnections()
@@ -487,14 +501,12 @@ async function trySignaling(
     throw new Error("relay connection lost: " + relayPid.slice(0, 12));
   }
 
-  console.log("[P2P-DIAG] dialProtocol SIGNALING...");
   log.info("opening signaling stream to:", relayPid.slice(0, 12));
   const stream = await helia.libp2p.dialProtocol(
     conn.remotePeer,
     SIGNALING_PROTOCOL,
   );
 
-  console.log("[P2P-DIAG] signaling stream OPEN");
   const client = createSignalingClient(stream as unknown as SignalingStream);
   log.info("signaling connected to relay:", relayPid.slice(0, 12));
 
@@ -505,6 +517,95 @@ async function trySignaling(
     client,
     awareness,
     rtcConfig ? { rtcConfig } : undefined,
+  );
+}
+
+// --- Placeholder awareness room ---
+
+/**
+ * Minimal AwarenessRoom used while waiting for a
+ * late relay to connect. Does nothing except hold
+ * the awareness instance.
+ */
+function placeholderAwarenessRoom(awareness: Awareness): AwarenessRoom {
+  return {
+    get awareness() {
+      return awareness;
+    },
+    get connected() {
+      return false;
+    },
+    onStatusChange() {},
+    onPeerCreated() {
+      return () => {};
+    },
+    onPeerConnection() {
+      return () => {};
+    },
+    destroy() {},
+  };
+}
+
+/**
+ * Keep watching for relay connections and retry
+ * signaling setup. Resolves when signaling succeeds;
+ * rejects only if a hard timeout expires.
+ */
+async function retrySignaling(
+  helia: ReturnType<typeof getHelia>,
+  roomDiscovery: ReturnType<typeof startRoomDiscovery>,
+  ipnsName: string,
+  awareness: Awareness,
+  syncOpts: SyncOptions,
+  retryTimeoutMs: number,
+): Promise<AwarenessRoom> {
+  const deadline = Date.now() + retryTimeoutMs;
+  const tried = new Set<string>();
+
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+
+    let relayPid: string;
+    try {
+      relayPid = await roomDiscovery.waitForRelay(remaining);
+    } catch {
+      break;
+    }
+
+    // Try each tracked relay, not just the first
+    const relays = [...roomDiscovery.relayPeerIds];
+    for (const pid of relays) {
+      if (tried.has(pid)) continue;
+      tried.add(pid);
+
+      try {
+        log.info("trying signaling to late relay:", pid.slice(0, 12));
+        const room = await trySignaling(
+          helia,
+          pid,
+          ipnsName,
+          awareness,
+          syncOpts,
+        );
+        log.info("signaling upgraded via late relay");
+        return room;
+      } catch (err) {
+        log.debug(
+          "signaling retry failed for",
+          pid.slice(0, 12) + ":",
+          (err as Error)?.message ?? err,
+        );
+      }
+    }
+
+    // All known relays tried — wait for new ones.
+    tried.clear();
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
+
+  throw new Error(
+    "signaling retry timed out after " + `${retryTimeoutMs / 1000}s`,
   );
 }
 

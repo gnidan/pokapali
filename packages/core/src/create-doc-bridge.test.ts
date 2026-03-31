@@ -109,6 +109,7 @@ function mockSubdocManager() {
     encodeAll: vi.fn(() => ({})),
     applySnapshot: vi.fn(),
     isDirty: false,
+    markDirty: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
     whenLoaded: Promise.resolve(),
@@ -141,7 +142,7 @@ function baseParams() {
     primaryChannel: "content",
     signalingUrls: [],
     performInitialResolve: false,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     codec: {} as any,
   };
 }

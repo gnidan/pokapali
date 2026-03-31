@@ -38,7 +38,7 @@ async function createDoc(page: import("@playwright/test").Page) {
 
 /**
  * Type content, click publish, wait for state to
- * leave "Publish changes" (accepted by the app).
+ * leave "Save changes" (accepted by the app).
  */
 async function typeAndPublish(
   page: import("@playwright/test").Page,
@@ -48,16 +48,18 @@ async function typeAndPublish(
   await editor.click();
   await page.keyboard.type(text);
 
-  const save = page.locator(".save-state");
-  await expect(save).toContainText(/Publish/, {
+  const save = page.locator(".poka-save-indicator");
+  // Wait for actionable state (dirty or unpublished)
+  // — NOT /Save/ which also matches "Saved".
+  await expect(save).toHaveClass(/poka-save-indicator--action/, {
     timeout: 5_000,
   });
 
   await save.click();
 
   // Wait for publish to complete — the element loses
-  // the save-action class when no longer publishable.
-  await expect(save).not.toHaveClass(/save-action/, {
+  // the action class when no longer publishable.
+  await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
     timeout: PUBLISH_TIMEOUT,
   });
 }
@@ -96,15 +98,15 @@ test.describe("version history", () => {
 
     // Second edit + publish. Need to wait for state
     // to settle back to a publishable state first.
-    const save = page.locator(".save-state");
+    const save = page.locator(".poka-save-indicator");
     const editor = page.locator(".tiptap");
     await editor.click();
     await page.keyboard.type(" plus more");
-    await expect(save).toContainText(/Publish/, {
+    await expect(save).toHaveClass(/poka-save-indicator--action/, {
       timeout: 5_000,
     });
     await save.click();
-    await expect(save).not.toHaveClass(/save-action/, {
+    await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
       timeout: PUBLISH_TIMEOUT,
     });
 
@@ -154,15 +156,15 @@ test.describe("version history", () => {
     const editor = page.locator(".tiptap");
     await editor.click();
     // Select all and replace.
-    await page.keyboard.press("Meta+a");
+    await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.type("Replaced content");
 
-    const save = page.locator(".save-state");
-    await expect(save).toContainText(/Publish/, {
-      timeout: 5_000,
+    const save = page.locator(".poka-save-indicator");
+    await expect(save).toHaveClass(/poka-save-indicator--action/, {
+      timeout: 10_000,
     });
     await save.click();
-    await expect(save).not.toHaveClass(/save-action/, {
+    await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
       timeout: PUBLISH_TIMEOUT,
     });
 

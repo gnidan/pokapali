@@ -323,24 +323,24 @@ describe("PeerManager", () => {
     manager.destroy();
   });
 
-  it("onPeerConnection fires at PC creation", async () => {
+  it("onPeerCreated fires before SDP offer", async () => {
     const { manager, pcs, firePeerJoined } = setup("aaa-local");
 
-    const connections: {
+    const created: {
       pc: unknown;
       initiator: boolean;
     }[] = [];
-    manager.onPeerConnection((pc, initiator) => {
-      connections.push({ pc, initiator });
+    manager.onPeerCreated((pc, initiator) => {
+      created.push({ pc, initiator });
     });
 
     firePeerJoined("room1", "zzz-remote");
     await tick();
 
-    // Callback fires at creation, not "connected"
-    expect(connections).toHaveLength(1);
-    expect(connections[0]!.initiator).toBe(true);
-    expect(connections[0]!.pc).toBe(pcs[0]);
+    // Callback fires at creation (before offer)
+    expect(created).toHaveLength(1);
+    expect(created[0]!.initiator).toBe(true);
+    expect(created[0]!.pc).toBe(pcs[0]);
 
     manager.destroy();
   });

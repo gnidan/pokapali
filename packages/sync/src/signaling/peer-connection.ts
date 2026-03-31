@@ -104,7 +104,13 @@ export function decodeWebRTCSignal(bytes: Uint8Array): WebRTCSignal {
 type PeerConnectionCb = (pc: RTCPeerConnection, initiator: boolean) => void;
 
 export interface PeerManager {
+  /** Fires when the RTCPeerConnection reaches
+   *  "connected" state. */
   onPeerConnection(cb: PeerConnectionCb): () => void;
+  /** Fires when a new RTCPeerConnection is created
+   *  but BEFORE the SDP offer. Use this to add data
+   *  channels so the offer includes them. */
+  onPeerCreated(cb: PeerConnectionCb): () => void;
   destroy(): void;
 }
 
@@ -133,6 +139,7 @@ export function createPeerManager(
 ): PeerManager {
   const peers = new Map<string, RTCPeerConnection>();
   const connCbs = new Set<PeerConnectionCb>();
+  const createdCbs = new Set<PeerConnectionCb>();
   const unsubs: Array<() => void> = [];
 
   // ICE candidate buffering: candidates that arrive
@@ -285,17 +292,6 @@ export function createPeerManager(
         peers.delete(remotePeerId);
       }
     };
-
-    // Notify listeners immediately so they can
-    // register datachannel handlers before the
-    // connection completes. Waiting until
-    // "connected" is too late — datachannel events
-    // can fire as soon as setRemoteDescription
-    // processes the offer.
-    for (const cb of connCbs) {
-      cb(pc!, initiator);
-    }
-
     return pc;
   }
 
@@ -309,8 +305,9 @@ export function createPeerManager(
     remoteDescSet.delete(remotePeerId);
   }
 
-  // Peer joined → create PC and (if initiator)
-  // send SDP offer
+  // Peer joined → create PC, notify listeners
+  // (so they can add data channels), then (if
+  // initiator) send SDP offer.
   unsubs.push(
     client.onPeerJoined((room, peerId) => {
       if (room !== roomName) return;
@@ -335,13 +332,15 @@ export function createPeerManager(
         isInitiator(peerId),
       );
       const pc = getOrCreatePC(peerId);
+      const initiator = isInitiator(peerId);
 
-      if (isInitiator(peerId)) {
-        // Create a data channel before the offer so
-        // the SDP includes media lines and ICE
-        // negotiation actually starts.
-        pc.createDataChannel("_init");
+      // Let consumers add data channels before
+      // the offer is created.
+      for (const cb of createdCbs) {
+        cb(pc, initiator);
+      }
 
+      if (initiator) {
         // Create and send SDP offer
         void (async () => {
           try {
@@ -459,6 +458,11 @@ export function createPeerManager(
     onPeerConnection(cb: PeerConnectionCb): () => void {
       connCbs.add(cb);
       return () => connCbs.delete(cb);
+    },
+
+    onPeerCreated(cb: PeerConnectionCb): () => void {
+      createdCbs.add(cb);
+      return () => createdCbs.delete(cb);
     },
 
     destroy() {

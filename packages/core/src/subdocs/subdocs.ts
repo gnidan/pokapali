@@ -67,6 +67,13 @@ export interface Subdocs {
    * flag was cleared.
    */
   on(event: "dirty", cb: () => void): void;
+  /**
+   * Explicitly marks the subdoc manager as dirty and
+   * fires listeners. Used when edits bypass the
+   * managed Y.Docs (e.g. surface/Document API edits
+   * that go to a separate Y.Doc).
+   */
+  markDirty(): void;
   /** Removes a previously registered "dirty"
    *  listener. */
   off(event: "dirty", cb: () => void): void;
@@ -190,6 +197,15 @@ export const Subdocs: {
 
       get isDirty(): boolean {
         return dirty;
+      },
+
+      markDirty(): void {
+        if (!dirty) {
+          dirty = true;
+          for (const cb of dirtyListeners) {
+            cb();
+          }
+        }
       },
 
       on(event: "dirty", cb: () => void): void {

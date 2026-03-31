@@ -26,7 +26,11 @@ export default defineConfig(({ command }) => ({
     port: Number(process.env.PORT) || 3141,
     strictPort: true,
   },
-  base: command === "build" ? "/pokapali/" : "/",
+  preview: {
+    port: Number(process.env.PORT) || 3141,
+    strictPort: true,
+  },
+  base: process.env.VITE_BASE ?? (command === "build" ? "/pokapali/" : "/"),
   build: {
     target: "es2020",
     rollupOptions: {

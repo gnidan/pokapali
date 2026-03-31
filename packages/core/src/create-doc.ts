@@ -14,14 +14,18 @@ import {
   setupParticipantAwareness,
 } from "./doc-identity.js";
 import type { IdentityMap } from "./doc-identity.js";
-import type { Subdocs } from "./subdocs/index.js";
+import { Subdocs } from "./subdocs/index.js";
 import type {
   SyncManager,
   AwarenessRoom,
   SyncOptions,
   PubSubLike,
 } from "@pokapali/sync";
-import { createReconcileChannel, createTransport } from "@pokapali/sync";
+import {
+  createReconcileChannel,
+  createTransport,
+  ReconciliationMessageType,
+} from "@pokapali/sync";
 import {
   createReconciliationWiring,
   type ReconciliationWiring,
@@ -327,6 +331,11 @@ export interface P2PDeps {
   syncManager: SyncManager;
   awarenessRoom: AwarenessRoom;
   roomDiscovery: RoomDiscovery;
+  /** Resolves when signaling connects after the
+   *  initial relay timeout. The new AwarenessRoom
+   *  replaces the placeholder passed in
+   *  awarenessRoom. */
+  upgradeAwareness?: Promise<AwarenessRoom>;
 }
 
 export interface DocParams {
@@ -520,18 +529,8 @@ export function createDoc(params: DocParams): Doc {
   // Debounced to avoid re-running on every keystroke.
   function scheduleReconcile(): void {
     if (reconcileTimer) return;
-    console.log(
-      "[P2P-DIAG] scheduleReconcile: edit captured,",
-      reconciliationWirings.size,
-      "wirings",
-    );
     reconcileTimer = setTimeout(() => {
       reconcileTimer = null;
-      console.log(
-        "[P2P-DIAG] reconcile triggered for",
-        reconciliationWirings.size,
-        "wirings",
-      );
       for (const w of reconciliationWirings) {
         w.reconcile();
       }
@@ -822,39 +821,20 @@ export function createDoc(params: DocParams): Doc {
       });
     });
 
-    // Reconciliation: when a new peer connection
-    // appears, create a data channel and wire up
-    // edit reconciliation.
-    if (!ar.onPeerConnection) return;
+    // Reconciliation: create data channels BEFORE
+    // the SDP offer (via onPeerCreated) so they're
+    // included in ICE negotiation. This also ensures
+    // the callback is registered before the room
+    // discovers any peers — critical for the upgrade
+    // path where the room may already be joining.
+    if (!ar.onPeerCreated) return;
     unsubPeerConn?.();
-    unsubPeerConn = ar.onPeerConnection((pc, initiator) => {
-      console.debug(
-        "[pokapali:create-doc] onPeerConnection",
-        initiator ? "(initiator)" : "(responder)",
-        `state=${pc.connectionState}`,
-      );
+    unsubPeerConn = ar.onPeerCreated((pc, initiator) => {
       if (destroyed || !params.document) return;
       const doc = params.document;
 
       function wireDataChannel(dc: RTCDataChannel): void {
         dc.binaryType = "arraybuffer";
-        console.log(
-          "[P2P-DIAG] wireDataChannel",
-          `label=${dc.label}`,
-          `state=${dc.readyState}`,
-          `binaryType=${dc.binaryType}`,
-        );
-
-        // Track data channel state transitions
-        dc.addEventListener("open", () => {
-          console.log("[P2P-DIAG] DC open:", dc.label);
-        });
-        dc.addEventListener("close", () => {
-          console.log("[P2P-DIAG] DC close:", dc.label);
-        });
-        dc.addEventListener("error", (evt) => {
-          console.log("[P2P-DIAG] DC error:", dc.label, evt);
-        });
 
         const transport = createTransport(dc);
         const wiring = createReconciliationWiring({
@@ -863,20 +843,14 @@ export function createDoc(params: DocParams): Doc {
           codec: params.codec,
           transport,
           onRemoteEdit: (channelName, edit) => {
-            console.log(
-              "[P2P-DIAG] onRemoteEdit:",
-              channelName,
-              "payload=",
-              edit.payload.length,
-              "bytes",
-            );
             const ydoc = subdocManager.subdoc(channelName);
             // Apply to subdocManager's subdoc for
             // publish fallback + dirty tracking.
-            // Use "reconcile" origin so the
-            // send-side edit bridge (origin != null
-            // check) doesn't re-capture this.
-            Y.applyUpdate(ydoc, edit.payload, "reconcile");
+            // Use SNAPSHOT_ORIGIN so the subdoc
+            // manager's dirty tracker ignores it
+            // and the send-side edit bridge
+            // (origin != null) doesn't re-capture.
+            Y.applyUpdate(ydoc, edit.payload, Subdocs.SNAPSHOT_ORIGIN);
           },
         });
         reconciliationWirings.add(wiring);
@@ -885,7 +859,6 @@ export function createDoc(params: DocParams): Doc {
         // status facts (replaces the old
         // WebrtcProvider status bridge).
         const unsubConn = transport.onConnectionChange((connected) => {
-          console.log("[P2P-DIAG] transport connection:", connected);
           factQueue?.push({
             type: "sync-status-changed",
             ts: Date.now(),
@@ -893,19 +866,81 @@ export function createDoc(params: DocParams): Doc {
           });
         });
 
+        // Live edit forwarding: forward local edits
+        // to the peer and apply incoming edits.
+        const editUnsubs: Array<() => void> = [];
+
+        function startLiveForwarding(): void {
+          for (const ch of channels) {
+            const unsub = doc.onEdit(ch, (edit) => {
+              // Only forward local edits — remote
+              // edits (origin "sync") are already
+              // on the peer.
+              if (edit.origin !== "local") return;
+              if (!transport.connected) return;
+              transport.send(ch, {
+                type: ReconciliationMessageType.EDIT_BATCH,
+                channel: ch,
+                edits: [
+                  {
+                    payload: edit.payload,
+                    signature: edit.signature,
+                  },
+                ],
+              });
+            });
+            editUnsubs.push(unsub);
+          }
+        }
+
+        // Handle incoming live edits (EDIT_BATCH
+        // messages that arrive after initial
+        // reconciliation).
+        const unsubLiveEdits = transport.onMessage((channelName, msg) => {
+          if (msg.type !== ReconciliationMessageType.EDIT_BATCH) {
+            return;
+          }
+          const channel = doc.channel(channelName);
+          for (const e of msg.edits) {
+            const edit = {
+              payload: e.payload,
+              timestamp: Date.now(),
+              author: "",
+              channel: channelName,
+              origin: "sync" as const,
+              signature: e.signature,
+            };
+            channel.appendEdit(edit);
+            // Apply to subdocManager's Y.Doc so
+            // non-surface channels (e.g. comments)
+            // update. Surface channels also need
+            // this for snapshot encoding parity.
+            // Use SNAPSHOT_ORIGIN so subdoc dirty
+            // tracker ignores it and the send-side
+            // edit bridge doesn't re-capture.
+            const ydoc = subdocManager.subdoc(channelName);
+            Y.applyUpdate(ydoc, e.payload, Subdocs.SNAPSHOT_ORIGIN);
+          }
+        });
+
         // Start reconciliation when channel opens
         if (dc.readyState === "open") {
-          console.log("[P2P-DIAG] reconcile (immediate):", dc.label);
           wiring.reconcile();
+          startLiveForwarding();
         } else {
           dc.addEventListener("open", () => {
-            if (!reconciliationWirings.has(wiring)) return;
-            console.log("[P2P-DIAG] reconcile (deferred):", dc.label);
+            if (!reconciliationWirings.has(wiring)) {
+              return;
+            }
             wiring.reconcile();
+            startLiveForwarding();
           });
         }
 
         function cleanup() {
+          for (const unsub of editUnsubs) unsub();
+          editUnsubs.length = 0;
+          unsubLiveEdits();
           unsubConn();
           wiring.destroy();
           reconciliationWirings.delete(wiring);
@@ -924,7 +959,8 @@ export function createDoc(params: DocParams): Doc {
         dc.addEventListener("error", cleanup);
       }
 
-      // Initiator creates the data channel
+      // Initiator creates the data channel before
+      // the SDP offer so it's in the negotiation.
       if (initiator) {
         wireDataChannel(createReconcileChannel(pc));
       }
@@ -1578,15 +1614,32 @@ export function createDoc(params: DocParams): Doc {
 
   // Deferred P2P: wire up when Helia finishes
   if (params.p2pReady && !params.pubsub) {
-    console.log("[P2P-DIAG] create-doc: p2pReady .then() registered");
     params.p2pReady
       .then((deps) => {
-        console.log("[P2P-DIAG] create-doc: p2pReady RESOLVED");
         if (destroyed) return;
         p2pResolved = true;
         liveSyncManager = deps.syncManager;
         liveAwarenessRoom = deps.awarenessRoom;
         wireSyncBridges(deps.syncManager, deps.awarenessRoom);
+
+        // Upgrade awareness room when signaling
+        // connects after the initial relay timeout.
+        if (deps.upgradeAwareness) {
+          deps.upgradeAwareness
+            .then((newRoom) => {
+              if (destroyed) return;
+              log.info("upgrading awareness room");
+              liveAwarenessRoom?.destroy();
+              liveAwarenessRoom = newRoom;
+              wireSyncBridges(deps.syncManager, newRoom);
+            })
+            .catch((err) => {
+              log.debug(
+                "awareness upgrade skipped:",
+                (err as Error)?.message ?? err,
+              );
+            });
+        }
 
         // Relay sharing (deferred)
         if (deps.roomDiscovery && awareness) {
@@ -1618,7 +1671,6 @@ export function createDoc(params: DocParams): Doc {
         startP2PLayer(deps.pubsub, deps.roomDiscovery);
       })
       .catch((err) => {
-        console.log("[P2P-DIAG] create-doc: p2pReady REJECTED:", err);
         log.warn("p2pReady failed:", err);
         // Ensure ready() resolves even without P2P
         markReady();
@@ -1758,6 +1810,11 @@ export function createDoc(params: DocParams): Doc {
           if (origin === "remote" || origin === "snapshot") {
             return;
           }
+          // Mark subdocManager dirty so the save state
+          // transitions to "dirty". Surface edits bypass
+          // the subdocManager's Y.Docs, so its update
+          // handler never fires.
+          subdocManager.markDirty();
           scheduleReconcile();
         };
         handle.on("update", handler);

@@ -224,9 +224,9 @@ test.describe("document loading", () => {
       timeout: EDITOR_TIMEOUT,
     });
 
-    // New doc should show "Publish now".
-    const save = page.locator(".save-state");
+    // New doc should show "Save now".
+    const save = page.locator(".poka-save-indicator");
     await expect(save).toBeVisible();
-    await expect(save).toContainText("Publish");
+    await expect(save).toContainText("Save");
   });
 });

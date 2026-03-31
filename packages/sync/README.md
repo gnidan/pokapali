@@ -33,9 +33,6 @@ syncManager.onStatusChange((status) => {
   console.log(status); // "connecting" | "connected" | "disconnected"
 });
 
-// Connect additional channels on demand
-syncManager.connectChannel("comments");
-
 // 2. Set up shared awareness room for cursors
 const { awareness, destroy: destroyAwareness } = setupAwarenessRoom(
   ipnsName,

@@ -48,4 +48,7 @@ export {
   collectEditHashes,
   channelFingerprint,
 } from "./reconciliation/edit-resolver.js";
-export { type Message as ReconciliationMessage } from "./reconciliation/messages.js";
+export {
+  MessageType as ReconciliationMessageType,
+  type Message as ReconciliationMessage,
+} from "./reconciliation/messages.js";

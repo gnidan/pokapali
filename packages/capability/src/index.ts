@@ -283,7 +283,11 @@ export async function parseUrl(url: string): Promise<ParsedUrl> {
     );
   }
   const base = pathPart.slice(0, docIdx);
-  const ipnsName = pathPart.slice(docIdx + 5);
+  const afterDoc = pathPart.slice(docIdx + 5);
+  // Strip query string — callers may pass full URLs
+  // with ?bootstrapPeers= or other params.
+  const qIdx = afterDoc.indexOf("?");
+  const ipnsName = qIdx === -1 ? afterDoc : afterDoc.slice(0, qIdx);
 
   const keys = await decodeFragment(fragment);
   return { base, ipnsName, keys };

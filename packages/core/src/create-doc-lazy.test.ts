@@ -108,6 +108,7 @@ function mockSubdocManager() {
     encodeAll: vi.fn(() => ({})),
     applySnapshot: vi.fn(),
     isDirty: false,
+    markDirty: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
     whenLoaded: Promise.resolve(),
@@ -279,7 +280,6 @@ describe("lazy P2P init (#200)", () => {
           syncManager: {
             status: "connected",
             onStatusChange: vi.fn(),
-            connectChannel: vi.fn(),
             destroy: vi.fn(),
           },
           awarenessRoom: {

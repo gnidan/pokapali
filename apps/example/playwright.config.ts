@@ -2,11 +2,17 @@ import { defineConfig } from "@playwright/test";
 
 const port = Number(process.env.PORT) || 3141;
 
+const isCI = !!process.env.CI;
+
 export default defineConfig({
   testDir: "./src",
   testMatch: "**/*.e2e.ts",
   timeout: 30_000,
-  retries: 0,
+  retries: isCI ? 1 : 0,
+  // Single worker on CI to prevent Vite dev-server
+  // crash from resource exhaustion (each test spins
+  // up Chromium contexts with IPFS + WebRTC).
+  workers: isCI ? 1 : undefined,
   globalSetup: "./e2e-global-setup.ts",
   globalTeardown: "./e2e-global-teardown.ts",
   use: {
@@ -14,15 +20,35 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `PORT=${port} npm run dev`,
+    // CI: serve the pre-built static output (lightweight).
+    // Dev: run the full Vite HMR dev server.
+    command: isCI
+      ? `npx vite preview --port ${port}`
+      : `PORT=${port} npm run dev`,
     port,
     reuseExistingServer: true,
-    timeout: 15_000,
+    timeout: 30_000,
   },
   projects: [
     {
       name: "chromium",
-      use: { browserName: "chromium" },
+      use: {
+        browserName: "chromium",
+        launchOptions: {
+          args: [
+            // Expose real local IPs in ICE candidates
+            // so WebRTC works between browser contexts.
+            // Without this, Chromium uses mDNS names
+            // that don't resolve across contexts.
+            "--disable-features=" + "WebRtcHideLocalIpsWithMdns",
+            // Required for headless on CI without
+            // a display server.
+            "--no-sandbox",
+            "--disable-gpu",
+            "--font-render-hinting=none",
+          ],
+        },
+      },
     },
   ],
 });

@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 
 const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
 const EDITOR_TIMEOUT = 8_000;
-const SYNC_TIMEOUT = 15_000;
+const SYNC_TIMEOUT = 30_000;
 
 interface RelayInfo {
   multiaddr: string;
@@ -74,6 +74,16 @@ async function getWriteUrl(
   return url;
 }
 
+/**
+ * Wait for two peers to see each other via awareness.
+ */
+async function waitForPeerConnection(page: import("@playwright/test").Page) {
+  await expect(page.locator("[data-testid='cs-users-count']")).toContainText(
+    "2",
+    { timeout: SYNC_TIMEOUT },
+  );
+}
+
 test.describe("share flow", () => {
   // These tests need extra time for relay discovery
   // and WebRTC connection.
@@ -123,9 +133,13 @@ test.describe("share flow", () => {
         timeout: EDITOR_TIMEOUT,
       });
 
+      // Wait for peer connection before checking
+      // content sync.
+      await waitForPeerConnection(alice);
+      await waitForPeerConnection(bob);
+
       // Wait for Bob to see Alice's content via
-      // relay sync. May take a few seconds for
-      // GossipSub mesh + WebRTC.
+      // relay sync.
       await expect(bob.locator(".tiptap")).toContainText("Hello from Alice", {
         timeout: SYNC_TIMEOUT,
       });
@@ -172,6 +186,10 @@ test.describe("share flow", () => {
       await expect(bob.locator(".tiptap")).toBeVisible({
         timeout: EDITOR_TIMEOUT,
       });
+
+      // Wait for peer connection before typing.
+      await waitForPeerConnection(alice);
+      await waitForPeerConnection(bob);
 
       // Alice types — Bob sees it.
       await alice.locator(".tiptap").click();

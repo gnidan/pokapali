@@ -97,6 +97,12 @@ export interface Document {
    *   Deactivates ALL views, returning to background.
    */
   deactivate(): void;
+  /**
+   * Register a callback that fires whenever an edit
+   * is appended to a channel (local or remote).
+   * Returns an unsubscribe function.
+   */
+  onEdit(channel: string, cb: (edit: Edit) => void): () => void;
   destroy(): void;
 }
 
@@ -141,7 +147,7 @@ export const Document = {
 
     // Surface support: edit listeners notify
     // surfaces when remote edits arrive.
-    const editListeners = new Map<string, (edit: Edit) => void>();
+    const editListeners = new Map<string, Set<(edit: Edit) => void>>();
     const surfaces = new Map<
       string,
       { surface: CodecSurface; unsub: () => void }
@@ -161,7 +167,10 @@ export const Document = {
           },
           appendEdit(edit: Edit) {
             raw.appendEdit(edit);
-            editListeners.get(name)?.(edit);
+            const cbs = editListeners.get(name);
+            if (cbs) {
+              for (const cb of cbs) cb(edit);
+            }
           },
           appendSnapshot(state: Uint8Array) {
             raw.appendSnapshot(state);
@@ -336,11 +345,17 @@ export const Document = {
         });
 
         // Wire remote edits to surface
-        editListeners.set(channelName, (edit) => {
+        const surfaceListener = (edit: Edit) => {
           if (edit.origin !== "local") {
             s.applyEdit(edit.payload);
           }
-        });
+        };
+        let set = editListeners.get(channelName);
+        if (!set) {
+          set = new Set();
+          editListeners.set(channelName, set);
+        }
+        set.add(surfaceListener);
 
         surfaces.set(channelName, {
           surface: s,
@@ -403,6 +418,21 @@ export const Document = {
           return;
         }
         deactivateView(viewName);
+      },
+
+      onEdit(channelName: string, cb: (edit: Edit) => void): () => void {
+        let set = editListeners.get(channelName);
+        if (!set) {
+          set = new Set();
+          editListeners.set(channelName, set);
+        }
+        set.add(cb);
+        // Ensure channel exists so appendEdit calls
+        // reach the listener.
+        getOrCreateChannel(channelName);
+        return () => {
+          set!.delete(cb);
+        };
       },
 
       destroy() {

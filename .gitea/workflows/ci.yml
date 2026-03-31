@@ -92,6 +92,25 @@ jobs:
             exit 1
           fi
 
+  e2e:
+    name: E2E Tests
+    needs: build-test-lint
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - name: Build with base=/ for E2E preview
+        run: npm run build
+        env:
+          VITE_BASE: /
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+      - name: Run E2E tests
+        run: npx playwright test
+        working-directory: apps/example
+        env:
+          POKAPALI_LOG_LEVEL: silent
+
   changeset-check:
     name: Changeset Check
     if: github.event_name == 'pull_request'

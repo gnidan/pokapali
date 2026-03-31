@@ -111,25 +111,6 @@ describe("setupNamespaceRooms (thin shell)", () => {
     sync.destroy();
   });
 
-  it("connectChannel is a no-op", () => {
-    const mgr = createSubdocManager(IPNS, ["content"]);
-
-    const sync = setupNamespaceRooms(
-      IPNS,
-      mgr,
-      { content: makeKey(1) },
-      SIGNALING,
-    );
-
-    // Should not throw or create providers
-    sync.connectChannel("content");
-    sync.connectChannel("nonexistent");
-    expect(instances).toHaveLength(0);
-
-    mgr.destroy();
-    sync.destroy();
-  });
-
   it("destroy is safe to call multiple times", () => {
     const mgr = createSubdocManager(IPNS, ["content"]);
 

@@ -80,7 +80,6 @@ vi.mock("@pokapali/sync", () => ({
   setupNamespaceRooms: vi.fn(() => ({
     status: "connected",
     onStatusChange: vi.fn(),
-    connectChannel: vi.fn(),
     destroy: vi.fn(),
   })),
   setupAwarenessRoom: vi.fn(() => ({
@@ -94,6 +93,21 @@ vi.mock("@pokapali/sync", () => ({
     onStatusChange: vi.fn(),
     destroy: vi.fn(),
   })),
+  setupSignaledAwarenessRoom: vi.fn(() => ({
+    awareness: {
+      on: vi.fn(),
+      off: vi.fn(),
+      setLocalStateField: vi.fn(),
+      states: new Map(),
+    },
+    connected: true,
+    onStatusChange: vi.fn(),
+    onPeerCreated: vi.fn(() => () => {}),
+    onPeerConnection: vi.fn(() => () => {}),
+    destroy: vi.fn(),
+  })),
+  createSignalingClient: vi.fn(() => ({})),
+  SIGNALING_PROTOCOL: "/pokapali/signaling/1.0.0",
 }));
 
 vi.mock("blockstore-idb", () => ({
@@ -937,6 +951,114 @@ describe("@pokapali/core", () => {
 
       doc.destroy();
     });
+  });
+
+  describe("signaling retry after relay timeout", () => {
+    it(
+      "retries signaling when initial relay" + " discovery times out",
+      async () => {
+        const { startRoomDiscovery } = await import("./peer-discovery.js");
+        const { getHelia } = await import("./helia.js");
+
+        // Override peer-discovery to reject first
+        // waitForRelay (30s timeout) then resolve
+        // on retry (simulating a late relay).
+        const relayPeerIds = new Set<string>();
+        const mockWaitForRelay = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("no relay within timeout"))
+          .mockImplementation(async () => {
+            relayPeerIds.add("late-relay-pid");
+            return "late-relay-pid";
+          });
+        vi.mocked(startRoomDiscovery).mockReturnValue({
+          relayPeerIds,
+          relayEntries: vi.fn(() => []),
+          addExternalRelays: vi.fn(),
+          waitForRelay: mockWaitForRelay,
+          stop: vi.fn(),
+        } as any);
+
+        // Override helia mock so trySignaling can
+        // find the relay connection and dial.
+        vi.mocked(getHelia).mockReturnValue({
+          blockstore: {
+            put: vi.fn().mockResolvedValue(undefined),
+            get: vi.fn().mockRejectedValue(new Error("Not found")),
+          },
+          libp2p: {
+            peerId: {
+              toString: () => "mock-peer-id",
+            },
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            getConnections: vi.fn(() => [
+              {
+                remotePeer: {
+                  toString: () => "late-relay-pid",
+                },
+              },
+            ]),
+            dialProtocol: vi.fn().mockResolvedValue({}),
+          },
+        } as any);
+
+        const { setupSignaledAwarenessRoom } = await import("@pokapali/sync");
+
+        vi.mocked(setupSignaledAwarenessRoom).mockClear();
+
+        try {
+          const lib = pokapali(OPTS);
+          const doc = await lib.create();
+
+          // Wait for the background retry to call
+          // setupSignaledAwarenessRoom. This proves
+          // signaling recovered after the initial
+          // 30s relay timeout.
+          await vi.waitFor(
+            () => {
+              expect(setupSignaledAwarenessRoom).toHaveBeenCalled();
+            },
+            { timeout: 5000 },
+          );
+
+          // waitForRelay called at least twice:
+          // initial attempt + retry.
+          expect(mockWaitForRelay).toHaveBeenCalledTimes(2);
+
+          doc.destroy();
+        } finally {
+          // Restore default mocks so subsequent
+          // tests aren't affected.
+          vi.mocked(startRoomDiscovery).mockReturnValue({
+            relayPeerIds: new Set(),
+            relayEntries: vi.fn(() => []),
+            addExternalRelays: vi.fn(),
+            waitForRelay: vi
+              .fn()
+              .mockRejectedValue(new Error("no relay in test")),
+            stop: vi.fn(),
+          } as any);
+          vi.mocked(getHelia).mockReturnValue({
+            blockstore: {
+              put: vi.fn().mockResolvedValue(undefined),
+              get: vi.fn().mockRejectedValue(new Error("Not found")),
+            },
+            libp2p: {
+              peerId: {
+                toString: () => "mock-peer-id",
+              },
+              addEventListener: vi.fn(),
+              removeEventListener: vi.fn(),
+              getConnections: vi.fn(() => []),
+              dialProtocol: vi
+                .fn()
+                .mockRejectedValue(new Error("not supported")),
+            },
+          } as any);
+        }
+      },
+    );
   });
 
   describe("lazy Helia init (#200)", () => {
