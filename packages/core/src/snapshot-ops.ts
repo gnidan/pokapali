@@ -114,8 +114,6 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
         cid,
         readKey,
         (plaintext) => {
-          subdocManager.applySnapshot(plaintext);
-
           if (document) {
             for (const [ch, state] of Object.entries(plaintext)) {
               document.channel(ch).appendSnapshot(state);
