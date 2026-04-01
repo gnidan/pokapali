@@ -68,9 +68,7 @@ import {
   State,
   Cache,
   foldTree,
-  epochMeasured,
 } from "@pokapali/document";
-import { measureTree } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
@@ -1977,47 +1975,23 @@ export function createDoc(params: DocParams): Doc {
         ts: Date.now(),
       });
 
-      // Materialize snapshot from epoch tree when
-      // Document is available; fall back to subdoc
-      // encoding otherwise.
-      let plaintext: Record<string, Uint8Array>;
-      let clockSum: number;
-      // Use epoch tree fold when Document is available
-      // AND at least one channel has actual edits in
-      // its tree. A fresh channel has a single empty
-      // epoch (tree.tag === "single") but zero edits.
-      // During the transition period, edits may flow
-      // through subdocManager directly (not yet via
-      // Document.channel.appendEdit), so fall back
-      // when no channel has edits.
-      const hasTreeContent =
-        params.document &&
-        channels.some((ch) => {
-          const tree = params.document!.channel(ch).tree;
-          const summary = measureTree(epochMeasured, tree);
-          return summary.editCount > 0;
-        });
-      if (hasTreeContent) {
-        const measured = State.channelMeasured(params.codec);
-        plaintext = {};
-        clockSum = 0;
-        for (const ch of channels) {
-          const cache = Cache.create<Uint8Array>();
-          const state = foldTree<Uint8Array>(
-            measured,
-            params.document!.channel(ch).tree,
-            cache,
-          );
-          plaintext[ch] = state;
-          clockSum += params.codec.clockSum(state);
-        }
-        // Reset subdocManager dirty flag so save
-        // state machinery transitions to "saved".
-        subdocManager.encodeAll();
-      } else {
-        plaintext = subdocManager.encodeAll();
-        clockSum = computeClockSum();
+      // Materialize snapshot from epoch tree fold.
+      const measured = State.channelMeasured(params.codec);
+      const plaintext: Record<string, Uint8Array> = {};
+      let clockSum = 0;
+      for (const ch of channels) {
+        const cache = Cache.create<Uint8Array>();
+        const state = foldTree<Uint8Array>(
+          measured,
+          params.document!.channel(ch).tree,
+          cache,
+        );
+        plaintext[ch] = state;
+        clockSum += params.codec.clockSum(state);
       }
+      // Reset subdocManager dirty flag so save
+      // state machinery transitions to "saved".
+      subdocManager.encodeAll();
       let pushResult;
       try {
         pushResult = await snapshotLC.push(
