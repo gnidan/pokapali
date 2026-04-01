@@ -11,7 +11,7 @@ import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { hexToBytes, bytesToHex, verifyBytes } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
-import { SNAPSHOT_ORIGIN } from "./constants.js";
+import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
 import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
 import { createFeed } from "./sources.js";

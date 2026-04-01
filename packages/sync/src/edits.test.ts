@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
-import { SNAPSHOT_ORIGIN } from "@pokapali/subdocs";
-import type { SubdocManager } from "@pokapali/subdocs";
+import { SNAPSHOT_ORIGIN } from "./subdoc-provider.js";
+import type { SubdocProvider } from "./subdoc-provider.js";
 import { Document } from "@pokapali/document";
 import type { Document as DocumentType } from "@pokapali/document";
 import { Edits } from "./edits.js";
@@ -24,7 +24,6 @@ function fakeCapability() {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fakeCodec(): any {
   return {
     merge: () => new Uint8Array(),
@@ -41,15 +40,15 @@ function fakeCodec(): any {
 }
 
 /**
- * Create a mock SubdocManager with real Y.Docs
+ * Create a mock SubdocProvider with real Y.Docs
  * per channel. whenLoaded resolves immediately
  * unless overridden.
  */
-function mockSubdocManager(
+function mockSubdocProvider(
   channelNames: string[],
   opts?: { whenLoaded?: Promise<void> },
 ): {
-  manager: SubdocManager;
+  provider: SubdocProvider;
   docs: Map<string, Y.Doc>;
 } {
   const docs = new Map<string, Y.Doc>();
@@ -57,7 +56,7 @@ function mockSubdocManager(
     docs.set(name, new Y.Doc());
   }
 
-  const manager: SubdocManager = {
+  const provider: SubdocProvider = {
     subdoc(ns: string): Y.Doc {
       let doc = docs.get(ns);
       if (!doc) {
@@ -66,23 +65,10 @@ function mockSubdocManager(
       }
       return doc;
     },
-    get metaDoc(): Y.Doc {
-      return new Y.Doc();
-    },
-    encodeAll() {
-      return {};
-    },
-    applySnapshot() {},
-    get isDirty() {
-      return false;
-    },
-    on() {},
-    off() {},
     whenLoaded: opts?.whenLoaded ?? Promise.resolve(),
-    destroy() {},
   };
 
-  return { manager, docs };
+  return { provider, docs };
 }
 
 // -- Tests --
@@ -99,10 +85,10 @@ describe("Edits.create", () => {
   });
 
   it("captures local edit", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -124,10 +110,10 @@ describe("Edits.create", () => {
   });
 
   it("captures remote edit with sync origin", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -151,10 +137,10 @@ describe("Edits.create", () => {
   });
 
   it("filters SNAPSHOT_ORIGIN updates", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -177,10 +163,10 @@ describe("Edits.create", () => {
 
   it("filters skipOrigins updates", async () => {
     const customOrigin = { name: "y-indexeddb" };
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -202,10 +188,10 @@ describe("Edits.create", () => {
   });
 
   it("routes edits to correct channels", async () => {
-    const { manager, docs } = mockSubdocManager(["content", "comments"]);
+    const { provider, docs } = mockSubdocProvider(["content", "comments"]);
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
@@ -231,10 +217,10 @@ describe("Edits.create", () => {
   });
 
   it("destroy stops capturing edits", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -256,10 +242,10 @@ describe("Edits.create", () => {
     let resolveLoaded!: () => void;
     const whenLoaded = new Promise<void>((r) => (resolveLoaded = r));
 
-    const { manager, docs } = mockSubdocManager(["content"], { whenLoaded });
+    const { provider, docs } = mockSubdocProvider(["content"], { whenLoaded });
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -289,10 +275,10 @@ describe("Edits.create", () => {
     let resolveLoaded!: () => void;
     const whenLoaded = new Promise<void>((r) => (resolveLoaded = r));
 
-    const { manager, docs } = mockSubdocManager(["content"], { whenLoaded });
+    const { provider, docs } = mockSubdocProvider(["content"], { whenLoaded });
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",

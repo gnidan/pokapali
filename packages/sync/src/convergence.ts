@@ -11,7 +11,7 @@
  */
 import * as Y from "yjs";
 import { sha256 } from "@noble/hashes/sha256";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "./subdoc-provider.js";
 import type { Document } from "@pokapali/document";
 
 /**
@@ -36,7 +36,7 @@ export const Convergence: {
   create(opts: {
     awareness: AwarenessLike;
     document: Document;
-    subdocManager: SubdocManager;
+    subdocProvider: SubdocProvider;
     channelNames: string[];
     hysteresisCount?: number;
     checkIntervalMs?: number;
@@ -46,7 +46,7 @@ export const Convergence: {
     const {
       awareness,
       document,
-      subdocManager,
+      subdocProvider,
       channelNames,
       hysteresisCount = 3,
       checkIntervalMs = 2000,
@@ -62,7 +62,7 @@ export const Convergence: {
     }
 
     function computeHash(channelName: string): string {
-      const doc = subdocManager.subdoc(channelName);
+      const doc = subdocProvider.subdoc(channelName);
       const sv = Y.encodeStateVector(doc);
       const hash = sha256(sv).slice(0, 8);
       return Array.from(hash)

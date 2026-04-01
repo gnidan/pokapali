@@ -5,7 +5,7 @@
  * navigation between landing and editor.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./e2e-fixtures.js";
 
 const EDITOR_TIMEOUT = 8_000;
 

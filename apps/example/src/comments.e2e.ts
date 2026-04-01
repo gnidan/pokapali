@@ -5,7 +5,7 @@
  * resolve/reopen/delete, anchoring, and edge cases.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./e2e-fixtures.js";
 
 const EDITOR_TIMEOUT = 8_000;
 

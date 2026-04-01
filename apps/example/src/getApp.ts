@@ -17,6 +17,10 @@ export function getApp(): Promise<PokapaliApp> {
   appPromise = import("@pokapali/core").then(({ pokapali }) => {
     const params = new URLSearchParams(window.location.search);
     const noCache = params.get("noCache") === "1";
+    const noP2P =
+      params.get("noP2P") === "1" ||
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__POKAPALI_NO_P2P === true;
     const peersParam = params.get("bootstrapPeers");
     const bootstrapPeers = peersParam
       ? peersParam.split(",").filter(Boolean)
@@ -27,6 +31,7 @@ export function getApp(): Promise<PokapaliApp> {
       origin:
         window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
       persistence: !noCache,
+      p2p: !noP2P,
       ...(bootstrapPeers ? { bootstrapPeers } : {}),
     });
     if (import.meta.hot) {

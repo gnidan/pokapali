@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { bytesToHex, hexToBytes, verifyBytes } from "@pokapali/crypto";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
-import { Subdocs } from "./subdocs/index.js";
+import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
 import { Awareness } from "y-protocols/awareness";
 import { signParticipant } from "./identity.js";
 import { setupParticipantAwareness } from "./doc-identity.js";
@@ -445,28 +445,40 @@ describe("clientIdMapping Feed projection", () => {
 
 describe("setupParticipantAwareness", () => {
   it(
-    "identity registration does not mark " + "subdoc dirty (#357)",
+    "identity registration uses SNAPSHOT_ORIGIN" +
+      " so it does not trigger dirty (#357)",
     async () => {
       const seed = new Uint8Array(32);
       crypto.getRandomValues(seed);
       const kp = await ed25519KeyPairFromSeed(seed);
 
-      const sdm = Subdocs.create("test-ipns", ["content"]);
+      const metaDoc = new Y.Doc({
+        guid: "test-ipns:_meta",
+      });
       const doc = new Y.Doc();
       const awareness = new Awareness(doc);
 
-      setupParticipantAwareness(kp, awareness, sdm.metaDoc, "test-ipns");
+      // Track origins of all updates
+      const origins: unknown[] = [];
+      metaDoc.on("update", (_u: Uint8Array, origin: unknown) => {
+        origins.push(origin);
+      });
+
+      setupParticipantAwareness(kp, awareness, metaDoc, "test-ipns");
 
       // Wait for the async signParticipant to
       // resolve and the _meta write to complete.
       await vi.waitFor(() => {
-        const map = sdm.metaDoc.getMap("clientIdentities");
+        const map = metaDoc.getMap("clientIdentities");
         expect(map.size).toBeGreaterThan(0);
       });
 
-      // The identity write should NOT have marked
-      // the subdoc manager dirty.
-      expect(sdm.isDirty).toBe(false);
+      // All updates should use SNAPSHOT_ORIGIN
+      // so dirty tracking ignores them.
+      expect(origins.length).toBeGreaterThan(0);
+      for (const o of origins) {
+        expect(o).toBe(SNAPSHOT_ORIGIN);
+      }
     },
   );
 });

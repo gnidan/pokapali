@@ -9,9 +9,8 @@ export default defineConfig({
   testMatch: "**/*.e2e.ts",
   timeout: 30_000,
   retries: isCI ? 1 : 0,
-  // Single worker on CI to prevent Vite dev-server
-  // crash from resource exhaustion (each test spins
-  // up Chromium contexts with IPFS + WebRTC).
+  // Single worker on CI to prevent resource
+  // exhaustion (each test spins up Chromium).
   workers: isCI ? 1 : undefined,
   globalSetup: "./e2e-global-setup.ts",
   globalTeardown: "./e2e-global-teardown.ts",
@@ -20,7 +19,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    // CI: serve the pre-built static output (lightweight).
+    // CI: serve the pre-built static output.
     // Dev: run the full Vite HMR dev server.
     command: isCI
       ? `npx vite preview --port ${port}`

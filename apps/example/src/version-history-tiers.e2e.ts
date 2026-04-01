@@ -9,7 +9,7 @@
  * #264
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./e2e-fixtures.js";
 import { readFile } from "node:fs/promises";
 
 const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";

@@ -97,25 +97,6 @@ vi.mock("./interpreter.js", () => ({
 
 const { createDoc } = await import("./create-doc.js");
 
-function mockSubdocManager() {
-  const metaDoc = new Y.Doc({ guid: "test:_meta" });
-  return {
-    subdoc: vi.fn((ns: string) => {
-      if (ns === "_meta") return metaDoc;
-      return new Y.Doc({ guid: `test:${ns}` });
-    }),
-    metaDoc,
-    encodeAll: vi.fn(() => ({})),
-    applySnapshot: vi.fn(),
-    isDirty: false,
-    markDirty: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-    whenLoaded: Promise.resolve(),
-    destroy: vi.fn(),
-  };
-}
-
 function mockPubsub() {
   return {
     subscribe: vi.fn(),
@@ -128,12 +109,9 @@ function mockPubsub() {
 }
 
 function baseParams() {
-  const subdocManager = mockSubdocManager() as ReturnType<
-    typeof mockSubdocManager
-  >;
+  const metaDoc = new Y.Doc({ guid: "test:_meta" });
   return {
-    subdocManager,
-    metaDoc: subdocManager.metaDoc,
+    metaDoc,
     cap: {
       isAdmin: true,
       canPushSnapshots: true,

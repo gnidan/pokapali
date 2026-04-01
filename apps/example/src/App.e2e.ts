@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./e2e-fixtures.js";
 
 /**
  * Editor mount timeout — reflects actual Helia/IPFS

@@ -41,7 +41,6 @@
     "@pokapali/crypto": "^0.1.1",
     "@pokapali/log": "^0.1.1",
     "@pokapali/blocks": "^0.1.1",
-    "@pokapali/subdocs": "^0.1.1",
     "helia": "^5.5.1",
     "ipns": "^10.0.0",
     "multiformats": "^13.3.0",

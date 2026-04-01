@@ -77,6 +77,7 @@ vi.mock("./node-registry.js", () => ({
 }));
 
 vi.mock("@pokapali/sync", () => ({
+  SNAPSHOT_ORIGIN: Symbol("snapshot-apply"),
   setupNamespaceRooms: vi.fn(() => ({
     status: "connected",
     onStatusChange: vi.fn(),

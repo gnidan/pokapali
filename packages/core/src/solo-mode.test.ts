@@ -78,6 +78,7 @@ vi.mock("./node-registry.js", () => ({
 
 // Sync reports disconnected — no relay peers
 vi.mock("@pokapali/sync", () => ({
+  SNAPSHOT_ORIGIN: Symbol("snapshot-apply"),
   setupNamespaceRooms: vi.fn(() => ({
     status: "disconnected",
     onStatusChange: vi.fn(),

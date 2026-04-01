@@ -6,7 +6,7 @@
 
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "../subdoc-provider.js";
 import type { Codec } from "@pokapali/codec";
 import type { Document, Epoch } from "@pokapali/document";
 
@@ -20,7 +20,7 @@ export interface VerifyResult {
 
 export interface VerifyOptions {
   document: Document;
-  subdocManager: SubdocManager;
+  subdocProvider: SubdocProvider;
   channelNames: string[];
   codec: Codec;
   /** Hydrated epochs from fromSnapshots,
@@ -29,7 +29,7 @@ export interface VerifyOptions {
 }
 
 function verifyChannel(channelName: string, opts: VerifyOptions): VerifyResult {
-  const { document, subdocManager, codec, snapshotEpochs } = opts;
+  const { document, subdocProvider, codec, snapshotEpochs } = opts;
 
   const ch = document.channel(channelName);
 
@@ -55,7 +55,7 @@ function verifyChannel(channelName: string, opts: VerifyOptions): VerifyResult {
     }
   }
 
-  const subdoc = subdocManager.subdoc(channelName);
+  const subdoc = subdocProvider.subdoc(channelName);
   const liveState = Y.encodeStateAsUpdate(subdoc);
 
   const normalizedHydrated = codec.merge(baseState, codec.empty());

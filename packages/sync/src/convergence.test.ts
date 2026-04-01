@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "./subdoc-provider.js";
 import { Document } from "@pokapali/document";
 import type { Document as DocumentType } from "@pokapali/document";
 import { Convergence } from "./convergence.js";
@@ -23,7 +23,6 @@ function fakeCapability() {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fakeCodec(): any {
   return {
     merge: () => new Uint8Array(),
@@ -97,8 +96,8 @@ function mockAwareness() {
   return awareness;
 }
 
-function mockSubdocManager(channelNames: string[]): {
-  manager: SubdocManager;
+function mockSubdocProvider(channelNames: string[]): {
+  provider: SubdocProvider;
   docs: Map<string, Y.Doc>;
 } {
   const docs = new Map<string, Y.Doc>();
@@ -106,7 +105,7 @@ function mockSubdocManager(channelNames: string[]): {
     docs.set(name, new Y.Doc());
   }
 
-  const manager: SubdocManager = {
+  const provider: SubdocProvider = {
     subdoc(ns: string): Y.Doc {
       let doc = docs.get(ns);
       if (!doc) {
@@ -115,23 +114,10 @@ function mockSubdocManager(channelNames: string[]): {
       }
       return doc;
     },
-    get metaDoc(): Y.Doc {
-      return new Y.Doc();
-    },
-    encodeAll() {
-      return {};
-    },
-    applySnapshot() {},
-    get isDirty() {
-      return false;
-    },
-    on() {},
-    off() {},
     whenLoaded: Promise.resolve(),
-    destroy() {},
   };
 
-  return { manager, docs };
+  return { provider, docs };
 }
 
 // -- Tests --
@@ -154,12 +140,12 @@ describe("Convergence.create", () => {
 
   it("hash match increments count toward threshold", () => {
     const awareness = mockAwareness();
-    const { manager } = mockSubdocManager(["content"]);
+    const { provider } = mockSubdocProvider(["content"]);
 
     const detector = Convergence.create({
       awareness,
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       hysteresisCount: 3,
       checkIntervalMs: 1000,
@@ -188,12 +174,12 @@ describe("Convergence.create", () => {
 
   it("hash change resets count", () => {
     const awareness = mockAwareness();
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
 
     const detector = Convergence.create({
       awareness,
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       hysteresisCount: 3,
       checkIntervalMs: 1000,
@@ -230,12 +216,12 @@ describe("Convergence.create", () => {
 
   it("threshold reached triggers closeEpoch", () => {
     const awareness = mockAwareness();
-    const { manager } = mockSubdocManager(["content"]);
+    const { provider } = mockSubdocProvider(["content"]);
 
     const detector = Convergence.create({
       awareness,
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       hysteresisCount: 3,
       checkIntervalMs: 1000,
@@ -261,12 +247,12 @@ describe("Convergence.create", () => {
 
   it("per-channel independence", () => {
     const awareness = mockAwareness();
-    const { manager, docs } = mockSubdocManager(["content", "comments"]);
+    const { provider, docs } = mockSubdocProvider(["content", "comments"]);
 
     const detector = Convergence.create({
       awareness,
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content", "comments"],
       hysteresisCount: 2,
       checkIntervalMs: 1000,
@@ -301,12 +287,12 @@ describe("Convergence.create", () => {
 
   it("single peer -- no convergence", () => {
     const awareness = mockAwareness();
-    const { manager } = mockSubdocManager(["content"]);
+    const { provider } = mockSubdocProvider(["content"]);
 
     const detector = Convergence.create({
       awareness,
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       hysteresisCount: 2,
       checkIntervalMs: 1000,
@@ -329,12 +315,12 @@ describe("Convergence.create", () => {
       "continues (not reset by peer gap)",
     () => {
       const awareness = mockAwareness();
-      const { manager } = mockSubdocManager(["content"]);
+      const { provider } = mockSubdocProvider(["content"]);
 
       const detector = Convergence.create({
         awareness,
         document: doc,
-        subdocManager: manager,
+        subdocProvider: provider,
         channelNames: ["content"],
         hysteresisCount: 3,
         checkIntervalMs: 1000,
@@ -380,12 +366,12 @@ describe("Convergence.create", () => {
 
   it("3+ peers -- partial match prevents " + "convergence", () => {
     const awareness = mockAwareness();
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
 
     const detector = Convergence.create({
       awareness,
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       hysteresisCount: 2,
       checkIntervalMs: 1000,
@@ -420,12 +406,12 @@ describe("Convergence.create", () => {
 
   it("destroy stops timer", () => {
     const awareness = mockAwareness();
-    const { manager } = mockSubdocManager(["content"]);
+    const { provider } = mockSubdocProvider(["content"]);
 
     const detector = Convergence.create({
       awareness,
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       hysteresisCount: 2,
       checkIntervalMs: 1000,

@@ -7,7 +7,7 @@
  * or network — pure local-only operation.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./e2e-fixtures.js";
 
 /**
  * Editor mount timeout — should be fast now that

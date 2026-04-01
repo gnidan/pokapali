@@ -14,7 +14,6 @@ import {
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
-import { Subdocs } from "./subdocs/index.js";
 import {
   setupNamespaceRooms,
   setupSignaledAwarenessRoom,
@@ -71,8 +70,8 @@ export interface PokapaliConfig {
    * same origin. Defaults to `""`.
    */
   appId?: string;
-  /** Named channels (Yjs subdocs) for this app's
-   *  documents. At least one is required. */
+  /** Named channels for this app's documents.
+   *  At least one is required. */
   channels: string[];
   /** Channel to treat as the primary document
    *  content. Defaults to the first channel. */
@@ -98,6 +97,13 @@ export interface PokapaliConfig {
    * ?noCache=1).
    */
   persistence?: boolean;
+  /**
+   * Enable P2P networking (Helia, WebRTC, relay
+   * discovery). Defaults to true. Set to false for
+   * solo/offline mode — useful for E2E UI tests
+   * that don't need multi-peer sync.
+   */
+  p2p?: boolean;
 }
 
 /**
@@ -130,8 +136,8 @@ interface DocInit {
   performInitialResolve: boolean;
   /** True when IDB cache may exist (open only). */
   hasCachedState: boolean;
-  /** Called after subdocManager is created but
-   *  before createDoc (e.g. populateMeta). */
+  /** Called after metaDoc + surfaces are created
+   *  but before createDoc (e.g. populateMeta). */
   afterSubdocSetup?: (metaDoc: import("yjs").Doc) => void;
 }
 
@@ -159,6 +165,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
   const persistenceEnabled = options.persistence !== false;
+  const p2pEnabled = options.p2p !== false;
 
   // Identity keypair — loaded once, cached for app
   // lifetime. Always present (identity is always-on).
@@ -182,20 +189,15 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     const cap = inferCapability(keys, channels);
     const chKeys = keys.channelKeys ?? {};
 
-    // Layer A: y-indexeddb persistence per subdoc
+    // Layer A: y-indexeddb persistence per surface
     let docPersistence: DocPersistence | null = null;
     const skipOrigins = new Set<object>();
 
     // Standalone metaDoc for auth state and
-    // client identity — independent of subdocManager.
+    // client identity.
     const metaDoc = new Y.Doc({
       guid: `${ipnsName}:_meta`,
       gc: true,
-    });
-
-    const subdocManager = Subdocs.create(ipnsName, channels, {
-      primaryNamespace: primaryChannel,
-      skipOrigins: persistenceEnabled ? skipOrigins : undefined,
     });
 
     // Create Document + eagerly create surfaces so
@@ -258,124 +260,126 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     );
 
     // Layer B: Helia + P2P — runs in background.
-    const p2pReady = (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let blockstore: any;
-      if (persistenceEnabled && !isHeliaLive()) {
-        const { IDBBlockstore } = await import("blockstore-idb");
-        const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
-        await bs.open();
-        blockstore = bs;
-        if (docPersistence) {
-          const bsRef = bs;
-          docPersistence.closeBlockstore = () => bsRef.close();
-        }
-      }
-
-      await acquireHelia({ bootstrapPeers, blockstore });
-
-      try {
-        const pubsub = getHeliaPubsub() as unknown as PubSubLike;
-        acquireNodeRegistry(pubsub, () => getHelia());
-
-        const userIce = options.rtc?.config?.iceServers;
-        const syncOpts: SyncOptions = {
-          peerOpts: {
-            config: {
-              iceServers: userIce ?? DEFAULT_ICE_SERVERS,
-            },
-          },
-          pubsub,
-        };
-
-        const syncManager = setupNamespaceRooms(
-          ipnsName,
-          subdocManager,
-          chKeys,
-          signalingUrls,
-          syncOpts,
-        );
-
-        const helia = getHelia();
-
-        const roomDiscovery = startRoomDiscovery(helia, appId);
-
-        // Bootstrap peers are dialed by libp2p but
-        // peer-discovery doesn't know they're relays.
-        // Feed them as external relays so they get
-        // tracked in relayPeerIds.
-        if (bootstrapPeers?.length) {
-          const entries = bootstrapPeers
-            .map((addr) => {
-              const m = addr.match(/\/p2p\/([^/]+)$/);
-              return m ? { peerId: m[1], addrs: [addr] } : null;
-            })
-            .filter(
-              (e): e is { peerId: string; addrs: string[] } => e !== null,
-            );
-          if (entries.length > 0) {
-            roomDiscovery.addExternalRelays(entries);
+    // When p2p is disabled, skip entirely — doc
+    // operates in local-only mode.
+    const p2pReady = !p2pEnabled
+      ? undefined
+      : (async () => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let blockstore: any;
+          if (persistenceEnabled && !isHeliaLive()) {
+            const { IDBBlockstore } = await import("blockstore-idb");
+            const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
+            await bs.open();
+            blockstore = bs;
+            if (docPersistence) {
+              const bsRef = bs;
+              docPersistence.closeBlockstore = () => bsRef.close();
+            }
           }
-        }
 
-        // Wait for relay discovery, then open a
-        // signaling stream for WebRTC peer discovery.
-        // If the initial wait times out, resolve with
-        // a placeholder and retry signaling in the
-        // background — relays often connect after the
-        // DHT finishes its slow initial lookup.
-        const RELAY_WAIT_MS = 30_000;
-        const RETRY_RELAY_WAIT_MS = 120_000;
+          await acquireHelia({ bootstrapPeers, blockstore });
 
-        log.info("waiting for relay discovery...");
+          try {
+            const pubsub = getHeliaPubsub() as unknown as PubSubLike;
+            acquireNodeRegistry(pubsub, () => getHelia());
 
-        let awarenessRoom: AwarenessRoom;
-        let upgradeAwareness: Promise<AwarenessRoom> | undefined;
-        try {
-          const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
+            const userIce = options.rtc?.config?.iceServers;
+            const syncOpts: SyncOptions = {
+              peerOpts: {
+                config: {
+                  iceServers: userIce ?? DEFAULT_ICE_SERVERS,
+                },
+              },
+              pubsub,
+            };
 
-          log.info("relay discovered:", relayPid.slice(0, 12));
-          awarenessRoom = await trySignaling(
-            helia,
-            relayPid,
-            ipnsName,
-            awareness,
-            syncOpts,
-          );
-        } catch (err) {
-          log.warn(
-            "signaling setup failed, retrying in bg:",
-            (err as Error)?.message ?? err,
-          );
-          awarenessRoom = placeholderAwarenessRoom(awareness);
-          upgradeAwareness = retrySignaling(
-            helia,
-            roomDiscovery,
-            ipnsName,
-            awareness,
-            syncOpts,
-            RETRY_RELAY_WAIT_MS,
-          );
-          // Prevent unhandled-rejection if createDoc
-          // hasn't attached its handler yet.
-          upgradeAwareness.catch(() => {});
-        }
+            const syncManager = setupNamespaceRooms(
+              ipnsName,
+              chKeys,
+              signalingUrls,
+              syncOpts,
+            );
 
-        return {
-          pubsub,
-          syncManager,
-          awarenessRoom,
-          roomDiscovery,
-          upgradeAwareness,
-        };
-      } catch (err) {
-        releaseHelia();
-        throw err;
-      }
-    })();
+            const helia = getHelia();
+
+            const roomDiscovery = startRoomDiscovery(helia, appId);
+
+            // Bootstrap peers are dialed by libp2p but
+            // peer-discovery doesn't know they're relays.
+            // Feed them as external relays so they get
+            // tracked in relayPeerIds.
+            if (bootstrapPeers?.length) {
+              const entries = bootstrapPeers
+                .map((addr) => {
+                  const m = addr.match(/\/p2p\/([^/]+)$/);
+                  return m ? { peerId: m[1], addrs: [addr] } : null;
+                })
+                .filter(
+                  (e): e is { peerId: string; addrs: string[] } => e !== null,
+                );
+              if (entries.length > 0) {
+                roomDiscovery.addExternalRelays(entries);
+              }
+            }
+
+            // Wait for relay discovery, then open a
+            // signaling stream for WebRTC peer discovery.
+            // If the initial wait times out, resolve with
+            // a placeholder and retry signaling in the
+            // background — relays often connect after the
+            // DHT finishes its slow initial lookup.
+            const RELAY_WAIT_MS = 30_000;
+            const RETRY_RELAY_WAIT_MS = 120_000;
+
+            log.info("waiting for relay discovery...");
+
+            let awarenessRoom: AwarenessRoom;
+            let upgradeAwareness: Promise<AwarenessRoom> | undefined;
+            try {
+              const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
+
+              log.info("relay discovered:", relayPid.slice(0, 12));
+              awarenessRoom = await trySignaling(
+                helia,
+                relayPid,
+                ipnsName,
+                awareness,
+                syncOpts,
+              );
+            } catch (err) {
+              log.warn(
+                "signaling setup failed, retrying in bg:",
+                (err as Error)?.message ?? err,
+              );
+              awarenessRoom = placeholderAwarenessRoom(awareness);
+              upgradeAwareness = retrySignaling(
+                helia,
+                roomDiscovery,
+                ipnsName,
+                awareness,
+                syncOpts,
+                RETRY_RELAY_WAIT_MS,
+              );
+              // Prevent unhandled-rejection if createDoc
+              // hasn't attached its handler yet.
+              upgradeAwareness.catch(() => {});
+            }
+
+            return {
+              pubsub,
+              syncManager,
+              awarenessRoom,
+              roomDiscovery,
+              upgradeAwareness,
+            };
+          } catch (err) {
+            releaseHelia();
+            throw err;
+          }
+        })();
 
     return createDoc({
-      subdocManager,
       awareness,
       p2pReady,
       codec: yjsCodec,

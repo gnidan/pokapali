@@ -1,3 +1,4 @@
+import * as Y from "yjs";
 import { createLogger } from "@pokapali/log";
 import { PermissionError } from "./errors.js";
 import type { Capability, CapabilityKeys } from "@pokapali/capability";
@@ -12,7 +13,6 @@ import {
   ed25519KeyPairFromSeed,
   bytesToHex,
 } from "@pokapali/crypto";
-import { Subdocs } from "./subdocs/index.js";
 import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
 import type { SyncOptions, PubSubLike } from "@pokapali/sync";
 import {
@@ -23,6 +23,7 @@ import {
 import { getHelia } from "./helia.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
 import type { Doc, DocParams } from "./create-doc.js";
+import type { Document } from "@pokapali/document";
 
 const log = createLogger("core:rotate");
 
@@ -50,7 +51,7 @@ export interface RotateContext {
   signalingUrls: string[];
   syncOpts?: SyncOptions;
   pubsub?: PubSubLike;
-  subdocManager: Subdocs;
+  document: Document;
   codec: import("@pokapali/codec").Codec;
 }
 
@@ -91,12 +92,14 @@ export async function rotateDoc(
   const newSigningKey = await ed25519KeyPairFromSeed(newDocKeys.ipnsKeyBytes);
   const newIpnsName = bytesToHex(newSigningKey.publicKey);
 
-  // Copy current state to new subdoc manager
-  const newSubdocs = Subdocs.create(newIpnsName, ctx.channels, {
-    primaryNamespace: ctx.primaryChannel,
-  });
-  const snapshot = ctx.subdocManager.encodeAll();
-  newSubdocs.applySnapshot(snapshot);
+  // Encode current channel state from surfaces
+  const channelState: Record<string, Uint8Array> = {};
+  for (const ch of ctx.channels) {
+    if (ctx.document.hasSurface(ch)) {
+      const handle = ctx.document.surface(ch).handle as Y.Doc;
+      channelState[ch] = Y.encodeStateAsUpdate(handle);
+    }
+  }
 
   const rotateSyncOpts: SyncOptions = {
     ...ctx.syncOpts,
@@ -105,7 +108,6 @@ export async function rotateDoc(
 
   const newSyncManager = setupNamespaceRooms(
     newIpnsName,
-    newSubdocs,
     newDocKeys.channelKeys,
     ctx.signalingUrls,
     rotateSyncOpts,
@@ -145,11 +147,10 @@ export async function rotateDoc(
 
   const newCap = inferCapability(newKeys, ctx.channels);
 
-  populateMetaFn(
-    newSubdocs.metaDoc,
-    newSigningKey.publicKey,
-    newDocKeys.channelKeys,
-  );
+  const newMetaDoc = new Y.Doc({
+    guid: `${newIpnsName}:_meta`,
+  });
+  populateMetaFn(newMetaDoc, newSigningKey.publicKey, newDocKeys.channelKeys);
 
   let newRoomDiscovery;
   try {
@@ -159,8 +160,7 @@ export async function rotateDoc(
   }
 
   const newDoc = createDocFn({
-    subdocManager: newSubdocs,
-    metaDoc: newSubdocs.metaDoc,
+    metaDoc: newMetaDoc,
     syncManager: newSyncManager,
     awarenessRoom: newAwarenessRoom,
     cap: newCap,
@@ -181,6 +181,12 @@ export async function rotateDoc(
     roomDiscovery: newRoomDiscovery,
     codec: ctx.codec,
   });
+
+  // Apply old channel state to new doc's surfaces
+  for (const [ch, state] of Object.entries(channelState)) {
+    const ydoc = newDoc.channel(ch);
+    Y.applyUpdate(ydoc, state);
+  }
 
   // Create and store forwarding record
   const fwdRecord = await createForwardingRecord(

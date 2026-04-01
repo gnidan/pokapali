@@ -6,14 +6,13 @@
  * Provides the SnapshotOps interface (a subset of
  * EffectHandlers) and a factory that wires up the
  * concrete implementations from SnapshotCodec +
- * Subdocs + BlockResolver.
+ * BlockResolver.
  */
 
 import type { CID } from "multiformats/cid";
 import { decodeSnapshot, validateSnapshot } from "@pokapali/blocks";
 import { bytesToHex } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
-import type { Subdocs } from "./subdocs/index.js";
 import type { SnapshotCodec } from "./snapshot-codec.js";
 import type { BlockResolver } from "./block-resolver.js";
 import type { Document } from "@pokapali/document";
@@ -62,7 +61,6 @@ export interface SnapshotOps {
 
 export interface SnapshotOpsOptions {
   snapshotCodec: SnapshotCodec;
-  subdocManager: Subdocs;
   document?: Document;
   resolver: BlockResolver;
   readKey: CryptoKey;
@@ -71,15 +69,8 @@ export interface SnapshotOpsOptions {
 }
 
 export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
-  const {
-    snapshotCodec,
-    subdocManager,
-    document,
-    resolver,
-    readKey,
-    getClockSum,
-    metaDoc,
-  } = options;
+  const { snapshotCodec, document, resolver, readKey, getClockSum, metaDoc } =
+    options;
 
   return {
     decodeBlock(block: Uint8Array): BlockMetadata {

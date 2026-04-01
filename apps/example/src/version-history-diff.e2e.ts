@@ -9,7 +9,7 @@
  * #263
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./e2e-fixtures.js";
 
 const EDITOR_TIMEOUT = 8_000;
 const PUBLISH_TIMEOUT = 10_000;

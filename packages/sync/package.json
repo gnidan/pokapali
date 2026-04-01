@@ -48,7 +48,6 @@
     "@pokapali/document": "^0.0.0",
     "@pokapali/finger-tree": "^0.0.0",
     "@pokapali/log": "^0.1.1",
-    "@pokapali/subdocs": "^0.1.1",
     "lib0": "^0.2.117",
     "multiformats": "^13.3.0",
     "y-webrtc": "^10.3.0"

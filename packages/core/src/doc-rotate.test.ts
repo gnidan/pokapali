@@ -2,7 +2,7 @@
  * Tests for doc-rotate.ts — key rotation logic.
  *
  * rotateDoc() is heavily dependent on external
- * modules (crypto, subdocs, sync, capability).
+ * modules (crypto, sync, capability).
  * These tests focus on validation, parameter
  * threading, and output structure.
  */
@@ -37,15 +37,8 @@ vi.mock("@pokapali/capability", () => ({
   buildUrl: vi.fn(async () => "https://example.com"),
 }));
 
-vi.mock("@pokapali/subdocs", () => ({
-  createSubdocManager: vi.fn(() => ({
-    applySnapshot: vi.fn(),
-    metaDoc: { getArray: vi.fn(), getMap: vi.fn() },
-    encodeAll: vi.fn(() => new Uint8Array()),
-  })),
-}));
-
 vi.mock("@pokapali/sync", () => ({
+  SNAPSHOT_ORIGIN: Symbol("snapshot-apply"),
   setupNamespaceRooms: vi.fn(() => ({})),
   setupAwarenessRoom: vi.fn(() => ({})),
 }));
@@ -93,10 +86,13 @@ function baseContext(overrides?: Partial<RotateContext>): RotateContext {
     appId: "test-app",
     primaryChannel: "content",
     signalingUrls: ["wss://signal.example.com"],
-    subdocManager: {
-      encodeAll: vi.fn(() => new Uint8Array()),
-      metaDoc: {},
-    } as unknown as RotateContext["subdocManager"],
+    document: {
+      hasSurface: vi.fn(() => false),
+      surface: vi.fn(),
+      channel: vi.fn(),
+      onEdit: vi.fn(),
+      destroy: vi.fn(),
+    } as unknown as RotateContext["document"],
     codec: {} as any,
     ...overrides,
   } as RotateContext;
@@ -168,18 +164,21 @@ describe("rotateDoc", () => {
     expect(metaFn).toHaveBeenCalledTimes(1);
   });
 
-  it("copies state from old subdocManager", async () => {
-    const encodeAll = vi.fn(() => ({}));
+  it("copies state from old document surfaces", async () => {
+    const hasSurface = vi.fn(() => false);
     const ctx = baseContext({
-      subdocManager: {
-        encodeAll,
-        metaDoc: {},
-      } as unknown as RotateContext["subdocManager"],
+      document: {
+        hasSurface,
+        surface: vi.fn(),
+        channel: vi.fn(),
+        onEdit: vi.fn(),
+        destroy: vi.fn(),
+      } as unknown as RotateContext["document"],
     });
 
     await rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta);
 
-    expect(encodeAll).toHaveBeenCalled();
+    expect(hasSurface).toHaveBeenCalled();
   });
 
   it("calls buildUrl three times (admin, write, read)", async () => {

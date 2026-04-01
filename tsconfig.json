@@ -5,7 +5,7 @@
     { "path": "packages/codec" },
     { "path": "packages/crypto" },
     { "path": "packages/capability" },
-    { "path": "packages/subdocs" },
+
     { "path": "packages/blocks" },
     { "path": "packages/store" },
     { "path": "packages/sync" },

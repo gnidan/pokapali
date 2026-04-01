@@ -1,7 +1,6 @@
 import * as Y from "yjs";
 import { WebrtcProvider } from "y-webrtc";
 import type { Awareness } from "y-protocols/awareness";
-import type { SubdocManager } from "@pokapali/subdocs";
 import { createLogger } from "@pokapali/log";
 import type { SignalingClient } from "../signaling/client.js";
 import { createPeerManager } from "../signaling/peer-connection.js";
@@ -10,8 +9,6 @@ import { syncAwareness } from "../signaling/awareness-sync.js";
 const diagLog = createLogger("p2p-diag");
 
 export type { Awareness } from "y-protocols/awareness";
-export type { SubdocManager } from "@pokapali/subdocs";
-
 /**
  * Minimal PubSub interface compatible with libp2p's
  * GossipSub. Used by core for announce, node-registry,
@@ -47,7 +44,6 @@ export interface SyncOptions {
  */
 export function setupNamespaceRooms(
   _ipnsName: string,
-  _subdocManager: SubdocManager,
   _keys: Record<string, Uint8Array>,
   _signalingUrls: string[],
   _options?: SyncOptions,

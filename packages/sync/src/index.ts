@@ -12,7 +12,6 @@ export {
   type AwarenessRoom,
   type SignaledAwarenessOptions,
   type Awareness,
-  type SubdocManager,
 } from "./webrtc/index.js";
 
 // Signaling
@@ -29,6 +28,7 @@ export {
 
 export { Edits } from "./edits.js";
 export { Convergence } from "./convergence.js";
+export { SNAPSHOT_ORIGIN, type SubdocProvider } from "./subdoc-provider.js";
 export * as Hydration from "./hydration/index.js";
 
 // Reconciliation

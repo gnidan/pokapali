@@ -9,7 +9,6 @@
     { "path": "../log" },
     { "path": "../crypto" },
     { "path": "../blocks" },
-    { "path": "../subdocs" },
     { "path": "../core" },
     { "path": "../test-utils" }
   ]

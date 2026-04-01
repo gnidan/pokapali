@@ -96,8 +96,8 @@ vi.mock("./interpreter.js", () => ({
 
 const { createDoc } = await import("./create-doc.js");
 
-function mockSubdocManager() {
-  const doc = {
+function mockMetaDoc() {
+  return {
     getArray: vi.fn(() => ({ push: vi.fn() })),
     getMap: vi.fn(() => ({
       set: vi.fn(),
@@ -110,31 +110,19 @@ function mockSubdocManager() {
     on: vi.fn(),
     off: vi.fn(),
   };
-  return {
-    subdoc: vi.fn(() => doc),
-    metaDoc: doc,
-    encodeAll: vi.fn(() => ({})),
-    applySnapshot: vi.fn(),
-    isDirty: false,
-    on: vi.fn(),
-    off: vi.fn(),
-    whenLoaded: Promise.resolve(),
-    destroy: vi.fn(),
-  };
 }
 
-function mockSubdocParams() {
-  const sdm = mockSubdocManager();
+function mockDocParams() {
+  const metaDoc = mockMetaDoc();
   return {
-    subdocManager: sdm as any,
-    metaDoc: sdm.metaDoc as any,
+    metaDoc: metaDoc as any,
   };
 }
 
 describe("ready() after interpreter crash (#39)", () => {
   it("resolves ready() when interpreter throws", async () => {
     const doc = createDoc({
-      ...mockSubdocParams(),
+      ...mockDocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),
@@ -216,7 +204,7 @@ describe("ready() after interpreter crash (#39)", () => {
     );
 
     const doc = createDoc({
-      ...mockSubdocParams(),
+      ...mockDocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),
@@ -290,7 +278,7 @@ describe("ready() after interpreter crash (#39)", () => {
     vi.mocked(runInterpreter).mockRejectedValue(new Error("interpreter boom"));
 
     const doc = createDoc({
-      ...mockSubdocParams(),
+      ...mockDocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),
@@ -359,7 +347,7 @@ describe("ready() after interpreter crash (#39)", () => {
 
   it("ready() without options still works", async () => {
     const doc = createDoc({
-      ...mockSubdocParams(),
+      ...mockDocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),

@@ -93,15 +93,6 @@ function mockSnapshotCodec() {
   };
 }
 
-function mockSubdocManager() {
-  const metaDoc = new Y.Doc();
-  return {
-    applySnapshot: vi.fn(),
-    getPlaintext: vi.fn().mockReturnValue({}),
-    metaDoc,
-  };
-}
-
 function mockBlockResolver() {
   const blocks = new Map<string, Uint8Array>();
   return {
@@ -156,14 +147,13 @@ describe("snapshot validation integration", () => {
         1,
       );
 
-      const sdm = mockSubdocManager();
+      const metaDoc = new Y.Doc();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
-        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc: sdm.metaDoc,
+        metaDoc,
       });
 
       const result = await ops.applySnapshot(cid, block);
@@ -181,14 +171,13 @@ describe("snapshot validation integration", () => {
       const tampered = new Uint8Array(block);
       tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
 
-      const sdm = mockSubdocManager();
+      const metaDoc = new Y.Doc();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
-        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc: sdm.metaDoc,
+        metaDoc,
       });
 
       // Recompute CID for tampered block
@@ -205,14 +194,13 @@ describe("snapshot validation integration", () => {
       const garbage = new Uint8Array([0, 1, 2, 3]);
 
       const { keys } = await generateKeys();
-      const sdm = mockSubdocManager();
+      const metaDoc = new Y.Doc();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
-        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc: sdm.metaDoc,
+        metaDoc,
       });
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow(
@@ -225,15 +213,14 @@ describe("snapshot validation integration", () => {
       const garbage = new Uint8Array([0, 1, 2, 3]);
 
       const { keys } = await generateKeys();
-      const sdm = mockSubdocManager();
+      const metaDoc = new Y.Doc();
       const codec = mockSnapshotCodec();
       const ops = createSnapshotOps({
         snapshotCodec: codec,
-        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc: sdm.metaDoc,
+        metaDoc,
       });
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow();

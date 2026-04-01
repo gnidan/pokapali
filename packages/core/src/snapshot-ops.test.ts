@@ -15,7 +15,6 @@ import {
 } from "./snapshot-ops.js";
 import type { SnapshotCodec } from "./snapshot-codec.js";
 import type { BlockResolver } from "./block-resolver.js";
-import type { Subdocs } from "./subdocs/index.js";
 
 // --- Helpers ---
 
@@ -52,32 +51,16 @@ function mockSnapshotCodec(): SnapshotCodec {
   } as unknown as SnapshotCodec;
 }
 
-function mockSubdocs(): Subdocs {
-  const metaDoc = new Y.Doc({ guid: "test:_meta" });
-  return {
-    subdoc: vi.fn(),
-    metaDoc,
-    encodeAll: vi.fn(() => ({})),
-    applySnapshot: vi.fn(),
-    isDirty: false,
-    on: vi.fn(),
-    off: vi.fn(),
-    whenLoaded: Promise.resolve(),
-    destroy: vi.fn(),
-  } as unknown as Subdocs;
-}
-
 function buildOptions(
   overrides?: Partial<SnapshotOpsOptions>,
 ): SnapshotOpsOptions {
-  const sdm = mockSubdocs();
+  const metaDoc = new Y.Doc({ guid: "test:_meta" });
   return {
     snapshotCodec: mockSnapshotCodec(),
-    subdocManager: sdm,
     resolver: mockResolver(),
     readKey: {} as CryptoKey,
     getClockSum: () => 42,
-    metaDoc: sdm.metaDoc,
+    metaDoc,
     ...overrides,
   };
 }
@@ -216,29 +199,19 @@ describe("createSnapshotOps", () => {
     );
 
     it("returns true for listed publisher", () => {
-      const sdm = mockSubdocs();
-      sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
+      const metaDoc = new Y.Doc({ guid: "test:_meta" });
+      metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
-      const ops = createSnapshotOps(
-        buildOptions({
-          subdocManager: sdm,
-          metaDoc: sdm.metaDoc,
-        }),
-      );
+      const ops = createSnapshotOps(buildOptions({ metaDoc }));
 
       expect(ops.isPublisherAuthorized("aabbcc")).toBe(true);
     });
 
     it("returns false for unlisted publisher", () => {
-      const sdm = mockSubdocs();
-      sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
+      const metaDoc = new Y.Doc({ guid: "test:_meta" });
+      metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
-      const ops = createSnapshotOps(
-        buildOptions({
-          subdocManager: sdm,
-          metaDoc: sdm.metaDoc,
-        }),
-      );
+      const ops = createSnapshotOps(buildOptions({ metaDoc }));
 
       expect(ops.isPublisherAuthorized("ddeeff")).toBe(false);
     });
@@ -246,15 +219,12 @@ describe("createSnapshotOps", () => {
     it(
       "returns false for undefined publisher" + " when auth is configured",
       () => {
-        const sdm = mockSubdocs();
-        sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
+        const metaDoc = new Y.Doc({
+          guid: "test:_meta",
+        });
+        metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
-        const ops = createSnapshotOps(
-          buildOptions({
-            subdocManager: sdm,
-            metaDoc: sdm.metaDoc,
-          }),
-        );
+        const ops = createSnapshotOps(buildOptions({ metaDoc }));
 
         expect(ops.isPublisherAuthorized(undefined)).toBe(false);
       },

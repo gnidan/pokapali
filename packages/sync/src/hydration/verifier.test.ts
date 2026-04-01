@@ -14,7 +14,7 @@ import {
   ed25519KeyPairFromSeed,
 } from "@pokapali/crypto";
 import { encodeSnapshot } from "@pokapali/blocks";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "../subdoc-provider.js";
 import type { Codec } from "@pokapali/codec";
 import { Document } from "@pokapali/document";
 import type { Document as DocumentType } from "@pokapali/document";
@@ -42,8 +42,8 @@ function fakeCapability() {
   };
 }
 
-function mockSubdocManager(channelNames: string[]): {
-  manager: SubdocManager;
+function mockSubdocProvider(channelNames: string[]): {
+  provider: SubdocProvider;
   docs: Map<string, Y.Doc>;
 } {
   const docs = new Map<string, Y.Doc>();
@@ -51,7 +51,7 @@ function mockSubdocManager(channelNames: string[]): {
     docs.set(name, new Y.Doc());
   }
 
-  const manager: SubdocManager = {
+  const provider: SubdocProvider = {
     subdoc(ns: string): Y.Doc {
       let doc = docs.get(ns);
       if (!doc) {
@@ -60,23 +60,10 @@ function mockSubdocManager(channelNames: string[]): {
       }
       return doc;
     },
-    get metaDoc(): Y.Doc {
-      return new Y.Doc();
-    },
-    encodeAll() {
-      return {};
-    },
-    applySnapshot() {},
-    get isDirty() {
-      return false;
-    },
-    on() {},
-    off() {},
     whenLoaded: Promise.resolve(),
-    destroy() {},
   };
 
-  return { manager, docs };
+  return { provider, docs };
 }
 
 function yjsCodec(): Codec {
@@ -165,7 +152,7 @@ describe("verify", () => {
   });
 
   it("fresh doc -- no snapshots, live edits only", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
 
     document = Document.create({
@@ -174,7 +161,7 @@ describe("verify", () => {
       codec: yjsCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -187,7 +174,7 @@ describe("verify", () => {
 
     const results = await verify({
       document,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
       snapshotEpochs: null,
@@ -203,7 +190,7 @@ describe("verify", () => {
 
   it("1 snapshot + post-snapshot edits", async () => {
     const { keys, signingKey } = await makeKeys();
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
     const blocks = new Map<string, Uint8Array>();
 
@@ -213,7 +200,7 @@ describe("verify", () => {
       codec: yjsCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -253,7 +240,7 @@ describe("verify", () => {
 
     const [result] = await verify({
       document,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
       snapshotEpochs: hydrated,
@@ -267,7 +254,7 @@ describe("verify", () => {
 
   it("3 snapshots progressive", async () => {
     const { keys, signingKey } = await makeKeys();
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
     const blocks = new Map<string, Uint8Array>();
 
@@ -277,7 +264,7 @@ describe("verify", () => {
       codec: yjsCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -317,7 +304,7 @@ describe("verify", () => {
 
     const [result] = await verify({
       document,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
       snapshotEpochs: hydrated,
@@ -331,7 +318,7 @@ describe("verify", () => {
 
   it("divergence injected -- extra edit in Y.Doc", async () => {
     const { keys, signingKey } = await makeKeys();
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
     const blocks = new Map<string, Uint8Array>();
 
@@ -341,7 +328,7 @@ describe("verify", () => {
       codec: yjsCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -387,7 +374,7 @@ describe("verify", () => {
 
     const [result] = await verify({
       document,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
       snapshotEpochs: hydrated,
@@ -398,7 +385,7 @@ describe("verify", () => {
   });
 
   it("multi-channel -- verifies all channels", async () => {
-    const { manager, docs } = mockSubdocManager(["content", "comments"]);
+    const { provider, docs } = mockSubdocProvider(["content", "comments"]);
     const codec = yjsCodec();
 
     document = Document.create({
@@ -407,7 +394,7 @@ describe("verify", () => {
       codec: yjsCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
@@ -420,7 +407,7 @@ describe("verify", () => {
 
     const results = await verify({
       document,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content", "comments"],
       codec,
       snapshotEpochs: null,
@@ -443,7 +430,7 @@ describe("verify", () => {
           fc.integer({ min: 0, max: 3 }),
           async (numSnaps, numPostEdits) => {
             const { keys, signingKey } = await makeKeys();
-            const { manager, docs } = mockSubdocManager(["content"]);
+            const { provider, docs } = mockSubdocProvider(["content"]);
             const codec = yjsCodec();
             const blocks = new Map<string, Uint8Array>();
 
@@ -453,7 +440,7 @@ describe("verify", () => {
               codec: yjsCodec(),
             });
             const br = Edits.create({
-              subdocManager: manager,
+              subdocProvider: provider,
               document: d,
               channelNames: ["content"],
               localAuthor: "aabb",
@@ -506,7 +493,7 @@ describe("verify", () => {
 
             const [result] = await verify({
               document: d,
-              subdocManager: manager,
+              subdocProvider: provider,
               channelNames: ["content"],
               codec,
               snapshotEpochs: hydrated,

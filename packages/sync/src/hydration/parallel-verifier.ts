@@ -10,7 +10,7 @@
  */
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "../subdoc-provider.js";
 import type { Codec } from "@pokapali/codec";
 import { type Document, View, State, Fingerprint } from "@pokapali/document";
 
@@ -30,13 +30,13 @@ export interface ParallelVerifier {
 export const ParallelVerifier: {
   create(opts: {
     document: Document;
-    subdocManager: SubdocManager;
+    subdocProvider: SubdocProvider;
     channelNames: string[];
     codec: Codec;
   }): ParallelVerifier;
 } = {
   create(opts) {
-    const { document, subdocManager, channelNames, codec } = opts;
+    const { document, subdocProvider, channelNames, codec } = opts;
 
     function verify(channelName: string): ParallelVerifyResult {
       const ch = document.channel(channelName);
@@ -78,7 +78,7 @@ export const ParallelVerifier: {
 
       const treeMerged = mergeState.value;
 
-      const subdoc = subdocManager.subdoc(channelName);
+      const subdoc = subdocProvider.subdoc(channelName);
       const liveState = Y.encodeStateAsUpdate(subdoc);
 
       const normalizedTree = codec.merge(treeMerged, codec.empty());

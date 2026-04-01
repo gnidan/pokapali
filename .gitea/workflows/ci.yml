@@ -110,6 +110,7 @@ jobs:
         working-directory: apps/example
         env:
           POKAPALI_LOG_LEVEL: silent
+          NODE_OPTIONS: --trace-warnings
 
   changeset-check:
     name: Changeset Check

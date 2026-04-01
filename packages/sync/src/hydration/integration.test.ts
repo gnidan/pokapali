@@ -2,7 +2,7 @@
  * Integration test -- proves the full Phase 4
  * pipeline end-to-end:
  *
- * Document + SubdocManager -> Edits edits ->
+ * Document + SubdocProvider -> Edits edits ->
  * Convergence closes epochs -> Store
  * persists -> mock snapshot -> hydrate -> backfill ->
  * verify match
@@ -19,7 +19,7 @@ import {
 } from "@pokapali/crypto";
 import { encodeSnapshot } from "@pokapali/blocks";
 import { toArray } from "@pokapali/finger-tree";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "../subdoc-provider.js";
 import type { Codec } from "@pokapali/codec";
 import { Document } from "@pokapali/document";
 import type { Document as DocumentType } from "@pokapali/document";
@@ -48,8 +48,8 @@ function fakeCapability() {
   };
 }
 
-function mockSubdocManager(channelNames: string[]): {
-  manager: SubdocManager;
+function mockSubdocProvider(channelNames: string[]): {
+  provider: SubdocProvider;
   docs: Map<string, Y.Doc>;
 } {
   const docs = new Map<string, Y.Doc>();
@@ -57,7 +57,7 @@ function mockSubdocManager(channelNames: string[]): {
     docs.set(name, new Y.Doc());
   }
 
-  const manager: SubdocManager = {
+  const provider: SubdocProvider = {
     subdoc(ns: string): Y.Doc {
       let doc = docs.get(ns);
       if (!doc) {
@@ -66,23 +66,10 @@ function mockSubdocManager(channelNames: string[]): {
       }
       return doc;
     },
-    get metaDoc(): Y.Doc {
-      return new Y.Doc();
-    },
-    encodeAll() {
-      return {};
-    },
-    applySnapshot() {},
-    get isDirty() {
-      return false;
-    },
-    on() {},
-    off() {},
     whenLoaded: Promise.resolve(),
-    destroy() {},
   };
 
-  return { manager, docs };
+  return { provider, docs };
 }
 
 function yjsCodec(): Codec {
@@ -180,7 +167,7 @@ describe("Phase 4 hydration integration", () => {
       const blocks = new Map<string, Uint8Array>();
       const dbName = `test-hydration-int-${Math.random()}`;
 
-      const { manager, docs } = mockSubdocManager(["content"]);
+      const { provider, docs } = mockSubdocProvider(["content"]);
       const codec = yjsCodec();
 
       document = Document.create({
@@ -189,7 +176,7 @@ describe("Phase 4 hydration integration", () => {
         codec: yjsCodec(),
       });
       edits = Edits.create({
-        subdocManager: manager,
+        subdocProvider: provider,
         document,
         channelNames: ["content"],
         localAuthor: "aabb",
@@ -253,7 +240,7 @@ describe("Phase 4 hydration integration", () => {
       // --- Phase 6: Verify hydration ---
       const [result] = await verify({
         document,
-        subdocManager: manager,
+        subdocProvider: provider,
         channelNames: ["content"],
         codec,
         snapshotEpochs: hydrated,
@@ -272,7 +259,7 @@ describe("Phase 4 hydration integration", () => {
     const blocks = new Map<string, Uint8Array>();
     const dbName = `test-hydration-prog-${Math.random()}`;
 
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
 
     document = Document.create({
@@ -281,7 +268,7 @@ describe("Phase 4 hydration integration", () => {
       codec: yjsCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -342,7 +329,7 @@ describe("Phase 4 hydration integration", () => {
     // Verify
     const [result] = await verify({
       document,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
       snapshotEpochs: hydrated,

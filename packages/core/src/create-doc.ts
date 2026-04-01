@@ -14,8 +14,7 @@ import {
   setupParticipantAwareness,
 } from "./doc-identity.js";
 import type { IdentityMap } from "./doc-identity.js";
-import { Subdocs } from "./subdocs/index.js";
-import { SNAPSHOT_ORIGIN } from "./constants.js";
+import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
 import type {
   SyncManager,
   AwarenessRoom,
@@ -345,7 +344,6 @@ export interface P2PDeps {
 }
 
 export interface DocParams {
-  subdocManager: Subdocs;
   syncManager?: SyncManager;
   awarenessRoom?: AwarenessRoom;
   cap: Capability;
@@ -435,7 +433,6 @@ export function populateMeta(
 
 export function createDoc(params: DocParams): Doc {
   const {
-    subdocManager,
     syncManager,
     awarenessRoom,
     cap,
@@ -577,19 +574,12 @@ export function createDoc(params: DocParams): Doc {
     if (!params.document) return 0;
     let sum = 0;
     for (const ns of channels) {
-      if (params.document.hasSurface(ns)) {
-        const handle = params.document.surface(ns).handle as Y.Doc;
-        const sv = Y.encodeStateVector(handle);
-        const decoded = Y.decodeStateVector(sv);
-        for (const clock of decoded.values()) {
-          sum += clock;
-        }
-      } else {
-        const sv = Y.encodeStateVector(subdocManager.subdoc(ns));
-        const decoded = Y.decodeStateVector(sv);
-        for (const clock of decoded.values()) {
-          sum += clock;
-        }
+      if (!params.document.hasSurface(ns)) continue;
+      const handle = params.document.surface(ns).handle as Y.Doc;
+      const sv = Y.encodeStateVector(handle);
+      const decoded = Y.decodeStateVector(sv);
+      for (const clock of decoded.values()) {
+        sum += clock;
       }
     }
     return sum;
@@ -797,17 +787,24 @@ export function createDoc(params: DocParams): Doc {
   // reconciliation protocol has edits to send.
   // Skips snapshot-apply and persistence origins.
   //
-  // The bridge registers on subdocManager Y.Docs
-  // (returned by doc.channel()). Local edits
-  // (null origin) are routed through
-  // channel.appendEdit + scheduleReconcile.
+  // The bridge registers on surface Y.Docs (returned
+  // by doc.channel()). Local edits (null origin) are
+  // routed through channel.appendEdit +
+  // scheduleReconcile. The surface's onLocalEdit in
+  // Document also fires (async, signed) — the
+  // duplicate is harmless because codec merge is
+  // idempotent.
   const editBridgeCleanups: Array<() => void> = [];
   const surfaceBridged = new Set<string>();
+  // Fallback Y.Docs for channels when no Document
+  // is provided (e.g. lazy/solo mode tests).
+  const fallbackDocs = new Map<string, Y.Doc>();
   if (params.document) {
     for (const name of channels) {
-      const ydoc = subdocManager.subdoc(name);
+      if (!params.document.hasSurface(name)) continue;
+      const ydoc = params.document.surface(name).handle as Y.Doc;
       const channel = params.document.channel(name);
-      const handler = (update: Uint8Array, origin: unknown) => {
+      const editHandler = (update: Uint8Array, origin: unknown) => {
         // Only capture local user edits (null origin
         // from TipTap/ProseMirror). Skip persistence
         // hydration, snapshot application, awareness
@@ -824,31 +821,32 @@ export function createDoc(params: DocParams): Doc {
           }),
         );
         scheduleReconcile();
+        markContentDirty();
       };
-      ydoc.on("update", handler);
-      editBridgeCleanups.push(() => ydoc.off("update", handler));
+      ydoc.on("update", editHandler);
+      editBridgeCleanups.push(() => ydoc.off("update", editHandler));
 
-      // Sync remote edits from the surface Y.Doc
-      // back to the subdocManager Y.Doc so that
-      // consumers of doc.channel() see remote
-      // state. Uses SNAPSHOT_ORIGIN to avoid
-      // re-triggering the edit bridge above.
-      if (params.document.hasSurface(name)) {
-        const unsub = params.document.onEdit(name, (edit: Edit) => {
-          if (edit.origin === "local") return;
-          Y.applyUpdate(ydoc, edit.payload, SNAPSHOT_ORIGIN);
-        });
-        editBridgeCleanups.push(unsub);
-      }
+      // Dirty tracking for non-local updates too
+      // (e.g. remote edits applied via editListeners).
+      const dirtyHandler = (_update: Uint8Array, origin: unknown) => {
+        if (origin === SNAPSHOT_ORIGIN) return;
+        if (origin == null) return; // handled above
+        markContentDirty();
+      };
+      ydoc.on("update", dirtyHandler);
+      editBridgeCleanups.push(() => ydoc.off("update", dirtyHandler));
     }
   }
 
-  // subdocManager "dirty" event still fires for
-  // edits to non-surface channels (e.g. _meta via
-  // subdoc Y.Doc). Forward to the local dirty flag.
-  subdocManager.on("dirty", () => {
+  // Bridge metaDoc edits to dirty tracking.
+  // Previously this flowed through subdocManager's
+  // "dirty" event; now we listen directly.
+  const metaDirtyHandler = (_update: Uint8Array, origin: unknown) => {
+    if (origin === SNAPSHOT_ORIGIN) return;
     markContentDirty();
-  });
+  };
+  metaDoc.on("update", metaDirtyHandler);
+  editBridgeCleanups.push(() => metaDoc.off("update", metaDirtyHandler));
 
   // Wire sync/awareness status bridges. These are
   // called immediately if deps are available, or
@@ -1006,16 +1004,12 @@ export function createDoc(params: DocParams): Doc {
     wireSyncBridges(liveSyncManager, liveAwarenessRoom);
   }
 
-  // If already dirty (e.g. _meta was populated
-  // before we registered), fire the event so the
-  // auto-save debounce starts.
-  if (subdocManager.isDirty) {
-    // Defer to next microtask so callers can attach
-    // event listeners first.
-    queueMicrotask(() => {
-      markContentDirty();
-    });
-  }
+  // metaDoc was populated before we registered our
+  // update handler, so fire dirty on next microtask
+  // to start the auto-save debounce.
+  queueMicrotask(() => {
+    markContentDirty();
+  });
 
   // Share relay info with WebRTC peers via awareness.
   let relaySharing: RelaySharing | null = null;
@@ -1269,7 +1263,6 @@ export function createDoc(params: DocParams): Doc {
     // --- Effect handlers ---
     const snapshotOps = createSnapshotOps({
       snapshotCodec: snapshotLC,
-      subdocManager,
       document: params.document,
       resolver,
       readKey: rk,
@@ -1717,6 +1710,9 @@ export function createDoc(params: DocParams): Doc {
     // Tear down edit bridge
     for (const cleanup of editBridgeCleanups) cleanup();
     editBridgeCleanups.length = 0;
+    // Destroy fallback channel docs
+    for (const fb of fallbackDocs.values()) fb.destroy();
+    fallbackDocs.clear();
     // Unsubscribe all event→Feed bridges
     for (const map of eventSubs.values()) {
       for (const unsub of map.values()) unsub();
@@ -1748,7 +1744,6 @@ export function createDoc(params: DocParams): Doc {
       params.awareness.destroy();
       params.awareness.doc.destroy();
     }
-    subdocManager.destroy();
     // Destroy bridged Document if present
     params.document?.destroy();
     // Only release Helia if p2pReady resolved (we
@@ -1777,9 +1772,8 @@ export function createDoc(params: DocParams): Doc {
   // Lazily register a reconciliation trigger on a
   // surface Y.Doc. The surface's onLocalEdit already
   // puts edits in the epoch tree via ch.appendEdit(),
-  // but scheduleReconcile() isn't called (the
-  // subdocManager edit bridge listens on a different
-  // Y.Doc). This bridges the gap.
+  // but scheduleReconcile() isn't called from that
+  // path. This bridges the gap.
   function ensureSurfaceBridged(name: string, handle: Y.Doc): void {
     if (surfaceBridged.has(name)) return;
     surfaceBridged.add(name);
@@ -1800,7 +1794,33 @@ export function createDoc(params: DocParams): Doc {
     channel(name: string): Y.Doc {
       assertNotDestroyed();
       try {
-        const doc = name === "_meta" ? metaDoc : subdocManager.subdoc(name);
+        let doc: Y.Doc;
+        if (name === "_meta") {
+          doc = metaDoc;
+        } else if (params.document?.hasSurface(name)) {
+          doc = params.document.surface(name).handle as Y.Doc;
+        } else if (channels.includes(name)) {
+          // No Document or surface not wired yet.
+          // Return a standalone Y.Doc (lazily
+          // created) so callers like tests and
+          // rotate can access channel docs.
+          let fb = fallbackDocs.get(name);
+          if (!fb) {
+            fb = new Y.Doc({
+              guid: `${ipnsName}:${name}`,
+            });
+            // Wire dirty tracking on fallback docs
+            const dirtyH = (_u: Uint8Array, origin: unknown) => {
+              if (origin === SNAPSHOT_ORIGIN) return;
+              markContentDirty();
+            };
+            fb.on("update", dirtyH);
+            fallbackDocs.set(name, fb);
+          }
+          doc = fb;
+        } else {
+          throw new Error(`No surface for channel "${name}"`);
+        }
         if (
           !cap.isAdmin &&
           cap.channels.size > 0 &&
@@ -2145,7 +2165,7 @@ export function createDoc(params: DocParams): Doc {
           signalingUrls: params.signalingUrls,
           syncOpts: params.syncOpts,
           pubsub: params.pubsub,
-          subdocManager,
+          document: params.document!,
           codec: params.codec,
         },
         createDoc,

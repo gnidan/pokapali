@@ -1,14 +1,15 @@
 /**
- * Property test: State view fold ≡ SubdocManager
- * encodeAll() for arbitrary edit sequences.
+ * Property test: State view fold ≡ Y.Doc state
+ * for arbitrary edit sequences.
  *
  * Verifies that folding the epoch tree with
  * State.channelMeasured(codec) produces the same
  * CRDT state as applying the same edits to a
- * SubdocManager's Y.Doc directly.
+ * standalone Y.Doc directly.
  *
- * This is the safety net for snapshot materialization
- * cutover: both paths must converge to identical state.
+ * This is the safety net for snapshot
+ * materialization cutover: both paths must
+ * converge to identical state.
  */
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
@@ -16,7 +17,6 @@ import * as Y from "yjs";
 import { yjsCodec } from "@pokapali/codec";
 import { Document, Edit, Cache, foldTree, State } from "@pokapali/document";
 import { generateIdentityKeypair } from "@pokapali/crypto";
-import { createSubdocManager } from "@pokapali/subdocs";
 import { Capability } from "@pokapali/document";
 
 // --- Helpers ---
@@ -67,10 +67,18 @@ function arbEditSequence(): fc.Arbitrary<EditOrClose[]> {
       {
         weight: 4,
         arbitrary: arbEditPayload().map(
-          (p): EditOrClose => ({ tag: "edit", payload: p }),
+          (p): EditOrClose => ({
+            tag: "edit",
+            payload: p,
+          }),
         ),
       },
-      { weight: 1, arbitrary: fc.constant({ tag: "close" } as EditOrClose) },
+      {
+        weight: 1,
+        arbitrary: fc.constant({
+          tag: "close",
+        } as EditOrClose),
+      },
     ),
     { minLength: 1, maxLength: 10 },
   );
@@ -103,124 +111,117 @@ function statesEqual(a: Uint8Array, b: Uint8Array): boolean {
 // --- Property tests ---
 
 describe("snapshot materialization equivalence", () => {
-  it(
-    "State fold ≡ SubdocManager.encodeAll " + "for single channel",
-    async () => {
-      const identity = await generateIdentityKeypair();
+  it("State fold ≡ Y.Doc encode " + "for single channel", async () => {
+    const identity = await generateIdentityKeypair();
 
-      await fc.assert(
-        fc.asyncProperty(arbEditSequence(), async (ops) => {
-          // Path 1: Document + epoch tree
+    await fc.assert(
+      fc.asyncProperty(arbEditSequence(), async (ops) => {
+        // Path 1: Document + epoch tree
+        const doc = Document.create({
+          identity,
+          capability: fakeCap,
+          codec,
+        });
+        const ch = doc.channel("content");
+
+        // Path 2: standalone Y.Doc
+        const ydoc = new Y.Doc();
+
+        let ts = 0;
+        for (const op of ops) {
+          if (op.tag === "edit") {
+            ch.appendEdit(makeEdit(op.payload, "content", ts++));
+            Y.applyUpdate(ydoc, op.payload);
+          } else {
+            ch.closeEpoch();
+          }
+        }
+
+        // Path 1: fold the tree
+        const measured = State.channelMeasured(codec);
+        const cache = Cache.create<Uint8Array>();
+        const foldResult = foldTree<Uint8Array>(measured, ch.tree, cache);
+
+        // Path 2: encode Y.Doc
+        const encodeResult = Y.encodeStateAsUpdate(ydoc);
+
+        expect(statesEqual(foldResult, encodeResult)).toBe(true);
+
+        doc.destroy();
+        ydoc.destroy();
+      }),
+      { numRuns: 50 },
+    );
+  });
+
+  it("State fold ≡ Y.Doc encode " + "for multiple channels", async () => {
+    const identity = await generateIdentityKeypair();
+    const channels = ["content", "comments"];
+
+    await fc.assert(
+      fc.asyncProperty(
+        arbEditSequence(),
+        arbEditSequence(),
+        async (contentOps, commentOps) => {
           const doc = Document.create({
             identity,
             capability: fakeCap,
             codec,
           });
-          const ch = doc.channel("content");
 
-          // Path 2: SubdocManager
-          const mgr = createSubdocManager("test-doc", ["content"]);
-          const subdoc = mgr.subdoc("content");
+          const ydocs = new Map<string, Y.Doc>();
+          for (const ch of channels) {
+            ydocs.set(ch, new Y.Doc());
+          }
 
+          // Apply content ops
+          const contentCh = doc.channel("content");
+          const contentYdoc = ydocs.get("content")!;
           let ts = 0;
-          for (const op of ops) {
+          for (const op of contentOps) {
             if (op.tag === "edit") {
-              // Apply to epoch tree
-              ch.appendEdit(makeEdit(op.payload, "content", ts++));
-              // Apply to subdoc
-              Y.applyUpdate(subdoc, op.payload);
+              contentCh.appendEdit(makeEdit(op.payload, "content", ts++));
+              Y.applyUpdate(contentYdoc, op.payload);
             } else {
-              ch.closeEpoch();
+              contentCh.closeEpoch();
             }
           }
 
-          // Path 1: fold the tree
+          // Apply comments ops
+          const commentsCh = doc.channel("comments");
+          const commentsYdoc = ydocs.get("comments")!;
+          for (const op of commentOps) {
+            if (op.tag === "edit") {
+              commentsCh.appendEdit(makeEdit(op.payload, "comments", ts++));
+              Y.applyUpdate(commentsYdoc, op.payload);
+            } else {
+              commentsCh.closeEpoch();
+            }
+          }
+
           const measured = State.channelMeasured(codec);
-          const cache = Cache.create<Uint8Array>();
-          const foldResult = foldTree<Uint8Array>(measured, ch.tree, cache);
 
-          // Path 2: encode subdoc
-          const encoded = mgr.encodeAll();
-          const encodeResult = encoded["content"]!;
+          for (const chName of channels) {
+            const cache = Cache.create<Uint8Array>();
+            const foldResult = foldTree<Uint8Array>(
+              measured,
+              doc.channel(chName).tree,
+              cache,
+            );
+            const encodeResult = Y.encodeStateAsUpdate(ydocs.get(chName)!);
 
-          // Assert semantic equality
-          expect(statesEqual(foldResult, encodeResult)).toBe(true);
+            expect(statesEqual(foldResult, encodeResult)).toBe(true);
+          }
 
           doc.destroy();
-          mgr.destroy();
-        }),
-        { numRuns: 50 },
-      );
-    },
-  );
-
-  it(
-    "State fold ≡ SubdocManager.encodeAll " + "for multiple channels",
-    async () => {
-      const identity = await generateIdentityKeypair();
-      const channels = ["content", "comments"];
-
-      await fc.assert(
-        fc.asyncProperty(
-          arbEditSequence(),
-          arbEditSequence(),
-          async (contentOps, commentOps) => {
-            const doc = Document.create({
-              identity,
-              capability: fakeCap,
-              codec,
-            });
-
-            const mgr = createSubdocManager("test-doc", channels);
-
-            // Apply content ops
-            const contentCh = doc.channel("content");
-            const contentSubdoc = mgr.subdoc("content");
-            let ts = 0;
-            for (const op of contentOps) {
-              if (op.tag === "edit") {
-                contentCh.appendEdit(makeEdit(op.payload, "content", ts++));
-                Y.applyUpdate(contentSubdoc, op.payload);
-              } else {
-                contentCh.closeEpoch();
-              }
-            }
-
-            // Apply comments ops
-            const commentsCh = doc.channel("comments");
-            const commentsSubdoc = mgr.subdoc("comments");
-            for (const op of commentOps) {
-              if (op.tag === "edit") {
-                commentsCh.appendEdit(makeEdit(op.payload, "comments", ts++));
-                Y.applyUpdate(commentsSubdoc, op.payload);
-              } else {
-                commentsCh.closeEpoch();
-              }
-            }
-
-            const measured = State.channelMeasured(codec);
-            const encoded = mgr.encodeAll();
-
-            for (const chName of channels) {
-              const cache = Cache.create<Uint8Array>();
-              const foldResult = foldTree<Uint8Array>(
-                measured,
-                doc.channel(chName).tree,
-                cache,
-              );
-              const encodeResult = encoded[chName] as Uint8Array;
-
-              expect(statesEqual(foldResult, encodeResult)).toBe(true);
-            }
-
-            doc.destroy();
-            mgr.destroy();
-          },
-        ),
-        { numRuns: 30 },
-      );
-    },
-  );
+          for (const d of ydocs.values()) {
+            d.destroy();
+          }
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
 
   it(
     "equivalence holds after snapshot " + "apply + further edits",
@@ -240,35 +241,31 @@ describe("snapshot materialization equivalence", () => {
             });
             const ch = doc.channel("content");
 
-            const mgr = createSubdocManager("test-doc", ["content"]);
-            const subdoc = mgr.subdoc("content");
+            const ydoc = new Y.Doc();
 
             let ts = 0;
             for (const op of phase1) {
               if (op.tag === "edit") {
                 ch.appendEdit(makeEdit(op.payload, "content", ts++));
-                Y.applyUpdate(subdoc, op.payload);
+                Y.applyUpdate(ydoc, op.payload);
               } else {
                 ch.closeEpoch();
               }
             }
 
-            // Take a snapshot of subdoc state
-            const snapshot = Y.encodeStateAsUpdate(subdoc);
+            // Take a snapshot
+            const snapshot = Y.encodeStateAsUpdate(ydoc);
 
-            // Create a fresh SubdocManager and
-            // apply the snapshot
-            const mgr2 = createSubdocManager("test-doc-2", ["content"]);
-            mgr2.applySnapshot({
-              content: snapshot,
-            });
-            const subdoc2 = mgr2.subdoc("content");
+            // Create a fresh Y.Doc and apply the
+            // snapshot
+            const ydoc2 = new Y.Doc();
+            Y.applyUpdate(ydoc2, snapshot);
 
             // Phase 2: apply more edits to both
             for (const op of phase2) {
               if (op.tag === "edit") {
                 ch.appendEdit(makeEdit(op.payload, "content", ts++));
-                Y.applyUpdate(subdoc2, op.payload);
+                Y.applyUpdate(ydoc2, op.payload);
               } else {
                 ch.closeEpoch();
               }
@@ -278,14 +275,13 @@ describe("snapshot materialization equivalence", () => {
             const measured = State.channelMeasured(codec);
             const cache = Cache.create<Uint8Array>();
             const foldResult = foldTree<Uint8Array>(measured, ch.tree, cache);
-            const encoded2 = mgr2.encodeAll();
-            const encodeResult = encoded2["content"]!;
+            const encodeResult = Y.encodeStateAsUpdate(ydoc2);
 
             expect(statesEqual(foldResult, encodeResult)).toBe(true);
 
             doc.destroy();
-            mgr.destroy();
-            mgr2.destroy();
+            ydoc.destroy();
+            ydoc2.destroy();
           },
         ),
         { numRuns: 30 },
@@ -304,18 +300,17 @@ describe("snapshot materialization equivalence", () => {
       });
       const ch = doc.channel("content");
 
-      const mgr = createSubdocManager("test-doc", ["content"]);
+      const ydoc = new Y.Doc();
 
       const measured = State.channelMeasured(codec);
       const cache = Cache.create<Uint8Array>();
       const foldResult = foldTree<Uint8Array>(measured, ch.tree, cache);
-      const encoded = mgr.encodeAll();
-      const encodeResult = encoded["content"] as Uint8Array;
+      const encodeResult = Y.encodeStateAsUpdate(ydoc);
 
       expect(statesEqual(foldResult, encodeResult)).toBe(true);
 
       doc.destroy();
-      mgr.destroy();
+      ydoc.destroy();
     },
   );
 });

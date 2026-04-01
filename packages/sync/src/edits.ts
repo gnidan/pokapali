@@ -1,14 +1,15 @@
 /**
- * Edits -- observes SubdocManager Y.Doc updates,
+ * Edits -- observes Y.Doc updates per channel,
  * wraps them as Edits, and routes them to the
  * Document's per-channel epoch trees.
  *
- * Start waits for SubdocManager.whenLoaded to avoid
- * capturing y-indexeddb hydration updates as new edits.
- * SNAPSHOT_ORIGIN and custom skipOrigins are filtered.
+ * Start waits for SubdocProvider.whenLoaded to
+ * avoid capturing hydration updates as new edits.
+ * SNAPSHOT_ORIGIN and custom skipOrigins are
+ * filtered.
  */
-import type { SubdocManager } from "@pokapali/subdocs";
-import { SNAPSHOT_ORIGIN } from "@pokapali/subdocs";
+import type { SubdocProvider } from "./subdoc-provider.js";
+import { SNAPSHOT_ORIGIN } from "./subdoc-provider.js";
 import type { Document } from "@pokapali/document";
 import { Edit, type EditOrigin } from "@pokapali/document";
 
@@ -26,11 +27,11 @@ export interface Edits {
  * Create an Edits instance.
  *
  * Does not start capturing until `start()` is called
- * and SubdocManager.whenLoaded resolves.
+ * and SubdocProvider.whenLoaded resolves.
  */
 export const Edits: {
   create(opts: {
-    subdocManager: SubdocManager;
+    subdocProvider: SubdocProvider;
     document: Document;
     channelNames: string[];
     localAuthor: string;
@@ -38,7 +39,7 @@ export const Edits: {
   }): Edits;
 } = {
   create(opts) {
-    const { subdocManager, document, channelNames, localAuthor, skipOrigins } =
+    const { subdocProvider, document, channelNames, localAuthor, skipOrigins } =
       opts;
 
     let started = false;
@@ -50,7 +51,7 @@ export const Edits: {
 
     function attach(): void {
       for (const name of channelNames) {
-        const doc = subdocManager.subdoc(name);
+        const doc = subdocProvider.subdoc(name);
         const channel = document.channel(name);
 
         const handler = (update: Uint8Array, origin: unknown) => {
@@ -86,7 +87,7 @@ export const Edits: {
 
       async start() {
         if (started || destroyed) return;
-        await subdocManager.whenLoaded;
+        await subdocProvider.whenLoaded;
         if (destroyed) return;
         attach();
         started = true;
@@ -97,7 +98,7 @@ export const Edits: {
         for (const name of channelNames) {
           const handler = handlers.get(name);
           if (handler) {
-            const doc = subdocManager.subdoc(name);
+            const doc = subdocProvider.subdoc(name);
             doc.off("update", handler);
           }
         }

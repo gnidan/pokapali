@@ -2,7 +2,7 @@
  * Integration test -- proves the full Phase 4b
  * pipeline composes:
  *
- * SubdocManager -> Edits -> Document -> Store
+ * SubdocProvider -> Edits -> Document -> Store
  *
  * Convergence is mocked (direct closeEpoch call)
  * to keep the test deterministic.
@@ -11,7 +11,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import "fake-indexeddb/auto";
 import * as Y from "yjs";
 import { toArray, measureTree } from "@pokapali/finger-tree";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "./subdoc-provider.js";
 import {
   Document,
   epochMeasured,
@@ -40,7 +40,6 @@ function fakeCapability() {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fakeCodec(): any {
   return {
     merge: () => new Uint8Array(),
@@ -56,8 +55,8 @@ function fakeCodec(): any {
   };
 }
 
-function mockSubdocManager(channelNames: string[]): {
-  manager: SubdocManager;
+function mockSubdocProvider(channelNames: string[]): {
+  provider: SubdocProvider;
   docs: Map<string, Y.Doc>;
 } {
   const docs = new Map<string, Y.Doc>();
@@ -65,7 +64,7 @@ function mockSubdocManager(channelNames: string[]): {
     docs.set(name, new Y.Doc());
   }
 
-  const manager: SubdocManager = {
+  const provider: SubdocProvider = {
     subdoc(ns: string): Y.Doc {
       let doc = docs.get(ns);
       if (!doc) {
@@ -74,23 +73,10 @@ function mockSubdocManager(channelNames: string[]): {
       }
       return doc;
     },
-    get metaDoc(): Y.Doc {
-      return new Y.Doc();
-    },
-    encodeAll() {
-      return {};
-    },
-    applySnapshot() {},
-    get isDirty() {
-      return false;
-    },
-    on() {},
-    off() {},
     whenLoaded: Promise.resolve(),
-    destroy() {},
   };
 
-  return { manager, docs };
+  return { provider, docs };
 }
 
 // -- Tests --
@@ -113,14 +99,14 @@ describe("Phase 4b bridge integration", () => {
       const dbName = `test-integration-${Math.random()}`;
 
       // 1. Create all components
-      const { manager, docs } = mockSubdocManager(["content"]);
+      const { provider, docs } = mockSubdocProvider(["content"]);
       document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
         codec: fakeCodec(),
       });
       edits = Edits.create({
-        subdocManager: manager,
+        subdocProvider: provider,
         document,
         channelNames: ["content"],
         localAuthor: "aabb",
@@ -196,14 +182,14 @@ describe("Phase 4b bridge integration", () => {
   it("multi-channel independence through pipeline", async () => {
     const dbName = `test-integration-multi-${Math.random()}`;
 
-    const { manager, docs } = mockSubdocManager(["content", "comments"]);
+    const { provider, docs } = mockSubdocProvider(["content", "comments"]);
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
       codec: fakeCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
@@ -251,14 +237,14 @@ describe("Phase 4b bridge integration", () => {
   it("edits after convergence go to new epoch", async () => {
     const dbName = `test-integration-post-${Math.random()}`;
 
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     document = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
       codec: fakeCodec(),
     });
     edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -311,14 +297,14 @@ describe("Phase 4b bridge integration", () => {
       const dbName = `test-hydration-${Math.random()}`;
 
       // --- Session 1: create edits + converge ---
-      const { manager, docs } = mockSubdocManager(["content"]);
+      const { provider, docs } = mockSubdocProvider(["content"]);
       document = Document.create({
         identity: fakeIdentity(),
         capability: fakeCapability(),
         codec: fakeCodec(),
       });
       edits = Edits.create({
-        subdocManager: manager,
+        subdocProvider: provider,
         document,
         channelNames: ["content"],
         localAuthor: "aabb",

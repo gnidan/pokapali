@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as fc from "fast-check";
 import * as Y from "yjs";
 import { toArray } from "@pokapali/finger-tree";
-import type { SubdocManager } from "@pokapali/subdocs";
+import type { SubdocProvider } from "../subdoc-provider.js";
 import type { Codec } from "@pokapali/codec";
 import { Document } from "@pokapali/document";
 import type { Document as DocumentType } from "@pokapali/document";
@@ -30,8 +30,8 @@ function fakeCapability() {
   };
 }
 
-function mockSubdocManager(channelNames: string[]): {
-  manager: SubdocManager;
+function mockSubdocProvider(channelNames: string[]): {
+  provider: SubdocProvider;
   docs: Map<string, Y.Doc>;
 } {
   const docs = new Map<string, Y.Doc>();
@@ -39,7 +39,7 @@ function mockSubdocManager(channelNames: string[]): {
     docs.set(name, new Y.Doc());
   }
 
-  const manager: SubdocManager = {
+  const provider: SubdocProvider = {
     subdoc(ns: string): Y.Doc {
       let doc = docs.get(ns);
       if (!doc) {
@@ -48,23 +48,10 @@ function mockSubdocManager(channelNames: string[]): {
       }
       return doc;
     },
-    get metaDoc(): Y.Doc {
-      return new Y.Doc();
-    },
-    encodeAll() {
-      return {};
-    },
-    applySnapshot() {},
-    get isDirty() {
-      return false;
-    },
-    on() {},
-    off() {},
     whenLoaded: Promise.resolve(),
-    destroy() {},
   };
 
-  return { manager, docs };
+  return { provider, docs };
 }
 
 /**
@@ -129,11 +116,11 @@ describe("ParallelVerifier.create", () => {
   });
 
   it("matching -- local edits only", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -145,7 +132,7 @@ describe("ParallelVerifier.create", () => {
 
     const verifier = ParallelVerifier.create({
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
     });
@@ -164,11 +151,11 @@ describe("ParallelVerifier.create", () => {
   });
 
   it("matching -- local + remote edits", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -187,7 +174,7 @@ describe("ParallelVerifier.create", () => {
 
     const verifier = ParallelVerifier.create({
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
     });
@@ -200,11 +187,11 @@ describe("ParallelVerifier.create", () => {
   });
 
   it("divergence detection -- extra edit in tree", async () => {
-    const { manager, docs } = mockSubdocManager(["content"]);
+    const { provider, docs } = mockSubdocProvider(["content"]);
     const codec = yjsCodec();
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content"],
       localAuthor: "aabb",
@@ -235,7 +222,7 @@ describe("ParallelVerifier.create", () => {
 
     const verifier = ParallelVerifier.create({
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content"],
       codec,
     });
@@ -246,11 +233,11 @@ describe("ParallelVerifier.create", () => {
   });
 
   it("multiple channels independent", async () => {
-    const { manager, docs } = mockSubdocManager(["content", "comments"]);
+    const { provider, docs } = mockSubdocProvider(["content", "comments"]);
     const codec = yjsCodec();
 
     const edits = Edits.create({
-      subdocManager: manager,
+      subdocProvider: provider,
       document: doc,
       channelNames: ["content", "comments"],
       localAuthor: "aabb",
@@ -263,7 +250,7 @@ describe("ParallelVerifier.create", () => {
 
     const verifier = ParallelVerifier.create({
       document: doc,
-      subdocManager: manager,
+      subdocProvider: provider,
       channelNames: ["content", "comments"],
       codec,
     });
@@ -287,11 +274,11 @@ describe("ParallelVerifier.create", () => {
             capability: fakeCapability(),
             codec: yjsCodec(),
           });
-          const { manager, docs } = mockSubdocManager(["content"]);
+          const { provider, docs } = mockSubdocProvider(["content"]);
           const codec = yjsCodec();
 
           const edits = Edits.create({
-            subdocManager: manager,
+            subdocProvider: provider,
             document: d,
             channelNames: ["content"],
             localAuthor: "aabb",
@@ -308,7 +295,7 @@ describe("ParallelVerifier.create", () => {
 
           const verifier = ParallelVerifier.create({
             document: d,
-            subdocManager: manager,
+            subdocProvider: provider,
             channelNames: ["content"],
             codec,
           });
@@ -335,11 +322,11 @@ describe("ParallelVerifier.create", () => {
             capability: fakeCapability(),
             codec: yjsCodec(),
           });
-          const { manager, docs } = mockSubdocManager(["content"]);
+          const { provider, docs } = mockSubdocProvider(["content"]);
           const codec = yjsCodec();
 
           const edits = Edits.create({
-            subdocManager: manager,
+            subdocProvider: provider,
             document: d,
             channelNames: ["content"],
             localAuthor: "aabb",
@@ -371,7 +358,7 @@ describe("ParallelVerifier.create", () => {
 
           const verifier = ParallelVerifier.create({
             document: d,
-            subdocManager: manager,
+            subdocProvider: provider,
             channelNames: ["content"],
             codec,
           });
