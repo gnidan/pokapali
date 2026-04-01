@@ -7,10 +7,15 @@ import { describe, it, expect, vi } from "vitest";
 import { measureTree, toArray } from "@pokapali/finger-tree";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import type { Capability } from "@pokapali/capability";
-import { epochMeasured } from "../epoch/index-monoid.js";
-import { edit } from "../epoch/types.js";
-import type { CrdtCodec } from "../codec/codec.js";
-import { View, State, Fingerprint } from "@pokapali/document";
+import type { Codec as CrdtCodec } from "@pokapali/codec";
+import type { Epoch } from "@pokapali/document";
+import {
+  epochMeasured,
+  edit,
+  View,
+  State,
+  Fingerprint,
+} from "@pokapali/document";
 import { createDocument } from "./document.js";
 
 // -- Helpers --
@@ -51,7 +56,7 @@ function commentsMergeView(codec: CrdtCodec) {
         empty: codec.empty(),
         append: (a: Uint8Array, b: Uint8Array) => codec.merge(a, b),
       },
-      measure: (ep: import("../epoch/types.js").Epoch) => {
+      measure: (ep: Epoch) => {
         let state = codec.empty();
         for (const e of ep.edits) {
           state = codec.merge(state, e.payload);

@@ -2,10 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import fc from "fast-check";
 import type { Measured } from "@pokapali/finger-tree";
 import { toArray } from "@pokapali/finger-tree";
-import { edit } from "../epoch/types.js";
-import type { Epoch } from "../epoch/types.js";
-import type { CrdtCodec } from "../codec/codec.js";
-import { View, State } from "@pokapali/document";
+import type { Epoch } from "@pokapali/document";
+import type { Codec as CrdtCodec } from "@pokapali/codec";
+import { edit, View, State } from "@pokapali/document";
 import { createChannel } from "./channel.js";
 
 // -- Helpers --

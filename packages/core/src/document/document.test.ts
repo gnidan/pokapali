@@ -2,9 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import type { Measured } from "@pokapali/finger-tree";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import type { Capability } from "@pokapali/capability";
-import type { Epoch } from "../epoch/types.js";
-import { edit } from "../epoch/types.js";
-import { View } from "@pokapali/document";
+import type { Epoch } from "@pokapali/document";
+import { edit, View } from "@pokapali/document";
 import { createDocument } from "./document.js";
 
 // -- Helpers --
