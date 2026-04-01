@@ -552,13 +552,44 @@ export function createDoc(params: DocParams): Doc {
   // available, otherwise use the standalone param.
   const awareness: Awareness = awarenessRoom?.awareness ?? params.awareness!;
 
+  // Local dirty flag — replaces subdocManager.isDirty.
+  // Set when any surface or subdoc Y.Doc receives a
+  // local edit; cleared after publish() snapshots.
+  let contentDirty = false;
+
+  function markContentDirty(): void {
+    if (contentDirty) return;
+    contentDirty = true;
+    // Clear save error on new edits — user is back
+    // to "dirty" state, previous error is stale.
+    lastSaveError = null;
+    syncSaveState();
+    dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
+    awareness?.setLocalStateField("clockSum", computeClockSum());
+    factQueue?.push({
+      type: "content-dirty",
+      ts: Date.now(),
+      clockSum: computeClockSum(),
+    });
+  }
+
   function computeClockSum(): number {
+    if (!params.document) return 0;
     let sum = 0;
     for (const ns of channels) {
-      const sv = Y.encodeStateVector(subdocManager.subdoc(ns));
-      const decoded = Y.decodeStateVector(sv);
-      for (const clock of decoded.values()) {
-        sum += clock;
+      if (params.document.hasSurface(ns)) {
+        const handle = params.document.surface(ns).handle as Y.Doc;
+        const sv = Y.encodeStateVector(handle);
+        const decoded = Y.decodeStateVector(sv);
+        for (const clock of decoded.values()) {
+          sum += clock;
+        }
+      } else {
+        const sv = Y.encodeStateVector(subdocManager.subdoc(ns));
+        const decoded = Y.decodeStateVector(sv);
+        for (const clock of decoded.values()) {
+          sum += clock;
+        }
       }
     }
     return sum;
@@ -624,7 +655,7 @@ export function createDoc(params: DocParams): Doc {
     const current = docStateFeed.getSnapshot();
     const nextContent = {
       ...current.content,
-      isDirty: subdocManager.isDirty,
+      isDirty: contentDirty,
       isSaving,
       lastSaveError,
     };
@@ -812,18 +843,11 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
+  // subdocManager "dirty" event still fires for
+  // edits to non-surface channels (e.g. _meta via
+  // subdoc Y.Doc). Forward to the local dirty flag.
   subdocManager.on("dirty", () => {
-    // Clear save error on new edits — user is back
-    // to "dirty" state, previous error is stale.
-    lastSaveError = null;
-    syncSaveState();
-    dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
-    awareness?.setLocalStateField("clockSum", computeClockSum());
-    factQueue?.push({
-      type: "content-dirty",
-      ts: Date.now(),
-      clockSum: computeClockSum(),
-    });
+    markContentDirty();
   });
 
   // Wire sync/awareness status bridges. These are
@@ -982,20 +1006,14 @@ export function createDoc(params: DocParams): Doc {
     wireSyncBridges(liveSyncManager, liveAwarenessRoom);
   }
 
-  // If the subdoc is already dirty (e.g. _meta was
-  // populated before we registered), fire the event
-  // so the auto-save debounce starts.
+  // If already dirty (e.g. _meta was populated
+  // before we registered), fire the event so the
+  // auto-save debounce starts.
   if (subdocManager.isDirty) {
     // Defer to next microtask so callers can attach
     // event listeners first.
     queueMicrotask(() => {
-      syncSaveState();
-      dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
-      factQueue?.push({
-        type: "content-dirty",
-        ts: Date.now(),
-        clockSum: computeClockSum(),
-      });
+      markContentDirty();
     });
   }
 
@@ -1771,11 +1789,7 @@ export function createDoc(params: DocParams): Doc {
       if (origin === "remote" || origin === "snapshot") {
         return;
       }
-      // Mark subdocManager dirty so the save
-      // state transitions to "dirty". Surface
-      // edits bypass the subdocManager's Y.Docs,
-      // so its update handler never fires.
-      subdocManager.markDirty();
+      markContentDirty();
       scheduleReconcile();
     };
     handle.on("update", handler);
@@ -1974,9 +1988,9 @@ export function createDoc(params: DocParams): Doc {
         plaintext[ch] = state;
         clockSum += params.codec.clockSum(state);
       }
-      // Reset subdocManager dirty flag so save
-      // state machinery transitions to "saved".
-      subdocManager.encodeAll();
+      // Reset local dirty flag so save state
+      // machinery transitions to "saved".
+      contentDirty = false;
       let pushResult;
       try {
         pushResult = await snapshotLC.push(
