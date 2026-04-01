@@ -73,7 +73,7 @@ export interface Codec {
    * a live CRDT document that editors can bind to.
    * Codec-internal type exposed via opaque handle.
    */
-  createSurface(): CodecSurface;
+  createSurface(opts?: { guid?: string }): CodecSurface;
 
   /**
    * Sum of CRDT-internal clocks for the given

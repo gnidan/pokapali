@@ -152,6 +152,9 @@ function baseParams() {
 function mockDocument() {
   return {
     channel: vi.fn(),
+    surface: vi.fn(),
+    hasSurface: vi.fn().mockReturnValue(false),
+    onEdit: vi.fn().mockReturnValue(() => {}),
     identity: {
       publicKey: new Uint8Array(32),
       privateKey: new Uint8Array(64),

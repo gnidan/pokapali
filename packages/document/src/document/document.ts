@@ -60,7 +60,7 @@ export interface Document {
    * Requires a codec to have been provided to
    * `Document.create`.
    */
-  surface(channel: string): CodecSurface;
+  surface(channel: string, opts?: { guid?: string }): CodecSurface;
   /** True if a surface has been created for this
    *  channel (via a prior `surface()` call). */
   hasSurface(channel: string): boolean;
@@ -305,11 +305,14 @@ export const Document = {
     const doc: Document = {
       channel: getOrCreateChannel,
 
-      surface(channelName: string): CodecSurface {
+      surface(
+        channelName: string,
+        surfaceOpts?: { guid?: string },
+      ): CodecSurface {
         const existing = surfaces.get(channelName);
         if (existing) return existing.surface;
 
-        const s = opts.codec.createSurface();
+        const s = opts.codec.createSurface(surfaceOpts);
         const ch = getOrCreateChannel(channelName);
         const identity = opts.identity;
 

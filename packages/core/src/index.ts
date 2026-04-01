@@ -198,8 +198,31 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       skipOrigins: persistenceEnabled ? skipOrigins : undefined,
     });
 
+    // Create Document + eagerly create surfaces so
+    // surface Y.Docs are available for persistence.
+    const document = Document.create({
+      identity: {
+        publicKey: new Uint8Array(32),
+        privateKey: new Uint8Array(64),
+      },
+      capability: {
+        channels: new Set(channels),
+        canPushSnapshots: false,
+        isAdmin: false,
+      },
+      codec: yjsCodec,
+    });
+
+    // Eagerly create a surface per channel —
+    // the surface Y.Docs become the persistence
+    // and editing substrate.
+    const surfaceDocs: Y.Doc[] = channels.map(
+      (ch) =>
+        document.surface(ch, { guid: `${ipnsName}:${ch}` }).handle as Y.Doc,
+    );
+
     if (persistenceEnabled) {
-      docPersistence = createDocPersistence(subdocManager, channels, metaDoc);
+      docPersistence = createDocPersistence([...surfaceDocs, metaDoc]);
       for (const p of docPersistence.providers) {
         skipOrigins.add(p);
       }
@@ -350,23 +373,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         throw err;
       }
     })();
-
-    // Create a Document (from @pokapali/document)
-    // alongside the Doc for lifecycle bridge. Uses
-    // placeholder identity/capability — lifecycle
-    // management doesn't need real values.
-    const document = Document.create({
-      identity: {
-        publicKey: new Uint8Array(32),
-        privateKey: new Uint8Array(64),
-      },
-      capability: {
-        channels: new Set(channels),
-        canPushSnapshots: false,
-        isAdmin: false,
-      },
-      codec: yjsCodec,
-    });
 
     return createDoc({
       subdocManager,

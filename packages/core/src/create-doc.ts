@@ -766,17 +766,10 @@ export function createDoc(params: DocParams): Doc {
   // reconciliation protocol has edits to send.
   // Skips snapshot-apply and persistence origins.
   //
-  // Two paths exist:
-  // 1. doc.channel() — TipTap writes directly to
-  //    subdocManager's subdoc (null origin). We
-  //    capture those here and route through
-  //    channel.appendEdit + scheduleReconcile.
-  // 2. doc.surface() — TipTap writes to the codec
-  //    surface's Y.Doc (a different Y.Doc). The
-  //    surface's onLocalEdit already calls
-  //    ch.appendEdit, but scheduleReconcile is
-  //    not called. We register a lazy listener on
-  //    the surface Y.Doc in the surface() method.
+  // The bridge registers on subdocManager Y.Docs
+  // (returned by doc.channel()). Local edits
+  // (null origin) are routed through
+  // channel.appendEdit + scheduleReconcile.
   const editBridgeCleanups: Array<() => void> = [];
   const surfaceBridged = new Set<string>();
   if (params.document) {
@@ -803,6 +796,19 @@ export function createDoc(params: DocParams): Doc {
       };
       ydoc.on("update", handler);
       editBridgeCleanups.push(() => ydoc.off("update", handler));
+
+      // Sync remote edits from the surface Y.Doc
+      // back to the subdocManager Y.Doc so that
+      // consumers of doc.channel() see remote
+      // state. Uses SNAPSHOT_ORIGIN to avoid
+      // re-triggering the edit bridge above.
+      if (params.document.hasSurface(name)) {
+        const unsub = params.document.onEdit(name, (edit: Edit) => {
+          if (edit.origin === "local") return;
+          Y.applyUpdate(ydoc, edit.payload, SNAPSHOT_ORIGIN);
+        });
+        editBridgeCleanups.push(unsub);
+      }
     }
   }
 
@@ -857,16 +863,6 @@ export function createDoc(params: DocParams): Doc {
           getChannel: (name) => doc.channel(name),
           codec: params.codec,
           transport,
-          onRemoteEdit: (channelName, edit) => {
-            const ydoc = subdocManager.subdoc(channelName);
-            // Apply to subdocManager's subdoc for
-            // publish fallback + dirty tracking.
-            // Use SNAPSHOT_ORIGIN so the subdoc
-            // manager's dirty tracker ignores it
-            // and the send-side edit bridge
-            // (origin != null) doesn't re-capture.
-            Y.applyUpdate(ydoc, edit.payload, SNAPSHOT_ORIGIN);
-          },
         });
         reconciliationWirings.add(wiring);
 
@@ -926,15 +922,6 @@ export function createDoc(params: DocParams): Doc {
               signature: e.signature,
             };
             channel.appendEdit(edit);
-            // Apply to subdocManager's Y.Doc so
-            // non-surface channels (e.g. comments)
-            // update. Surface channels also need
-            // this for snapshot encoding parity.
-            // Use SNAPSHOT_ORIGIN so subdoc dirty
-            // tracker ignores it and the send-side
-            // edit bridge doesn't re-capture.
-            const ydoc = subdocManager.subdoc(channelName);
-            Y.applyUpdate(ydoc, e.payload, SNAPSHOT_ORIGIN);
           }
         });
 
@@ -1769,6 +1756,32 @@ export function createDoc(params: DocParams): Doc {
     },
   };
 
+  // Lazily register a reconciliation trigger on a
+  // surface Y.Doc. The surface's onLocalEdit already
+  // puts edits in the epoch tree via ch.appendEdit(),
+  // but scheduleReconcile() isn't called (the
+  // subdocManager edit bridge listens on a different
+  // Y.Doc). This bridges the gap.
+  function ensureSurfaceBridged(name: string, handle: Y.Doc): void {
+    if (surfaceBridged.has(name)) return;
+    surfaceBridged.add(name);
+    const handler = (_update: Uint8Array, origin: unknown) => {
+      // Skip remote/snapshot origins — only
+      // local edits should trigger reconcile.
+      if (origin === "remote" || origin === "snapshot") {
+        return;
+      }
+      // Mark subdocManager dirty so the save
+      // state transitions to "dirty". Surface
+      // edits bypass the subdocManager's Y.Docs,
+      // so its update handler never fires.
+      subdocManager.markDirty();
+      scheduleReconcile();
+    };
+    handle.on("update", handler);
+    editBridgeCleanups.push(() => handle.off("update", handler));
+  }
+
   const doc = {
     channel(name: string): Y.Doc {
       assertNotDestroyed();
@@ -1805,33 +1818,7 @@ export function createDoc(params: DocParams): Doc {
         );
       }
       const handle = params.document.surface(name).handle as Y.Doc;
-
-      // Lazily register a reconciliation trigger
-      // on the surface Y.Doc. The surface's
-      // onLocalEdit already puts edits in the
-      // epoch tree via ch.appendEdit(), but
-      // scheduleReconcile() isn't called (the
-      // subdocManager edit bridge listens on a
-      // different Y.Doc). This bridges the gap.
-      if (!surfaceBridged.has(name)) {
-        surfaceBridged.add(name);
-        const handler = (_update: Uint8Array, origin: unknown) => {
-          // Skip remote/snapshot origins — only
-          // local edits should trigger reconcile.
-          if (origin === "remote" || origin === "snapshot") {
-            return;
-          }
-          // Mark subdocManager dirty so the save state
-          // transitions to "dirty". Surface edits bypass
-          // the subdocManager's Y.Docs, so its update
-          // handler never fires.
-          subdocManager.markDirty();
-          scheduleReconcile();
-        };
-        handle.on("update", handler);
-        editBridgeCleanups.push(() => handle.off("update", handler));
-      }
-
+      ensureSurfaceBridged(name, handle);
       return handle;
     },
 

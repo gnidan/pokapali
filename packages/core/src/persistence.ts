@@ -1,9 +1,9 @@
 /**
- * IndexedDB persistence for Yjs subdocs.
+ * IndexedDB persistence for Yjs docs.
  *
- * Layer A: y-indexeddb providers per Y.Doc namespace.
- * Each provider auto-syncs Y.Doc state to IndexedDB and
- * restores it on load.
+ * Layer A: y-indexeddb providers per Y.Doc.
+ * Each provider auto-syncs Y.Doc state to IndexedDB
+ * and restores it on load.
  *
  * The provider instance is used as the transaction
  * origin when applying stored updates, so it must be
@@ -11,7 +11,7 @@
  * false dirty flags.
  */
 import { IndexeddbPersistence } from "y-indexeddb";
-import type { Subdocs } from "./subdocs/index.js";
+import type * as Y from "yjs";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("persistence");
@@ -33,30 +33,20 @@ export interface DocPersistence {
 }
 
 /**
- * Attach y-indexeddb providers to every Y.Doc in a
- * Subdocs. Each provider is keyed by the doc's
- * guid (which is `${ipnsName}:${namespace}`).
+ * Attach y-indexeddb providers to a list of Y.Docs.
+ * Each provider is keyed by the doc's guid
+ * (which is `${ipnsName}:${namespace}`).
  *
  * Returns a DocPersistence handle for lifecycle
  * management. Call destroy() when the doc is closed.
  */
-export function createDocPersistence(
-  subdocManager: Subdocs,
-  namespaces: string[],
-  metaDoc?: import("yjs").Doc,
-): DocPersistence {
+export function createDocPersistence(docs: Y.Doc[]): DocPersistence {
   const providers = new Set<IndexeddbPersistence>();
 
-  for (const ns of namespaces) {
-    const doc = subdocManager.subdoc(ns);
+  for (const doc of docs) {
     const provider = new IndexeddbPersistence(doc.guid, doc);
     providers.add(provider);
   }
-
-  // Persist metaDoc separately when provided
-  const meta = metaDoc ?? subdocManager.subdoc("_meta");
-  const metaProvider = new IndexeddbPersistence(meta.guid, meta);
-  providers.add(metaProvider);
 
   const whenSynced = Promise.all([...providers].map((p) => p.whenSynced)).then(
     () => {},

@@ -68,8 +68,8 @@ export const yjsCodec: Codec = {
     return true;
   },
 
-  createSurface(): CodecSurface {
-    const doc = new Y.Doc();
+  createSurface(opts?: { guid?: string }): CodecSurface {
+    const doc = new Y.Doc(opts?.guid ? { guid: opts.guid } : undefined);
     return {
       get handle() {
         return doc;
