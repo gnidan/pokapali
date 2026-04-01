@@ -31,6 +31,7 @@ import {
   INITIAL_GOSSIP,
   INITIAL_EPOCHS,
   INITIAL_SNAPSHOT_HISTORY,
+  deriveVersionHistoryFromSnapshots,
 } from "./facts.js";
 import type {
   Fact,
@@ -1882,4 +1883,81 @@ describe("reduceSnapshotHistory", () => {
     });
     expect(next).toBe(state);
   });
+
+  it(
+    "subscription sequence: facts feed" + " produces correct version history",
+    async () => {
+      const cid1 = await fakeCid(184);
+      const cid2 = await fakeCid(185);
+      const cid3 = await fakeCid(186);
+
+      // Simulate a stream of facts arriving
+      // over time, as the interpreter would emit.
+      const facts: Fact[] = [
+        {
+          type: "snapshot-materialized",
+          ts: 1000,
+          channel: "content",
+          epochIndex: 0,
+          cid: cid1,
+          seq: 3,
+        },
+        // Non-snapshot facts should be ignored.
+        { type: "gossip-message", ts: 1500 },
+        {
+          type: "snapshot-materialized",
+          ts: 2000,
+          channel: "content",
+          epochIndex: 1,
+          cid: cid2,
+          seq: 7,
+        },
+        {
+          type: "snapshot-materialized",
+          ts: 3000,
+          channel: "content",
+          epochIndex: 2,
+          cid: cid3,
+          seq: 12,
+        },
+      ];
+
+      // Fold facts through the reducer, collecting
+      // version history at each step — simulates
+      // what updateVersionsFeed sees.
+      let history = INITIAL_SNAPSHOT_HISTORY;
+      const snapshots: ReturnType<typeof deriveVersionHistoryFromSnapshots>[] =
+        [];
+
+      for (const fact of facts) {
+        history = reduceSnapshotHistory(history, fact);
+        snapshots.push(deriveVersionHistoryFromSnapshots(history));
+      }
+
+      // After first snapshot-materialized:
+      expect(snapshots[0]!.entries).toHaveLength(1);
+      expect(snapshots[0]!.entries[0]!.seq).toBe(3);
+
+      // After gossip-message (no change):
+      expect(snapshots[1]!.entries).toHaveLength(1);
+
+      // After second snapshot-materialized:
+      expect(snapshots[2]!.entries).toHaveLength(2);
+      // Newest first.
+      expect(snapshots[2]!.entries[0]!.seq).toBe(7);
+      expect(snapshots[2]!.entries[1]!.seq).toBe(3);
+
+      // After third snapshot-materialized:
+      expect(snapshots[3]!.entries).toHaveLength(3);
+      expect(snapshots[3]!.entries[0]!.seq).toBe(12);
+      expect(snapshots[3]!.entries[1]!.seq).toBe(7);
+      expect(snapshots[3]!.entries[2]!.seq).toBe(3);
+
+      // All entries should be "available".
+      for (const e of snapshots[3]!.entries) {
+        expect(e.status).toBe("available");
+      }
+      expect(snapshots[3]!.walking).toBe(false);
+    },
+  );
 });

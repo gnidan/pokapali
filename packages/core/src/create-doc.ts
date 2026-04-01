@@ -83,11 +83,17 @@ import {
   createFeed,
 } from "./sources.js";
 import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
-import { reduce, reduceChain, deriveSaveState } from "./reducers.js";
+import {
+  reduce,
+  reduceChain,
+  reduceSnapshotHistory,
+  deriveSaveState,
+} from "./reducers.js";
 import {
   initialDocState,
   bestGuarantee,
-  deriveVersionHistory,
+  deriveVersionHistoryFromSnapshots,
+  INITIAL_SNAPSHOT_HISTORY,
   EMPTY_SET,
 } from "./facts.js";
 import type {
@@ -100,6 +106,7 @@ import type {
   LoadingState,
   GossipActivity,
   VersionHistory,
+  SnapshotHistory,
 } from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
@@ -564,6 +571,10 @@ export function createDoc(params: DocParams): Doc {
   // pipeline.
   let localChain: ChainState | null = null;
 
+  // Mirror of localChain for the snapshot-based
+  // version history path.
+  let localSnapshotHistory: SnapshotHistory | null = null;
+
   let interpreterAc: AbortController | null = null;
   let pendingAnnounceRetry: ReturnType<typeof setTimeout> | null = null;
   let lastLocalPublishCid: string | null = null;
@@ -736,7 +747,11 @@ export function createDoc(params: DocParams): Doc {
 
   function updateVersionsFeed(): void {
     versionsFeed._update(
-      deriveVersionHistory(interpreterState?.chain ?? null, localChain),
+      deriveVersionHistoryFromSnapshots(
+        localSnapshotHistory ??
+          interpreterState?.snapshotHistory ??
+          INITIAL_SNAPSHOT_HISTORY,
+      ),
     );
     scheduleVersionCacheWrite();
   }
@@ -2088,8 +2103,23 @@ export function createDoc(params: DocParams): Doc {
         publishSucceeded,
       ].reduce(reduceChain, base);
 
-      // Update versions feed synchronously so
-      // subscribers see the new version immediately.
+      // Advance localSnapshotHistory so the
+      // versions feed updates immediately.
+      const snapshotFact: Fact = {
+        type: "snapshot-materialized",
+        ts: now,
+        channel: channels[0]!,
+        epochIndex: 0,
+        cid,
+        seq: pushResult.seq,
+      };
+      localSnapshotHistory = reduceSnapshotHistory(
+        localSnapshotHistory ??
+          interpreterState?.snapshotHistory ??
+          INITIAL_SNAPSHOT_HISTORY,
+        snapshotFact,
+      );
+
       updateVersionsFeed();
 
       // Sync saveState after localChain is set so
