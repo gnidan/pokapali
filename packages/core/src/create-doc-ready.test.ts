@@ -123,10 +123,18 @@ function mockSubdocManager() {
   };
 }
 
+function mockSubdocParams() {
+  const sdm = mockSubdocManager();
+  return {
+    subdocManager: sdm as any,
+    metaDoc: sdm.metaDoc as any,
+  };
+}
+
 describe("ready() after interpreter crash (#39)", () => {
   it("resolves ready() when interpreter throws", async () => {
     const doc = createDoc({
-      subdocManager: mockSubdocManager() as any,
+      ...mockSubdocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),
@@ -208,7 +216,7 @@ describe("ready() after interpreter crash (#39)", () => {
     );
 
     const doc = createDoc({
-      subdocManager: mockSubdocManager() as any,
+      ...mockSubdocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),
@@ -282,7 +290,7 @@ describe("ready() after interpreter crash (#39)", () => {
     vi.mocked(runInterpreter).mockRejectedValue(new Error("interpreter boom"));
 
     const doc = createDoc({
-      subdocManager: mockSubdocManager() as any,
+      ...mockSubdocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),
@@ -351,7 +359,7 @@ describe("ready() after interpreter crash (#39)", () => {
 
   it("ready() without options still works", async () => {
     const doc = createDoc({
-      subdocManager: mockSubdocManager() as any,
+      ...mockSubdocParams(),
       syncManager: {
         status: "connecting",
         onStatusChange: vi.fn(),

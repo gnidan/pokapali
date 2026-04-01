@@ -128,8 +128,12 @@ function mockPubsub() {
 }
 
 function baseParams() {
+  const subdocManager = mockSubdocManager() as ReturnType<
+    typeof mockSubdocManager
+  >;
   return {
-    subdocManager: mockSubdocManager() as ReturnType<typeof mockSubdocManager>,
+    subdocManager,
+    metaDoc: subdocManager.metaDoc,
     cap: {
       isAdmin: true,
       canPushSnapshots: true,

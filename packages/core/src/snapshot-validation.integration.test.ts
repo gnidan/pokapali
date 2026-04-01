@@ -156,12 +156,14 @@ describe("snapshot validation integration", () => {
         1,
       );
 
+      const sdm = mockSubdocManager();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
-        subdocManager: mockSubdocManager() as any,
+        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
+        metaDoc: sdm.metaDoc,
       });
 
       const result = await ops.applySnapshot(cid, block);
@@ -179,12 +181,14 @@ describe("snapshot validation integration", () => {
       const tampered = new Uint8Array(block);
       tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
 
+      const sdm = mockSubdocManager();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
-        subdocManager: mockSubdocManager() as any,
+        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
+        metaDoc: sdm.metaDoc,
       });
 
       // Recompute CID for tampered block
@@ -201,12 +205,14 @@ describe("snapshot validation integration", () => {
       const garbage = new Uint8Array([0, 1, 2, 3]);
 
       const { keys } = await generateKeys();
+      const sdm = mockSubdocManager();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
-        subdocManager: mockSubdocManager() as any,
+        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
+        metaDoc: sdm.metaDoc,
       });
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow(
@@ -219,13 +225,15 @@ describe("snapshot validation integration", () => {
       const garbage = new Uint8Array([0, 1, 2, 3]);
 
       const { keys } = await generateKeys();
+      const sdm = mockSubdocManager();
       const codec = mockSnapshotCodec();
       const ops = createSnapshotOps({
         snapshotCodec: codec,
-        subdocManager: mockSubdocManager() as any,
+        subdocManager: sdm as any,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
+        metaDoc: sdm.metaDoc,
       });
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow();

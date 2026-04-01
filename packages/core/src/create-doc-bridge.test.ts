@@ -118,8 +118,10 @@ function mockSubdocManager() {
 }
 
 function baseParams() {
+  const subdocManager = mockSubdocManager();
   return {
-    subdocManager: mockSubdocManager(),
+    subdocManager,
+    metaDoc: subdocManager.metaDoc,
     cap: {
       isAdmin: true,
       canPushSnapshots: true,

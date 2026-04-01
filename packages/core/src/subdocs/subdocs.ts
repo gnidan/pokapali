@@ -7,14 +7,7 @@
  * identity mappings).
  */
 import * as Y from "yjs";
-
-/**
- * Origin marker for snapshot-applied updates.
- * Update handlers use this to distinguish remote
- * snapshot data from local edits when computing
- * the dirty flag.
- */
-const SNAPSHOT_ORIGIN: unique symbol = Symbol("snapshot-apply");
+import { SNAPSHOT_ORIGIN } from "../constants.js";
 
 export interface Options {
   /** Reserved for future use. */

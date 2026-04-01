@@ -15,6 +15,7 @@ import {
 } from "./doc-identity.js";
 import type { IdentityMap } from "./doc-identity.js";
 import { Subdocs } from "./subdocs/index.js";
+import { SNAPSHOT_ORIGIN } from "./constants.js";
 import type {
   SyncManager,
   AwarenessRoom,
@@ -395,6 +396,9 @@ export interface DocParams {
    *  lifecycle bridge. Stored in docDocuments WeakMap
    *  and destroyed on teardown. */
   document?: Document;
+  /** Standalone metaDoc for auth state, client ID
+   *  mapping, and participant awareness. */
+  metaDoc: Y.Doc;
 }
 
 // Pure status derivation functions extracted to
@@ -441,6 +445,7 @@ export function createDoc(params: DocParams): Doc {
     channels,
     signingKey,
     readKey,
+    metaDoc,
   } = params;
 
   let destroyed = false;
@@ -707,10 +712,7 @@ export function createDoc(params: DocParams): Doc {
     createFeed<ValidationErrorInfo>(null);
 
   // --- Client identity mapping feed ---
-  const clientIdMapping = createClientIdMapping(
-    subdocManager.metaDoc,
-    ipnsName,
-  );
+  const clientIdMapping = createClientIdMapping(metaDoc, ipnsName);
   const clientIdMappingFeed = clientIdMapping.feed;
 
   let versionCacheTimer: ReturnType<typeof setTimeout> | null = null;
@@ -863,7 +865,7 @@ export function createDoc(params: DocParams): Doc {
             // manager's dirty tracker ignores it
             // and the send-side edit bridge
             // (origin != null) doesn't re-capture.
-            Y.applyUpdate(ydoc, edit.payload, Subdocs.SNAPSHOT_ORIGIN);
+            Y.applyUpdate(ydoc, edit.payload, SNAPSHOT_ORIGIN);
           },
         });
         reconciliationWirings.add(wiring);
@@ -932,7 +934,7 @@ export function createDoc(params: DocParams): Doc {
             // tracker ignores it and the send-side
             // edit bridge doesn't re-capture.
             const ydoc = subdocManager.subdoc(channelName);
-            Y.applyUpdate(ydoc, e.payload, Subdocs.SNAPSHOT_ORIGIN);
+            Y.applyUpdate(ydoc, e.payload, SNAPSHOT_ORIGIN);
           }
         });
 
@@ -1089,12 +1091,7 @@ export function createDoc(params: DocParams): Doc {
     : null;
 
   const cleanupParticipant = awareness
-    ? setupParticipantAwareness(
-        params.identity,
-        awareness,
-        subdocManager.metaDoc,
-        ipnsName,
-      )
+    ? setupParticipantAwareness(params.identity, awareness, metaDoc, ipnsName)
     : () => {};
 
   // ── Interpreter setup ─────────────────────────
@@ -1272,6 +1269,7 @@ export function createDoc(params: DocParams): Doc {
       resolver,
       readKey: rk,
       getClockSum: computeClockSum,
+      metaDoc,
     });
 
     const effects: EffectHandlers = {
@@ -1775,7 +1773,7 @@ export function createDoc(params: DocParams): Doc {
     channel(name: string): Y.Doc {
       assertNotDestroyed();
       try {
-        const doc = subdocManager.subdoc(name);
+        const doc = name === "_meta" ? metaDoc : subdocManager.subdoc(name);
         if (
           !cap.isAdmin &&
           cap.channels.size > 0 &&
@@ -2326,7 +2324,7 @@ export function createDoc(params: DocParams): Doc {
             " manage authorized publishers",
         );
       }
-      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      const map = metaDoc.getMap<true>("authorizedPublishers");
       map.set(pubkey, true);
     },
 
@@ -2339,12 +2337,12 @@ export function createDoc(params: DocParams): Doc {
             " manage authorized publishers",
         );
       }
-      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      const map = metaDoc.getMap<true>("authorizedPublishers");
       map.delete(pubkey);
     },
 
     get authorizedPublishers(): ReadonlySet<string> {
-      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      const map = metaDoc.getMap<true>("authorizedPublishers");
       const result = new Set<string>();
       for (const key of map.keys()) {
         result.add(key);

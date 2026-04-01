@@ -70,12 +70,14 @@ function mockSubdocs(): Subdocs {
 function buildOptions(
   overrides?: Partial<SnapshotOpsOptions>,
 ): SnapshotOpsOptions {
+  const sdm = mockSubdocs();
   return {
     snapshotCodec: mockSnapshotCodec(),
-    subdocManager: mockSubdocs(),
+    subdocManager: sdm,
     resolver: mockResolver(),
     readKey: {} as CryptoKey,
     getClockSum: () => 42,
+    metaDoc: sdm.metaDoc,
     ...overrides,
   };
 }
@@ -217,7 +219,12 @@ describe("createSnapshotOps", () => {
       const sdm = mockSubdocs();
       sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
-      const ops = createSnapshotOps(buildOptions({ subdocManager: sdm }));
+      const ops = createSnapshotOps(
+        buildOptions({
+          subdocManager: sdm,
+          metaDoc: sdm.metaDoc,
+        }),
+      );
 
       expect(ops.isPublisherAuthorized("aabbcc")).toBe(true);
     });
@@ -226,7 +233,12 @@ describe("createSnapshotOps", () => {
       const sdm = mockSubdocs();
       sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
-      const ops = createSnapshotOps(buildOptions({ subdocManager: sdm }));
+      const ops = createSnapshotOps(
+        buildOptions({
+          subdocManager: sdm,
+          metaDoc: sdm.metaDoc,
+        }),
+      );
 
       expect(ops.isPublisherAuthorized("ddeeff")).toBe(false);
     });
@@ -237,7 +249,12 @@ describe("createSnapshotOps", () => {
         const sdm = mockSubdocs();
         sdm.metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
 
-        const ops = createSnapshotOps(buildOptions({ subdocManager: sdm }));
+        const ops = createSnapshotOps(
+          buildOptions({
+            subdocManager: sdm,
+            metaDoc: sdm.metaDoc,
+          }),
+        );
 
         expect(ops.isPublisherAuthorized(undefined)).toBe(false);
       },

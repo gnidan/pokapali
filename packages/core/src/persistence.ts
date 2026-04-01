@@ -43,15 +43,20 @@ export interface DocPersistence {
 export function createDocPersistence(
   subdocManager: Subdocs,
   namespaces: string[],
+  metaDoc?: import("yjs").Doc,
 ): DocPersistence {
   const providers = new Set<IndexeddbPersistence>();
-  const allKeys = [...namespaces, "_meta"];
 
-  for (const ns of allKeys) {
+  for (const ns of namespaces) {
     const doc = subdocManager.subdoc(ns);
     const provider = new IndexeddbPersistence(doc.guid, doc);
     providers.add(provider);
   }
+
+  // Persist metaDoc separately when provided
+  const meta = metaDoc ?? subdocManager.subdoc("_meta");
+  const metaProvider = new IndexeddbPersistence(meta.guid, meta);
+  providers.add(metaProvider);
 
   const whenSynced = Promise.all([...providers].map((p) => p.whenSynced)).then(
     () => {},

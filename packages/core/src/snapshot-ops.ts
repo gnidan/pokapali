@@ -67,6 +67,7 @@ export interface SnapshotOpsOptions {
   resolver: BlockResolver;
   readKey: CryptoKey;
   getClockSum: () => number;
+  metaDoc: import("yjs").Doc;
 }
 
 export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
@@ -77,6 +78,7 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
     resolver,
     readKey,
     getClockSum,
+    metaDoc,
   } = options;
 
   return {
@@ -134,7 +136,7 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
     },
 
     isPublisherAuthorized(publisherHex: string | undefined): boolean {
-      const map = subdocManager.metaDoc.getMap<true>("authorizedPublishers");
+      const map = metaDoc.getMap<true>("authorizedPublishers");
       if (map.size === 0) return true;
       if (!publisherHex) return false;
       return map.has(publisherHex);

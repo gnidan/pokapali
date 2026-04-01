@@ -186,19 +186,26 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     let docPersistence: DocPersistence | null = null;
     const skipOrigins = new Set<object>();
 
+    // Standalone metaDoc for auth state and
+    // client identity — independent of subdocManager.
+    const metaDoc = new Y.Doc({
+      guid: `${ipnsName}:_meta`,
+      gc: true,
+    });
+
     const subdocManager = Subdocs.create(ipnsName, channels, {
       primaryNamespace: primaryChannel,
       skipOrigins: persistenceEnabled ? skipOrigins : undefined,
     });
 
     if (persistenceEnabled) {
-      docPersistence = createDocPersistence(subdocManager, channels);
+      docPersistence = createDocPersistence(subdocManager, channels, metaDoc);
       for (const p of docPersistence.providers) {
         skipOrigins.add(p);
       }
     }
 
-    init.afterSubdocSetup?.(subdocManager.metaDoc);
+    init.afterSubdocSetup?.(metaDoc);
 
     // Standalone awareness — available immediately
     // before Helia/WebRTC connects. Passed to the
@@ -384,6 +391,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       hasCachedState: init.hasCachedState,
       identity,
       document,
+      metaDoc,
     });
   }
 

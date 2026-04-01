@@ -160,6 +160,7 @@ export async function rotateDoc(
 
   const newDoc = createDocFn({
     subdocManager: newSubdocs,
+    metaDoc: newSubdocs.metaDoc,
     syncManager: newSyncManager,
     awarenessRoom: newAwarenessRoom,
     cap: newCap,
