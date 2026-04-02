@@ -5,7 +5,8 @@
 
 import { unlink } from "node:fs/promises";
 
-const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
+const RELAY_INFO_PATH =
+  process.env.RELAY_INFO_PATH || "/tmp/pokapali-test-relay.json";
 
 export default async function globalTeardown() {
   const relay = (globalThis as Record<string, unknown>).__testRelay as

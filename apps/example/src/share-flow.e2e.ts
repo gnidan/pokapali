@@ -9,7 +9,8 @@
 import { test, expect } from "./e2e-fixtures.js";
 import { readFile } from "node:fs/promises";
 
-const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
+const RELAY_INFO_PATH =
+  process.env.RELAY_INFO_PATH || "/tmp/pokapali-test-relay.json";
 const EDITOR_TIMEOUT = 8_000;
 const SYNC_TIMEOUT = 30_000;
 
@@ -19,8 +20,16 @@ interface RelayInfo {
 }
 
 async function loadRelayInfo(): Promise<RelayInfo> {
-  const raw = await readFile(RELAY_INFO_PATH, "utf-8");
-  return JSON.parse(raw);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const raw = await readFile(RELAY_INFO_PATH, "utf-8");
+      return JSON.parse(raw);
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+  throw new Error("unreachable");
 }
 
 /**
@@ -82,6 +91,28 @@ async function waitForPeerConnection(page: import("@playwright/test").Page) {
     "2",
     { timeout: SYNC_TIMEOUT },
   );
+}
+
+/**
+ * Verify document sync is working — not just
+ * awareness. Type a canary on `writer`, confirm
+ * `reader` sees it, then clean up.
+ */
+async function waitForDocSync(
+  writer: import("@playwright/test").Page,
+  reader: import("@playwright/test").Page,
+  canary: string,
+) {
+  await writer.locator(".tiptap").click();
+  await writer.keyboard.type(canary);
+  await expect(reader.locator(".tiptap")).toContainText(canary, {
+    timeout: SYNC_TIMEOUT,
+  });
+  await writer.keyboard.press("ControlOrMeta+a");
+  await writer.keyboard.press("Backspace");
+  await expect(reader.locator(".tiptap")).not.toContainText(canary, {
+    timeout: SYNC_TIMEOUT,
+  });
 }
 
 test.describe("share flow", () => {
@@ -190,6 +221,10 @@ test.describe("share flow", () => {
       // Wait for peer connection before typing.
       await waitForPeerConnection(alice);
       await waitForPeerConnection(bob);
+
+      // Verify actual doc sync — awareness connects
+      // before WebRTC data channels are ready.
+      await waitForDocSync(alice, bob, "SYNC_CHECK");
 
       // Alice types — Bob sees it.
       await alice.locator(".tiptap").click();

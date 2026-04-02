@@ -12,7 +12,8 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
-const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
+const RELAY_INFO_PATH =
+  process.env.RELAY_INFO_PATH || "/tmp/pokapali-test-relay.json";
 const EDITOR_TIMEOUT = 8_000;
 const SYNC_TIMEOUT = 30_000;
 
@@ -22,8 +23,16 @@ interface RelayInfo {
 }
 
 async function loadRelayInfo(): Promise<RelayInfo> {
-  const raw = await readFile(RELAY_INFO_PATH, "utf-8");
-  return JSON.parse(raw);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const raw = await readFile(RELAY_INFO_PATH, "utf-8");
+      return JSON.parse(raw);
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+  throw new Error("unreachable");
 }
 
 function appUrl(baseURL: string, relayAddr: string, path = "/"): string {
@@ -102,6 +111,28 @@ async function waitForPeerConnection(page: import("@playwright/test").Page) {
 }
 
 /**
+ * Verify document sync is working — not just
+ * awareness. Type a canary on `writer`, confirm
+ * `reader` sees it, then clean up.
+ */
+async function waitForDocSync(
+  writer: import("@playwright/test").Page,
+  reader: import("@playwright/test").Page,
+  canary: string,
+) {
+  await writer.locator(".tiptap").click();
+  await writer.keyboard.type(canary);
+  await expect(reader.locator(".tiptap")).toContainText(canary, {
+    timeout: SYNC_TIMEOUT,
+  });
+  await writer.keyboard.press("ControlOrMeta+a");
+  await writer.keyboard.press("Backspace");
+  await expect(reader.locator(".tiptap")).not.toContainText(canary, {
+    timeout: SYNC_TIMEOUT,
+  });
+}
+
+/**
  * Type text, select all, click the comment popover
  * button, fill the comment input, and submit.
  */
@@ -156,9 +187,11 @@ test.describe("multi-peer comment sync", () => {
       // Bob joins the same document.
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
-      // Wait for both peers to connect via awareness.
+      // Wait for both peers to connect via awareness,
+      // then verify actual doc sync is operational.
       await waitForPeerConnection(alice);
       await waitForPeerConnection(bob);
+      await waitForDocSync(alice, bob, "SYNC_CHECK");
 
       // Now Alice creates a comment — Bob is already
       // connected so CRDT sync will propagate it.
@@ -204,9 +237,10 @@ test.describe("multi-peer comment sync", () => {
       const writeUrl = await getWriteUrl(alice);
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
-      // Wait for peer connection.
+      // Wait for peer connection + doc sync.
       await waitForPeerConnection(alice);
       await waitForPeerConnection(bob);
+      await waitForDocSync(alice, bob, "SYNC_CHECK");
 
       // Alice creates a comment with anchored text.
       await createComment(alice, "Highlighted anchor text", "Anchor sync test");
@@ -250,9 +284,10 @@ test.describe("multi-peer comment sync", () => {
       const writeUrl = await getWriteUrl(alice);
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
-      // Wait for peers to connect.
+      // Wait for peers to connect + doc sync.
       await waitForPeerConnection(alice);
       await waitForPeerConnection(bob);
+      await waitForDocSync(alice, bob, "SYNC_CHECK");
 
       // Alice creates a comment.
       await createComment(alice, "Discussion text", "Alice starts the thread");

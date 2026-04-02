@@ -12,7 +12,8 @@
 import { test, expect } from "./e2e-fixtures.js";
 import { readFile } from "node:fs/promises";
 
-const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
+const RELAY_INFO_PATH =
+  process.env.RELAY_INFO_PATH || "/tmp/pokapali-test-relay.json";
 const EDITOR_TIMEOUT = 8_000;
 // Relay-connected tests need longer for IPFS
 // snapshot creation + network overhead.
@@ -37,8 +38,19 @@ interface RelayInfo {
 }
 
 async function loadRelayInfo(): Promise<RelayInfo> {
-  const raw = await readFile(RELAY_INFO_PATH, "utf-8");
-  return JSON.parse(raw);
+  // Retry a few times — the relay file may be
+  // briefly unavailable if a prior test's cleanup
+  // races with global setup on the CI runner.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const raw = await readFile(RELAY_INFO_PATH, "utf-8");
+      return JSON.parse(raw);
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+  throw new Error("unreachable");
 }
 
 function appUrl(baseURL: string, relayAddr: string, path = "/"): string {

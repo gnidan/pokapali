@@ -9,9 +9,13 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
-const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
+const RELAY_INFO_PATH =
+  process.env.RELAY_INFO_PATH || "/tmp/pokapali-test-relay.json";
 const EDITOR_TIMEOUT = 8_000;
 const SYNC_TIMEOUT = 30_000;
+// Relay-connected publish (IPFS snapshot) is slow
+// on resource-constrained CI runners.
+const PUBLISH_TIMEOUT = 45_000;
 
 interface RelayInfo {
   multiaddr: string;
@@ -19,8 +23,16 @@ interface RelayInfo {
 }
 
 async function loadRelayInfo(): Promise<RelayInfo> {
-  const raw = await readFile(RELAY_INFO_PATH, "utf-8");
-  return JSON.parse(raw);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const raw = await readFile(RELAY_INFO_PATH, "utf-8");
+      return JSON.parse(raw);
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+  throw new Error("unreachable");
 }
 
 function appUrl(baseURL: string, relayAddr: string, path = "/"): string {
@@ -96,6 +108,32 @@ async function openDocViaRelay(
   });
 }
 
+/**
+ * Verify document sync is working by having `writer`
+ * type a canary token and confirming `reader` sees it.
+ * Awareness (user count) connects before WebRTC data
+ * channels are ready — this ensures actual CRDT sync
+ * is operational before the test proceeds.
+ */
+async function waitForDocSync(
+  writer: import("@playwright/test").Page,
+  reader: import("@playwright/test").Page,
+  canary: string,
+) {
+  await writer.locator(".tiptap").click();
+  await writer.keyboard.type(canary);
+  await expect(reader.locator(".tiptap")).toContainText(canary, {
+    timeout: SYNC_TIMEOUT,
+  });
+  // Clean up canary: select all and delete on writer.
+  await writer.keyboard.press("ControlOrMeta+a");
+  await writer.keyboard.press("Backspace");
+  // Wait for delete to propagate.
+  await expect(reader.locator(".tiptap")).not.toContainText(canary, {
+    timeout: SYNC_TIMEOUT,
+  });
+}
+
 test.describe("multi-peer editing", () => {
   test.slow();
 
@@ -125,9 +163,7 @@ test.describe("multi-peer editing", () => {
       const writeUrl = await getWriteUrl(alice);
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
-      // Wait for WebRTC data channel to establish
-      // before typing. Without this, edits happen
-      // before the peers are connected and never sync.
+      // Wait for awareness (user count) first.
       await expect(
         alice.locator("[data-testid='cs-users-count']"),
       ).toContainText("2", { timeout: SYNC_TIMEOUT });
@@ -135,6 +171,11 @@ test.describe("multi-peer editing", () => {
         "2",
         { timeout: SYNC_TIMEOUT },
       );
+
+      // Awareness connects before WebRTC data channels
+      // are ready. Verify actual doc sync works before
+      // proceeding with the real test.
+      await waitForDocSync(alice, bob, "SYNC_CHECK");
 
       // Both type simultaneously into the same doc.
       await alice.locator(".tiptap").click();
@@ -228,6 +269,12 @@ test.describe("multi-peer editing", () => {
         );
       }
 
+      // Verify actual doc sync is operational — not
+      // just awareness. WebRTC data channels may lag
+      // behind GossipSub awareness discovery.
+      await waitForDocSync(alice, bob, "SYNC_AB");
+      await waitForDocSync(alice, carol, "SYNC_AC");
+
       // Each peer types unique content.
       await alice.locator(".tiptap").click();
       await alice.keyboard.type("FromAlice");
@@ -282,7 +329,7 @@ test.describe("multi-peer editing", () => {
       // no longer show a save-action label. Relay-
       // connected publish can be slow.
       await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
-        timeout: SYNC_TIMEOUT,
+        timeout: PUBLISH_TIMEOUT,
       });
 
       const writeUrl = await getWriteUrl(alice);

@@ -22,7 +22,8 @@ if (typeof Promise.withResolvers !== "function") {
 import { writeFile } from "node:fs/promises";
 import { createTestRelay } from "@pokapali/test-utils";
 
-const RELAY_INFO_PATH = "/tmp/pokapali-test-relay.json";
+const RELAY_INFO_PATH =
+  process.env.RELAY_INFO_PATH || "/tmp/pokapali-test-relay.json";
 
 /** Mock pinner URL used by tier-badge E2E tests.
  *  Tests intercept requests to this origin via

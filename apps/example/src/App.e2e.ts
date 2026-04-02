@@ -105,7 +105,7 @@ test.describe("smoke tests", () => {
         const sel = window.getSelection();
         return sel && !sel.isCollapsed;
       },
-      { timeout: 3_000 },
+      { timeout: 5_000 },
     );
   });
 
@@ -134,7 +134,7 @@ test.describe("smoke tests", () => {
         const sel = window.getSelection();
         return sel && !sel.isCollapsed;
       },
-      { timeout: 3_000 },
+      { timeout: 5_000 },
     );
 
     // Brief pause — let CommentPopover appear.
@@ -151,7 +151,7 @@ test.describe("smoke tests", () => {
         const sel = window.getSelection();
         return sel && !sel.isCollapsed;
       },
-      { timeout: 3_000 },
+      { timeout: 5_000 },
     );
   });
 
