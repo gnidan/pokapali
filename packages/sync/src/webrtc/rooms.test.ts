@@ -1,68 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import * as Y from "yjs";
-import { setupNamespaceRooms, setupAwarenessRoom } from "./rooms.js";
-
-interface MockInstance {
-  roomName: string;
-  doc: Y.Doc;
-  signaling: string[];
-  password: string | null;
-  awareness: { states: Map<number, unknown> };
-  shouldConnect: boolean;
-  connected: boolean;
-  disconnected: boolean;
-  destroyed: boolean;
-  disconnect(): void;
-  destroy(): void;
-}
-
-const instances: MockInstance[] = [];
-
-vi.mock("y-webrtc", () => {
-  class MockProvider {
-    roomName: string;
-    doc: Y.Doc;
-    signaling: string[];
-    password: string | null;
-    awareness: { states: Map<number, unknown> };
-    shouldConnect = true;
-    connected = false;
-    disconnected = false;
-    destroyed = false;
-
-    constructor(
-      roomName: string,
-      doc: Y.Doc,
-      opts: {
-        signaling: string[];
-        password: string | null;
-        awareness?: { states: Map<number, unknown> };
-      },
-    ) {
-      this.roomName = roomName;
-      this.doc = doc;
-      this.signaling = opts.signaling;
-      this.password = opts.password;
-      this.awareness = opts.awareness ?? {
-        states: new Map(),
-      };
-      instances.push(this);
-    }
-
-    on() {}
-    off() {}
-
-    disconnect() {
-      this.disconnected = true;
-    }
-
-    destroy() {
-      this.destroyed = true;
-    }
-  }
-
-  return { WebrtcProvider: MockProvider };
-});
+import { describe, it, expect } from "vitest";
+import { setupNamespaceRooms } from "./rooms.js";
 
 const IPNS = "abc123";
 const SIGNALING = ["ws://localhost:4444"];
@@ -74,10 +11,6 @@ function makeKey(seed: number): Uint8Array {
 }
 
 describe("setupNamespaceRooms", () => {
-  beforeEach(() => {
-    instances.length = 0;
-  });
-
   it("creates no providers", () => {
     const keys: Record<string, Uint8Array> = {
       content: makeKey(1),
@@ -85,8 +18,6 @@ describe("setupNamespaceRooms", () => {
     };
 
     const sync = setupNamespaceRooms(IPNS, keys, SIGNALING);
-
-    expect(instances).toHaveLength(0);
     sync.destroy();
   });
 
@@ -104,14 +35,5 @@ describe("setupNamespaceRooms", () => {
       sync.destroy();
       sync.destroy();
     }).not.toThrow();
-  });
-});
-
-describe("setupAwarenessRoom", () => {
-  it("returns an AwarenessRoom", () => {
-    const room = setupAwarenessRoom(IPNS, "test-password", SIGNALING);
-    expect(room.awareness).toBeDefined();
-    expect(room.connected).toBe(false);
-    room.destroy();
   });
 });

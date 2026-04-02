@@ -6,7 +6,6 @@ export {
 
 export {
   setupNamespaceRooms,
-  setupAwarenessRoom,
   setupSignaledAwarenessRoom,
   type SyncManager,
   type SyncStatus,

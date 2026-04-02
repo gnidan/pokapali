@@ -84,18 +84,6 @@ vi.mock("@pokapali/sync", () => ({
     onStatusChange: vi.fn(),
     destroy: vi.fn(),
   })),
-  setupAwarenessRoom: vi.fn(() => ({
-    awareness: {
-      on: vi.fn(),
-      off: vi.fn(),
-      setLocalStateField: vi.fn(),
-      states: new Map(),
-      getLocalState: vi.fn(() => null),
-    },
-    connected: false,
-    onStatusChange: vi.fn(),
-    destroy: vi.fn(),
-  })),
 }));
 
 vi.mock("blockstore-idb", () => ({

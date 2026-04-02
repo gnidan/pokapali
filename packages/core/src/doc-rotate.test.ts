@@ -40,7 +40,9 @@ vi.mock("@pokapali/capability", () => ({
 vi.mock("@pokapali/sync", () => ({
   SNAPSHOT_ORIGIN: Symbol("snapshot-apply"),
   setupNamespaceRooms: vi.fn(() => ({})),
-  setupAwarenessRoom: vi.fn(() => ({})),
+  setupSignaledAwarenessRoom: vi.fn(() => ({})),
+  createSignalingClient: vi.fn(() => ({})),
+  SIGNALING_PROTOCOL: "/pokapali/signaling/1.0.0",
 }));
 
 vi.mock("./forwarding.js", () => ({

@@ -4,7 +4,6 @@ export {
   type ThrottledInterval,
   type ThrottledIntervalOptions,
   setupNamespaceRooms,
-  setupAwarenessRoom,
   setupSignaledAwarenessRoom,
   type SyncManager,
   type SyncStatus,

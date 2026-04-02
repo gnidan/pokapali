@@ -1,5 +1,3 @@
-import * as Y from "yjs";
-import { WebrtcProvider } from "y-webrtc";
 import type { Awareness } from "y-protocols/awareness";
 import { createLogger } from "@pokapali/log";
 import type { SignalingClient } from "../signaling/client.js";
@@ -75,156 +73,6 @@ export interface AwarenessRoom {
   destroy(): void;
 }
 
-export function setupAwarenessRoom(
-  ipnsName: string,
-  awarenessPassword: string,
-  signalingUrls: string[],
-  options?: SyncOptions,
-  /** Pre-created Awareness instance. Passed to the
-   *  WebrtcProvider so the same awareness is shared
-   *  with callers that need it before the room
-   *  connects. */
-  existingAwareness?: Awareness,
-  networkId = "main",
-): AwarenessRoom {
-  const dummyDoc = existingAwareness?.doc ?? new Y.Doc();
-  const roomName = `${networkId}.${ipnsName}:awareness`;
-  const provider = new WebrtcProvider(roomName, dummyDoc, {
-    signaling: signalingUrls,
-    password: awarenessPassword,
-    ...(existingAwareness && {
-      awareness: existingAwareness,
-    }),
-    ...(options?.peerOpts && {
-      peerOpts: options.peerOpts,
-    }),
-  });
-
-  const statusListeners: Array<() => void> = [];
-  const peerConnListeners: Array<
-    (pc: RTCPeerConnection, initiator: boolean) => void
-  > = [];
-  const notifiedPeers = new Set<string>();
-
-  function notifyStatus() {
-    for (const cb of statusListeners) cb();
-  }
-
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  function notifyPeer(peerId: string, conn: any): void {
-    if (notifiedPeers.has(peerId)) return;
-    const pc = conn?.peer?._pc as RTCPeerConnection | undefined;
-    if (!pc) return;
-    notifiedPeers.add(peerId);
-    const initiator = !!conn.peer.initiator;
-    console.debug(
-      "[pokapali:rooms] peer ready",
-      peerId.slice(0, 8),
-      initiator ? "(initiator)" : "(responder)",
-    );
-    for (const cb of peerConnListeners) {
-      cb(pc, initiator);
-    }
-  }
-
-  function watchPeers(p: WebrtcProvider): void {
-    p.on("peers", (change: { added: string[]; removed: string[] }) => {
-      const room = (p as any).room;
-      if (!room) {
-        console.debug("[pokapali:rooms] peers event" + " but no room");
-        return;
-      }
-      const conns = room.webrtcConns as Map<string, any>;
-      console.debug(
-        "[pokapali:rooms] peers event:" +
-          ` +${change.added.length}` +
-          ` -${change.removed.length}`,
-        `total=${conns.size}`,
-      );
-      for (const peerId of change.added) {
-        if (notifiedPeers.has(peerId)) continue;
-        const conn = conns.get(peerId);
-        if (!conn?.peer) {
-          console.debug(
-            "[pokapali:rooms] no conn" + " for peer",
-            peerId.slice(0, 8),
-          );
-          continue;
-        }
-
-        // Try immediately — _pc may already
-        // exist for fast (same-browser) conns.
-        const pc = conn.peer._pc as RTCPeerConnection | undefined;
-        if (pc) {
-          notifyPeer(peerId, conn);
-          continue;
-        }
-
-        // Cross-browser: _pc may not exist yet
-        // because ICE negotiation is in progress.
-        // Listen for simple-peer's "connect"
-        // event which fires after the underlying
-        // RTCPeerConnection is established.
-        console.debug(
-          "[pokapali:rooms] _pc not ready" + " for peer",
-          peerId.slice(0, 8),
-          "— waiting for connect event",
-        );
-        conn.peer.once("connect", () => {
-          notifyPeer(peerId, conn);
-        });
-      }
-      for (const peerId of change.removed) {
-        notifiedPeers.delete(peerId);
-      }
-    });
-  }
-  /* eslint-enable @typescript-eslint/no-explicit-any */
-
-  provider.on("status", notifyStatus);
-  watchPeers(provider);
-
-  return {
-    get awareness(): Awareness {
-      return provider.awareness;
-    },
-    get connected(): boolean {
-      return provider.connected;
-    },
-    onStatusChange(cb: () => void) {
-      statusListeners.push(cb);
-    },
-    onPeerCreated() {
-      // y-webrtc doesn't expose pre-SDP hooks;
-      // data channels must be added via
-      // onPeerConnection instead.
-      return () => {};
-    },
-    onPeerConnection(cb: (pc: RTCPeerConnection, initiator: boolean) => void) {
-      peerConnListeners.push(cb);
-      return () => {
-        const idx = peerConnListeners.indexOf(cb);
-        if (idx >= 0) {
-          peerConnListeners.splice(idx, 1);
-        }
-      };
-    },
-    destroy() {
-      statusListeners.length = 0;
-      peerConnListeners.length = 0;
-      notifiedPeers.clear();
-      provider.off("status", notifyStatus);
-      provider.disconnect();
-      provider.destroy();
-      dummyDoc.destroy();
-    },
-  };
-}
-
-// -------------------------------------------------------
-// Signaling-based awareness room
-// -------------------------------------------------------
-
 export interface SignaledAwarenessOptions {
   rtcConfig?: RTCConfiguration;
   networkId?: string;
@@ -232,17 +80,12 @@ export interface SignaledAwarenessOptions {
 
 /**
  * Set up an awareness room using the dedicated
- * signaling protocol instead of GossipSub.
+ * signaling protocol.
  *
  * Uses SignalingClient for peer discovery and
  * SDP/ICE exchange. WebRTC connections are created
- * directly (no y-webrtc / simple-peer). Awareness
- * is synced over a dedicated data channel using
- * y-protocols/awareness.
- *
- * Returns the same AwarenessRoom interface as
- * setupAwarenessRoom so wireDataChannel in
- * create-doc.ts continues to work unchanged.
+ * directly. Awareness is synced over a dedicated
+ * data channel using y-protocols/awareness.
  */
 export function setupSignaledAwarenessRoom(
   ipnsName: string,

@@ -240,8 +240,9 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     init.afterSubdocSetup?.(metaDoc);
 
     // Standalone awareness — available immediately
-    // before Helia/WebRTC connects. Passed to the
-    // WebrtcProvider later via setupAwarenessRoom.
+    // before Helia/WebRTC connects. Passed to
+    // setupSignaledAwarenessRoom once a relay is
+    // discovered.
     const awarenessDummyDoc = new Y.Doc();
     const awareness = new Awareness(awarenessDummyDoc);
 

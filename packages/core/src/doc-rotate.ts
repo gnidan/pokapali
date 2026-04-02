@@ -13,8 +13,19 @@ import {
   ed25519KeyPairFromSeed,
   bytesToHex,
 } from "@pokapali/crypto";
-import { setupNamespaceRooms, setupAwarenessRoom } from "@pokapali/sync";
-import type { SyncOptions, PubSubLike } from "@pokapali/sync";
+import {
+  setupNamespaceRooms,
+  setupSignaledAwarenessRoom,
+  createSignalingClient,
+  SIGNALING_PROTOCOL,
+} from "@pokapali/sync";
+import type {
+  SyncOptions,
+  PubSubLike,
+  AwarenessRoom,
+  SignalingStream,
+} from "@pokapali/sync";
+import { Awareness } from "y-protocols/awareness";
 import {
   createForwardingRecord,
   encodeForwardingRecord,
@@ -114,11 +125,25 @@ export async function rotateDoc(
     rotateSyncOpts,
   );
 
-  const newAwarenessRoom = setupAwarenessRoom(
+  let newRoomDiscovery;
+  try {
+    newRoomDiscovery = startRoomDiscovery(getHelia(), ctx.appId);
+  } catch (err) {
+    log.debug("room discovery skipped:", (err as Error)?.message ?? err);
+  }
+
+  // Set up awareness via direct WebRTC signaling.
+  // Try to connect through a relay; fall back to a
+  // placeholder if unavailable. Room discovery on the
+  // new doc will upgrade awareness when a relay
+  // appears.
+  const newAwareness = new Awareness(new Y.Doc());
+  const newAwarenessRoom = await tryRotateSignaling(
     newIpnsName,
-    newDocKeys.awarenessRoomPassword,
-    ctx.signalingUrls,
+    newAwareness,
     rotateSyncOpts,
+    ctx.networkId,
+    newRoomDiscovery,
   );
 
   const newKeys: CapabilityKeys = {
@@ -152,13 +177,6 @@ export async function rotateDoc(
     guid: `${newIpnsName}:_meta`,
   });
   populateMetaFn(newMetaDoc, newSigningKey.publicKey, newDocKeys.channelKeys);
-
-  let newRoomDiscovery;
-  try {
-    newRoomDiscovery = startRoomDiscovery(getHelia(), ctx.appId);
-  } catch (err) {
-    log.debug("room discovery skipped:", (err as Error)?.message ?? err);
-  }
 
   const newDoc = createDocFn({
     metaDoc: newMetaDoc,
@@ -203,5 +221,79 @@ export async function rotateDoc(
   return {
     newDoc,
     forwardingRecord: encoded,
+  };
+}
+
+// Short timeout for finding a relay during rotation.
+// The old doc was already connected, so relays are
+// typically known immediately.
+const ROTATE_RELAY_WAIT_MS = 5_000;
+
+/**
+ * Try to set up signaling-based awareness for a
+ * rotated doc. Waits briefly for a relay; falls back
+ * to a placeholder if none is available.
+ */
+async function tryRotateSignaling(
+  ipnsName: string,
+  awareness: Awareness,
+  syncOpts: SyncOptions,
+  networkId: string,
+  roomDiscovery?: ReturnType<typeof startRoomDiscovery>,
+): Promise<AwarenessRoom> {
+  if (!roomDiscovery) {
+    return placeholderAwarenessRoom(awareness);
+  }
+
+  try {
+    const relayPid = await roomDiscovery.waitForRelay(ROTATE_RELAY_WAIT_MS);
+    const helia = getHelia();
+    const localPeerId = helia.libp2p.peerId.toString();
+    const conn = helia.libp2p
+      .getConnections()
+      .find((c) => c.remotePeer.toString() === relayPid);
+    if (!conn) throw new Error("relay lost");
+
+    const stream = await helia.libp2p.dialProtocol(
+      conn.remotePeer,
+      SIGNALING_PROTOCOL,
+    );
+    const client = createSignalingClient(stream as unknown as SignalingStream);
+    const rtcConfig = syncOpts.peerOpts?.config;
+    return setupSignaledAwarenessRoom(
+      ipnsName,
+      localPeerId,
+      client,
+      awareness,
+      { rtcConfig, networkId },
+    );
+  } catch (err) {
+    log.debug("signaling skipped in rotate:", (err as Error)?.message ?? err);
+    return placeholderAwarenessRoom(awareness);
+  }
+}
+
+/**
+ * Minimal AwarenessRoom that holds an awareness
+ * instance but does nothing. Used when no relay is
+ * available during rotation — the new doc's room
+ * discovery will upgrade when a relay connects.
+ */
+function placeholderAwarenessRoom(awareness: Awareness): AwarenessRoom {
+  return {
+    get awareness() {
+      return awareness;
+    },
+    get connected() {
+      return false;
+    },
+    onStatusChange() {},
+    onPeerCreated() {
+      return () => {};
+    },
+    onPeerConnection() {
+      return () => {};
+    },
+    destroy() {},
   };
 }

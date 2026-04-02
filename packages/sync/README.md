@@ -4,73 +4,26 @@
 npm install @pokapali/sync
 ```
 
-WebRTC room setup for real-time Yjs sync. Creates one
-y-webrtc room per writable channel (password-protected
-with the channel access key) and a shared awareness room
-for cursor presence. Signaling is handled via a GossipSub
-adapter over the libp2p mesh — no external WebSocket
-signaling servers required.
-
-## Usage
-
-```typescript
-import {
-  setupNamespaceRooms,
-  setupAwarenessRoom,
-  createGossipSubSignaling,
-} from "@pokapali/sync";
-
-// 1. Set up per-channel WebRTC sync rooms
-const syncManager = setupNamespaceRooms(
-  ipnsName,
-  subdocManager,
-  { content: channelKey }, // channel name → key
-  signalingUrls,
-);
-
-// Monitor connection status
-syncManager.onStatusChange((status) => {
-  console.log(status); // "connecting" | "connected" | "disconnected"
-});
-
-// 2. Set up shared awareness room for cursors
-const { awareness, destroy: destroyAwareness } = setupAwarenessRoom(
-  ipnsName,
-  awarenessPassword,
-  signalingUrls,
-);
-
-// 3. Use GossipSub for P2P signaling (no WebSocket
-//    signaling server needed)
-const signaling = createGossipSubSignaling(pubsub);
-
-// Pass pubsub via SyncOptions to enable it
-const syncWithGossip = setupNamespaceRooms(
-  ipnsName,
-  subdocManager,
-  { content: channelKey },
-  [], // no WebSocket signaling URLs needed
-  { pubsub },
-);
-
-// Clean up
-syncManager.destroy();
-destroyAwareness();
-```
+WebRTC room setup for real-time Yjs sync and
+awareness. Awareness is synced over dedicated WebRTC
+data channels using y-protocols/awareness. Peer
+discovery and SDP/ICE exchange use a dedicated
+signaling protocol routed through relay nodes.
 
 ## Key Exports
 
-- **`setupNamespaceRooms()`** — creates WebrtcProvider
-  instances for each writable channel
-- **`setupAwarenessRoom()`** — creates the shared
-  awareness room (all capability levels join)
-- **`createGossipSubSignaling()`** — GossipSub-based
-  signaling adapter that integrates with y-webrtc's
-  WebrtcProvider for peer discovery
-- **`SyncManager`** — interface for connection status,
-  cleanup, and `onStatusChange(cb)` for reacting to
-  y-webrtc provider status events (e.g. after PBKDF2
-  key derivation completes)
+- **`setupNamespaceRooms()`** — creates a SyncManager
+  shell (document data sync is handled by
+  reconciliation)
+- **`setupSignaledAwarenessRoom()`** — creates a
+  shared awareness room using the signaling protocol
+  for WebRTC peer discovery
+- **`createSignalingClient()`** — creates a signaling
+  client from a libp2p stream to a relay node
+- **`SyncManager`** — interface for connection status
+  and cleanup
+- **`AwarenessRoom`** — interface for awareness sync,
+  peer connection hooks, and status tracking
 - **`SyncOptions`** — configuration (ICE servers, peer
   options)
 - **`PubSubLike`** — minimal pubsub interface for
