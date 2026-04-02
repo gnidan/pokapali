@@ -25,6 +25,28 @@ SERVICE="$2"
 COMMIT="$3"
 
 cd "$REPO_PATH"
+
+# Log relay storage state for deploy diagnostics.
+# Storage path lives outside the repo (e.g.
+# /var/lib/pokapali-node/) so git reset --hard
+# does not affect it.
+UNIT_FILE=$(systemctl show -p FragmentPath \
+  "$SERVICE" 2>/dev/null \
+  | sed 's/FragmentPath=//')
+if [ -n "$UNIT_FILE" ] && [ -f "$UNIT_FILE" ]; then
+  STORAGE=$(grep -oP '(?<=--storage-path\s)\S+' \
+    "$UNIT_FILE" 2>/dev/null || true)
+  if [ -n "$STORAGE" ]; then
+    echo "Storage: $STORAGE"
+    [ -f "$STORAGE/relay-key.bin" ] \
+      && echo "  relay-key.bin: ok" \
+      || echo "  relay-key.bin: MISSING"
+    [ -d "$STORAGE/datastore" ] \
+      && echo "  datastore/: ok" \
+      || echo "  datastore/: MISSING"
+  fi
+fi
+
 git fetch origin main
 git reset --hard "$COMMIT"
 npm install --no-audit --no-fund
