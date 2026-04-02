@@ -8,6 +8,7 @@ import type {
 import { narrowCapability, buildUrl } from "@pokapali/capability";
 import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
+import { signEdit } from "./epoch/sign-edit.js";
 import type { ParticipantAwareness } from "./identity.js";
 import {
   createClientIdMapping,
@@ -778,6 +779,12 @@ export function createDoc(params: DocParams): Doc {
     scheduleVersionCacheWrite();
   }
 
+  // Hex-encoded identity pubkey (derived once, used
+  // in edit bridge + participant awareness).
+  const identityPubkeyHex = params.identity
+    ? bytesToHex(params.identity.publicKey)
+    : null;
+
   // --- Event bridges ---
   // Status and saveState are always computed
   // locally (synchronous). The interpreter also
@@ -811,14 +818,19 @@ export function createDoc(params: DocParams): Doc {
         // hydration, snapshot application, awareness
         // sync, and any other non-local origins.
         if (origin != null) return;
+        // Append synchronously so the epoch tree is
+        // up-to-date for immediate publish(). The
+        // signature is empty here — outgoing wire
+        // paths (live forwarding + reconciliation)
+        // sign on-the-fly with the envelope format.
         channel.appendEdit(
           Edit.create({
             payload: update,
             timestamp: Date.now(),
-            author: "",
+            author: identityPubkeyHex ?? "",
             channel: name,
             origin: "local",
-            signature: new Uint8Array([]),
+            signature: new Uint8Array(),
           }),
         );
         scheduleReconcile();
@@ -886,6 +898,7 @@ export function createDoc(params: DocParams): Doc {
           getChannel: (name) => doc.channel(name),
           codec: params.codec,
           transport,
+          identity: params.identity,
         });
         reconciliationWirings.add(wiring);
 
@@ -912,16 +925,39 @@ export function createDoc(params: DocParams): Doc {
               // on the peer.
               if (edit.origin !== "local") return;
               if (!transport.connected) return;
-              transport.send(ch, {
-                type: ReconciliationMessageType.EDIT_BATCH,
-                channel: ch,
-                edits: [
-                  {
-                    payload: edit.payload,
-                    signature: edit.signature,
+              // Sign on-the-fly: produce a 97-byte
+              // envelope for the wire. Signing is
+              // async (~0.23ms) so we fire-and-forget.
+              // If no identity, send the raw signature
+              // (empty or pre-signed by Document).
+              if (params.identity) {
+                void signEdit(edit.payload, params.identity).then(
+                  (envelope) => {
+                    if (!transport.connected) return;
+                    transport.send(ch, {
+                      type: ReconciliationMessageType.EDIT_BATCH,
+                      channel: ch,
+                      edits: [
+                        {
+                          payload: edit.payload,
+                          signature: envelope,
+                        },
+                      ],
+                    });
                   },
-                ],
-              });
+                );
+              } else {
+                transport.send(ch, {
+                  type: ReconciliationMessageType.EDIT_BATCH,
+                  channel: ch,
+                  edits: [
+                    {
+                      payload: edit.payload,
+                      signature: edit.signature,
+                    },
+                  ],
+                });
+              }
             });
             editUnsubs.push(unsub);
           }
@@ -1086,10 +1122,6 @@ export function createDoc(params: DocParams): Doc {
   }
 
   // ── Participant awareness (identity) ──────────
-  const identityPubkeyHex = params.identity
-    ? bytesToHex(params.identity.publicKey)
-    : null;
-
   const cleanupParticipant = awareness
     ? setupParticipantAwareness(params.identity, awareness, metaDoc, ipnsName)
     : () => {};

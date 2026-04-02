@@ -3,9 +3,12 @@ import fc from "fast-check";
 import { Channel, Edit, State, Cache, foldTree } from "@pokapali/document";
 import { toArray } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
+import { generateIdentityKeypair, bytesToHex } from "@pokapali/crypto";
 import type { ReconciliationTransport } from "@pokapali/sync";
 import type { ReconciliationMessage } from "@pokapali/sync";
+import { ReconciliationMessageType } from "@pokapali/sync";
 import { createReconciliationWiring } from "./reconciliation-wiring.js";
+import { verifyEdit, HEADER_SIZE } from "./epoch/sign-edit.js";
 
 // -------------------------------------------------------
 // Mock codec (identity CRDT: merge = last-write-wins)
@@ -290,6 +293,150 @@ describe("ReconciliationWiring", () => {
     // After destroy, further messages should not
     // cause errors (transport listener removed)
     expect(() => wiring.destroy()).not.toThrow();
+  });
+
+  describe("outgoing edit signing", () => {
+    it(
+      "EDIT_BATCH messages carry signed envelopes " +
+        "when identity is provided",
+      async () => {
+        const kp = await generateIdentityKeypair();
+        const chA = Channel.create("content");
+        const chB = Channel.create("content");
+        const editX = makeEdit(new Uint8Array([10, 20, 30]));
+        chA.appendEdit(editX);
+
+        const codec = mockCodec();
+
+        // Capture outgoing messages from A's
+        // transport to inspect signatures.
+        const sentByA: ReconciliationMessage[] = [];
+        const { transportA, transportB, drain } = mockTransportPair();
+        const wrappedTransportA: ReconciliationTransport = {
+          ...transportA,
+          send(ch: string, msg: ReconciliationMessage) {
+            sentByA.push(msg);
+            transportA.send(ch, msg);
+          },
+        };
+
+        const wiringA = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chA : Channel.create(name),
+          codec,
+          transport: wrappedTransportA,
+          identity: kp,
+        });
+        const wiringB = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chB : Channel.create(name),
+          codec,
+          transport: transportB,
+        });
+
+        wiringA.reconcile();
+        wiringB.reconcile();
+
+        // Signing is async — drain the synchronous
+        // protocol messages first, then flush microtasks
+        // to let signing complete before draining the
+        // signed EDIT_BATCH.
+        drain();
+        await new Promise((r) => setTimeout(r, 50));
+        drain();
+
+        // Find EDIT_BATCH messages sent by A
+        const batches = sentByA.filter(
+          (m) => m.type === ReconciliationMessageType.EDIT_BATCH,
+        );
+        expect(batches.length).toBeGreaterThan(0);
+
+        for (const batch of batches) {
+          if (batch.type !== ReconciliationMessageType.EDIT_BATCH) {
+            continue;
+          }
+          for (const e of batch.edits) {
+            // Signature should be a 97+ byte envelope
+            expect(e.signature.length).toBeGreaterThanOrEqual(HEADER_SIZE);
+            // Verify the envelope is valid
+            const result = await verifyEdit(e.signature);
+            expect(result).not.toBeNull();
+            // Envelope's embedded payload matches the
+            // edit payload
+            expect(result!.payload).toEqual(e.payload);
+            // Signer matches our keypair
+            expect(bytesToHex(result!.pubkey)).toBe(bytesToHex(kp.publicKey));
+          }
+        }
+
+        wiringA.destroy();
+        wiringB.destroy();
+      },
+    );
+
+    it("without identity, signatures are unchanged", () => {
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+      const sig = new Uint8Array([1, 2, 3, 4]);
+      const editX = Edit.create({
+        payload: new Uint8Array([10, 20, 30]),
+        timestamp: Date.now(),
+        author: "test",
+        channel: "content",
+        origin: "local",
+        signature: sig,
+      });
+      chA.appendEdit(editX);
+
+      const codec = mockCodec();
+      const sentByA: ReconciliationMessage[] = [];
+      const { transportA, transportB, drain } = mockTransportPair();
+      const wrappedTransportA: ReconciliationTransport = {
+        ...transportA,
+        send(ch: string, msg: ReconciliationMessage) {
+          sentByA.push(msg);
+          transportA.send(ch, msg);
+        },
+      };
+
+      const wiringA = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+        codec,
+        transport: wrappedTransportA,
+        // No identity — signatures pass through
+      });
+      const wiringB = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+        codec,
+        transport: transportB,
+      });
+
+      wiringA.reconcile();
+      wiringB.reconcile();
+      drain();
+
+      const batches = sentByA.filter(
+        (m) => m.type === ReconciliationMessageType.EDIT_BATCH,
+      );
+      expect(batches.length).toBeGreaterThan(0);
+
+      for (const batch of batches) {
+        if (batch.type !== ReconciliationMessageType.EDIT_BATCH) {
+          continue;
+        }
+        for (const e of batch.edits) {
+          // Original signature passed through
+          expect(e.signature).toEqual(sig);
+        }
+      }
+
+      wiringA.destroy();
+      wiringB.destroy();
+    });
   });
 
   describe("property tests", () => {

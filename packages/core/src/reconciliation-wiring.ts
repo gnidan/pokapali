@@ -13,12 +13,15 @@
 import type { Channel, Edit } from "@pokapali/document";
 import { State, Cache, foldTree } from "@pokapali/document";
 import type { Codec } from "@pokapali/codec";
+import type { Ed25519KeyPair } from "@pokapali/crypto";
 import {
   createCoordinator,
+  ReconciliationMessageType,
   type ReconciliationTransport,
   type ReconciliationCoordinator,
   type ReconciliationMessage,
 } from "@pokapali/sync";
+import { signEdit } from "./epoch/sign-edit.js";
 
 // -------------------------------------------------------
 // Types
@@ -30,6 +33,10 @@ export interface ReconciliationWiringOptions {
   codec: Codec;
   transport: ReconciliationTransport;
   trustedKeys?: Set<string>;
+  /** Identity keypair for signing outgoing edits.
+   *  When provided, EDIT_BATCH messages are signed
+   *  with a 97-byte envelope before sending. */
+  identity?: Ed25519KeyPair;
   /** Called after a remote edit is applied to the
    *  epoch tree. Use this to apply the edit payload
    *  to the Y.Doc so it appears in the editor. */
@@ -77,7 +84,29 @@ export function createReconciliationWiring(
         channel,
         channelName: ch,
         sender: {
-          send: (msg) => opts.transport.send(ch, msg),
+          send: (msg) => {
+            // Sign outgoing EDIT_BATCH payloads when
+            // identity is available.
+            if (
+              opts.identity &&
+              msg.type === ReconciliationMessageType.EDIT_BATCH
+            ) {
+              const kp = opts.identity;
+              void Promise.all(
+                msg.edits.map(async (e) => ({
+                  payload: e.payload,
+                  signature: await signEdit(e.payload, kp),
+                })),
+              ).then((signed) => {
+                opts.transport.send(ch, {
+                  ...msg,
+                  edits: signed,
+                });
+              });
+              return;
+            }
+            opts.transport.send(ch, msg);
+          },
         },
         applier: {
           apply: (edit) => {
