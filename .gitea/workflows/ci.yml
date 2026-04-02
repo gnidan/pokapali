@@ -96,6 +96,13 @@ jobs:
     name: E2E Tests
     needs: build-test-lint
     runs-on: self-hosted
+    # Serialize E2E across all branches — the shared
+    # VPS cannot handle concurrent multi-peer tests
+    # (3+ Helia nodes + Chromium per run). Queues
+    # instead of cancelling so every PR gets a result.
+    concurrency:
+      group: e2e-tests
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - run: npm ci
