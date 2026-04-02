@@ -19,11 +19,13 @@ import type { AnnouncePubSub } from "./announce.js";
 
 describe("announceTopic", () => {
   it("returns the expected topic format", () => {
-    expect(announceTopic("my-app")).toBe("/pokapali/app/my-app/announce");
+    expect(announceTopic("main", "my-app")).toBe(
+      "/pokapali/main/app/my-app/announce",
+    );
   });
 
   it("handles empty appId", () => {
-    expect(announceTopic("")).toBe("/pokapali/app//announce");
+    expect(announceTopic("main", "")).toBe("/pokapali/main/app//announce");
   });
 });
 
@@ -34,11 +36,11 @@ describe("announceSnapshot", () => {
       publish: mockPublish,
     };
 
-    await announceSnapshot(pubsub, "test-app", "abc123", "bafyexample");
+    await announceSnapshot(pubsub, "main", "test-app", "abc123", "bafyexample");
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
     const [topic, data] = mockPublish.mock.calls[0]!;
-    expect(topic).toBe("/pokapali/app/test-app/announce");
+    expect(topic).toBe("/pokapali/main/app/test-app/announce");
     const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
       ipnsName: "abc123",
@@ -56,6 +58,7 @@ describe("announceAck", () => {
 
     await announceAck(
       pubsub,
+      "main",
       "test-app",
       "abc123",
       "bafyexample",
@@ -64,7 +67,7 @@ describe("announceAck", () => {
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
     const [topic, data] = mockPublish.mock.calls[0]!;
-    expect(topic).toBe("/pokapali/app/test-app/announce");
+    expect(topic).toBe("/pokapali/main/app/test-app/announce");
     const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
       ipnsName: "abc123",
@@ -178,11 +181,11 @@ describe("publishGuaranteeQuery", () => {
       publish: mockPublish,
     };
 
-    await publishGuaranteeQuery(pubsub, "test-app", "abc123");
+    await publishGuaranteeQuery(pubsub, "main", "test-app", "abc123");
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
     const [topic, data] = mockPublish.mock.calls[0]!;
-    expect(topic).toBe("/pokapali/app/test-app/announce");
+    expect(topic).toBe("/pokapali/main/app/test-app/announce");
     const parsed = JSON.parse(new TextDecoder().decode(data));
     expect(parsed).toEqual({
       type: "guarantee-query",
@@ -324,6 +327,7 @@ describe("announcement proof (#75)", () => {
 
     await announceSnapshot(
       pubsub,
+      "main",
       "test-app",
       ipnsName,
       "bafyexample",

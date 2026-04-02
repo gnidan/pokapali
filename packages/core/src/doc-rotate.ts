@@ -47,6 +47,7 @@ export interface RotateContext {
   origin: string;
   channels: string[];
   appId: string;
+  networkId: string;
   primaryChannel: string;
   signalingUrls: string[];
   syncOpts?: SyncOptions;
@@ -174,6 +175,7 @@ export async function rotateDoc(
     signingKey: newSigningKey,
     readKey: newDocKeys.readKey,
     appId: ctx.appId,
+    networkId: ctx.networkId,
     primaryChannel: ctx.primaryChannel,
     signalingUrls: ctx.signalingUrls,
     syncOpts: ctx.syncOpts,

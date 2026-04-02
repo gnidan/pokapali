@@ -18,6 +18,7 @@ import {
   createRoomRegistry,
   handleSignalingStream,
   createRelayForwarder,
+  nodeCapsTopic,
 } from "@pokapali/node";
 import type { RelaySignalingStream } from "@pokapali/node";
 
@@ -38,7 +39,7 @@ export interface TestRelayOptions {
   httpUrl?: string;
 }
 
-const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
+const NODE_CAPS_TOPIC = nodeCapsTopic("main");
 
 export async function createTestRelay(
   options?: TestRelayOptions,

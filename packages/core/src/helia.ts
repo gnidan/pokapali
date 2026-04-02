@@ -6,10 +6,14 @@ import type { Helia } from "helia";
 import type { Libp2p, PubSub } from "@libp2p/interface";
 import { TimeoutError } from "./errors.js";
 
-const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
+export function discoveryTopic(networkId: string): string {
+  return `pokapali.${networkId}._peer-discovery._p2p._pubsub`;
+}
 
 export interface HeliaOptions {
   bootstrapPeers?: string[];
+  /** Network identifier for topic isolation. */
+  networkId?: string;
   /** Optional blockstore (e.g. IDBBlockstore for
    *  browser persistence). Defaults to in-memory.
    *  Typed loosely to avoid interface-blockstore
@@ -135,7 +139,7 @@ async function createHeliaInstance(
       ...(defaults.peerDiscovery ?? []),
       pubsubPeerDiscovery({
         interval: 10_000,
-        topics: [DISCOVERY_TOPIC],
+        topics: [discoveryTopic(_options?.networkId ?? "main")],
       }),
       ...(_options?.bootstrapPeers?.length
         ? [bootstrap({ list: _options.bootstrapPeers })]

@@ -85,9 +85,10 @@ export function setupAwarenessRoom(
    *  with callers that need it before the room
    *  connects. */
   existingAwareness?: Awareness,
+  networkId = "main",
 ): AwarenessRoom {
   const dummyDoc = existingAwareness?.doc ?? new Y.Doc();
-  const roomName = `${ipnsName}:awareness`;
+  const roomName = `${networkId}.${ipnsName}:awareness`;
   const provider = new WebrtcProvider(roomName, dummyDoc, {
     signaling: signalingUrls,
     password: awarenessPassword,
@@ -226,6 +227,7 @@ export function setupAwarenessRoom(
 
 export interface SignaledAwarenessOptions {
   rtcConfig?: RTCConfiguration;
+  networkId?: string;
 }
 
 /**
@@ -249,7 +251,8 @@ export function setupSignaledAwarenessRoom(
   awareness: Awareness,
   options?: SignaledAwarenessOptions,
 ): AwarenessRoom {
-  const roomName = `${ipnsName}:awareness`;
+  const nid = options?.networkId ?? "main";
+  const roomName = `${nid}.${ipnsName}:awareness`;
   let connected = false;
   const statusListeners: Array<() => void> = [];
   const cleanups: Array<() => void> = [];

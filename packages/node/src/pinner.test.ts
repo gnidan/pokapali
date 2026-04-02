@@ -518,7 +518,7 @@ describe("pinner with mock helia", () => {
 
       expect(mockPubsub.publish).toHaveBeenCalledTimes(1);
       const [topic, data] = mockPubsub.publish.mock.calls[0]!;
-      expect(topic).toBe("/pokapali/app/test-app/announce");
+      expect(topic).toBe("/pokapali/main/app/test-app/announce");
 
       const response = JSON.parse(new TextDecoder().decode(data));
       expect(response.type).toBe("guarantee-response");

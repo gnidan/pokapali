@@ -114,6 +114,7 @@ describe("announce protocol integration", () => {
 
       await announceSnapshot(
         pubsub,
+        "main",
         APP_ID,
         ipnsName,
         cid.toString(),
@@ -149,11 +150,20 @@ describe("announce protocol integration", () => {
     const { pubsub, messages } = capturePubSub();
 
     // Step 1: Writer announces snapshot
-    await announceSnapshot(pubsub, APP_ID, ipnsName, cid.toString(), 1, block);
+    await announceSnapshot(
+      pubsub,
+      "main",
+      APP_ID,
+      ipnsName,
+      cid.toString(),
+      1,
+      block,
+    );
 
     // Step 2: Pinner sends ack with guarantee
     await announceAck(
       pubsub,
+      "main",
       APP_ID,
       ipnsName,
       cid.toString(),
@@ -180,7 +190,7 @@ describe("announce protocol integration", () => {
     const { pubsub, messages } = capturePubSub();
 
     // Browser sends guarantee query
-    await publishGuaranteeQuery(pubsub, APP_ID, ipnsName);
+    await publishGuaranteeQuery(pubsub, "main", APP_ID, ipnsName);
 
     expect(messages).toHaveLength(1);
 
@@ -231,7 +241,15 @@ describe("announce protocol integration", () => {
 
     const { pubsub, messages } = capturePubSub();
 
-    await announceSnapshot(pubsub, APP_ID, "big-doc", cid.toString(), 1, block);
+    await announceSnapshot(
+      pubsub,
+      "main",
+      APP_ID,
+      "big-doc",
+      cid.toString(),
+      1,
+      block,
+    );
 
     const parsed = parseAnnouncement(messages[0]!.data);
     expect(parsed).not.toBeNull();

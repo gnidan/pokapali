@@ -15,7 +15,12 @@ const log = createLogger("relay");
 
 export const MAX_CONNECTIONS = 512;
 
-export const DISCOVERY_TOPIC = "pokapali._peer-discovery._p2p._pubsub";
+export function discoveryTopic(networkId: string): string {
+  return `pokapali.${networkId}._peer-discovery._p2p._pubsub`;
+}
+
+/** @deprecated Use discoveryTopic(networkId) instead. */
+export const DISCOVERY_TOPIC = discoveryTopic("main");
 
 const RAW_CODEC = 0x55;
 

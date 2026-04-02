@@ -45,6 +45,7 @@ import { startStatusLogging } from "./relay-logging.js";
 export type { NodeCapabilities, NodeNeighbor } from "./relay-caps.js";
 export {
   NODE_CAPS_TOPIC,
+  nodeCapsTopic,
   encodeNodeCaps,
   decodeNodeCaps,
 } from "./relay-caps.js";

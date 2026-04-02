@@ -48,6 +48,9 @@ export interface WriterEvent {
 export interface WriterConfig {
   /** Application ID for GossipSub topic. */
   appId: string;
+  /** Network ID for topic isolation. Default
+   *  "main". */
+  networkId?: string;
   /** Interval between edits in ms. Default 10_000. */
   editIntervalMs?: number;
   /** Bytes of random text per edit. Default 100. */
@@ -75,6 +78,7 @@ export async function startWriter(
   config: WriterConfig,
 ): Promise<Writer> {
   const appId = config.appId;
+  const networkId = config.networkId ?? "main";
   const editInterval = config.editIntervalMs ?? 10_000;
   const editSize = config.editSizeBytes ?? 100;
   const httpUrls = config.httpUrls ?? [];
@@ -103,7 +107,7 @@ export async function startWriter(
   let stopped = false;
 
   // Subscribe to announce topic for acks
-  const topic = announceTopic(appId);
+  const topic = announceTopic(networkId, appId);
   const pubsub = helia.libp2p.services.pubsub;
   pubsub.subscribe(topic);
 
@@ -211,11 +215,19 @@ export async function startWriter(
         // Large block: upload via HTTP first,
         // then announce without inline data.
         await uploadBlock(cid, block, httpUrls);
-        await announceSnapshot(pubsub, appId, ipnsName, cidStr, clockSum);
+        await announceSnapshot(
+          pubsub,
+          networkId,
+          appId,
+          ipnsName,
+          cidStr,
+          clockSum,
+        );
       } else {
         // Fits inline — announce with block data.
         await announceSnapshot(
           pubsub,
+          networkId,
           appId,
           ipnsName,
           cidStr,

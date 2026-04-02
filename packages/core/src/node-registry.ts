@@ -5,8 +5,14 @@ import { createThrottledInterval } from "./throttled-interval.js";
 
 const log = createLogger("node-registry");
 
-/** GossipSub topic for node capability broadcasts. */
-export const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
+/** Build the GossipSub topic for node capability
+ *  broadcasts on a given network. */
+export function nodeCapsTopic(networkId: string): string {
+  return `pokapali.${networkId}._node-caps._p2p._pubsub`;
+}
+
+/** @deprecated Use nodeCapsTopic(networkId) instead. */
+export const NODE_CAPS_TOPIC = nodeCapsTopic("main");
 /** Node becomes stale (greyed out) after this long
  *  without a caps broadcast. 5x the 30s caps interval
  *  gives margin for dropped GossipSub messages. */
@@ -159,7 +165,9 @@ function addrsEqual(a: string[], b: string[]): boolean {
 export function createNodeRegistry(
   pubsub: PubSubLike,
   getHelia: () => Helia,
+  networkId = "main",
 ): NodeRegistry {
+  const capsTopic = nodeCapsTopic(networkId);
   const nodes = new Map<string, KnownNode>();
   /** Consecutive prune checks where the peer was not
    *  in the libp2p connection list. Reset to 0 on
@@ -177,8 +185,8 @@ export function createNodeRegistry(
     }
   }
 
-  pubsub.subscribe(NODE_CAPS_TOPIC);
-  log.debug("subscribed to", NODE_CAPS_TOPIC);
+  pubsub.subscribe(capsTopic);
+  log.debug("subscribed to", capsTopic);
 
   function getConnectedPeerIds(): Set<string> {
     try {
@@ -196,7 +204,7 @@ export function createNodeRegistry(
 
   const messageHandler = (evt: CustomEvent) => {
     const { detail } = evt;
-    if (detail?.topic !== NODE_CAPS_TOPIC) return;
+    if (detail?.topic !== capsTopic) return;
 
     const caps = parseCapsMessage(detail.data);
     if (!caps) return;
@@ -327,9 +335,10 @@ let sharedRegistry: NodeRegistry | null = null;
 export function acquireNodeRegistry(
   pubsub: PubSubLike,
   getHelia: () => Helia,
+  networkId = "main",
 ): NodeRegistry {
   if (!sharedRegistry) {
-    sharedRegistry = createNodeRegistry(pubsub, getHelia);
+    sharedRegistry = createNodeRegistry(pubsub, getHelia, networkId);
   }
   return sharedRegistry;
 }

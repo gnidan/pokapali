@@ -32,7 +32,12 @@ const log = createLogger("relay-fwd");
 // GossipSub topic
 // -------------------------------------------------------
 
-export const RELAY_SIGNALING_TOPIC = "/pokapali/signaling/relay";
+export function relaySignalingTopic(networkId: string): string {
+  return `/pokapali/${networkId}/signaling/relay`;
+}
+
+/** @deprecated Use relaySignalingTopic(networkId). */
+export const RELAY_SIGNALING_TOPIC = relaySignalingTopic("main");
 
 // -------------------------------------------------------
 // Relay message types
@@ -166,8 +171,10 @@ export function createRelayForwarder(
   pubsub: PubSubLike,
   selfRelayPeerId: string,
   registry: RoomRegistry,
+  networkId = "main",
 ): RelayForwarder {
-  pubsub.subscribe(RELAY_SIGNALING_TOPIC);
+  const sigTopic = relaySignalingTopic(networkId);
+  pubsub.subscribe(sigTopic);
 
   // Track remote peers: peerId → Map<room, relayPeerId>
   // The relayPeerId tracks which relay "owns" the
@@ -219,13 +226,13 @@ export function createRelayForwarder(
   }
 
   function publish(msg: RelayMsg): void {
-    pubsub.publish(RELAY_SIGNALING_TOPIC, encodeRelayMsg(msg)).catch(() => {});
+    pubsub.publish(sigTopic, encodeRelayMsg(msg)).catch(() => {});
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function onGossipMessage(evt: any): void {
     const detail = evt.detail;
-    if (detail.topic !== RELAY_SIGNALING_TOPIC) return;
+    if (detail.topic !== sigTopic) return;
 
     let msg: RelayMsg;
     try {
@@ -372,7 +379,7 @@ export function createRelayForwarder(
 
     stop(): void {
       pubsub.removeEventListener("message", onGossipMessage);
-      pubsub.unsubscribe(RELAY_SIGNALING_TOPIC);
+      pubsub.unsubscribe(sigTopic);
       remotePeers.clear();
     },
   };

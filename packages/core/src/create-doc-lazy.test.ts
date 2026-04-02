@@ -131,6 +131,7 @@ function baseParams() {
     signingKey: null,
     readKey: {} as CryptoKey,
     appId: "test",
+    networkId: "main",
     primaryChannel: "content",
     signalingUrls: [],
     performInitialResolve: false,

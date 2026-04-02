@@ -512,7 +512,7 @@ async function main() {
     if (relayHandle) {
       const topicToApp = new Map<string, string>();
       for (const app of pinApps) {
-        const topic = announceTopic(app);
+        const topic = announceTopic("main", app);
         topicToApp.set(topic, app);
         pubsub.subscribe(topic);
         log.info("pinner subscribed to", topic);

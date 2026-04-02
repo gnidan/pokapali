@@ -25,6 +25,9 @@ export interface ReaderEvent {
 export interface ReaderConfig {
   /** Application ID for GossipSub topic. */
   appId: string;
+  /** Network ID for topic isolation. Default
+   *  "main". */
+  networkId?: string;
   /** Callback for event collection. */
   onEvent?: (event: ReaderEvent) => void;
 }
@@ -44,10 +47,11 @@ let readerCounter = 0;
 
 export function startReader(helia: HeliaNode, config: ReaderConfig): Reader {
   const appId = config.appId;
+  const networkId = config.networkId ?? "main";
   const onEvent = config.onEvent ?? (() => {});
   const readerId = `reader-${++readerCounter}`;
 
-  const topic = announceTopic(appId);
+  const topic = announceTopic(networkId, appId);
   const pubsub = helia.libp2p.services.pubsub;
   pubsub.subscribe(topic);
 

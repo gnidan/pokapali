@@ -109,6 +109,9 @@ export interface PinnerConfig {
    * rate limit to prevent name-flooding abuse.
    * Default: 100. Set to 0 to reject all new names. */
   maxNewNamesPerHour?: number;
+  /** Network identifier for topic isolation.
+   * Default: "main". */
+  networkId?: string;
 }
 
 export interface PinnerMetrics {
@@ -179,6 +182,7 @@ export interface Pinner {
 type PinnerPhase = "created" | "running" | "stopped";
 
 export async function createPinner(config: PinnerConfig): Promise<Pinner> {
+  const networkId = config.networkId ?? "main";
   const DEFAULT_IPNS_RATE_LIMIT = 10;
   const ipnsThrottle = createIpnsThrottle(
     config.ipnsRateLimit ?? DEFAULT_IPNS_RATE_LIMIT,
@@ -826,6 +830,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
           : undefined;
         await announceSnapshot(
           config.pubsub,
+          networkId,
           appId,
           ipnsName,
           cidStr,
@@ -1339,6 +1344,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         track(
           announceAck(
             config.pubsub,
+            networkId,
             appId,
             ipnsName,
             cidStr,
@@ -1371,6 +1377,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
               const g = issueGuarantee(ipnsName);
               await announceAck(
                 config.pubsub,
+                networkId,
                 appId,
                 ipnsName,
                 cidStr,
@@ -1650,7 +1657,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
         retainUntil: g.retainUntil,
       };
       const data = new TextEncoder().encode(JSON.stringify(response));
-      const topic = announceTopic(appId);
+      const topic = announceTopic(networkId, appId);
       track(
         config.pubsub.publish(topic, data).catch((err) => {
           log.warn("guarantee response failed:", err);

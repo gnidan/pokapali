@@ -89,7 +89,7 @@ function makePubsub() {
   };
 }
 
-const TOPIC = `/pokapali/app/${APP_ID}/announce`;
+const TOPIC = `/pokapali/main/app/${APP_ID}/announce`;
 
 describe("startReaderPeer", () => {
   test("decodes and applies snapshot from announcement", async () => {

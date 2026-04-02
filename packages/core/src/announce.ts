@@ -52,10 +52,10 @@ export interface Announcement {
 
 /**
  * Build the GossipSub topic for snapshot announcements
- * within a given app.
+ * within a given app on a given network.
  */
-export function announceTopic(appId: string): string {
-  return `/pokapali/app/${appId}/announce`;
+export function announceTopic(networkId: string, appId: string): string {
+  return `/pokapali/${networkId}/app/${appId}/announce`;
 }
 
 /**
@@ -87,6 +87,7 @@ export function base64ToUint8(b64: string): Uint8Array {
 
 export async function announceSnapshot(
   pubsub: AnnouncePubSub,
+  networkId: string,
   appId: string,
   ipnsName: string,
   cid: string,
@@ -96,7 +97,7 @@ export async function announceSnapshot(
   ack?: AnnouncementAck,
   proof?: string,
 ): Promise<void> {
-  const topic = announceTopic(appId);
+  const topic = announceTopic(networkId, appId);
   const msg: Announcement = { ipnsName, cid };
   if (seq !== undefined) msg.seq = seq;
   if (block && block.length <= MAX_INLINE_BLOCK_BYTES) {
@@ -116,6 +117,7 @@ export async function announceSnapshot(
  */
 export async function announceAck(
   pubsub: AnnouncePubSub,
+  networkId: string,
   appId: string,
   ipnsName: string,
   cid: string,
@@ -123,7 +125,7 @@ export async function announceAck(
   guaranteeUntil?: number,
   retainUntil?: number,
 ): Promise<void> {
-  const topic = announceTopic(appId);
+  const topic = announceTopic(networkId, appId);
   const ack: AnnouncementAck = { peerId };
   if (guaranteeUntil !== undefined) {
     ack.guaranteeUntil = guaranteeUntil;
@@ -233,10 +235,11 @@ export interface GuaranteeResponse {
  */
 export async function publishGuaranteeQuery(
   pubsub: AnnouncePubSub,
+  networkId: string,
   appId: string,
   ipnsName: string,
 ): Promise<void> {
-  const topic = announceTopic(appId);
+  const topic = announceTopic(networkId, appId);
   const data = new TextEncoder().encode(
     JSON.stringify({
       type: "guarantee-query",

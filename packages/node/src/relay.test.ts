@@ -11,7 +11,7 @@ import {
 
 describe("NODE_CAPS_TOPIC", () => {
   it("is the expected topic string", () => {
-    expect(NODE_CAPS_TOPIC).toBe("pokapali._node-caps._p2p._pubsub");
+    expect(NODE_CAPS_TOPIC).toBe("pokapali.main._node-caps._p2p._pubsub");
   });
 });
 

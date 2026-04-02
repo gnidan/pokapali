@@ -357,6 +357,7 @@ export interface DocParams {
   signingKey: Ed25519KeyPair | null;
   readKey: CryptoKey | undefined;
   appId: string;
+  networkId: string;
   primaryChannel: string;
   signalingUrls: string[];
   syncOpts?: SyncOptions;
@@ -1164,7 +1165,7 @@ export function createDoc(params: DocParams): Doc {
       });
 
     // --- GossipSub subscription + fact bridge ---
-    const topic = announceTopic(appId);
+    const topic = announceTopic(params.networkId, appId);
     pubsub.subscribe(topic);
     factQueue.push({
       type: "gossip-subscribed",
@@ -1303,6 +1304,7 @@ export function createDoc(params: DocParams): Doc {
             }
             announceSnapshot(
               pubsub,
+              params.networkId,
               appId,
               ipnsName,
               cidStr,
@@ -1317,6 +1319,7 @@ export function createDoc(params: DocParams): Doc {
           } else {
             announceSnapshot(
               pubsub,
+              params.networkId,
               appId,
               ipnsName,
               cidStr,
@@ -1349,7 +1352,7 @@ export function createDoc(params: DocParams): Doc {
           // short interval until mesh forms. Prevents
           // silent publish drop when floodPublish is
           // false and the mesh hasn't formed yet.
-          const topic = announceTopic(appId);
+          const topic = announceTopic(params.networkId, appId);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const gs = pubsub as any;
           const hasMesh = () => (gs.getMeshPeers?.(topic)?.length ?? 0) > 0;
@@ -1565,9 +1568,11 @@ export function createDoc(params: DocParams): Doc {
 
     // --- Guarantee queries ---
     fireGuaranteeQuery = () => {
-      publishGuaranteeQuery(pubsub, appId, ipnsName).catch((err) => {
-        log.warn("guarantee query failed:", err);
-      });
+      publishGuaranteeQuery(pubsub, params.networkId, appId, ipnsName).catch(
+        (err) => {
+          log.warn("guarantee query failed:", err);
+        },
+      );
     };
 
     // Initial delay (3s) for mesh formation
@@ -2161,6 +2166,7 @@ export function createDoc(params: DocParams): Doc {
           origin,
           channels,
           appId: params.appId,
+          networkId: params.networkId,
           primaryChannel: params.primaryChannel,
           signalingUrls: params.signalingUrls,
           syncOpts: params.syncOpts,

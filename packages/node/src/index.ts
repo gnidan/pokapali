@@ -19,6 +19,7 @@ export {
   encodeNodeCaps,
   decodeNodeCaps,
   NODE_CAPS_TOPIC,
+  nodeCapsTopic,
 } from "./relay.js";
 export { announceTopic } from "@pokapali/core/announce";
 
@@ -31,6 +32,7 @@ export type { SignalingStream as RelaySignalingStream } from "./signaling/handle
 export {
   createRelayForwarder,
   RELAY_SIGNALING_TOPIC,
+  relaySignalingTopic,
 } from "./signaling/relay-forward.js";
 export type { RelayForwarder } from "./signaling/relay-forward.js";
 

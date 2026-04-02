@@ -32,6 +32,9 @@ export interface ReaderPeerEvent {
 export interface ReaderPeerConfig {
   /** Application ID for GossipSub topic. */
   appId: string;
+  /** Network ID for topic isolation. Default
+   *  "main". */
+  networkId?: string;
   /** Map of ipnsName → readKey for writers. */
   writers: ReadonlyMap<string, CryptoKey>;
   /** Callback for event collection. */
@@ -63,11 +66,12 @@ export function startReaderPeer(
   config: ReaderPeerConfig,
 ): ReaderPeer {
   const appId = config.appId;
+  const networkId = config.networkId ?? "main";
   const writers = config.writers;
   const onEvent = config.onEvent ?? (() => {});
   const peerId = `reader-peer-${++peerCounter}`;
 
-  const topic = announceTopic(appId);
+  const topic = announceTopic(networkId, appId);
   pubsub.subscribe(topic);
 
   const syncedDocs = new Set<string>();

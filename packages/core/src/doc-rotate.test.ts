@@ -84,6 +84,7 @@ function baseContext(overrides?: Partial<RotateContext>): RotateContext {
     origin: "https://example.com",
     channels: ["content"],
     appId: "test-app",
+    networkId: "main",
     primaryChannel: "content",
     signalingUrls: ["wss://signal.example.com"],
     document: {

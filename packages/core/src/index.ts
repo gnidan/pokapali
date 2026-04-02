@@ -70,6 +70,12 @@ export interface PokapaliConfig {
    * same origin. Defaults to `""`.
    */
   appId?: string;
+  /**
+   * Network identifier. Isolates GossipSub topics
+   * and signaling rooms so test and production
+   * traffic never cross. Defaults to `"main"`.
+   */
+  networkId?: string;
   /** Named channels for this app's documents.
    *  At least one is required. */
   channels: string[];
@@ -161,6 +167,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
   const { channels, origin } = options;
   const appId = options.appId ?? "";
+  const networkId = options.networkId ?? "main";
   const primaryChannel = options.primaryChannel ?? channels[0] ?? "";
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
@@ -278,11 +285,15 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
             }
           }
 
-          await acquireHelia({ bootstrapPeers, blockstore });
+          await acquireHelia({
+            bootstrapPeers,
+            blockstore,
+            networkId,
+          });
 
           try {
             const pubsub = getHeliaPubsub() as unknown as PubSubLike;
-            acquireNodeRegistry(pubsub, () => getHelia());
+            acquireNodeRegistry(pubsub, () => getHelia(), networkId);
 
             const userIce = options.rtc?.config?.iceServers;
             const syncOpts: SyncOptions = {
@@ -346,6 +357,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                 ipnsName,
                 awareness,
                 syncOpts,
+                networkId,
               );
             } catch (err) {
               log.warn(
@@ -359,6 +371,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                 ipnsName,
                 awareness,
                 syncOpts,
+                networkId,
                 RETRY_RELAY_WAIT_MS,
               );
               // Prevent unhandled-rejection if createDoc
@@ -394,6 +407,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       signingKey,
       readKey: keys.readKey,
       appId,
+      networkId,
       primaryChannel,
       signalingUrls,
       performInitialResolve: init.performInitialResolve,
@@ -510,6 +524,7 @@ async function trySignaling(
   ipnsName: string,
   awareness: Awareness,
   syncOpts: SyncOptions,
+  networkId: string,
 ): Promise<AwarenessRoom> {
   const localPeerId = helia.libp2p.peerId.toString();
   const conn = helia.libp2p
@@ -529,13 +544,10 @@ async function trySignaling(
   log.info("signaling connected to relay:", relayPid.slice(0, 12));
 
   const rtcConfig = syncOpts.peerOpts?.config;
-  return setupSignaledAwarenessRoom(
-    ipnsName,
-    localPeerId,
-    client,
-    awareness,
-    rtcConfig ? { rtcConfig } : undefined,
-  );
+  return setupSignaledAwarenessRoom(ipnsName, localPeerId, client, awareness, {
+    rtcConfig,
+    networkId,
+  });
 }
 
 // --- Placeholder awareness room ---
@@ -575,6 +587,7 @@ async function retrySignaling(
   ipnsName: string,
   awareness: Awareness,
   syncOpts: SyncOptions,
+  networkId: string,
   retryTimeoutMs: number,
 ): Promise<AwarenessRoom> {
   const deadline = Date.now() + retryTimeoutMs;
@@ -605,6 +618,7 @@ async function retrySignaling(
           ipnsName,
           awareness,
           syncOpts,
+          networkId,
         );
         log.info("signaling upgraded via late relay");
         return room;
@@ -680,7 +694,7 @@ export type { ForwardingRecord } from "./forwarding.js";
 export { createAutoSaver } from "./auto-save.js";
 export type { AutoSaveOptions } from "./auto-save.js";
 export { truncateUrl, docIdFromUrl } from "./url-utils.js";
-export { NODE_CAPS_TOPIC } from "./node-registry.js";
+export { NODE_CAPS_TOPIC, nodeCapsTopic } from "./node-registry.js";
 export type {
   KnownNode,
   Neighbor,

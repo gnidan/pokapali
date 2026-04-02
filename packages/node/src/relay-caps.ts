@@ -8,7 +8,12 @@ import { createLogger } from "@pokapali/log";
 
 const log = createLogger("relay");
 
-export const NODE_CAPS_TOPIC = "pokapali._node-caps._p2p._pubsub";
+export function nodeCapsTopic(networkId: string): string {
+  return `pokapali.${networkId}._node-caps._p2p._pubsub`;
+}
+
+/** @deprecated Use nodeCapsTopic(networkId) instead. */
+export const NODE_CAPS_TOPIC = nodeCapsTopic("main");
 
 export interface NodeNeighbor {
   peerId: string;
@@ -55,10 +60,12 @@ export function setupCapsListener(
   pubsub: PubSub,
   selfPeerId: string,
   knownPeerRoles: Map<string, string[]>,
+  networkId = "main",
 ): () => void {
+  const capsTopic = nodeCapsTopic(networkId);
   const handler = (evt: CustomEvent<Message>) => {
     const msg = evt.detail;
-    if (msg.topic !== NODE_CAPS_TOPIC) return;
+    if (msg.topic !== capsTopic) return;
     const caps = decodeNodeCaps(msg.data);
     if (!caps || caps.peerId === selfPeerId) return;
     knownPeerRoles.set(caps.peerId, caps.roles);
@@ -148,7 +155,9 @@ export function publishCaps(
   knownPeerRoles: Map<string, string[]>,
   autoSubOriginators: Map<string, Set<string>>,
   httpUrl: string | undefined,
+  networkId = "main",
 ): void {
+  const capsTopic = nodeCapsTopic(networkId);
   // Clean up auto-subscribed topics with no
   // remaining non-relay originators.
   for (const [topic, originators] of autoSubOriginators) {
@@ -216,7 +225,7 @@ export function publishCaps(
     addrs: addrs.length > 0 ? addrs : undefined,
     httpUrl,
   });
-  pubsub.publish(NODE_CAPS_TOPIC, msg).catch((err: unknown) => {
+  pubsub.publish(capsTopic, msg).catch((err: unknown) => {
     log.warn("caps publish failed:", err);
   });
 }
