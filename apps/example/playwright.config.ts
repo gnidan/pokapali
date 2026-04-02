@@ -9,9 +9,11 @@ export default defineConfig({
   testMatch: "**/*.e2e.ts",
   timeout: 30_000,
   retries: isCI ? 1 : 0,
-  // Single worker on CI to prevent resource
-  // exhaustion (each test spins up Chromium).
-  workers: isCI ? 1 : undefined,
+  // CI: single worker to prevent resource exhaustion.
+  // Local: cap at 2 workers — relay-dependent tests
+  // (multi-peer, tiers) share a single test relay
+  // and concurrent connections overwhelm it.
+  workers: isCI ? 1 : 2,
   globalSetup: "./e2e-global-setup.ts",
   globalTeardown: "./e2e-global-teardown.ts",
   use: {

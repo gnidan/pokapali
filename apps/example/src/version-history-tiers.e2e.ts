@@ -18,9 +18,17 @@ const EDITOR_TIMEOUT = 8_000;
 // snapshot creation + network overhead.
 const PUBLISH_TIMEOUT = 30_000;
 
-/** How long to wait for the relay's node-caps to
- *  propagate and trigger a re-fetch with tier data. */
-const TIER_TIMEOUT = 20_000;
+/** How long to wait for relay connection to
+ *  establish and caps to propagate. */
+const RELAY_CONNECT_TIMEOUT = 30_000;
+
+/** How long to wait for the tier data to arrive
+ *  after the drawer is opened. The relay must
+ *  connect, caps must propagate, node-change must
+ *  fire, and the hook must re-fetch. GossipSub
+ *  caps can occasionally take 30s+ to arrive —
+ *  use generous timeout. */
+const TIER_TIMEOUT = 45_000;
 
 interface RelayInfo {
   multiaddr: string;
@@ -111,6 +119,21 @@ const MOCK_CID_2 =
   "bafkreihavvwxymi2lq2n5uhuyirte2fspttsoesuc3uneovznrvgkerljm";
 
 /**
+ * Wait for the test relay to be connected. The
+ * node-status dot transitions from "disconnected"
+ * to "partial" (1 node) once caps are received.
+ * This ensures the app has discovered the relay's
+ * httpUrl before we check for tier badges.
+ */
+async function waitForRelayConnection(page: import("@playwright/test").Page) {
+  await expect(
+    page.locator("[data-testid='cs-node-status'] .cs-dot"),
+  ).not.toHaveClass(/disconnected/, {
+    timeout: RELAY_CONNECT_TIMEOUT,
+  });
+}
+
+/**
  * Set up page.route() to intercept pinner history
  * requests and return mock entries with tier data.
  */
@@ -169,6 +192,10 @@ test.describe("version history tier badges", () => {
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
 
+      // Wait for relay to connect so the app
+      // discovers the pinner httpUrl for tier data.
+      await waitForRelayConnection(page);
+
       // Publish a version so the drawer has content
       // and the hook has a reason to fetch.
       await typeAndPublish(page, "Tier badge test");
@@ -214,6 +241,7 @@ test.describe("version history tier badges", () => {
       ]);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
+      await waitForRelayConnection(page);
       await typeAndPublish(page, "Daily tier test");
 
       await page.locator(".toggle-history").click();
@@ -250,6 +278,7 @@ test.describe("version history tier badges", () => {
       ]);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
+      await waitForRelayConnection(page);
       await typeAndPublish(page, "Expiry countdown");
 
       await page.locator(".toggle-history").click();
@@ -290,6 +319,7 @@ test.describe("version history tier badges", () => {
       ]);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
+      await waitForRelayConnection(page);
       await typeAndPublish(page, "Days expiry test");
 
       await page.locator(".toggle-history").click();
@@ -328,6 +358,7 @@ test.describe("version history tier badges", () => {
       ]);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
+      await waitForRelayConnection(page);
       await typeAndPublish(page, "Tip tier test");
 
       await page.locator(".toggle-history").click();
@@ -369,6 +400,7 @@ test.describe("version history tier badges", () => {
       ]);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
+      await waitForRelayConnection(page);
       await typeAndPublish(page, "Expires soon test");
 
       await page.locator(".toggle-history").click();

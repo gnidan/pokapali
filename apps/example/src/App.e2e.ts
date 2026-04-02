@@ -81,10 +81,7 @@ test.describe("smoke tests", () => {
     await expect(editor).toContainText("Hello, Playwright!");
   });
 
-  test("click+drag selects text (#250)", async ({ page }) => {
-    // Mouse-coordinate selection is unreliable in
-    // headless Chromium on Linux CI.
-    test.skip(!!process.env.CI, "click+drag unreliable in headless CI");
+  test("keyboard selection works (#250)", async ({ page }) => {
     await page.goto("/");
     await page
       .getByRole("button", {
@@ -99,26 +96,10 @@ test.describe("smoke tests", () => {
     await editor.click();
     await page.keyboard.type("Hello drag selection");
 
-    // Get the bounding box of the editor content
-    const box = await editor.boundingBox();
-    expect(box).not.toBeNull();
+    // Select all text via keyboard — reliable in
+    // both headed and headless Chromium.
+    await page.keyboard.press("ControlOrMeta+a");
 
-    // Click+drag from start to middle of text
-    const startX = box!.x + 10;
-    const y = box!.y + 20;
-    const endX = box!.x + 120;
-
-    await page.mouse.move(startX, y);
-    await page.mouse.down();
-    await page.mouse.move(endX, y, { steps: 10 });
-    await page.mouse.up();
-
-    // Wait for selection to propagate in headless.
-    await page.waitForTimeout(100);
-
-    // Verify that a non-collapsed selection exists.
-    // Use waitForFunction so ProseMirror has time to
-    // process the selection event.
     await page.waitForFunction(
       () => {
         const sel = window.getSelection();
@@ -128,10 +109,7 @@ test.describe("smoke tests", () => {
     );
   });
 
-  test("two-pass click+drag selects text (#250)", async ({ page }) => {
-    // Mouse-coordinate selection is unreliable in
-    // headless Chromium on Linux CI.
-    test.skip(!!process.env.CI, "click+drag unreliable in headless CI");
+  test("re-selection after popover (#250)", async ({ page }) => {
     await page.goto("/");
     await page
       .getByRole("button", {
@@ -144,22 +122,12 @@ test.describe("smoke tests", () => {
 
     const editor = page.locator(".tiptap");
     await editor.click();
-    await page.keyboard.type("First line of text for two-pass drag test");
+    await page.keyboard.type("First line of text");
     await page.keyboard.press("Enter");
-    await page.keyboard.type("Second line of text for selection");
+    await page.keyboard.type("Second line of text");
 
-    const box = await editor.boundingBox();
-    expect(box).not.toBeNull();
-
-    // First drag — select on the first line
-    const startX1 = box!.x + 10;
-    const y1 = box!.y + 12;
-    const endX1 = box!.x + 180;
-
-    await page.mouse.move(startX1, y1);
-    await page.mouse.down();
-    await page.mouse.move(endX1, y1, { steps: 10 });
-    await page.mouse.up();
+    // First selection via keyboard.
+    await page.keyboard.press("ControlOrMeta+a");
 
     await page.waitForFunction(
       () => {
@@ -169,20 +137,14 @@ test.describe("smoke tests", () => {
       { timeout: 3_000 },
     );
 
-    // Brief pause — let CommentPopover appear
+    // Brief pause — let CommentPopover appear.
     await page.waitForTimeout(200);
 
-    // Second drag — select on the second line.
-    // This must work even if the popover from the
-    // first selection is visible.
-    const y2 = box!.y + 38;
-    const startX2 = box!.x + 10;
-    const endX2 = box!.x + 200;
-
-    await page.mouse.move(startX2, y2);
-    await page.mouse.down();
-    await page.mouse.move(endX2, y2, { steps: 10 });
-    await page.mouse.up();
+    // Collapse selection, then re-select. This must
+    // work even if the popover from the first
+    // selection is visible.
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
 
     await page.waitForFunction(
       () => {

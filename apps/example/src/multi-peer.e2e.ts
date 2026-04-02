@@ -125,6 +125,17 @@ test.describe("multi-peer editing", () => {
       const writeUrl = await getWriteUrl(alice);
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
+      // Wait for WebRTC data channel to establish
+      // before typing. Without this, edits happen
+      // before the peers are connected and never sync.
+      await expect(
+        alice.locator("[data-testid='cs-users-count']"),
+      ).toContainText("2", { timeout: SYNC_TIMEOUT });
+      await expect(bob.locator("[data-testid='cs-users-count']")).toContainText(
+        "2",
+        { timeout: SYNC_TIMEOUT },
+      );
+
       // Both type simultaneously into the same doc.
       await alice.locator(".tiptap").click();
       await alice.keyboard.type("Alice-content");
@@ -209,6 +220,14 @@ test.describe("multi-peer editing", () => {
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
       await openDocViaRelay(carol, writeUrl, relay.multiaddr);
 
+      // Wait for all peers to see each other.
+      for (const p of [alice, bob, carol]) {
+        await expect(p.locator("[data-testid='cs-users-count']")).toContainText(
+          "3",
+          { timeout: SYNC_TIMEOUT },
+        );
+      }
+
       // Each peer types unique content.
       await alice.locator(".tiptap").click();
       await alice.keyboard.type("FromAlice");
@@ -260,9 +279,10 @@ test.describe("multi-peer editing", () => {
       });
       await save.click();
       // Wait for save to complete — indicator should
-      // no longer show a save-action label.
+      // no longer show a save-action label. Relay-
+      // connected publish can be slow.
       await expect(save).not.toHaveClass(/poka-save-indicator--action/, {
-        timeout: 10_000,
+        timeout: SYNC_TIMEOUT,
       });
 
       const writeUrl = await getWriteUrl(alice);
