@@ -1586,6 +1586,110 @@ describe("pinner with mock helia", () => {
       },
     );
 
+    it(
+      "deactivated docs are deleted after" + " shorter retention (#394)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        await pinner.ingest(testIpnsName, block);
+
+        // Advance past 7-day deactivated retention +
+        // prune interval
+        await vi.advanceTimersByTimeAsync(7 * 24 * 60 * 60_000 + 60 * 60_000);
+        await pinner.flush();
+
+        // Doc should be deactivated first, then
+        // deleted by shorter deactivated retention
+        // (7 days from lastSeenAt). At 7d+1h, the
+        // name has been idle 7d+1h > 7d threshold.
+        const m = pinner.metrics();
+        expect(m.knownNames).toBe(0);
+        expect(m.deactivatedNames).toBe(0);
+        expect(m.stalePruned).toBeGreaterThan(0);
+
+        await pinner.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "deactivated doc is NOT deleted before" +
+        " shorter retention expires (#394)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        await pinner.ingest(testIpnsName, block);
+
+        // Advance 5 days — past stale threshold
+        // but before 7-day deactivated retention
+        // (lastSeenAt is now 5d ago, < 7d threshold)
+        await vi.advanceTimersByTimeAsync(5 * 24 * 60 * 60_000);
+        await pinner.flush();
+
+        // Doc should be deactivated but NOT deleted
+        const m = pinner.metrics();
+        expect(m.knownNames).toBe(1);
+        expect(m.deactivatedNames).toBe(1);
+        expect(m.stalePruned).toBe(0);
+
+        await pinner.stop();
+        vi.useRealTimers();
+      },
+    );
+
+    it(
+      "history entries are cleaned up when" +
+        " deactivated docs are deleted (#394)",
+      async () => {
+        vi.useFakeTimers();
+
+        const pinner = await createPinner({
+          appIds: ["test-app"],
+          storagePath: tmpDir,
+          staleResolveDays: 3,
+        });
+        await pinner.start();
+
+        const block = await makeSnapshot({
+          ts: Date.now(),
+        });
+        await pinner.ingest(testIpnsName, block);
+
+        // Advance past deactivated retention
+        await vi.advanceTimersByTimeAsync(7 * 24 * 60 * 60_000 + 60 * 60_000);
+        await pinner.flush();
+
+        // tipsTracked should be 0 — history entry
+        // removed along with the name
+        const m = pinner.metrics();
+        expect(m.knownNames).toBe(0);
+        expect(m.tipsTracked).toBe(0);
+
+        await pinner.stop();
+        vi.useRealTimers();
+      },
+    );
+
     // --- Multi-doc regression tests (#378) ---
     // The original production bug mass-deleted many
     // docs on restart. These tests reproduce that

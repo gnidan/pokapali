@@ -27,6 +27,7 @@ export interface HistoryTracker {
   getTip(ipnsName: string): string | null;
   getHistory(ipnsName: string): SnapshotRecord[];
   getEntry(ipnsName: string): HistoryEntry | undefined;
+  remove(ipnsName: string): void;
   allNames(): string[];
   toJSON(): Record<string, HistoryEntry>;
   loadJSON(data: Record<string, HistoryEntry>): void;
@@ -189,6 +190,10 @@ export function createHistoryTracker(
 
     getEntry(ipnsName: string): HistoryEntry | undefined {
       return entries.get(ipnsName);
+    },
+
+    remove(ipnsName: string): void {
+      entries.delete(ipnsName);
     },
 
     allNames(): string[] {

@@ -47,6 +47,11 @@ const PERSIST_DEBOUNCE_MS = 5_000;
 // Phase 2: block retention (14 days from last activity)
 const RETENTION_DURATION_MS = 14 * 24 * 60 * 60_000;
 
+// Deactivated names use a shorter retention to free
+// memory sooner. 7 days from lastSeenAt means ~4 days
+// after deactivation (which triggers at 3 days idle).
+const DEACTIVATED_RETENTION_MS = 7 * 24 * 60 * 60_000;
+
 // Version thinning sweep interval (6 hours)
 const THIN_SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
 
@@ -908,9 +913,15 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
     const toDeactivate: string[] = [];
 
     // Primary: time-based retention pruning → DELETE
+    // Deactivated names use shorter retention (#394):
+    // they've already been idle 3+ days when deactivated,
+    // keeping them 11 more days wastes memory.
     for (const name of knownNames) {
       const seen = lastSeenAt.get(name) ?? 0;
-      if (seen + RETENTION_DURATION_MS < now) {
+      const retention = deactivatedNames.has(name)
+        ? DEACTIVATED_RETENTION_MS
+        : RETENTION_DURATION_MS;
+      if (seen + retention < now) {
         toDelete.push(name);
       }
     }
@@ -1009,6 +1020,7 @@ export async function createPinner(config: PinnerConfig): Promise<Pinner> {
       guaranteedUntil.delete(name);
       inHeap.delete(name);
       deactivatedNames.delete(name);
+      history.remove(name);
     }
 
     if (toDelete.length > 0) {

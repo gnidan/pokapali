@@ -108,6 +108,27 @@ describe("HistoryTracker", () => {
     expect(names).toContain("name1");
     expect(names).toContain("name2");
   });
+
+  it("removes a name and its history", async () => {
+    const tracker = createHistoryTracker();
+    const cid1 = await makeCid("a");
+    const cid2 = await makeCid("b");
+
+    tracker.add("name1", cid1, 1000);
+    tracker.add("name2", cid2, 2000);
+    tracker.remove("name1");
+
+    expect(tracker.getEntry("name1")).toBeUndefined();
+    expect(tracker.getTip("name1")).toBeNull();
+    expect(tracker.allNames()).toEqual(["name2"]);
+  });
+
+  it("remove is safe for unknown names", () => {
+    const tracker = createHistoryTracker();
+    // Should not throw
+    tracker.remove("nonexistent");
+    expect(tracker.allNames()).toEqual([]);
+  });
 });
 
 const HOUR = 60 * 60 * 1000;
