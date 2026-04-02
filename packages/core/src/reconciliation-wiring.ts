@@ -21,7 +21,12 @@ import {
   type ReconciliationCoordinator,
   type ReconciliationMessage,
 } from "@pokapali/sync";
-import { signEdit } from "./epoch/sign-edit.js";
+import {
+  signEdit,
+  verifyEdit,
+  ENVELOPE_VERSION,
+  HEADER_SIZE,
+} from "./epoch/sign-edit.js";
 
 // -------------------------------------------------------
 // Types
@@ -97,12 +102,17 @@ export function createReconciliationWiring(
                   payload: e.payload,
                   signature: await signEdit(e.payload, kp),
                 })),
-              ).then((signed) => {
-                opts.transport.send(ch, {
-                  ...msg,
-                  edits: signed,
+              )
+                .then((signed) => {
+                  opts.transport.send(ch, {
+                    ...msg,
+                    edits: signed,
+                  });
+                })
+                .catch(() => {
+                  // Signing failed — drop silently.
+                  // Transport may have disconnected.
                 });
-              });
               return;
             }
             opts.transport.send(ch, msg);
@@ -118,6 +128,30 @@ export function createReconciliationWiring(
             // sender's edit bridge) but on the
             // receiving side they must be treated
             // as remote.
+            const sig = edit.signature;
+
+            // Try envelope format: 97-byte header
+            // with version byte. Fall back to raw
+            // for mixed-version peers.
+            if (sig.length >= HEADER_SIZE && sig[0] === ENVELOPE_VERSION) {
+              void verifyEdit(sig, opts.trustedKeys)
+                .then((result) => {
+                  if (!result) return; // bad sig
+                  const remoteEdit: Edit = {
+                    ...edit,
+                    origin: "sync",
+                    signature: sig,
+                  };
+                  channel.appendEdit(remoteEdit);
+                  opts.onRemoteEdit?.(ch, remoteEdit);
+                })
+                .catch(() => {
+                  // Verification error — drop.
+                });
+              return;
+            }
+
+            // Raw/legacy signature — pass through.
             const remoteEdit: Edit = {
               ...edit,
               origin: "sync",

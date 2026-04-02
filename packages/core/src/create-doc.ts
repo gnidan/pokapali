@@ -931,8 +931,8 @@ export function createDoc(params: DocParams): Doc {
               // If no identity, send the raw signature
               // (empty or pre-signed by Document).
               if (params.identity) {
-                void signEdit(edit.payload, params.identity).then(
-                  (envelope) => {
+                void signEdit(edit.payload, params.identity)
+                  .then((envelope) => {
                     if (!transport.connected) return;
                     transport.send(ch, {
                       type: ReconciliationMessageType.EDIT_BATCH,
@@ -944,8 +944,10 @@ export function createDoc(params: DocParams): Doc {
                         },
                       ],
                     });
-                  },
-                );
+                  })
+                  .catch(() => {
+                    // Signing failed — drop silently.
+                  });
               } else {
                 transport.send(ch, {
                   type: ReconciliationMessageType.EDIT_BATCH,

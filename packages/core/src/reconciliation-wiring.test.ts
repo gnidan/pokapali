@@ -439,6 +439,236 @@ describe("ReconciliationWiring", () => {
     });
   });
 
+  describe("incoming edit verification", () => {
+    it("valid envelope is verified and applied", async () => {
+      const kp = await generateIdentityKeypair();
+      const pubHex = bytesToHex(kp.publicKey);
+
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+      // Shared edit on both sides so neither is a
+      // late joiner (avoids FULL_STATE shortcut).
+      const shared = makeEdit(new Uint8Array([1, 2, 3]));
+      chA.appendEdit(shared);
+      chB.appendEdit(shared);
+      // A has an extra edit that B needs
+      const editX = makeEdit(new Uint8Array([10, 20, 30]));
+      chA.appendEdit(editX);
+
+      const codec = mockCodec();
+      const { transportA, transportB, drain } = mockTransportPair();
+
+      // A signs outgoing edits
+      const wiringA = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+        codec,
+        transport: transportA,
+        identity: kp,
+      });
+      // B trusts A's key and verifies incoming
+      const wiringB = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+        codec,
+        transport: transportB,
+        trustedKeys: new Set([pubHex]),
+      });
+
+      wiringA.reconcile();
+      wiringB.reconcile();
+
+      // Drain sync protocol, flush async signing,
+      // drain signed EDIT_BATCH, flush async
+      // verification.
+      drain();
+      await new Promise((r) => setTimeout(r, 50));
+      drain();
+      await new Promise((r) => setTimeout(r, 50));
+
+      const bPayloads = collectPayloads(chB);
+      // shared + editX
+      expect(bPayloads).toHaveLength(2);
+      expect(
+        bPayloads.some(
+          (p) =>
+            p.length === editX.payload.length &&
+            p.every((b, i) => b === editX.payload[i]),
+        ),
+      ).toBe(true);
+
+      wiringA.destroy();
+      wiringB.destroy();
+    });
+
+    it("tampered envelope is rejected", async () => {
+      const kp = await generateIdentityKeypair();
+      const pubHex = bytesToHex(kp.publicKey);
+
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+      // Shared edit so neither is a late joiner
+      const shared = makeEdit(new Uint8Array([1, 2, 3]));
+      chA.appendEdit(shared);
+      chB.appendEdit(shared);
+      const editX = makeEdit(new Uint8Array([10, 20, 30]));
+      chA.appendEdit(editX);
+
+      const codec = mockCodec();
+      const { transportA, transportB, drain } = mockTransportPair();
+
+      // Intercept A's transport to tamper with
+      // the envelope before B sees it.
+      const tamperingTransportA: ReconciliationTransport = {
+        ...transportA,
+        send(ch: string, msg: ReconciliationMessage) {
+          if (msg.type === ReconciliationMessageType.EDIT_BATCH) {
+            // Flip a byte in the signature to
+            // invalidate it.
+            const tampered = {
+              ...msg,
+              edits: msg.edits.map((e) => {
+                if (e.signature.length < HEADER_SIZE) {
+                  return e;
+                }
+                const bad = new Uint8Array(e.signature);
+                bad[HEADER_SIZE - 1]! ^= 0xff;
+                return {
+                  payload: e.payload,
+                  signature: bad,
+                };
+              }),
+            };
+            transportA.send(ch, tampered);
+          } else {
+            transportA.send(ch, msg);
+          }
+        },
+      };
+
+      const wiringA = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+        codec,
+        transport: tamperingTransportA,
+        identity: kp,
+      });
+      const wiringB = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+        codec,
+        transport: transportB,
+        trustedKeys: new Set([pubHex]),
+      });
+
+      wiringA.reconcile();
+      wiringB.reconcile();
+      drain();
+      await new Promise((r) => setTimeout(r, 50));
+      drain();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // B should only have the shared edit, not
+      // the tampered one
+      const bPayloads = collectPayloads(chB);
+      expect(bPayloads).toHaveLength(1);
+      expect(bPayloads[0]).toEqual(shared.payload);
+
+      wiringA.destroy();
+      wiringB.destroy();
+    });
+
+    it("untrusted key envelope is rejected", async () => {
+      const kpA = await generateIdentityKeypair();
+      const kpOther = await generateIdentityKeypair();
+      const otherHex = bytesToHex(kpOther.publicKey);
+
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+      // Shared edit so neither is a late joiner
+      const shared = makeEdit(new Uint8Array([1, 2, 3]));
+      chA.appendEdit(shared);
+      chB.appendEdit(shared);
+      const editX = makeEdit(new Uint8Array([10, 20, 30]));
+      chA.appendEdit(editX);
+
+      const codec = mockCodec();
+      const { transportA, transportB, drain } = mockTransportPair();
+
+      // A signs with kpA but B only trusts kpOther
+      const wiringA = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+        codec,
+        transport: transportA,
+        identity: kpA,
+      });
+      const wiringB = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+        codec,
+        transport: transportB,
+        trustedKeys: new Set([otherHex]),
+      });
+
+      wiringA.reconcile();
+      wiringB.reconcile();
+      drain();
+      await new Promise((r) => setTimeout(r, 50));
+      drain();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // B should only have the shared edit, not
+      // the one signed by untrusted kpA
+      const bPayloads = collectPayloads(chB);
+      expect(bPayloads).toHaveLength(1);
+      expect(bPayloads[0]).toEqual(shared.payload);
+
+      wiringA.destroy();
+      wiringB.destroy();
+    });
+
+    it("raw/legacy signature falls through " + "without verification", () => {
+      // No identity on A → raw 4-byte sig
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+      const editX = makeEdit(new Uint8Array([10, 20, 30]));
+      chA.appendEdit(editX);
+
+      const codec = mockCodec();
+      const { transportA, transportB, drain } = mockTransportPair();
+
+      const wiringA = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+        codec,
+        transport: transportA,
+        // No identity — raw signatures
+      });
+      const wiringB = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+        codec,
+        transport: transportB,
+        // trustedKeys set, but raw sigs bypass
+        // envelope verification
+        trustedKeys: new Set(["some-key"]),
+      });
+
+      wiringA.reconcile();
+      wiringB.reconcile();
+      drain();
+
+      // B applies the edit — raw sig passes through
+      const bPayloads = collectPayloads(chB);
+      expect(bPayloads).toHaveLength(1);
+      expect(bPayloads[0]).toEqual(editX.payload);
+
+      wiringA.destroy();
+      wiringB.destroy();
+    });
+  });
+
   describe("property tests", () => {
     function hexPayload(p: Uint8Array): string {
       return Array.from(p)
