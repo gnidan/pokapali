@@ -49,8 +49,6 @@ export default defineConfig(({ command }) => ({
             id.includes("/helia/") ||
             id.includes("/@helia/") ||
             id.includes("/multiformats/") ||
-            id.includes("/simple-peer/") ||
-            id.includes("/y-webrtc/") ||
             id.includes("/uint8arrays/") ||
             id.includes("/it-") ||
             id.includes("/protons") ||
