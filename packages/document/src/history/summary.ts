@@ -12,10 +12,6 @@ import type { Monoid, Measured } from "@pokapali/finger-tree";
 import { combine } from "@pokapali/finger-tree";
 import type { Epoch } from "./epoch.js";
 
-// -------------------------------------------------
-// Summary (formerly EpochIndex)
-// -------------------------------------------------
-
 export interface Summary {
   readonly epochCount: number;
   readonly editCount: number;
@@ -23,9 +19,6 @@ export interface Summary {
   readonly authors: ReadonlySet<string>;
   readonly snapshotCount: number;
 }
-
-/** @deprecated Use `Summary` instead. */
-export type EpochIndex = Summary;
 
 // -------------------------------------------------
 // Component monoids (internal)
@@ -67,8 +60,7 @@ const SetUnion: Monoid<ReadonlySet<string>> = {
   },
 };
 
-// Re-export for backwards compat from core shims
-// and for tests that verify monoid laws directly
+// Exported for tests that verify monoid laws directly
 export { Sum, MinMax, SetUnion };
 
 // -------------------------------------------------
@@ -85,9 +77,6 @@ export const summaryMonoid: Monoid<Summary> = combine<Summary>({
   authors: SetUnion,
   snapshotCount: Sum,
 });
-
-/** @deprecated Use `summaryMonoid` instead. */
-export const epochIndexMonoid: Monoid<Summary> = summaryMonoid;
 
 // -------------------------------------------------
 // Measured instance

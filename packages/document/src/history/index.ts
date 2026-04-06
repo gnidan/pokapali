@@ -6,10 +6,8 @@ export { Epoch, Boundary } from "./epoch.js";
 export type { EpochBoundary } from "./epoch.js";
 
 export { Summary } from "./summary.js";
-export type { EpochIndex } from "./summary.js";
 
 export { History } from "./history.js";
-export type { EpochTree } from "./history.js";
 
 export type { Snapshot } from "./builders.js";
 
@@ -34,7 +32,6 @@ export {
   MinMax,
   SetUnion,
   summaryMonoid,
-  epochIndexMonoid,
   epochMeasured,
 } from "./summary.js";
 

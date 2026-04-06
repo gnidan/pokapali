@@ -26,9 +26,6 @@ import {
  */
 export type History = FingerTree<Summary, Epoch>;
 
-/** @deprecated Use `History` instead. */
-export type EpochTree = History;
-
 /**
  * Companion object for the History type.
  *

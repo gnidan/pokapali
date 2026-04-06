@@ -193,7 +193,7 @@ describe("Document e2e integration", () => {
     expect(commentsEpochs[0]!.boundary.tag).toBe("open");
     expect(commentsEpochs[0]!.edits).toHaveLength(1);
 
-    // Step 9: Verify EpochIndex per channel
+    // Step 9: Verify Summary per channel
     const contentIndex = measureTree(epochMeasured, content.tree);
     expect(contentIndex.epochCount).toBe(2);
     expect(contentIndex.editCount).toBe(3);

@@ -29,9 +29,7 @@ export {
   Boundary,
   type EpochBoundary,
   Summary,
-  type EpochIndex,
   History,
-  type EpochTree,
   type Snapshot,
   // Deprecated backwards-compat re-exports
   edit,
@@ -47,7 +45,6 @@ export {
   MinMax,
   SetUnion,
   summaryMonoid,
-  epochIndexMonoid,
   epochMeasured,
   fromEpochs,
   emptyTree,
