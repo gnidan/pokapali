@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import type { Measured } from "@pokapali/finger-tree";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import type { Capability } from "@pokapali/capability";
+import type { Codec as CrdtCodec } from "@pokapali/codec";
 import type { Epoch } from "@pokapali/document";
-import { edit, View } from "@pokapali/document";
-import { createDocument } from "./document.js";
+import { Document, edit, View } from "@pokapali/document";
 
 // -- Helpers --
 
@@ -20,6 +20,27 @@ function fakeCapability(): Capability {
     channels: new Set(["content", "comments"]),
     canPushSnapshots: false,
     isAdmin: false,
+  };
+}
+
+function fakeCodec(): CrdtCodec {
+  return {
+    merge: (a, b) => {
+      const out = new Uint8Array(a.length + b.length);
+      out.set(a, 0);
+      out.set(b, a.length);
+      return out;
+    },
+    diff: () => new Uint8Array(0),
+    apply: (base) => base,
+    empty: () => new Uint8Array(0),
+    contains: () => false,
+    createSurface() {
+      throw new Error("not implemented");
+    },
+    clockSum() {
+      return 0;
+    },
   };
 }
 
@@ -50,11 +71,12 @@ function editCountView(channel: string) {
 
 // -- Tests --
 
-describe("createDocument", () => {
+describe("Document.create", () => {
   it("channel returns a Channel", () => {
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch = doc.channel("content");
@@ -62,9 +84,10 @@ describe("createDocument", () => {
   });
 
   it("same name returns same Channel", () => {
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch1 = doc.channel("content");
@@ -73,9 +96,10 @@ describe("createDocument", () => {
   });
 
   it("different names return different Channels", () => {
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const content = doc.channel("content");
@@ -87,9 +111,10 @@ describe("createDocument", () => {
 
   it("identity is accessible", () => {
     const identity = fakeIdentity();
-    const doc = createDocument({
+    const doc = Document.create({
       identity,
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     expect(doc.identity).toBe(identity);
@@ -97,18 +122,20 @@ describe("createDocument", () => {
 
   it("capability is accessible", () => {
     const capability = fakeCapability();
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability,
+      codec: fakeCodec(),
     });
 
     expect(doc.capability).toBe(capability);
   });
 
   it("destroy cascades to all channels", () => {
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const content = doc.channel("content");
@@ -132,9 +159,10 @@ describe("createDocument", () => {
   });
 
   it("channel() after destroy creates new channel", () => {
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const before = doc.channel("content");

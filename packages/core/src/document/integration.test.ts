@@ -10,13 +10,13 @@ import type { Capability } from "@pokapali/capability";
 import type { Codec as CrdtCodec } from "@pokapali/codec";
 import type { Epoch } from "@pokapali/document";
 import {
+  Document,
   epochMeasured,
   edit,
   View,
   State,
   Fingerprint,
 } from "@pokapali/document";
-import { createDocument } from "./document.js";
 
 // -- Helpers --
 
@@ -105,9 +105,10 @@ function fakeCodec(): CrdtCodec {
 describe("Document e2e integration", () => {
   it("full lifecycle: channels, edits, views, epochs", () => {
     const codec = fakeCodec();
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     // Step 1: Get channels
@@ -213,9 +214,10 @@ describe("Document e2e integration", () => {
 
   it("feed stale→ready transitions on update", () => {
     const codec = fakeCodec();
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const ch = doc.channel("content");
@@ -234,9 +236,10 @@ describe("Document e2e integration", () => {
   it("identity and capability accessible", () => {
     const identity = fakeIdentity();
     const capability = fakeCapability();
-    const doc = createDocument({
+    const doc = Document.create({
       identity,
       capability,
+      codec: fakeCodec(),
     });
 
     expect(doc.identity).toBe(identity);
@@ -246,9 +249,10 @@ describe("Document e2e integration", () => {
 
   it("destroy stops all channel updates", () => {
     const codec = fakeCodec();
-    const doc = createDocument({
+    const doc = Document.create({
       identity: fakeIdentity(),
       capability: fakeCapability(),
+      codec: fakeCodec(),
     });
 
     const content = doc.channel("content");

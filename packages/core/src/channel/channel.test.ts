@@ -4,8 +4,7 @@ import type { Measured } from "@pokapali/finger-tree";
 import { toArray } from "@pokapali/finger-tree";
 import type { Epoch } from "@pokapali/document";
 import type { Codec as CrdtCodec } from "@pokapali/codec";
-import { edit, View, State } from "@pokapali/document";
-import { createChannel } from "./channel.js";
+import { Channel, edit, View, State } from "@pokapali/document";
 
 // -- Helpers --
 
@@ -72,9 +71,9 @@ const editCountView = View.singleChannel({
 
 // -- Tests --
 
-describe("createChannel", () => {
+describe("Channel.create", () => {
   it("starts with a single empty open epoch", () => {
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     expect(ch.name).toBe("content");
 
     const epochs = toArray(ch.tree);
@@ -84,7 +83,7 @@ describe("createChannel", () => {
   });
 
   it("appendEdit puts edit in the tip epoch", () => {
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     const e = fakeEdit(1);
     ch.appendEdit(e);
 
@@ -95,7 +94,7 @@ describe("createChannel", () => {
   });
 
   it("multiple appends stay in same open epoch", () => {
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     ch.appendEdit(fakeEdit(1));
     ch.appendEdit(fakeEdit(2));
     ch.appendEdit(fakeEdit(3));
@@ -106,7 +105,7 @@ describe("createChannel", () => {
   });
 
   it("closeEpoch closes tip and opens new epoch", () => {
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     ch.appendEdit(fakeEdit(1));
     ch.closeEpoch();
 
@@ -119,7 +118,7 @@ describe("createChannel", () => {
   });
 
   it("appendEdit after closeEpoch goes into new epoch", () => {
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     ch.appendEdit(fakeEdit(1));
     ch.closeEpoch();
     ch.appendEdit(fakeEdit(2));
@@ -135,7 +134,7 @@ describe("createChannel", () => {
     const codec = fakeCodec();
     const view = State.view(codec);
 
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     const feed = ch.activate(view);
 
     // Initially empty
@@ -172,7 +171,7 @@ describe("createChannel", () => {
     const codec = fakeCodec();
     const view = State.view(codec);
 
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     const feed = ch.activate(view);
 
     ch.appendEdit(fakeEdit(1));
@@ -188,7 +187,7 @@ describe("createChannel", () => {
   });
 
   it("destroy stops view updates", () => {
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     const feed = ch.activate(editCountView);
 
     const cb = vi.fn();
@@ -202,7 +201,7 @@ describe("createChannel", () => {
   });
 
   it("closeEpoch on empty tip creates empty closed epoch", () => {
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     ch.closeEpoch();
 
     const epochs = toArray(ch.tree);
@@ -217,7 +216,7 @@ describe("createChannel", () => {
     const codec = fakeCodec();
     const view = State.view(codec);
 
-    const ch = createChannel("content");
+    const ch = Channel.create("content");
     const feed1 = ch.activate(view);
 
     ch.appendEdit(fakeEdit(1));
@@ -257,7 +256,7 @@ describe("Channel mutation property", () => {
 
     fc.assert(
       fc.property(arbOps, (ops) => {
-        const ch = createChannel("content");
+        const ch = Channel.create("content");
         let appendCount = 0;
         let nextId = 1;
 
