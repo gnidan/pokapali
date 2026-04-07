@@ -1,9 +1,15 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import DiffMatchPatch from "diff-match-patch";
-import type { Doc, VersionEntry } from "@pokapali/core";
+import type { Doc, VersionEntry, VersionHistory } from "@pokapali/core";
 
 const dmp = new DiffMatchPatch();
 
@@ -67,7 +73,20 @@ export interface VersionHistoryData {
  * ready before the history drawer opens.
  */
 export function useVersionHistory(doc: Doc): VersionHistoryData {
-  const [versions, setVersions] = useState<VersionEntry[]>([]);
+  // --- Baseline: reactive versions feed ---
+  // The feed is the source of truth for known
+  // versions (from Store cache + network).
+  const feedSnapshot: VersionHistory = useSyncExternalStore(
+    doc.versions.subscribe,
+    doc.versions.getSnapshot,
+  );
+
+  // Pinner metadata (tier, expiresAt) keyed by
+  // CID string. Enriches feed entries.
+  const [pinnerMeta, setPinnerMeta] = useState<
+    Map<string, { tier?: VersionEntry["tier"]; expiresAt?: number | null }>
+  >(new Map());
+
   const [listState, setListState] = useState<LoadState>({
     status: "loading",
   });
@@ -79,15 +98,30 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
 
   const tipCidStr = doc.tipCid?.toString() ?? null;
 
-  // Fetch version list + listen for new snapshots.
-  // Wait for doc.ready() before fetching so the local
-  // chain has been loaded (fixes empty-history regression
-  // when pinner HTTP index is unavailable).
-  // Also re-fetch on node-change if the initial fetch
-  // fell back to local chain (no tier metadata).
+  // Merge feed entries with pinner metadata to
+  // produce the final versions list (sorted by
+  // seq desc).
+  const versions: VersionEntry[] = useMemo(() => {
+    const entries: VersionEntry[] = feedSnapshot.entries.map((e) => {
+      const key = e.cid.toString();
+      const meta = pinnerMeta.get(key);
+      return {
+        cid: e.cid,
+        seq: e.seq,
+        ts: e.ts,
+        ...(meta?.tier ? { tier: meta.tier } : {}),
+        ...(meta?.expiresAt !== undefined ? { expiresAt: meta.expiresAt } : {}),
+      };
+    });
+    // Sort by seq descending (newest first).
+    entries.sort((a, b) => b.seq - a.seq);
+    return entries;
+  }, [feedSnapshot, pinnerMeta]);
+
+  // Fetch pinner metadata + trigger version
+  // discovery (which also persists to Store).
   useEffect(() => {
     cancelRef.current = false;
-    setListState({ status: "loading" });
     let fetched = false;
     let hasTierData = false;
 
@@ -97,7 +131,34 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
         .then((entries) => {
           if (cancelRef.current) return;
           hasTierData = entries.some((e) => e.tier != null);
-          setVersions(entries);
+          // Store pinner metadata; the feed handles
+          // the actual entry list.
+          const meta = new Map<
+            string,
+            {
+              tier?: VersionEntry["tier"];
+              expiresAt?: number | null;
+            }
+          >();
+          for (const e of entries) {
+            if (e.tier != null || e.expiresAt !== undefined) {
+              meta.set(e.cid.toString(), {
+                tier: e.tier,
+                expiresAt: e.expiresAt,
+              });
+            }
+          }
+          setPinnerMeta((prev) => {
+            if (meta.size === 0 && prev.size === 0) {
+              return prev;
+            }
+            // Merge with existing metadata
+            const merged = new Map(prev);
+            for (const [k, v] of meta) {
+              merged.set(k, v);
+            }
+            return merged;
+          });
           setListState({ status: "idle" });
         })
         .catch((err) => {
@@ -121,29 +182,18 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     // hasn't resolved (matches Editor's timeout).
     const timeout = setTimeout(fetchHistory, 60_000);
 
+    // Mark idle once feed has entries even if pinner
+    // fetch hasn't completed yet.
     const unsubSnapshot = doc.snapshotEvents.subscribe(() => {
       const e = doc.snapshotEvents.getSnapshot();
       if (!e) return;
       if (cancelRef.current) return;
-      // If we haven't fetched yet, trigger fetch
-      // now since the doc clearly has data.
       if (!fetched) fetchHistory();
-      setVersions((prev) => {
-        if (prev.some((v) => v.seq === e.seq)) {
-          return prev;
-        }
-        const entry: VersionEntry = {
-          cid: e.cid as VersionEntry["cid"],
-          seq: e.seq,
-          ts: e.ts,
-        };
-        return [entry, ...prev];
-      });
       setListState((s) => (s.status === "idle" ? s : { status: "idle" }));
     });
 
-    // Re-fetch when a new node appears (may now have
-    // httpUrl for enriched history with tier data).
+    // Re-fetch when a new node appears (may now
+    // have httpUrl for enriched tier data).
     const onNodeChange = () => {
       if (cancelRef.current || !fetched || hasTierData) {
         return;
@@ -159,6 +209,15 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
       doc.off("node-change", onNodeChange);
     };
   }, [doc]);
+
+  // Transition to idle once the feed has entries
+  // (cached versions from Store), even before the
+  // pinner fetch completes.
+  useEffect(() => {
+    if (listState.status === "loading" && feedSnapshot.entries.length > 0) {
+      setListState({ status: "idle" });
+    }
+  }, [listState.status, feedSnapshot.entries.length]);
 
   // Background-preload versions for diff indicators
   // and inline diff highlighting.

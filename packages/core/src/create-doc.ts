@@ -2420,9 +2420,13 @@ export function createDoc(params: DocParams): Doc {
       );
       // Integrate pinner-discovered CIDs into
       // chain state so future calls use state.
-      if (factQueue) {
-        for (const e of entries) {
-          const key = e.cid.toString();
+      // Also persist to Store and update the
+      // versions feed so cached entries survive
+      // refresh.
+      let feedUpdated = false;
+      for (const e of entries) {
+        const key = e.cid.toString();
+        if (factQueue) {
           if (!interpreterState?.chain.entries.has(key)) {
             factQueue.push({
               type: "cid-discovered",
@@ -2434,6 +2438,28 @@ export function createDoc(params: DocParams): Doc {
             });
           }
         }
+        // Populate localSnapshotHistory so the
+        // versions feed includes pinner entries.
+        const current =
+          localSnapshotHistory ??
+          interpreterState?.snapshotHistory ??
+          INITIAL_SNAPSHOT_HISTORY;
+        const alreadyKnown = current.records.some((r) => r.cid.equals(e.cid));
+        if (!alreadyKnown) {
+          localSnapshotHistory = reduceSnapshotHistory(current, {
+            type: "snapshot-materialized",
+            ts: e.ts,
+            cid: e.cid,
+            seq: e.seq,
+            channel: "",
+            epochIndex: 0,
+          });
+          persistSnapshot(e.cid, e.seq, e.ts);
+          feedUpdated = true;
+        }
+      }
+      if (feedUpdated) {
+        updateVersionsFeed();
       }
       return entries;
     },
