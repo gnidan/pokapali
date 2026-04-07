@@ -426,13 +426,31 @@ describe("Store", () => {
   // close
   // -------------------------------------------------
 
-  describe("close", () => {
+  describe("close + reopen", () => {
     it("closes the database", async () => {
       store.close();
       // Can open a new store without error
       const s2 = await Store.create(freshId());
       await s2.identity.save("device", new Uint8Array([1]));
       expect(await s2.identity.load("device")).toEqual(new Uint8Array([1]));
+      s2.close();
+    });
+
+    it("edits survive close + reopen", async () => {
+      const appId = freshId();
+      const s1 = await Store.create(appId);
+      const doc1 = s1.documents.get("test-doc");
+      await doc1.history("content").append(0, makeEdit("content", [1, 2]));
+      await doc1.history("content").append(0, makeEdit("content", [3, 4]));
+      s1.close();
+
+      const s2 = await Store.create(appId);
+      const doc2 = s2.documents.get("test-doc");
+      const epochs = await doc2.history("content").load();
+      expect(epochs).toHaveLength(1);
+      expect(epochs[0]!.edits).toHaveLength(2);
+      expect(Array.from(epochs[0]!.edits[0]!.payload)).toEqual([1, 2]);
+      expect(Array.from(epochs[0]!.edits[1]!.payload)).toEqual([3, 4]);
       s2.close();
     });
   });

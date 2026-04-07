@@ -127,138 +127,6 @@ const log = createLogger("core");
  */
 const STORE_ORIGIN = "store-replay";
 
-// -------------------------------------------------------
-// One-time y-indexeddb hydration
-// -------------------------------------------------------
-
-/**
- * Open an IDB database by name, returning null if it
- * does not exist (aborts onupgradeneeded to avoid
- * creating an empty database).
- */
-function idbOpen(name: string): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
-    try {
-      const req = indexedDB.open(name);
-      req.onupgradeneeded = () => {
-        req.transaction!.abort();
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-/**
- * Check if a y-indexeddb migration key exists in the
- * Store's meta store.
- */
-function metaHas(db: IDBDatabase, key: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction("meta", "readonly");
-      const store = tx.objectStore("meta");
-      const req = store.get(key);
-      req.onsuccess = () => resolve(!!req.result);
-      req.onerror = () => resolve(false);
-    } catch {
-      resolve(false);
-    }
-  });
-}
-
-/**
- * Mark a y-indexeddb migration as complete in the
- * Store's meta store.
- */
-function metaMark(db: IDBDatabase, key: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("meta", "readwrite");
-    const store = tx.objectStore("meta");
-    store.put({ key, migratedAt: Date.now() });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-/**
- * Hydrate Y.Docs from old y-indexeddb databases.
- *
- * y-indexeddb stores raw Yjs updates in an `updates`
- * object store with auto-increment keys. Each value
- * is a Uint8Array. We read all updates and apply them
- * sequentially to the Y.Doc.
- *
- * Migration is tracked per doc-guid in the Store's
- * meta store (`y-indexeddb:{guid}`). Old databases
- * are left read-only.
- */
-async function hydrateFromYIndexeddb(
-  document: Document,
-  channels: string[],
-  ipnsName: string,
-  appId: string,
-  metaDoc: Y.Doc,
-): Promise<void> {
-  // Open the unified Store database to check/write
-  // meta keys for migration tracking.
-  const storeDb = await idbOpen(`pokapali:${appId}`);
-  if (!storeDb) return;
-
-  try {
-    for (const ch of channels) {
-      if (!document.hasSurface(ch)) continue;
-      const guid = `${ipnsName}:${ch}`;
-      const ydoc = document.surface(ch).handle as Y.Doc;
-      await hydrateOneDoc(guid, ydoc, storeDb);
-    }
-    // Hydrate metaDoc (auth state, client ID
-    // mappings, participant awareness).
-    await hydrateOneDoc(`${ipnsName}:_meta`, metaDoc, storeDb);
-  } finally {
-    storeDb.close();
-  }
-}
-
-async function hydrateOneDoc(
-  guid: string,
-  ydoc: Y.Doc,
-  storeDb: IDBDatabase,
-): Promise<void> {
-  const metaKey = `y-indexeddb:${guid}`;
-  if (await metaHas(storeDb, metaKey)) return;
-
-  const oldDb = await idbOpen(guid);
-  if (!oldDb) {
-    await metaMark(storeDb, metaKey);
-    return;
-  }
-
-  try {
-    if (!oldDb.objectStoreNames.contains("updates")) {
-      await metaMark(storeDb, metaKey);
-      return;
-    }
-    const updates = await new Promise<Uint8Array[]>((resolve, reject) => {
-      const tx = oldDb.transaction("updates", "readonly");
-      const store = tx.objectStore("updates");
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result as Uint8Array[]);
-      req.onerror = () => reject(req.error);
-    });
-    for (const update of updates) {
-      Y.applyUpdate(ydoc, update, STORE_ORIGIN);
-    }
-  } finally {
-    oldDb.close();
-  }
-
-  await metaMark(storeDb, metaKey);
-}
-
 const REANNOUNCE_MS = 15_000;
 const GUARANTEE_INITIAL_DELAY_MS = 3_000;
 const GUARANTEE_REQUERY_MS = 5 * 60_000;
@@ -600,15 +468,14 @@ export function createDoc(params: DocParams): Doc {
     markReady();
   }
 
-  // Replay persisted edits from Store into Y.Docs,
-  // then hydrate any remaining state from old
-  // y-indexeddb databases (one-time migration for
-  // users who haven't loaded since A3a). Both paths
-  // are idempotent (Y.Doc merges duplicates). Uses
-  // STORE_ORIGIN so the editHandler doesn't
-  // re-persist replayed edits. Calls markReady()
-  // after replay completes so the editor is usable
-  // while IPNS resolution continues in background.
+  // Replay persisted edits from Store into Y.Docs.
+  // Old y-indexeddb data is migrated into Store at
+  // Store.create time (store/migrate.ts), so this is
+  // the only hydration path. Uses STORE_ORIGIN so
+  // the editHandler doesn't re-persist replayed edits.
+  // Calls markReady() after replay completes so the
+  // editor is usable while IPNS resolution continues
+  // in background.
   if (params.storeDocument && params.document) {
     const doc = params.document;
     const storeDoc = params.storeDocument;
@@ -620,29 +487,45 @@ export function createDoc(params: DocParams): Doc {
         .history(ch)
         .load()
         .then((epochs) => {
+          let count = 0;
           for (const epoch of epochs) {
             for (const edit of epoch.edits) {
               Y.applyUpdate(ydoc, edit.payload, STORE_ORIGIN);
+              count++;
             }
+          }
+          if (count > 0) {
+            log.info(`replayed ${count} edits for ${ch}`);
           }
         })
         .catch((err) => {
-          log.debug("store edit replay failed:", err);
+          log.warn("store edit replay failed:", err);
         });
       replayPromises.push(p);
     }
-    // After Store replay, hydrate from old
-    // y-indexeddb databases and markReady.
+    // Also replay _meta channel into metaDoc (auth
+    // state, client ID mappings, participant info).
+    const metaP = storeDoc
+      .history("_meta")
+      .load()
+      .then((epochs) => {
+        let count = 0;
+        for (const epoch of epochs) {
+          for (const edit of epoch.edits) {
+            Y.applyUpdate(metaDoc, edit.payload, STORE_ORIGIN);
+            count++;
+          }
+        }
+        if (count > 0) {
+          log.info(`replayed ${count} edits for _meta`);
+        }
+      })
+      .catch((err) => {
+        log.warn("_meta replay failed:", err);
+      });
+    replayPromises.push(metaP);
+
     Promise.all(replayPromises)
-      .then(() =>
-        hydrateFromYIndexeddb(
-          params.document!,
-          channels,
-          params.ipnsName,
-          params.appId,
-          params.metaDoc,
-        ),
-      )
       .then(() => markReady())
       .catch(() => markReady());
   }
@@ -913,7 +796,7 @@ export function createDoc(params: DocParams): Doc {
         epochIndex: 0,
       })
       .catch((err) => {
-        log.debug("snapshot persist failed:", err);
+        log.warn("snapshot persist failed:", err);
       });
   }
 
@@ -929,7 +812,7 @@ export function createDoc(params: DocParams): Doc {
       .history(channelName)
       .append(tipIndex, edit)
       .catch((err) => {
-        log.debug("edit persist failed:", err);
+        log.warn("edit persist failed:", err);
       });
   }
 
@@ -1023,12 +906,27 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
-  // Bridge metaDoc edits to dirty tracking.
-  // Previously this flowed through subdocManager's
-  // "dirty" event; now we listen directly.
-  const metaDirtyHandler = (_update: Uint8Array, origin: unknown) => {
+  // Bridge metaDoc edits to dirty tracking and
+  // persistence. Previously this flowed through
+  // subdocManager's "dirty" event; now we listen
+  // directly.
+  const metaDirtyHandler = (update: Uint8Array, origin: unknown) => {
     if (origin === SNAPSHOT_ORIGIN) return;
+    if (origin === STORE_ORIGIN) return;
     markContentDirty();
+    // Persist _meta edits with the same
+    // fire-and-forget pattern as surface channels.
+    if (origin == null) {
+      const edit = Edit.create({
+        payload: update,
+        timestamp: Date.now(),
+        author: identityPubkeyHex ?? "",
+        channel: "_meta",
+        origin: "local",
+        signature: new Uint8Array(),
+      });
+      persistEdit("_meta", edit);
+    }
   };
   metaDoc.on("update", metaDirtyHandler);
   editBridgeCleanups.push(() => metaDoc.off("update", metaDirtyHandler));

@@ -191,6 +191,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   async function initDoc(init: DocInit): Promise<Doc> {
     const { ipnsName, keys, signingKey, identity } = init;
     const store = await getStore();
+    await store.migrated;
     const storeDoc = store.documents.get(ipnsName);
 
     const cap = inferCapability(keys, channels);

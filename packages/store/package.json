@@ -42,6 +42,7 @@
   "license": "MIT",
   "dependencies": {
     "@pokapali/document": "^0.0.0",
+    "@pokapali/log": "^0.1.1",
     "multiformats": "^13.3.0"
   },
   "devDependencies": {

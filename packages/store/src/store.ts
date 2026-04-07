@@ -90,6 +90,8 @@ interface StoredViewCache {
 export interface Store {
   identity: Store.Identity;
   documents: Store.Documents;
+  /** Resolves when background migrations complete. */
+  migrated: Promise<void>;
   close(): void;
 }
 
@@ -214,7 +216,7 @@ export const Store: {
 } = {
   async create(appId: string): Promise<Store> {
     const db = await openDb(appId);
-    await runMigrations(db, appId);
+    const { background } = await runMigrations(db, appId);
 
     const identity: Store.Identity = {
       async load(id: string): Promise<Uint8Array | null> {
@@ -252,6 +254,7 @@ export const Store: {
     return {
       identity,
       documents,
+      migrated: background,
       close() {
         db.close();
       },
