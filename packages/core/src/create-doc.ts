@@ -68,7 +68,9 @@ import {
   State,
   Cache,
   foldTree,
+  epochMeasured,
 } from "@pokapali/document";
+import { measureTree } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
@@ -118,6 +120,13 @@ import { projectFeed } from "./project-feed.js";
 import { selectStatus, selectSaveState } from "./state-selectors.js";
 
 const log = createLogger("core");
+
+/**
+ * Origin used when replaying edits from Store on
+ * startup. Non-null so the Y.Doc editHandler skips
+ * re-persisting replayed edits.
+ */
+const STORE_ORIGIN = "store-replay";
 
 const REANNOUNCE_MS = 15_000;
 const GUARANTEE_INITIAL_DELAY_MS = 3_000;
@@ -489,6 +498,33 @@ export function createDoc(params: DocParams): Doc {
     );
   }
 
+  // Replay persisted edits from Store into Y.Docs.
+  // Runs in parallel with y-indexeddb sync — both
+  // paths are idempotent (Y.Doc merges duplicates).
+  // Uses STORE_ORIGIN so the editHandler doesn't
+  // re-persist replayed edits.
+  if (params.storeDocument && params.document) {
+    const doc = params.document;
+    const storeDoc = params.storeDocument;
+    for (const ch of channels) {
+      if (!doc.hasSurface(ch)) continue;
+      const ydoc = doc.surface(ch).handle as Y.Doc;
+      storeDoc
+        .history(ch)
+        .load()
+        .then((epochs) => {
+          for (const epoch of epochs) {
+            for (const edit of epoch.edits) {
+              Y.applyUpdate(ydoc, edit.payload, STORE_ORIGIN);
+            }
+          }
+        })
+        .catch((err) => {
+          log.debug("store edit replay failed:", err);
+        });
+    }
+  }
+
   function getHttpUrls(): string[] {
     const urls: string[] = [];
     const reg = getNodeRegistry();
@@ -759,6 +795,22 @@ export function createDoc(params: DocParams): Doc {
       });
   }
 
+  // Persist edits to Store (fire-and-forget).
+  // Computes tip epoch index from the channel's tree.
+  const storeDocument = params.storeDocument;
+  function persistEdit(channelName: string, edit: Edit): void {
+    if (!storeDocument || !params.document) return;
+    const ch = params.document.channel(channelName);
+    const summary = measureTree(epochMeasured, ch.tree);
+    const tipIndex = summary.epochCount - 1;
+    storeDocument
+      .history(channelName)
+      .append(tipIndex, edit)
+      .catch((err) => {
+        log.debug("edit persist failed:", err);
+      });
+  }
+
   function updateVersionsFeed(): void {
     const prev = versionsFeed.getSnapshot();
     const next = deriveVersionHistoryFromSnapshots(
@@ -821,16 +873,16 @@ export function createDoc(params: DocParams): Doc {
         // signature is empty here — outgoing wire
         // paths (live forwarding + reconciliation)
         // sign on-the-fly with the envelope format.
-        channel.appendEdit(
-          Edit.create({
-            payload: update,
-            timestamp: Date.now(),
-            author: identityPubkeyHex ?? "",
-            channel: name,
-            origin: "local",
-            signature: new Uint8Array(),
-          }),
-        );
+        const edit = Edit.create({
+          payload: update,
+          timestamp: Date.now(),
+          author: identityPubkeyHex ?? "",
+          channel: name,
+          origin: "local",
+          signature: new Uint8Array(),
+        });
+        channel.appendEdit(edit);
+        persistEdit(name, edit);
         scheduleReconcile();
         markContentDirty();
       };
@@ -897,6 +949,9 @@ export function createDoc(params: DocParams): Doc {
           codec: params.codec,
           transport,
           identity: params.identity,
+          onRemoteEdit: (ch, edit) => {
+            persistEdit(ch, edit);
+          },
         });
         reconciliationWirings.add(wiring);
 
@@ -981,6 +1036,7 @@ export function createDoc(params: DocParams): Doc {
               signature: e.signature,
             };
             channel.appendEdit(edit);
+            persistEdit(channelName, edit);
           }
         });
 

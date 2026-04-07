@@ -109,6 +109,11 @@ vi.mock("./identity.js", () => ({
   signParticipant: vi.fn(async () => ({ sig: "mocksig", v: 2 })),
 }));
 
+// Shared mock history so tests can inspect
+// persist calls across Store.Document handles.
+const mockHistoryAppend = vi.fn(async () => {});
+const mockHistoryLoad = vi.fn(async () => []);
+
 vi.mock("@pokapali/store", () => ({
   Store: {
     create: vi.fn(async () => ({
@@ -119,9 +124,9 @@ vi.mock("@pokapali/store", () => ({
       documents: {
         get: vi.fn(() => ({
           history: vi.fn(() => ({
-            append: vi.fn(async () => {}),
+            append: mockHistoryAppend,
             close: vi.fn(async () => {}),
-            load: vi.fn(async () => []),
+            load: mockHistoryLoad,
           })),
           snapshots: {
             append: vi.fn(async () => {}),
@@ -292,6 +297,28 @@ describe("solo mode (no relay)", () => {
     expect(doc.urls.admin).toContain("https://example.com/doc/");
     expect(doc.urls.write).toContain("https://example.com/doc/");
     expect(doc.urls.read).toContain("https://example.com/doc/");
+    doc.destroy();
+  });
+
+  it("local edits are persisted to Store", async () => {
+    const lib = pokapali(SOLO_OPTS);
+    const doc = await lib.create();
+
+    mockHistoryAppend.mockClear();
+    doc.channel("content").getText("body").insert(0, "hello");
+
+    // Fire-and-forget persist — flush microtasks
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockHistoryAppend).toHaveBeenCalled();
+    const call = mockHistoryAppend.mock.calls[0] as
+      | [number, { payload: Uint8Array; origin: string }]
+      | undefined;
+    expect(call).toBeDefined();
+    const [epochIndex, edit] = call!;
+    expect(epochIndex).toBe(0);
+    expect(edit.payload).toBeInstanceOf(Uint8Array);
+    expect(edit.origin).toBe("local");
     doc.destroy();
   });
 
