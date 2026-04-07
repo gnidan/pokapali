@@ -163,13 +163,17 @@ test.describe("multi-peer editing", () => {
       const writeUrl = await getWriteUrl(alice);
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
-      // Wait for awareness (user count) first.
+      // Wait for awareness (peer presence) first.
       await expect(
         alice.locator("[data-testid='cs-users-count']"),
-      ).toContainText("2", { timeout: SYNC_TIMEOUT });
+      ).toContainText("2 users editing", {
+        timeout: SYNC_TIMEOUT,
+      });
       await expect(bob.locator("[data-testid='cs-users-count']")).toContainText(
-        "2",
-        { timeout: SYNC_TIMEOUT },
+        "2 users editing",
+        {
+          timeout: SYNC_TIMEOUT,
+        },
       );
 
       // Awareness connects before WebRTC data channels
@@ -217,24 +221,24 @@ test.describe("multi-peer editing", () => {
     try {
       await createDocViaRelay(alice, baseURL, relay.multiaddr);
 
-      // Alice alone — 1 user.
+      // Alice alone — "Just you" or still settling.
       const aliceUsers = alice.locator("[data-testid='cs-users-count']");
-      await expect(aliceUsers).toContainText("1", {
-        timeout: 5_000,
-      });
+      await expect(aliceUsers).toContainText(
+        /Just you|Looking for peers|Connecting/,
+        { timeout: 5_000 },
+      );
 
       // Bob joins.
       const writeUrl = await getWriteUrl(alice);
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
-      // Both should eventually show 2 users via
-      // awareness protocol.
-      await expect(aliceUsers).toContainText("2", {
+      // Both should show "2 users editing" via awareness.
+      await expect(aliceUsers).toContainText("2 users editing", {
         timeout: SYNC_TIMEOUT,
       });
 
       const bobUsers = bob.locator("[data-testid='cs-users-count']");
-      await expect(bobUsers).toContainText("2", {
+      await expect(bobUsers).toContainText("2 users editing", {
         timeout: SYNC_TIMEOUT,
       });
     } finally {
@@ -261,11 +265,14 @@ test.describe("multi-peer editing", () => {
       await openDocViaRelay(bob, writeUrl, relay.multiaddr);
       await openDocViaRelay(carol, writeUrl, relay.multiaddr);
 
-      // Wait for all peers to see each other.
+      // Wait for all peers to see each other
+      // (3 total including self).
       for (const p of [alice, bob, carol]) {
         await expect(p.locator("[data-testid='cs-users-count']")).toContainText(
-          "3",
-          { timeout: SYNC_TIMEOUT },
+          "3 users editing",
+          {
+            timeout: SYNC_TIMEOUT,
+          },
         );
       }
 
@@ -345,7 +352,9 @@ test.describe("multi-peer editing", () => {
         // can deliver the published content.
         await expect(
           bob.locator("[data-testid='cs-users-count']"),
-        ).toContainText("2", { timeout: SYNC_TIMEOUT });
+        ).toContainText("2 users editing", {
+          timeout: SYNC_TIMEOUT,
+        });
 
         // Bob should see Alice's previously published
         // content.

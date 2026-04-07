@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import type { Diagnostics, VersionHistory } from "@pokapali/core";
+import type { PeerPresenceResult } from "@pokapali/react";
 import { TopologyMap } from "@pokapali/react/topology";
 import { ConnectionStatusView, type History } from "../ConnectionStatus";
 import { createMockTopologyDoc, healthyGraph } from "../mock-topology-doc";
@@ -97,6 +98,18 @@ const emptyVersions: VersionHistory = {
 
 const idleLoading = { status: "idle" as const };
 
+const activePresence: PeerPresenceResult = {
+  state: "active",
+  peerCount: 1,
+  label: "1 peer",
+};
+
+const reconnectingPresence: PeerPresenceResult = {
+  state: "reconnecting",
+  peerCount: 0,
+  label: "Reconnecting\u2026",
+};
+
 function NetworkDiagnosticsPattern() {
   return (
     <div
@@ -113,6 +126,7 @@ function NetworkDiagnosticsPattern() {
         versions={emptyVersions}
         loading={idleLoading}
         canPushSnapshots={true}
+        presence={activePresence}
         topologyMap={
           <div style={{ overflow: "hidden" }}>
             <TopologyMap doc={createMockTopologyDoc(healthyGraph)} />
@@ -154,6 +168,7 @@ function NetworkDiagnosticsPattern() {
           versions={emptyVersions}
           loading={idleLoading}
           canPushSnapshots={true}
+          presence={activePresence}
         />
       </div>
 
@@ -191,6 +206,7 @@ function NetworkDiagnosticsPattern() {
           versions={emptyVersions}
           loading={idleLoading}
           canPushSnapshots={true}
+          presence={reconnectingPresence}
         />
       </div>
     </div>

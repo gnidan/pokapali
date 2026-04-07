@@ -208,9 +208,9 @@ test.describe("document loading", () => {
     const status = page.locator(".connection-status");
     await expect(status).toBeVisible();
 
-    // Users count should show at least 1 (self).
+    // Peer presence should show once connected.
     const users = page.locator("[data-testid='cs-users-count']");
-    await expect(users).toContainText("1");
+    await expect(users).toContainText(/Just you|Looking for peers|Connecting/);
   });
 
   test("save state shows on new doc", async ({ page }) => {

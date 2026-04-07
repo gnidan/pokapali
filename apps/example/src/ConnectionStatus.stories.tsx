@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import type { Diagnostics, VersionHistory } from "@pokapali/core";
+import type { PeerPresenceResult } from "@pokapali/react";
 import {
   ConnectionStatusView,
   type ConnectionStatusViewProps,
@@ -90,6 +91,12 @@ const emptyVersions: VersionHistory = {
 
 const idleLoading = { status: "idle" as const };
 
+const mockPresence: PeerPresenceResult = {
+  state: "active",
+  peerCount: 1,
+  label: "1 peer",
+};
+
 function defaultProps(
   overrides?: Partial<ConnectionStatusViewProps>,
 ): ConnectionStatusViewProps {
@@ -99,6 +106,7 @@ function defaultProps(
     versions: emptyVersions,
     loading: idleLoading,
     canPushSnapshots: true,
+    presence: mockPresence,
     ...overrides,
   };
 }

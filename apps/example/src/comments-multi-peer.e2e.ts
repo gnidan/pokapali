@@ -105,8 +105,10 @@ async function getWriteUrl(
  */
 async function waitForPeerConnection(page: import("@playwright/test").Page) {
   await expect(page.locator("[data-testid='cs-users-count']")).toContainText(
-    "2",
-    { timeout: SYNC_TIMEOUT },
+    "2 users editing",
+    {
+      timeout: SYNC_TIMEOUT,
+    },
   );
 }
 

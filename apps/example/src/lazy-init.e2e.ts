@@ -74,9 +74,9 @@ test.describe("lazy init smoke", () => {
     const status = page.locator(".connection-status");
     await expect(status).toBeVisible({ timeout: 5_000 });
 
-    // Users count should show at least 1 (self).
+    // Peer presence should show once connected.
     const users = page.locator("[data-testid='cs-users-count']");
-    await expect(users).toContainText("1");
+    await expect(users).toContainText(/Just you|Looking for peers|Connecting/);
   });
 
   test("admin badge shows without waiting for P2P", async ({ page }) => {

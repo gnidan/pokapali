@@ -294,8 +294,9 @@ test.describe("connection status", () => {
 
     const users = page.locator("[data-testid='cs-users-count']");
     await expect(users).toBeVisible();
-    // Single user editing alone.
-    await expect(users).toContainText("1");
+    // Single user — "Just you" after settling,
+    // "Looking for peers" or "Connecting" before.
+    await expect(users).toContainText(/Just you|Looking for peers|Connecting/);
   });
 
   test("node and network status dots display", async ({ page }) => {

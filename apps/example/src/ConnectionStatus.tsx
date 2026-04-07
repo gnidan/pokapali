@@ -6,7 +6,11 @@ import type {
   VersionHistory,
 } from "@pokapali/core";
 import { TopologyMap } from "./TopologyMap";
-import { useFeed } from "@pokapali/react";
+import {
+  useFeed,
+  usePeerPresenceState,
+  type PeerPresenceResult,
+} from "@pokapali/react";
 
 // --- Time formatting ---
 
@@ -557,12 +561,36 @@ export function useConnectionDiagnostics(doc: Doc): ConnectionDiagnostics {
 
 // --- ConnectionStatusView (presentational) ---
 
+/**
+ * Derive a self-inclusive presence label. The hook
+ * counts peers excluding self, but the status bar
+ * should show total users including self.
+ */
+function presenceLabel(
+  state: PeerPresenceResult["state"],
+  peerCount: number,
+): string {
+  switch (state) {
+    case "connecting":
+      return "Connecting\u2026";
+    case "looking":
+      return "Looking for peers\u2026";
+    case "reconnecting":
+      return "Reconnecting\u2026";
+    case "active": {
+      const total = peerCount + 1;
+      return total === 1 ? "Just you" : `${total} users editing`;
+    }
+  }
+}
+
 export interface ConnectionStatusViewProps {
   info: Diagnostics;
   history: History;
   versions: VersionHistory;
   loading: LoadingState;
   canPushSnapshots: boolean;
+  presence: PeerPresenceResult;
   topologyMap?: React.ReactNode;
 }
 
@@ -572,9 +600,11 @@ export function ConnectionStatusView({
   versions,
   loading,
   canPushSnapshots,
+  presence,
   topologyMap,
 }: ConnectionStatusViewProps) {
   const connectedNodes = info.nodes.filter((n) => n.connected).length;
+  const pLabel = presenceLabel(presence.state, presence.peerCount);
 
   return (
     <div className="connection-status-wrap">
@@ -582,21 +612,25 @@ export function ConnectionStatusView({
       <div
         className="connection-status"
         aria-label={
-          `${info.editors} user(s), ` +
+          `${pLabel}, ` +
           `${connectedNodes} ` +
           `${connectedNodes === 1 ? "node" : "nodes"}, ` +
           `${info.ipfsPeers} network peers`
         }
       >
         <span
-          className="cs-section"
+          className={"cs-section" + ` poka-peer-presence--${presence.state}`}
           title="Users on this document"
           data-testid="cs-users-count"
         >
-          <span className="cs-value">{info.editors}</span>
-          <span className="cs-label">
-            {info.editors === 1 ? "user" : "users"}
-          </span>
+          <span
+            className={
+              "poka-peer-presence__dot" +
+              ` poka-peer-presence__dot--${presence.state}`
+            }
+            aria-hidden="true"
+          />
+          <span className="cs-label">{pLabel}</span>
         </span>
 
         <span className="cs-divider" />
@@ -670,6 +704,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
   const { info, history } = useConnectionDiagnostics(doc);
   const versions = useFeed(doc.versions);
   const loading = useFeed(doc.loading);
+  const presence = usePeerPresenceState(doc);
 
   return (
     <ConnectionStatusView
@@ -678,6 +713,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
       versions={versions}
       loading={loading}
       canPushSnapshots={doc.capability.canPushSnapshots}
+      presence={presence}
       topologyMap={<TopologyMap doc={doc} />}
     />
   );
