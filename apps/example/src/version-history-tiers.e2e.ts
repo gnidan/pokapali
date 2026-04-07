@@ -146,6 +146,27 @@ async function waitForRelayConnection(page: import("@playwright/test").Page) {
 }
 
 /**
+ * Wait for the mock pinner to be queried. The app
+ * fetches from the pinner httpUrl once caps arrive
+ * and the useVersionHistory hook's onNodeChange
+ * triggers a re-fetch. This is the reliable sync
+ * point: once the response is fulfilled, tier data
+ * is guaranteed to be in React state.
+ *
+ * Returns a promise that resolves when the response
+ * is received. Must be called BEFORE navigations so
+ * it captures the request whenever it happens.
+ */
+function waitForPinnerQuery(
+  page: import("@playwright/test").Page,
+  httpUrl: string,
+): Promise<import("@playwright/test").Response> {
+  return page.waitForResponse((resp) => resp.url().startsWith(httpUrl), {
+    timeout: TIER_TIMEOUT,
+  });
+}
+
+/**
  * Set up page.route() to intercept pinner history
  * requests and return mock entries with tier data.
  */
@@ -202,22 +223,28 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
-      await createDocViaRelay(page, baseURL, relay.multiaddr);
+      // Start listening for the mock pinner query
+      // BEFORE navigation so we capture it whenever
+      // the hook's doFetch fires.
+      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
 
-      // Wait for relay to connect so the app
-      // discovers the pinner httpUrl for tier data.
+      await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
 
-      // Publish a version so the drawer has content
-      // and the hook has a reason to fetch.
+      // Wait for the mock pinner to be queried —
+      // confirms caps propagated and tier data is
+      // in React state.
+      await pinnerResp;
+
+      // Publish a version so the drawer has content.
       await typeAndPublish(page, "Tier badge test");
 
       // Open the version history drawer.
       await page.locator(".toggle-history").click();
 
-      // Wait for tier badges to appear. The hook
-      // re-fetches from the pinner after the relay's
-      // caps arrive via GossipSub.
+      // Tier data is already in state (confirmed
+      // by pinnerResp above), so badges should
+      // render quickly after the drawer opens.
       const fullBadge = page.locator(".vh-tier-full");
       await expect(fullBadge).toBeVisible({
         timeout: TIER_TIMEOUT,
@@ -252,8 +279,12 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
+      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
+      await pinnerResp;
+
       await typeAndPublish(page, "Daily tier test");
 
       await page.locator(".toggle-history").click();
@@ -289,8 +320,12 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
+      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
+      await pinnerResp;
+
       await typeAndPublish(page, "Expiry countdown");
 
       await page.locator(".toggle-history").click();
@@ -330,8 +365,12 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
+      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
+      await pinnerResp;
+
       await typeAndPublish(page, "Days expiry test");
 
       await page.locator(".toggle-history").click();
@@ -369,14 +408,24 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
+      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
+      await pinnerResp;
+
       await typeAndPublish(page, "Tip tier test");
 
       await page.locator(".toggle-history").click();
 
-      // Wait for the version entry to appear.
-      await expect(page.locator("[data-testid='vh-entry']")).toBeVisible({
+      // Wait for at least one version entry to
+      // appear. Use .first() because the mock entry
+      // and the real published version both render
+      // as vh-entry elements (strict mode requires
+      // a single match).
+      await expect(
+        page.locator("[data-testid='vh-entry']").first(),
+      ).toBeVisible({
         timeout: PUBLISH_TIMEOUT,
       });
 
@@ -411,8 +460,12 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
+      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
+      await pinnerResp;
+
       await typeAndPublish(page, "Expires soon test");
 
       await page.locator(".toggle-history").click();

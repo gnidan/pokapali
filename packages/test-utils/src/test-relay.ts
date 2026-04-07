@@ -53,6 +53,14 @@ export async function createTestRelay(
     transports: [webSockets()],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
+    connectionManager: {
+      // Explicit reconnect backoff — see
+      // packages/core/src/helia.ts for why these
+      // are needed (prevents NaN timeout warning
+      // from p-retry when defaults are undefined).
+      reconnectRetryInterval: 1000,
+      reconnectBackoffFactor: 2,
+    },
     services: {
       identify: identify(),
       pubsub: gossipsub({
