@@ -109,6 +109,36 @@ vi.mock("./identity.js", () => ({
   signParticipant: vi.fn(async () => ({ sig: "mocksig", v: 2 })),
 }));
 
+vi.mock("@pokapali/store", () => ({
+  Store: {
+    create: vi.fn(async () => ({
+      identity: {
+        load: vi.fn(async () => null),
+        save: vi.fn(async () => {}),
+      },
+      documents: {
+        get: vi.fn(() => ({
+          history: vi.fn(() => ({
+            append: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+            load: vi.fn(async () => []),
+          })),
+          snapshots: {
+            append: vi.fn(async () => {}),
+            loadAll: vi.fn(async () => []),
+          },
+          viewCache: {
+            load: vi.fn(async () => null),
+            save: vi.fn(async () => {}),
+          },
+          destroy: vi.fn(async () => {}),
+        })),
+      },
+      close: vi.fn(),
+    })),
+  },
+}));
+
 vi.mock("@pokapali/blocks", async () => {
   const actual =
     await vi.importActual<typeof import("@pokapali/blocks")>(

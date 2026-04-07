@@ -50,6 +50,7 @@ import type { DocPersistence } from "./persistence.js";
 import { loadIdentity } from "./identity.js";
 import { Document } from "@pokapali/document";
 import { yjsCodec } from "@pokapali/codec";
+import { Store } from "@pokapali/store";
 
 const log = createLogger("core");
 
@@ -174,12 +175,21 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   const persistenceEnabled = options.persistence !== false;
   const p2pEnabled = options.p2p !== false;
 
+  // Store — created once, cached for app lifetime.
+  let storePromise: Promise<Store> | null = null;
+  function getStore(): Promise<Store> {
+    if (!storePromise) {
+      storePromise = Store.create(appId);
+    }
+    return storePromise;
+  }
+
   // Identity keypair — loaded once, cached for app
   // lifetime. Always present (identity is always-on).
   let identityPromise: Promise<Ed25519KeyPair> | null = null;
   function getIdentity(): Promise<Ed25519KeyPair> {
     if (!identityPromise) {
-      identityPromise = loadIdentity(appId);
+      identityPromise = getStore().then((s) => loadIdentity(s.identity));
     }
     return identityPromise;
   }
@@ -192,6 +202,8 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
    *  p2pReady. */
   async function initDoc(init: DocInit): Promise<Doc> {
     const { ipnsName, keys, signingKey, identity } = init;
+    const store = await getStore();
+    const storeDoc = store.documents.get(ipnsName);
 
     const cap = inferCapability(keys, channels);
     const chKeys = keys.channelKeys ?? {};
@@ -417,6 +429,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       identity,
       document,
       metaDoc,
+      storeDocument: storeDoc,
     });
   }
 

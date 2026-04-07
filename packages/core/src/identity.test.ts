@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // Mock @pokapali/crypto before import
 vi.mock("@pokapali/crypto", () => ({
@@ -14,111 +14,46 @@ vi.mock("@pokapali/crypto", () => ({
   ),
 }));
 
-// --- Minimal IndexedDB mock ---
+import type { Store } from "@pokapali/store";
 
-interface MockStore {
-  data: Map<string, unknown>;
-}
-
-function createMockIDB() {
-  const stores = new Map<string, MockStore>();
-
-  function getStore(dbName: string): MockStore {
-    if (!stores.has(dbName)) {
-      stores.set(dbName, { data: new Map() });
-    }
-    return stores.get(dbName)!;
-  }
-
-  const mockIndexedDB = {
-    open(dbName: string, _version?: number) {
-      const store = getStore(dbName);
-      const req = {
-        result: null as unknown as IDBDatabase,
-        error: null as DOMException | null,
-        onupgradeneeded: null as (() => void) | null,
-        onsuccess: null as (() => void) | null,
-        onerror: null as (() => void) | null,
-      };
-
-      queueMicrotask(() => {
-        const db = {
-          objectStoreNames: {
-            contains: (_name: string) => false,
-          },
-          createObjectStore: vi.fn(),
-          transaction: (_storeName: string, mode?: string) => ({
-            objectStore: () => ({
-              get: (key: string) => {
-                const getReq = {
-                  result: store.data.get(key),
-                  error: null,
-                  onsuccess: null as (() => void) | null,
-                  onerror: null as (() => void) | null,
-                };
-                queueMicrotask(() => getReq.onsuccess?.());
-                return getReq;
-              },
-              put: (value: unknown, key: string) => {
-                if (mode === "readwrite") {
-                  store.data.set(key, value);
-                }
-                const putReq = {
-                  result: undefined,
-                  error: null,
-                  onsuccess: null as (() => void) | null,
-                  onerror: null as (() => void) | null,
-                };
-                queueMicrotask(() => putReq.onsuccess?.());
-                return putReq;
-              },
-            }),
-          }),
-          close: vi.fn(),
-        };
-
-        req.result = db as unknown as IDBDatabase;
-        req.onupgradeneeded?.();
-        queueMicrotask(() => req.onsuccess?.());
-      });
-
-      return req;
+function mockIdentityStore(): Store.Identity {
+  const data = new Map<string, Uint8Array>();
+  return {
+    async load(id: string) {
+      return data.get(id) ?? null;
+    },
+    async save(id: string, seed: Uint8Array) {
+      data.set(id, seed);
     },
   };
-
-  return { mockIndexedDB, stores };
 }
-
-let idbMock: ReturnType<typeof createMockIDB>;
-
-beforeEach(() => {
-  idbMock = createMockIDB();
-  vi.stubGlobal("indexedDB", idbMock.mockIndexedDB);
-});
 
 // Dynamic import after mocking
 const { loadIdentity, signParticipant } = await import("./identity.js");
 
 describe("identity persistence", () => {
   it("generates and persists a new keypair", async () => {
-    const kp = await loadIdentity("test-app");
+    const store = mockIdentityStore();
+    const kp = await loadIdentity(store);
     expect(kp.publicKey).toBeInstanceOf(Uint8Array);
     expect(kp.privateKey).toBeInstanceOf(Uint8Array);
     expect(kp.publicKey.length).toBe(32);
   });
 
   it("returns same keypair on second load", async () => {
-    const kp1 = await loadIdentity("test-app-2");
-    const kp2 = await loadIdentity("test-app-2");
+    const store = mockIdentityStore();
+    const kp1 = await loadIdentity(store);
+    const kp2 = await loadIdentity(store);
     // Same seed → same derived keypair
     expect(kp1.privateKey).toEqual(kp2.privateKey);
   });
 
-  it("different appId gets different keypair", async () => {
-    const kp1 = await loadIdentity("app-a");
-    const kp2 = await loadIdentity("app-b");
-    // Different random seeds (different IDB stores)
-    // Both are valid keypairs but may differ
+  it("different stores get different keypairs", async () => {
+    const storeA = mockIdentityStore();
+    const storeB = mockIdentityStore();
+    const kp1 = await loadIdentity(storeA);
+    const kp2 = await loadIdentity(storeB);
+    // Different random seeds
     expect(kp1.publicKey).toBeInstanceOf(Uint8Array);
     expect(kp2.publicKey).toBeInstanceOf(Uint8Array);
   });
@@ -126,7 +61,8 @@ describe("identity persistence", () => {
 
 describe("signParticipant", () => {
   it("produces a hex signature (v1)", async () => {
-    const kp = await loadIdentity("sign-test");
+    const store = mockIdentityStore();
+    const kp = await loadIdentity(store);
     const result = await signParticipant(kp, "doc-123");
     expect(typeof result.sig).toBe("string");
     expect(result.sig.length).toBeGreaterThan(0);
@@ -137,7 +73,8 @@ describe("signParticipant", () => {
   });
 
   it("returns v:2 when clientId is provided", async () => {
-    const kp = await loadIdentity("v2-test");
+    const store = mockIdentityStore();
+    const kp = await loadIdentity(store);
     const result = await signParticipant(kp, "doc-123", 42);
     expect(result.v).toBe(2);
     expect(result.sig.length).toBeGreaterThan(0);
@@ -147,7 +84,8 @@ describe("signParticipant", () => {
     "v2 payload includes clientId " + "(cross-clientID replay prevention)",
     async () => {
       const { signBytes } = await import("@pokapali/crypto");
-      const kp = await loadIdentity("replay-v2");
+      const store = mockIdentityStore();
+      const kp = await loadIdentity(store);
 
       await signParticipant(kp, "doc-a", 100);
       const call1Data = vi.mocked(signBytes).mock.calls.at(-1)![1];
@@ -167,7 +105,8 @@ describe("signParticipant", () => {
       "payloads (cross-doc replay prevention)",
     async () => {
       const { signBytes } = await import("@pokapali/crypto");
-      const kp = await loadIdentity("replay-test");
+      const store = mockIdentityStore();
+      const kp = await loadIdentity(store);
 
       await signParticipant(kp, "doc-a");
       const call1Data = vi.mocked(signBytes).mock.calls.at(-1)![1];
@@ -186,7 +125,8 @@ describe("signParticipant", () => {
   it(
     "same keypair + same docId + same clientId " + "produces same signature",
     async () => {
-      const kp = await loadIdentity("stable-test");
+      const store = mockIdentityStore();
+      const kp = await loadIdentity(store);
       const r1 = await signParticipant(kp, "doc-x", 99);
       const r2 = await signParticipant(kp, "doc-x", 99);
       expect(r1.sig).toBe(r2.sig);

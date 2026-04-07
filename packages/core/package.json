@@ -73,6 +73,7 @@
     "@pokapali/finger-tree": "^0.0.0",
     "@pokapali/log": "^0.1.1",
     "@pokapali/blocks": "^0.1.2",
+    "@pokapali/store": "^0.0.0",
     "@pokapali/sync": "^0.1.2",
     "blockstore-idb": "3.0.1",
     "helia": "^5.5.1",

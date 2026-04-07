@@ -403,7 +403,7 @@ function createDocumentHandle(
           channel: snapshot.channel,
           epochIndex: snapshot.epochIndex,
         };
-        store.add(stored);
+        store.put(stored);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
@@ -493,83 +493,62 @@ function createDocumentHandle(
       ];
       const tx = db.transaction(stores, "readwrite");
 
-      // Edits: delete via index cursor
+      function cursorDelete(
+        req: IDBRequest<IDBCursorWithValue | null>,
+      ): Promise<void> {
+        return new Promise((resolve, reject) => {
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (cursor) {
+              cursor.delete();
+              cursor.continue();
+            } else {
+              resolve();
+            }
+          };
+          req.onerror = () => reject(req.error);
+        });
+      }
+
       const editsStore = tx.objectStore(EDITS_STORE);
       const editsIndex = editsStore.index("by-doc-channel");
-      await new Promise<void>((resolve, reject) => {
-        const range = IDBKeyRange.bound([ipnsName, ""], [ipnsName, "\uffff"]);
-        const req = editsIndex.openCursor(range);
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (cursor) {
-            cursor.delete();
-            cursor.continue();
-          } else {
-            resolve();
-          }
-        };
-        req.onerror = () => reject(req.error);
-      });
-
-      // Epochs: range delete
       const epochsStore = tx.objectStore(EPOCHS_STORE);
-      await new Promise<void>((resolve, reject) => {
-        const range = IDBKeyRange.bound(
-          [ipnsName, "", 0],
-          [ipnsName, "\uffff", Number.MAX_SAFE_INTEGER],
-        );
-        const req = epochsStore.openCursor(range);
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (cursor) {
-            cursor.delete();
-            cursor.continue();
-          } else {
-            resolve();
-          }
-        };
-        req.onerror = () => reject(req.error);
-      });
-
-      // Snapshots: range delete
       const snapshotsStore = tx.objectStore(SNAPSHOTS_STORE);
-      await new Promise<void>((resolve, reject) => {
-        const range = IDBKeyRange.bound(
-          [ipnsName, 0],
-          [ipnsName, Number.MAX_SAFE_INTEGER],
-        );
-        const req = snapshotsStore.openCursor(range);
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (cursor) {
-            cursor.delete();
-            cursor.continue();
-          } else {
-            resolve();
-          }
-        };
-        req.onerror = () => reject(req.error);
-      });
-
-      // View cache: range delete
       const viewCacheStore = tx.objectStore(VIEW_CACHE_STORE);
-      await new Promise<void>((resolve, reject) => {
-        const range = IDBKeyRange.bound(
-          [ipnsName, "", "", 0],
-          [ipnsName, "\uffff", "\uffff", Number.MAX_SAFE_INTEGER],
-        );
-        const req = viewCacheStore.openCursor(range);
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (cursor) {
-            cursor.delete();
-            cursor.continue();
-          } else {
-            resolve();
-          }
-        };
-        req.onerror = () => reject(req.error);
-      });
+
+      // Fire all cursor deletions concurrently within
+      // the same transaction to avoid auto-commit.
+      await Promise.all([
+        cursorDelete(
+          editsIndex.openCursor(
+            IDBKeyRange.bound([ipnsName, ""], [ipnsName, "\uffff"]),
+          ),
+        ),
+        cursorDelete(
+          epochsStore.openCursor(
+            IDBKeyRange.bound(
+              [ipnsName, "", 0],
+              [ipnsName, "\uffff", Number.MAX_SAFE_INTEGER],
+            ),
+          ),
+        ),
+        cursorDelete(
+          snapshotsStore.openCursor(
+            IDBKeyRange.bound(
+              [ipnsName, 0],
+              [ipnsName, Number.MAX_SAFE_INTEGER],
+            ),
+          ),
+        ),
+        cursorDelete(
+          viewCacheStore.openCursor(
+            IDBKeyRange.bound(
+              [ipnsName, "", "", 0],
+              [ipnsName, "\uffff", "\uffff", Number.MAX_SAFE_INTEGER],
+            ),
+          ),
+        ),
+      ]);
 
       await new Promise<void>((resolve, reject) => {
         tx.oncomplete = () => resolve();

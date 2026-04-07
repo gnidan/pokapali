@@ -48,8 +48,7 @@ import type { RoomDiscovery } from "./peer-discovery.js";
 import type { DocPersistence } from "./persistence.js";
 import { createBlockResolver } from "./block-resolver.js";
 import { createSnapshotCodec } from "./snapshot-codec.js";
-import { readVersionCache, writeVersionCache } from "./version-cache.js";
-import type { CachedVersionEntry } from "./version-cache.js";
+import type { Store } from "@pokapali/store";
 import { fetchTipFromPinners } from "./fetch-tip.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
@@ -399,6 +398,9 @@ export interface DocParams {
   /** Standalone metaDoc for auth state, client ID
    *  mapping, and participant awareness. */
   metaDoc: Y.Doc;
+  /** Per-document Store handle for snapshot metadata
+   *  persistence. */
+  storeDocument?: Store.Document;
 }
 
 // Pure status derivation functions extracted to
@@ -738,45 +740,41 @@ export function createDoc(params: DocParams): Doc {
   const clientIdMapping = createClientIdMapping(metaDoc, ipnsName);
   const clientIdMappingFeed = clientIdMapping.feed;
 
-  let versionCacheTimer: ReturnType<typeof setTimeout> | null = null;
-  const VERSION_CACHE_DEBOUNCE_MS = 500;
-
-  function flushVersionCache(): void {
-    if (versionCacheTimer) {
-      clearTimeout(versionCacheTimer);
-      versionCacheTimer = null;
-    }
-    const { entries } = versionsFeed.getSnapshot();
-    if (entries.length === 0) return;
-    const cached: CachedVersionEntry[] = entries.map((e) => ({
-      cid: e.cid.toString(),
-      seq: e.seq,
-      ts: e.ts,
-    }));
-    writeVersionCache(ipnsName, cached).catch((err) => {
-      log.debug("version cache flush failed:", err);
-    });
-  }
-
-  function scheduleVersionCacheWrite(): void {
-    if (versionCacheTimer) {
-      clearTimeout(versionCacheTimer);
-    }
-    versionCacheTimer = setTimeout(
-      flushVersionCache,
-      VERSION_CACHE_DEBOUNCE_MS,
-    );
+  // Persist snapshot metadata to Store (fire-and-forget,
+  // idempotent via put-based upsert).
+  const storeSnapshots = params.storeDocument?.snapshots;
+  function persistSnapshot(cid: CID, seq: number, ts: number): void {
+    storeSnapshots
+      ?.append({
+        cid: cid.bytes,
+        seq,
+        ts,
+        // TODO: placeholders until snapshot metadata
+        // includes channel/epoch provenance
+        channel: "",
+        epochIndex: 0,
+      })
+      .catch((err) => {
+        log.debug("snapshot persist failed:", err);
+      });
   }
 
   function updateVersionsFeed(): void {
-    versionsFeed._update(
-      deriveVersionHistoryFromSnapshots(
-        localSnapshotHistory ??
-          interpreterState?.snapshotHistory ??
-          INITIAL_SNAPSHOT_HISTORY,
-      ),
+    const prev = versionsFeed.getSnapshot();
+    const next = deriveVersionHistoryFromSnapshots(
+      localSnapshotHistory ??
+        interpreterState?.snapshotHistory ??
+        INITIAL_SNAPSHOT_HISTORY,
     );
-    scheduleVersionCacheWrite();
+    versionsFeed._update(next);
+
+    // Persist any newly discovered entries
+    const prevCids = new Set(prev.entries.map((e) => e.cid.toString()));
+    for (const e of next.entries) {
+      if (!prevCids.has(e.cid.toString())) {
+        persistSnapshot(e.cid, e.seq, e.ts);
+      }
+    }
   }
 
   // Hex-encoded identity pubkey (derived once, used
@@ -1174,29 +1172,32 @@ export function createDoc(params: DocParams): Doc {
 
     const fq = factQueue;
 
-    // --- Hydrate version index from IDB cache ---
-    readVersionCache(ipnsName)
-      .then((cached) => {
-        if (!cached || destroyed) return;
-        for (const e of cached.entries) {
-          try {
-            fq.push({
-              type: "cid-discovered",
-              ts: e.ts,
-              cid: CID.parse(e.cid),
-              source: "cache",
-              seq: e.seq,
-              snapshotTs: e.ts,
-            });
-          } catch {
-            // skip unparseable CIDs
+    // --- Hydrate version index from Store ---
+    if (storeSnapshots) {
+      storeSnapshots
+        .loadAll()
+        .then((cached) => {
+          if (destroyed) return;
+          for (const e of cached) {
+            try {
+              fq.push({
+                type: "cid-discovered",
+                ts: e.ts,
+                cid: CID.decode(e.cid),
+                source: "cache",
+                seq: e.seq,
+                snapshotTs: e.ts,
+              });
+            } catch {
+              // skip undecodable CIDs
+            }
           }
-        }
-        log.debug("hydrated " + cached.entries.length + " cached versions");
-      })
-      .catch((err) => {
-        log.debug("version cache hydration failed:", err);
-      });
+          log.debug("hydrated " + cached.length + " cached versions");
+        })
+        .catch((err) => {
+          log.debug("version cache hydration failed:", err);
+        });
+    }
 
     // --- GossipSub subscription + fact bridge ---
     const topic = announceTopic(params.networkId, appId);
@@ -1728,8 +1729,6 @@ export function createDoc(params: DocParams): Doc {
   function teardown() {
     destroyed = true;
     clearTimeout(graceTimer);
-    // Flush version cache before cleanup
-    flushVersionCache();
     // Interpreter cleanup
     if (pendingAnnounceRetry !== null) {
       clearTimeout(pendingAnnounceRetry);
