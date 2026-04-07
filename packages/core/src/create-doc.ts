@@ -1998,12 +1998,14 @@ export function createDoc(params: DocParams): Doc {
           "Cannot grant canPushSnapshots " + "— not in own capability",
         );
       }
-      // Always include _meta — it's library infra,
-      // accessible by any reader/writer.
+      // Include _meta if present in source keys
+      // (new docs have it; old docs opened from
+      // pre-A2 URLs may not).
+      const hasMetaKey = !!(keys.channelKeys && "_meta" in keys.channelKeys);
       const grantWithMeta = {
         ...grant,
         channels: grant.channels
-          ? ["_meta", ...grant.channels]
+          ? [...(hasMetaKey ? ["_meta"] : []), ...grant.channels]
           : grant.channels,
       };
       const narrowed = narrowCapability(keys, grantWithMeta);

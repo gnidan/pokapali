@@ -94,6 +94,33 @@ export async function deriveDocKeys(
   };
 }
 
+/**
+ * Derive the _meta channel key from the readKey.
+ * Used to backfill _meta for documents created
+ * before _meta was a synced channel. Deterministic
+ * — all peers with the same readKey derive the
+ * same channel key.
+ */
+export async function deriveMetaChannelKey(
+  readKey: CryptoKey,
+): Promise<Uint8Array> {
+  const raw = new Uint8Array(await crypto.subtle.exportKey("raw", readKey));
+  const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, [
+    "deriveBits",
+  ]);
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode("_meta_channel"),
+    },
+    baseKey,
+    256,
+  );
+  return new Uint8Array(bits);
+}
+
 export async function deriveMetaRoomPassword(
   primaryAccessKey: Uint8Array,
 ): Promise<string> {

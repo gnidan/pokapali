@@ -150,11 +150,14 @@ export async function rotateDoc(
   };
 
   const newAdminUrl = await buildUrl(ctx.origin, newIpnsName, newKeys);
+  const newWriteChannels = newKeys.channelKeys?.["_meta"]
+    ? [...ctx.channels]
+    : ctx.channels.filter((ch) => ch !== "_meta");
   const newWriteUrl = await buildUrl(
     ctx.origin,
     newIpnsName,
     narrowCapability(newKeys, {
-      channels: [...ctx.channels],
+      channels: newWriteChannels,
       canPushSnapshots: true,
     }),
   );

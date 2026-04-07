@@ -8,6 +8,7 @@ import {
 import {
   generateAdminSecret,
   deriveDocKeys,
+  deriveMetaChannelKey,
   ed25519KeyPairFromSeed,
   bytesToHex,
 } from "@pokapali/crypto";
@@ -199,6 +200,18 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     const cap = inferCapability(keys, appChannels);
     const chKeys = keys.channelKeys ?? {};
 
+    // Backfill _meta channel key for pre-A2 docs.
+    // Derives deterministically from readKey so all
+    // peers get the same key.
+    if (!chKeys._meta && keys.readKey) {
+      const metaKey = await deriveMetaChannelKey(keys.readKey);
+      chKeys._meta = metaKey;
+      if (!keys.channelKeys) {
+        keys.channelKeys = {};
+      }
+      keys.channelKeys._meta = metaKey;
+    }
+
     // Create Document + eagerly create surfaces so
     // surface Y.Docs are available for Store replay.
     // _meta is included in channels — it gets a
@@ -238,7 +251,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           origin,
           ipnsName,
           narrowCapability(keys, {
-            channels: ["_meta", ...cap.channels],
+            channels: [...(chKeys._meta ? ["_meta"] : []), ...cap.channels],
             canPushSnapshots: true,
           }),
         )
