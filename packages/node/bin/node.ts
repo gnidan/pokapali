@@ -85,6 +85,8 @@ Options:
   --ws-port <number>          libp2p WebSocket port
                               (default: 4003)
   --no-tls                     Skip autoTLS cert provisioning
+  --network-id <id>           Network partition ID
+                              (default: "main")
   --log-level <level>         debug, info, warn, error
   --help                      Show this help message
 
@@ -114,6 +116,7 @@ interface ParsedArgs {
   ipnsRateLimit: number;
   maxNewNamesPerHour: number;
   staleResolveDays: number;
+  networkId: string;
   noTls: boolean;
   tcpPort: number | undefined;
   wsPort: number | undefined;
@@ -137,6 +140,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let ipnsRateLimit = 10;
   let maxNewNamesPerHour = 100;
   let staleResolveDays = 3;
+  let networkId = "main";
   let noTls = false;
   let tcpPort: number | undefined = undefined;
   let wsPort: number | undefined = undefined;
@@ -236,6 +240,8 @@ function parseArgs(argv: string[]): ParsedArgs {
         log.error(`invalid --ws-port value: "${argv[i]}"`);
         process.exit(1);
       }
+    } else if (arg === "--network-id" && argv[i + 1]) {
+      networkId = argv[++i]!;
     } else if (arg === "--no-tls") {
       noTls = true;
     }
@@ -268,6 +274,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     ipnsRateLimit,
     maxNewNamesPerHour,
     staleResolveDays,
+    networkId,
     noTls,
     tcpPort,
     wsPort,
@@ -300,6 +307,7 @@ async function main() {
     ipnsRateLimit,
     maxNewNamesPerHour,
     staleResolveDays,
+    networkId,
     noTls,
     tcpPort,
     wsPort,
@@ -492,6 +500,7 @@ async function main() {
       helia: relayHandle?.helia,
       pubsub,
       peerId,
+      networkId,
       ipnsRateLimit,
       maxNewNamesPerHour,
       staleResolveDays,
@@ -512,7 +521,7 @@ async function main() {
     if (relayHandle) {
       const topicToApp = new Map<string, string>();
       for (const app of pinApps) {
-        const topic = announceTopic("main", app);
+        const topic = announceTopic(networkId, app);
         topicToApp.set(topic, app);
         pubsub.subscribe(topic);
         log.info("pinner subscribed to", topic);
