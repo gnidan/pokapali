@@ -730,6 +730,46 @@ describe("PeerManager", () => {
       manager.destroy();
     },
   );
+
+  it(
+    "old PC state change does not delete new PC " + "from peers map",
+    async () => {
+      const { manager, firePeerJoined, pcs } = setup("aaa-local");
+
+      // First connection
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+      expect(pcs).toHaveLength(1);
+      const oldPC = pcs[0]!;
+
+      // Replace with new PC (stale via closePC)
+      oldPC.connectionState = "failed";
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+      expect(pcs).toHaveLength(2);
+      const newPC = pcs[1]!;
+
+      // Old PC fires deferred state change AFTER
+      // new PC is already in the map. Should NOT
+      // delete the new entry.
+      oldPC.connectionState = "disconnected";
+      oldPC.onconnectionstatechange!({} as Event);
+      await tick();
+
+      // New PC should still be connectable
+      newPC.connectionState = "connected";
+      newPC.onconnectionstatechange!({} as Event);
+
+      const connected = vi.fn();
+      manager.onPeerConnection(connected);
+
+      // Re-fire to check callback sees the new PC
+      newPC.onconnectionstatechange!({} as Event);
+      expect(connected).toHaveBeenCalledWith(newPC, true);
+
+      manager.destroy();
+    },
+  );
 });
 
 // -------------------------------------------------------

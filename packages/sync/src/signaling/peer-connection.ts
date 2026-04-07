@@ -287,7 +287,9 @@ export function createPeerManager(
         pc!.connectionState === "closed" ||
         pc!.connectionState === "disconnected"
       ) {
-        peers.delete(remotePeerId);
+        if (peers.get(remotePeerId) === pc) {
+          peers.delete(remotePeerId);
+        }
         for (const cb of disconnCbs) {
           cb(remotePeerId);
         }
