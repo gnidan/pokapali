@@ -51,8 +51,6 @@ export interface SnapshotOps {
   decodeBlock(block: Uint8Array): BlockMetadata;
 
   applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }>;
-
-  isPublisherAuthorized(publisherHex: string | undefined): boolean;
 }
 
 // ------------------------------------------------
@@ -65,12 +63,10 @@ export interface SnapshotOpsOptions {
   resolver: BlockResolver;
   readKey: CryptoKey;
   getClockSum: () => number;
-  metaDoc: import("yjs").Doc;
 }
 
 export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
-  const { snapshotCodec, document, resolver, readKey, getClockSum, metaDoc } =
-    options;
+  const { snapshotCodec, document, resolver, readKey, getClockSum } = options;
 
   return {
     decodeBlock(block: Uint8Array): BlockMetadata {
@@ -124,13 +120,6 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
 
       const node = decodeSnapshot(block);
       return { seq: node.seq };
-    },
-
-    isPublisherAuthorized(publisherHex: string | undefined): boolean {
-      const map = metaDoc.getMap<true>("authorizedPublishers");
-      if (map.size === 0) return true;
-      if (!publisherHex) return false;
-      return map.has(publisherHex);
     },
   };
 }

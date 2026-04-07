@@ -105,8 +105,6 @@ function mockCreateDoc(): (p: DocParams) => Doc {
   return vi.fn(() => ({ destroy: vi.fn() }) as unknown as Doc);
 }
 
-const noopPopulateMeta = vi.fn();
-
 // --- Tests ---
 
 describe("rotateDoc", () => {
@@ -119,9 +117,9 @@ describe("rotateDoc", () => {
       },
     });
 
-    await expect(
-      rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta),
-    ).rejects.toThrow("Only admins can rotate a document");
+    await expect(rotateDoc(ctx, mockCreateDoc())).rejects.toThrow(
+      "Only admins can rotate a document",
+    );
   });
 
   it("throws when rotationKey missing", async () => {
@@ -135,14 +133,14 @@ describe("rotateDoc", () => {
       },
     });
 
-    await expect(
-      rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta),
-    ).rejects.toThrow("Only admins can rotate a document");
+    await expect(rotateDoc(ctx, mockCreateDoc())).rejects.toThrow(
+      "Only admins can rotate a document",
+    );
   });
 
   it("returns newDoc and forwardingRecord", async () => {
     const createFn = mockCreateDoc();
-    const result = await rotateDoc(baseContext(), createFn, noopPopulateMeta);
+    const result = await rotateDoc(baseContext(), createFn);
 
     expect(result.newDoc).toBeDefined();
     expect(result.forwardingRecord).toBeInstanceOf(Uint8Array);
@@ -151,20 +149,13 @@ describe("rotateDoc", () => {
 
   it("calls createDocFn with new ipnsName", async () => {
     const createFn = mockCreateDoc();
-    await rotateDoc(baseContext(), createFn, noopPopulateMeta);
+    await rotateDoc(baseContext(), createFn);
 
     const params = (createFn as ReturnType<typeof vi.fn>).mock
       .calls[0]![0] as DocParams;
     expect(params.ipnsName).toBe("new-ipns-name");
     expect(params.appId).toBe("test-app");
     expect(params.channels).toEqual(["content"]);
-  });
-
-  it("calls populateMetaFn", async () => {
-    const metaFn = vi.fn();
-    await rotateDoc(baseContext(), mockCreateDoc(), metaFn);
-
-    expect(metaFn).toHaveBeenCalledTimes(1);
   });
 
   it("copies state from old document surfaces", async () => {
@@ -179,7 +170,7 @@ describe("rotateDoc", () => {
       } as unknown as RotateContext["document"],
     });
 
-    await rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta);
+    await rotateDoc(ctx, mockCreateDoc());
 
     expect(hasSurface).toHaveBeenCalled();
   });
@@ -188,7 +179,7 @@ describe("rotateDoc", () => {
     const { buildUrl } = await import("@pokapali/capability");
     (buildUrl as ReturnType<typeof vi.fn>).mockClear();
 
-    await rotateDoc(baseContext(), mockCreateDoc(), noopPopulateMeta);
+    await rotateDoc(baseContext(), mockCreateDoc());
 
     expect(buildUrl).toHaveBeenCalledTimes(3);
   });
@@ -197,7 +188,7 @@ describe("rotateDoc", () => {
     const { narrowCapability } = await import("@pokapali/capability");
     (narrowCapability as ReturnType<typeof vi.fn>).mockClear();
 
-    await rotateDoc(baseContext(), mockCreateDoc(), noopPopulateMeta);
+    await rotateDoc(baseContext(), mockCreateDoc());
 
     // narrowCapability called for write URL (with
     // canPushSnapshots:true) and read URL (without)
@@ -223,7 +214,7 @@ describe("rotateDoc", () => {
     const ctx = baseContext({
       channels: ["content", "meta"],
     });
-    await rotateDoc(ctx, createFn, noopPopulateMeta);
+    await rotateDoc(ctx, createFn);
 
     const params = (createFn as ReturnType<typeof vi.fn>).mock
       .calls[0]![0] as DocParams;
@@ -235,7 +226,7 @@ describe("rotateDoc", () => {
     const ctx = baseContext({
       signalingUrls: ["wss://a.example.com", "wss://b.example.com"],
     });
-    await rotateDoc(ctx, createFn, noopPopulateMeta);
+    await rotateDoc(ctx, createFn);
 
     const params = (createFn as ReturnType<typeof vi.fn>).mock
       .calls[0]![0] as DocParams;
@@ -254,7 +245,7 @@ describe("rotateDoc", () => {
     );
 
     const createFn = mockCreateDoc();
-    const result = await rotateDoc(baseContext(), createFn, noopPopulateMeta);
+    const result = await rotateDoc(baseContext(), createFn);
 
     // Should still succeed — room discovery is
     // optional
@@ -269,27 +260,11 @@ describe("rotateDoc", () => {
     const ctx = baseContext({
       ipnsName: "old-name-123",
     });
-    await rotateDoc(ctx, mockCreateDoc(), noopPopulateMeta);
+    await rotateDoc(ctx, mockCreateDoc());
 
     expect(storeForwardingRecord).toHaveBeenCalledWith(
       "old-name-123",
       expect.any(Uint8Array),
     );
   });
-
-  it(
-    "passes populateMetaFn the signing public " + "key and channel keys",
-    async () => {
-      const metaFn = vi.fn();
-      await rotateDoc(baseContext(), mockCreateDoc(), metaFn);
-
-      expect(metaFn).toHaveBeenCalledWith(
-        expect.anything(), // metaDoc
-        expect.any(Uint8Array), // signing pubkey
-        expect.objectContaining({
-          content: expect.any(Uint8Array),
-        }),
-      );
-    },
-  );
 });

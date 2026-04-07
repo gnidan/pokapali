@@ -80,11 +80,6 @@ export interface RotateContext {
 export async function rotateDoc(
   ctx: RotateContext,
   createDocFn: (params: DocParams) => Doc,
-  populateMetaFn: (
-    metaDoc: import("yjs").Doc,
-    signingPublicKey: Uint8Array,
-    channelKeys: Record<string, Uint8Array>,
-  ) => void,
 ): Promise<RotateResult> {
   if (!ctx.cap.isAdmin || !ctx.keys.rotationKey) {
     throw new PermissionError(
@@ -176,8 +171,6 @@ export async function rotateDoc(
   const newMetaDoc = new Y.Doc({
     guid: `${newIpnsName}:_meta`,
   });
-  populateMetaFn(newMetaDoc, newSigningKey.publicKey, newDocKeys.channelKeys);
-
   const newDoc = createDocFn({
     metaDoc: newMetaDoc,
     syncManager: newSyncManager,

@@ -368,15 +368,6 @@ export async function runInterpreter(
       if (prevEntry?.blockStatus !== "fetched") {
         const block = effects.getBlock(tipCid);
         if (block) {
-          // Authorization check: verify publisher
-          // is allowed BEFORE applying.
-          const decoded = effects.decodeBlock(block);
-          if (!effects.isPublisherAuthorized(decoded.publisher)) {
-            // Unauthorized publisher — skip apply.
-            // The block stays "fetched" but never
-            // becomes the tip.
-            continue;
-          }
           // Inline apply — fast, awaited.
           // Validation happens inside applySnapshot;
           // catch SnapshotValidationError to skip

@@ -282,12 +282,9 @@ export interface Doc {
   rotate(): Promise<RotateResult>;
   destroy(): void;
 
-  // ── Identity & authorization ───────────────
+  // ── Identity ────────────────────────────────
   /** This device's identity public key (hex). */
   readonly identityPubkey: string | null;
-  authorize(pubkey: string): void;
-  deauthorize(pubkey: string): void;
-  readonly authorizedPublishers: ReadonlySet<string>;
   /** Participants currently visible via awareness. */
   readonly participants: ReadonlyMap<number, ParticipantInfo>;
 
@@ -419,26 +416,6 @@ export interface DocParams {
  * each managed Doc without a public API change.
  */
 export const docDocuments = new WeakMap<Doc, Document>();
-
-/**
- * Populate the _meta subdoc with initial signing
- * key and namespace authorization entries.
- * Used by both create() and rotate().
- */
-export function populateMeta(
-  metaDoc: Y.Doc,
-  signingPublicKey: Uint8Array,
-  channelKeys: Record<string, Uint8Array>,
-) {
-  const canPush = metaDoc.getArray<Uint8Array>("canPushSnapshots");
-  canPush.push([signingPublicKey]);
-  const authorized = metaDoc.getMap("authorized");
-  for (const [ch, key] of Object.entries(channelKeys)) {
-    const arr = new Y.Array<Uint8Array>();
-    authorized.set(ch, arr);
-    arr.push([key]);
-  }
-}
 
 export function createDoc(params: DocParams): Doc {
   const {
@@ -1405,7 +1382,6 @@ export function createDoc(params: DocParams): Doc {
       resolver,
       readKey: rk,
       getClockSum: computeClockSum,
-      metaDoc,
     });
 
     const effects: EffectHandlers = {
@@ -2322,7 +2298,6 @@ export function createDoc(params: DocParams): Doc {
           codec: params.codec,
         },
         createDoc,
-        populateMeta,
       );
       teardown();
       return result as RotateResult;
@@ -2513,41 +2488,6 @@ export function createDoc(params: DocParams): Doc {
 
     get identityPubkey(): string | null {
       return identityPubkeyHex;
-    },
-
-    authorize(pubkey: string): void {
-      assertNotDestroyed();
-      if (!cap.isAdmin) {
-        throw new PermissionError(
-          "authorize() requires admin capability" +
-            " — only the document creator can" +
-            " manage authorized publishers",
-        );
-      }
-      const map = metaDoc.getMap<true>("authorizedPublishers");
-      map.set(pubkey, true);
-    },
-
-    deauthorize(pubkey: string): void {
-      assertNotDestroyed();
-      if (!cap.isAdmin) {
-        throw new PermissionError(
-          "deauthorize() requires admin capability" +
-            " — only the document creator can" +
-            " manage authorized publishers",
-        );
-      }
-      const map = metaDoc.getMap<true>("authorizedPublishers");
-      map.delete(pubkey);
-    },
-
-    get authorizedPublishers(): ReadonlySet<string> {
-      const map = metaDoc.getMap<true>("authorizedPublishers");
-      const result = new Set<string>();
-      for (const key of map.keys()) {
-        result.add(key);
-      }
-      return result;
     },
 
     get participants(): ReadonlyMap<number, ParticipantInfo> {

@@ -43,7 +43,7 @@ import { acquireNodeRegistry } from "./node-registry.js";
 import { startRoomDiscovery } from "./peer-discovery.js";
 import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
-import { createDoc, populateMeta } from "./create-doc.js";
+import { createDoc } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
 import { loadIdentity } from "./identity.js";
 import { Document } from "@pokapali/document";
@@ -132,9 +132,6 @@ interface DocInit {
   identity: Ed25519KeyPair;
   /** True for open() — triggers IPNS resolution. */
   performInitialResolve: boolean;
-  /** Called after metaDoc + surfaces are created
-   *  but before createDoc (e.g. populateMeta). */
-  afterSubdocSetup?: (metaDoc: import("yjs").Doc) => void;
 }
 
 /**
@@ -225,8 +222,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     for (const ch of channels) {
       document.surface(ch, { guid: `${ipnsName}:${ch}` });
     }
-
-    init.afterSubdocSetup?.(metaDoc);
 
     // Standalone awareness — available immediately
     // before Helia/WebRTC connects. Passed to
@@ -464,9 +459,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         signingKey,
         identity,
         performInitialResolve: false,
-        afterSubdocSetup: (metaDoc) => {
-          populateMeta(metaDoc, signingKey.publicKey, docKeys.channelKeys);
-        },
       });
     },
 

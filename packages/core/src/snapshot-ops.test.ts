@@ -1,11 +1,9 @@
 /**
  * Tests for createSnapshotOps factory — verifies
- * decodeBlock, applySnapshot, and
- * isPublisherAuthorized wiring independently of
- * create-doc.ts.
+ * decodeBlock and applySnapshot wiring independently
+ * of create-doc.ts.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import * as Y from "yjs";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import {
@@ -54,13 +52,11 @@ function mockSnapshotCodec(): SnapshotCodec {
 function buildOptions(
   overrides?: Partial<SnapshotOpsOptions>,
 ): SnapshotOpsOptions {
-  const metaDoc = new Y.Doc({ guid: "test:_meta" });
   return {
     snapshotCodec: mockSnapshotCodec(),
     resolver: mockResolver(),
     readKey: {} as CryptoKey,
     getClockSum: () => 42,
-    metaDoc,
     ...overrides,
   };
 }
@@ -185,50 +181,6 @@ describe("createSnapshotOps", () => {
 
       expect(codec.setLastIpnsSeq).not.toHaveBeenCalled();
     });
-  });
-
-  // ----- isPublisherAuthorized -----
-
-  describe("isPublisherAuthorized", () => {
-    it(
-      "returns true when no publishers" + " configured (permissionless)",
-      () => {
-        const ops = createSnapshotOps(buildOptions());
-        expect(ops.isPublisherAuthorized("aabbcc")).toBe(true);
-      },
-    );
-
-    it("returns true for listed publisher", () => {
-      const metaDoc = new Y.Doc({ guid: "test:_meta" });
-      metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
-
-      const ops = createSnapshotOps(buildOptions({ metaDoc }));
-
-      expect(ops.isPublisherAuthorized("aabbcc")).toBe(true);
-    });
-
-    it("returns false for unlisted publisher", () => {
-      const metaDoc = new Y.Doc({ guid: "test:_meta" });
-      metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
-
-      const ops = createSnapshotOps(buildOptions({ metaDoc }));
-
-      expect(ops.isPublisherAuthorized("ddeeff")).toBe(false);
-    });
-
-    it(
-      "returns false for undefined publisher" + " when auth is configured",
-      () => {
-        const metaDoc = new Y.Doc({
-          guid: "test:_meta",
-        });
-        metaDoc.getMap<true>("authorizedPublishers").set("aabbcc", true);
-
-        const ops = createSnapshotOps(buildOptions({ metaDoc }));
-
-        expect(ops.isPublisherAuthorized(undefined)).toBe(false);
-      },
-    );
   });
 
   // ----- Snapshot validation (#216) -----

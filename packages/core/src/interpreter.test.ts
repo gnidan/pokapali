@@ -59,7 +59,6 @@ function mockEffects(overrides?: Partial<EffectHandlers>): EffectHandlers {
     }),
     getBlock: vi.fn().mockReturnValue(null),
     decodeBlock: vi.fn().mockReturnValue({}),
-    isPublisherAuthorized: vi.fn().mockReturnValue(true),
     announce: vi.fn(),
     markReady: vi.fn(),
     emitSnapshotApplied: vi.fn(),
@@ -1646,42 +1645,9 @@ describe("interpreter inline block chain discovery", () => {
   );
 });
 
-// --- Authorization tests ---
+// --- Validation tests ---
 
-describe("interpreter publisher authorization", () => {
-  it("skips tip apply when publisher is " + "unauthorized", async () => {
-    const cid = await fakeCid(110);
-    const block = fakeBlock(110);
-
-    const { effects, feedback } = await runWithFacts(
-      [
-        {
-          type: "cid-discovered",
-          ts: 1,
-          cid,
-          source: "gossipsub",
-          block,
-          seq: 1,
-        },
-      ],
-      {
-        getBlock: vi.fn().mockReturnValue(block),
-        decodeBlock: vi.fn().mockReturnValue({
-          seq: 1,
-          publisher: "bad-pubkey",
-        }),
-        isPublisherAuthorized: vi.fn().mockReturnValue(false),
-        applySnapshot: vi.fn().mockResolvedValue({ seq: 1 }),
-      },
-    );
-
-    // applySnapshot should NOT be called
-    expect(effects.applySnapshot).not.toHaveBeenCalled();
-    // No tip-advanced in feedback
-    const advanced = feedback.find((f) => f.type === "tip-advanced");
-    expect(advanced).toBeUndefined();
-  });
-
+describe("interpreter snapshot validation", () => {
   it(
     "skips tip advance when applySnapshot " + "throws SnapshotValidationError",
     async () => {
@@ -1705,7 +1671,6 @@ describe("interpreter publisher authorization", () => {
             seq: 1,
             publisher: "good-pubkey",
           }),
-          isPublisherAuthorized: vi.fn().mockReturnValue(true),
           applySnapshot: vi
             .fn()
             .mockRejectedValue(new SnapshotValidationError(cid.toString())),
@@ -1747,7 +1712,6 @@ describe("interpreter publisher authorization", () => {
           seq: 1,
           publisher: "good-pubkey",
         }),
-        isPublisherAuthorized: vi.fn().mockReturnValue(true),
         applySnapshot: vi.fn().mockResolvedValue({ seq: 1 }),
       },
     );

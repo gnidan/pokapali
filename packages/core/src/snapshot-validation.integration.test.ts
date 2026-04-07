@@ -147,13 +147,11 @@ describe("snapshot validation integration", () => {
         1,
       );
 
-      const metaDoc = new Y.Doc();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc,
       });
 
       const result = await ops.applySnapshot(cid, block);
@@ -171,13 +169,11 @@ describe("snapshot validation integration", () => {
       const tampered = new Uint8Array(block);
       tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
 
-      const metaDoc = new Y.Doc();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc,
       });
 
       // Recompute CID for tampered block
@@ -194,13 +190,11 @@ describe("snapshot validation integration", () => {
       const garbage = new Uint8Array([0, 1, 2, 3]);
 
       const { keys } = await generateKeys();
-      const metaDoc = new Y.Doc();
       const ops = createSnapshotOps({
         snapshotCodec: mockSnapshotCodec(),
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc,
       });
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow(
@@ -213,14 +207,12 @@ describe("snapshot validation integration", () => {
       const garbage = new Uint8Array([0, 1, 2, 3]);
 
       const { keys } = await generateKeys();
-      const metaDoc = new Y.Doc();
       const codec = mockSnapshotCodec();
       const ops = createSnapshotOps({
         snapshotCodec: codec,
         resolver: mockBlockResolver() as any,
         readKey: keys.readKey,
         getClockSum: () => 0,
-        metaDoc,
       });
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow();
@@ -268,7 +260,6 @@ describe("snapshot validation integration", () => {
         applySnapshot: vi.fn().mockResolvedValue({ seq: 1 }),
         getBlock: vi.fn().mockReturnValue(null),
         decodeBlock: vi.fn().mockReturnValue({}),
-        isPublisherAuthorized: vi.fn().mockReturnValue(true),
         announce: vi.fn(),
         markReady: vi.fn(),
         emitSnapshotApplied: vi.fn(),

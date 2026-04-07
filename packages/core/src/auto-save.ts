@@ -67,7 +67,7 @@ export function createAutoSaver(
   document.addEventListener("visibilitychange", onVisibilityChange);
 
   // If the doc is already dirty when the autosaver
-  // attaches (e.g. from populateMeta during create,
+  // attaches (e.g. from identity registration,
   // or identity registration), start the debounce
   // timer immediately so the first edit doesn't
   // require a manual publish (#359).
