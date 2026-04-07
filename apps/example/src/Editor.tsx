@@ -12,6 +12,7 @@ import {
   useDocReady,
   useDocDestroy,
   useParticipants,
+  usePeerPresenceState,
   useSnapshotFlash,
   useComments,
   CommentSidebar,
@@ -34,6 +35,7 @@ import {
   type Anchor,
 } from "@pokapali/comments-tiptap";
 import { StatusIndicator } from "./StatusIndicator";
+import { PeerPresenceIndicator } from "./PeerPresenceIndicator";
 import { SaveIndicator, LastUpdated } from "./SaveIndicator";
 import { LockIcon, EncryptionInfo } from "./EncryptionInfo";
 import { SharePanel } from "./SharePanel";
@@ -128,6 +130,8 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     }
     return names;
   }, [participantMap]);
+
+  const presence = usePeerPresenceState(doc);
 
   const isReadOnly = !doc.capability.channels.has("content");
   const canSave = doc.capability.canPushSnapshots;
@@ -446,6 +450,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
         </div>
         <div className="header-toolbar">
           <StatusIndicator status={status} />
+          <PeerPresenceIndicator {...presence} />
           {canSave ? (
             <SaveIndicator
               saveState={saveState}

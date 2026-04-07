@@ -126,3 +126,53 @@
 .poka-status-indicator__dot--offline {
   background: var(--poka-color-offline);
 }
+
+/* ── Peer presence indicator ───────────────── */
+
+.poka-peer-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--poka-text-sm);
+  color: var(--poka-text-secondary);
+}
+
+.poka-peer-presence__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.poka-peer-presence__dot--connecting {
+  background: var(--poka-color-connecting);
+  animation: poka-pulse 1.5s ease-in-out infinite;
+}
+
+.poka-peer-presence__dot--looking {
+  background: var(--poka-color-receiving);
+}
+
+.poka-peer-presence__dot--active {
+  background: var(--poka-color-synced);
+}
+
+.poka-peer-presence__dot--reconnecting {
+  background: var(--poka-color-connecting);
+  animation: poka-pulse 1.5s ease-in-out infinite;
+}
+
+.poka-peer-presence__label {
+  white-space: nowrap;
+}
+
+@keyframes poka-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
