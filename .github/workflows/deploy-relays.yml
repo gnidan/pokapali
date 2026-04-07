@@ -31,9 +31,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy
+  setup:
+    name: Setup
     runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.target.outputs.commit }}
+      batch1: ${{ steps.batches.outputs.batch1 }}
+      batch2: ${{ steps.batches.outputs.batch2 }}
+      batch3: ${{ steps.batches.outputs.batch3 }}
+      batch4: ${{ steps.batches.outputs.batch4 }}
+      batch5: ${{ steps.batches.outputs.batch5 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +52,48 @@ jobs:
           mkdir -p deploy
           printf '%s\n' "$NODES_JSON" \
             > deploy/nodes.json
+
+      - name: Validate config
+        run: bin/validate-nodes-config.sh
+
+      - name: Build batch matrices
+        id: batches
+        env:
+          NODES_JSON: >-
+            ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          SKIP="${{ inputs.skip_nodes }}"
+          COUNT=$(printf '%s\n' "$NODES_JSON" \
+            | jq '.batches | length')
+
+          for i in $(seq 0 4); do
+            if [ "$i" -lt "$COUNT" ]; then
+              BATCH=$(printf '%s\n' "$NODES_JSON" \
+                | jq -c \
+                  --arg skip "$SKIP" \
+                  --argjson idx "$i" '
+                  .batches[$idx].nodes
+                  | map(.name)
+                  | map(select(
+                      . as $n
+                      | ($skip | split(","))
+                      | map(. == $n)
+                      | any | not
+                    ))
+                  | if length > 0
+                    then {node: .}
+                    else empty end')
+              # Empty when all nodes skipped
+              BATCH="${BATCH:-}"
+            else
+              BATCH=""
+            fi
+            echo "batch$((i+1))=$BATCH" \
+              >> "$GITHUB_OUTPUT"
+            if [ -n "$BATCH" ]; then
+              echo "Batch $((i+1)): $BATCH"
+            fi
+          done
 
       - name: Configure SSH
         run: |
@@ -80,9 +129,265 @@ jobs:
             >> "$GITHUB_OUTPUT"
           echo "Target commit: ${COMMIT:0:7}"
 
-      - name: Deploy all batches
+      - name: Preflight
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          bin/deploy-all-batches.sh \
-            "${{ steps.target.outputs.commit }}" \
-            "${{ inputs.skip_nodes }}" \
+          # shellcheck disable=SC2029
+          set -euo pipefail
+          CONFIG="deploy/nodes.json"
+          COMMIT="${{ steps.target.outputs.commit }}"
+          USER=$(jq -r '.defaults.user' "$CONFIG")
+          REPO=$(jq -r \
+            '.defaults.repo_path' "$CONFIG")
+
+          echo "=== Deploy Plan ==="
+          echo "Commit: ${COMMIT:0:7}"
+          echo "Skip: ${{
+            inputs.skip_nodes || 'none' }}"
+          echo "Dry run: $DRY_RUN"
+          echo ""
+
+          echo "=== Current Node State ==="
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "  [DRY RUN] Skipping preflight"
+          else
+            NODES=$(jq -r \
+              '.batches[].nodes[] |
+               "\(.name) \(.host)"' "$CONFIG")
+            while IFS=' ' read -r NAME HOST; do
+              # shellcheck disable=SC2029
+              CUR=$(ssh -n "$USER@$HOST" \
+                "cd $REPO && git rev-parse HEAD" \
+                2>/dev/null \
+                || echo "unreachable")
+              echo "  $NAME ($HOST): ${CUR:0:7}"
+            done <<< "$NODES"
+          fi
+
+  # --- Batch 1 (parallel within batch) ---
+
+  batch-1:
+    name: "batch-1 / ${{ matrix.node }}"
+    needs: setup
+    if: needs.setup.outputs.batch1 != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix: >-
+        ${{ fromJson(needs.setup.outputs.batch1) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        env:
+          NODES_JSON: >-
+            ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          mkdir -p deploy
+          printf '%s\n' "$NODES_JSON" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh \
+            "${{ matrix.node }}" \
+            "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.dry_run }}"
+
+  # --- Batch 2 (after batch 1) ---
+
+  batch-2:
+    name: "batch-2 / ${{ matrix.node }}"
+    needs: [setup, batch-1]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      needs.setup.outputs.batch2 != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix: >-
+        ${{ fromJson(needs.setup.outputs.batch2) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        env:
+          NODES_JSON: >-
+            ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          mkdir -p deploy
+          printf '%s\n' "$NODES_JSON" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh \
+            "${{ matrix.node }}" \
+            "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.dry_run }}"
+
+  # --- Batch 3 (after batch 2) ---
+
+  batch-3:
+    name: "batch-3 / ${{ matrix.node }}"
+    needs: [setup, batch-1, batch-2]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      needs.setup.outputs.batch3 != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix: >-
+        ${{ fromJson(needs.setup.outputs.batch3) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        env:
+          NODES_JSON: >-
+            ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          mkdir -p deploy
+          printf '%s\n' "$NODES_JSON" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh \
+            "${{ matrix.node }}" \
+            "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.dry_run }}"
+
+  # --- Batch 4 (after batch 3, if present) ---
+
+  batch-4:
+    name: "batch-4 / ${{ matrix.node }}"
+    needs: [setup, batch-1, batch-2, batch-3]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      needs.setup.outputs.batch4 != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix: >-
+        ${{ fromJson(needs.setup.outputs.batch4) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        env:
+          NODES_JSON: >-
+            ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          mkdir -p deploy
+          printf '%s\n' "$NODES_JSON" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh \
+            "${{ matrix.node }}" \
+            "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.dry_run }}"
+
+  # --- Batch 5 (after batch 4, if present) ---
+
+  batch-5:
+    name: "batch-5 / ${{ matrix.node }}"
+    needs: [setup, batch-1, batch-2, batch-3, batch-4]
+    if: >-
+      !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      needs.setup.outputs.batch5 != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix: >-
+        ${{ fromJson(needs.setup.outputs.batch5) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write node config
+        env:
+          NODES_JSON: >-
+            ${{ secrets.DEPLOY_NODES_CONFIG }}
+        run: |
+          mkdir -p deploy
+          printf '%s\n' "$NODES_JSON" \
+            > deploy/nodes.json
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" \
+            > ~/.ssh/deploy-key
+          chmod 600 ~/.ssh/deploy-key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host *" \
+            "  IdentityFile ~/.ssh/deploy-key" \
+            "  StrictHostKeyChecking accept-new" \
+            "  ConnectTimeout 15" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Deploy + health check
+        run: |
+          bin/deploy-single-node.sh \
+            "${{ matrix.node }}" \
+            "${{ needs.setup.outputs.commit }}" \
             "${{ inputs.dry_run }}"
