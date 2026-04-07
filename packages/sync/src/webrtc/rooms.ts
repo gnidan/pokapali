@@ -132,9 +132,20 @@ export function setupSignaledAwarenessRoom(
   });
 
   // Track connection status
+  let activePeers = 0;
+
   const unsubPC = peerManager.onPeerConnection(() => {
+    activePeers++;
     if (!connected) {
       connected = true;
+      for (const cb of statusListeners) cb();
+    }
+  });
+
+  const unsubDisc = peerManager.onPeerDisconnected(() => {
+    activePeers = Math.max(0, activePeers - 1);
+    if (activePeers === 0 && connected) {
+      connected = false;
       for (const cb of statusListeners) cb();
     }
   });
@@ -163,6 +174,7 @@ export function setupSignaledAwarenessRoom(
       signalingClient.leaveRoom(roomName);
       unsubCreated();
       unsubPC();
+      unsubDisc();
       peerManager.destroy();
       for (const cleanup of cleanups) cleanup();
       cleanups.length = 0;

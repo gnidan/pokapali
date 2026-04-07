@@ -102,7 +102,7 @@ export function handleSignalingStream(
       outResolve = null;
       r();
     }
-    const leftRooms = registry.leaveAll(peerId);
+    const leftRooms = registry.leaveAll(peerId, enqueue);
     for (const room of leftRooms) {
       log.debug("peer left (disconnect):", peerId, room);
       forwarder?.onLocalLeave(room, peerId);

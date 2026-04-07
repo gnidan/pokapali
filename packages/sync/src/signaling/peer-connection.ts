@@ -112,6 +112,9 @@ export interface PeerManager {
    *  but BEFORE the SDP offer. Use this to add data
    *  channels so the offer includes them. */
   onPeerCreated(cb: PeerConnectionCb): () => void;
+  /** Fires when an RTCPeerConnection reaches
+   *  "disconnected", "failed", or "closed" state. */
+  onPeerDisconnected(cb: (peerId: string) => void): () => void;
   destroy(): void;
 }
 
@@ -141,6 +144,7 @@ export function createPeerManager(
   const peers = new Map<string, RTCPeerConnection>();
   const connCbs = new Set<PeerConnectionCb>();
   const createdCbs = new Set<PeerConnectionCb>();
+  const disconnCbs = new Set<(peerId: string) => void>();
   const unsubs: Array<() => void> = [];
 
   // ICE candidate buffering: candidates that arrive
@@ -274,12 +278,19 @@ export function createPeerManager(
           remotePeerId,
           initiator ? "(initiator)" : "(responder)",
         );
+        for (const cb of connCbs) {
+          cb(pc!, initiator);
+        }
       }
       if (
         pc!.connectionState === "failed" ||
-        pc!.connectionState === "closed"
+        pc!.connectionState === "closed" ||
+        pc!.connectionState === "disconnected"
       ) {
         peers.delete(remotePeerId);
+        for (const cb of disconnCbs) {
+          cb(remotePeerId);
+        }
       }
     };
     return pc;
@@ -302,12 +313,26 @@ export function createPeerManager(
     client.onPeerJoined((room, peerId) => {
       if (room !== roomName) return;
 
-      // Dedup: if we already have a connection for
-      // this peer, ignore the duplicate PEER_JOINED
-      // (can happen via relay forwarding).
-      if (peers.has(peerId)) {
-        diagLog.debug("PEER_JOINED dedup (ignored):", peerId.slice(0, 12));
-        return;
+      // Dedup: if we already have a healthy connection
+      // for this peer, ignore the duplicate
+      // PEER_JOINED (can happen via relay forwarding).
+      // If the existing PC is stale (failed,
+      // disconnected, closed), tear it down and allow
+      // a fresh connection.
+      const existing = peers.get(peerId);
+      if (existing) {
+        const state = existing.connectionState;
+        if (
+          state === "failed" ||
+          state === "closed" ||
+          state === "disconnected"
+        ) {
+          diagLog.debug("replacing stale PC:", peerId.slice(0, 12), state);
+          closePC(peerId);
+        } else {
+          diagLog.debug("PEER_JOINED dedup (ignored):", peerId.slice(0, 12));
+          return;
+        }
       }
 
       diagLog.debug(
@@ -448,6 +473,11 @@ export function createPeerManager(
       return () => createdCbs.delete(cb);
     },
 
+    onPeerDisconnected(cb: (peerId: string) => void): () => void {
+      disconnCbs.add(cb);
+      return () => disconnCbs.delete(cb);
+    },
+
     destroy() {
       for (const unsub of unsubs) unsub();
       unsubs.length = 0;
@@ -456,6 +486,7 @@ export function createPeerManager(
       }
       peers.clear();
       connCbs.clear();
+      disconnCbs.clear();
       iceBuf.clear();
       remoteDescSet.clear();
     },

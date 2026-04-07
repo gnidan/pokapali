@@ -16,7 +16,7 @@ export interface PeerEntry {
 export interface RoomRegistry {
   join(room: string, entry: PeerEntry): void;
   leave(room: string, peerId: string): void;
-  leaveAll(peerId: string): string[];
+  leaveAll(peerId: string, send?: (bytes: Uint8Array) => void): string[];
   members(room: string): PeerEntry[];
   findPeer(room: string, peerId: string): PeerEntry | undefined;
 }
@@ -45,13 +45,19 @@ export function createRoomRegistry(): RoomRegistry {
       if (r.size === 0) rooms.delete(room);
     },
 
-    leaveAll(peerId: string): string[] {
+    leaveAll(peerId: string, send?: (bytes: Uint8Array) => void): string[] {
       const leftRooms: string[] = [];
       for (const [room, members] of rooms) {
-        if (members.delete(peerId)) {
-          leftRooms.push(room);
-          if (members.size === 0) rooms.delete(room);
-        }
+        const entry = members.get(peerId);
+        if (!entry) continue;
+        // If a send reference is provided, only
+        // remove the entry if it matches. This
+        // prevents an old stream's cleanup from
+        // removing a newer stream's registration.
+        if (send && entry.send !== send) continue;
+        members.delete(peerId);
+        leftRooms.push(room);
+        if (members.size === 0) rooms.delete(room);
       }
       return leftRooms;
     },

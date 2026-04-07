@@ -249,6 +249,18 @@ function createMockPC() {
         (pc.onconnectionstatechange as Function)();
       }
     },
+    simulateFailed() {
+      pc.connectionState = "failed";
+      if (pc.onconnectionstatechange) {
+        (pc.onconnectionstatechange as Function)();
+      }
+    },
+    simulateDisconnected() {
+      pc.connectionState = "disconnected";
+      if (pc.onconnectionstatechange) {
+        (pc.onconnectionstatechange as Function)();
+      }
+    },
     simulateIceCandidate(candidate: unknown) {
       if (pc.onicecandidate) {
         (pc.onicecandidate as Function)({
@@ -579,6 +591,145 @@ describe("PeerManager", () => {
 
     manager.destroy();
   });
+
+  it(
+    "replaces stale PC on PEER_JOINED " + "when connectionState is failed",
+    async () => {
+      const { client, manager, pcs, firePeerJoined } = setup("aaa-local");
+
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+      expect(pcs).toHaveLength(1);
+
+      // Simulate connection failure — removes
+      // stale entry from peers map
+      pcs[0]!.simulateFailed();
+
+      // Clear previous calls
+      (client.sendSignal as ReturnType<typeof vi.fn>).mockClear();
+
+      // Peer reconnects — should create a fresh
+      // PC and send a new offer
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+
+      expect(pcs).toHaveLength(2);
+      expect(client.sendSignal).toHaveBeenCalled();
+
+      manager.destroy();
+    },
+  );
+
+  it(
+    "replaces stale PC on PEER_JOINED " +
+      "when connectionState is disconnected",
+    async () => {
+      const { manager, pcs, firePeerJoined } = setup("aaa-local");
+
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+
+      // Simulate disconnection — removes stale
+      // entry from peers map
+      pcs[0]!.simulateDisconnected();
+
+      // Peer reconnects — should create a new PC
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+
+      expect(pcs).toHaveLength(2);
+
+      manager.destroy();
+    },
+  );
+
+  it(
+    "replaces stale PC via closePC when " +
+      "PEER_JOINED arrives before state change",
+    async () => {
+      const { manager, pcs, firePeerJoined } = setup("aaa-local");
+
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+      expect(pcs).toHaveLength(1);
+
+      // Manually set connectionState without firing
+      // the handler — simulates race where the
+      // PEER_JOINED arrives before the async
+      // onconnectionstatechange callback fires.
+
+      (pcs[0] as any).connectionState = "failed";
+
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+
+      // Old PC should be explicitly closed
+      expect(pcs[0]!.close).toHaveBeenCalled();
+      expect(pcs).toHaveLength(2);
+
+      manager.destroy();
+    },
+  );
+
+  it("fires onPeerConnection on connected", async () => {
+    const { manager, pcs, firePeerJoined } = setup("aaa-local");
+
+    const connected: { initiator: boolean }[] = [];
+    manager.onPeerConnection((_pc, initiator) => {
+      connected.push({ initiator });
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    expect(connected).toHaveLength(0);
+
+    pcs[0]!.simulateConnected();
+
+    expect(connected).toHaveLength(1);
+    expect(connected[0]!.initiator).toBe(true);
+
+    manager.destroy();
+  });
+
+  it("fires onPeerDisconnected on failed", async () => {
+    const { manager, pcs, firePeerJoined } = setup("aaa-local");
+
+    const disconnected: string[] = [];
+    manager.onPeerDisconnected((peerId) => {
+      disconnected.push(peerId);
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    pcs[0]!.simulateFailed();
+
+    expect(disconnected).toEqual(["zzz-remote"]);
+
+    manager.destroy();
+  });
+
+  it(
+    "cleans up stale PC from peers map " + "on disconnected state",
+    async () => {
+      const { manager, pcs, firePeerJoined } = setup("aaa-local");
+
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+      expect(pcs).toHaveLength(1);
+
+      pcs[0]!.simulateDisconnected();
+
+      // After disconnect, a new PEER_JOINED should
+      // create a fresh PC (not be deduped)
+      firePeerJoined("room1", "zzz-remote");
+      await tick();
+      expect(pcs).toHaveLength(2);
+
+      manager.destroy();
+    },
+  );
 });
 
 // -------------------------------------------------------

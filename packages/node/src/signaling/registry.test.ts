@@ -110,4 +110,67 @@ describe("RoomRegistry", () => {
     expect(reg.findPeer("room-a", "p2")).toBeUndefined();
     expect(reg.findPeer("room-b", "p1")).toBeUndefined();
   });
+
+  it("leaveAll with matching send removes entry", () => {
+    const reg = createRoomRegistry();
+    const send = vi.fn();
+    reg.join("room-a", { peerId: "p1", send });
+    const left = reg.leaveAll("p1", send);
+    expect(left).toEqual(["room-a"]);
+    expect(reg.members("room-a")).toHaveLength(0);
+  });
+
+  it(
+    "leaveAll with non-matching send preserves " + "entry (reconnect race)",
+    () => {
+      const reg = createRoomRegistry();
+      const oldSend = vi.fn();
+      const newSend = vi.fn();
+
+      // New stream already re-registered this peer
+      reg.join("room-a", {
+        peerId: "p1",
+        send: newSend,
+      });
+
+      // Old stream cleanup fires — must not remove
+      // the new stream's entry
+      const left = reg.leaveAll("p1", oldSend);
+      expect(left).toEqual([]);
+      expect(reg.members("room-a")).toHaveLength(1);
+      expect(reg.findPeer("room-a", "p1")?.send).toBe(newSend);
+    },
+  );
+
+  it(
+    "reconnect race: old leaveAll after new join " + "across multiple rooms",
+    () => {
+      const reg = createRoomRegistry();
+      const oldSend = vi.fn();
+      const newSend = vi.fn();
+
+      // Old stream had peer in two rooms
+      reg.join("room-a", {
+        peerId: "p1",
+        send: oldSend,
+      });
+      reg.join("room-b", {
+        peerId: "p1",
+        send: oldSend,
+      });
+
+      // New stream re-registers in room-a only
+      reg.join("room-a", {
+        peerId: "p1",
+        send: newSend,
+      });
+
+      // Old cleanup: should skip room-a (send
+      // mismatch) but remove room-b (send matches)
+      const left = reg.leaveAll("p1", oldSend);
+      expect(left).toEqual(["room-b"]);
+      expect(reg.findPeer("room-a", "p1")?.send).toBe(newSend);
+      expect(reg.findPeer("room-b", "p1")).toBeUndefined();
+    },
+  );
 });
