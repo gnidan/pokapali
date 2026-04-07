@@ -399,9 +399,6 @@ export interface DocParams {
    *  lifecycle bridge. Stored in docDocuments WeakMap
    *  and destroyed on teardown. */
   document?: Document;
-  /** Standalone metaDoc for auth state, client ID
-   *  mapping, and participant awareness. */
-  metaDoc: Y.Doc;
   /** Per-document Store handle for edit/snapshot
    *  persistence. */
   storeDocument?: Store.Document;
@@ -430,8 +427,14 @@ export function createDoc(params: DocParams): Doc {
     channels,
     signingKey,
     readKey,
-    metaDoc,
   } = params;
+
+  // _meta Y.Doc — comes from the Document surface
+  // just like any other channel. Used for client
+  // identity mapping and title.
+  const metaDoc = params.document?.hasSurface("_meta")
+    ? (params.document.surface("_meta").handle as Y.Doc)
+    : new Y.Doc({ guid: `${ipnsName}:_meta`, gc: true });
 
   let destroyed = false;
   let readyResolved = false;
@@ -486,28 +489,6 @@ export function createDoc(params: DocParams): Doc {
         });
       replayPromises.push(p);
     }
-    // Also replay _meta channel into metaDoc (auth
-    // state, client ID mappings, participant info).
-    const metaP = storeDoc
-      .history("_meta")
-      .load()
-      .then((epochs) => {
-        let count = 0;
-        for (const epoch of epochs) {
-          for (const edit of epoch.edits) {
-            Y.applyUpdate(metaDoc, edit.payload, STORE_ORIGIN);
-            count++;
-          }
-        }
-        if (count > 0) {
-          log.info(`replayed ${count} edits for _meta`);
-        }
-      })
-      .catch((err) => {
-        log.warn("_meta replay failed:", err);
-      });
-    replayPromises.push(metaP);
-
     Promise.all(replayPromises)
       .then(() => markReady())
       .catch(() => markReady());
@@ -889,31 +870,6 @@ export function createDoc(params: DocParams): Doc {
       editBridgeCleanups.push(() => ydoc.off("update", dirtyHandler));
     }
   }
-
-  // Bridge metaDoc edits to dirty tracking and
-  // persistence. Previously this flowed through
-  // subdocManager's "dirty" event; now we listen
-  // directly.
-  const metaDirtyHandler = (update: Uint8Array, origin: unknown) => {
-    if (origin === SNAPSHOT_ORIGIN) return;
-    if (origin === STORE_ORIGIN) return;
-    markContentDirty();
-    // Persist _meta edits with the same
-    // fire-and-forget pattern as surface channels.
-    if (origin == null) {
-      const edit = Edit.create({
-        payload: update,
-        timestamp: Date.now(),
-        author: identityPubkeyHex ?? "",
-        channel: "_meta",
-        origin: "local",
-        signature: new Uint8Array(),
-      });
-      persistEdit("_meta", edit);
-    }
-  };
-  metaDoc.on("update", metaDirtyHandler);
-  editBridgeCleanups.push(() => metaDoc.off("update", metaDirtyHandler));
 
   // Wire sync/awareness status bridges. These are
   // called immediately if deps are available, or
@@ -1932,9 +1888,7 @@ export function createDoc(params: DocParams): Doc {
       assertNotDestroyed();
       try {
         let doc: Y.Doc;
-        if (name === "_meta") {
-          doc = metaDoc;
-        } else if (params.document?.hasSurface(name)) {
+        if (params.document?.hasSurface(name)) {
           doc = params.document.surface(name).handle as Y.Doc;
         } else if (channels.includes(name)) {
           // No Document or surface not wired yet.
@@ -1959,6 +1913,7 @@ export function createDoc(params: DocParams): Doc {
           throw new Error(`No surface for channel "${name}"`);
         }
         if (
+          name !== "_meta" &&
           !cap.isAdmin &&
           cap.channels.size > 0 &&
           !cap.channels.has(name) &&
@@ -2007,7 +1962,7 @@ export function createDoc(params: DocParams): Doc {
     },
 
     get configuredChannels(): readonly string[] {
-      return [...channels];
+      return channels.filter((ch) => ch !== "_meta");
     },
 
     get urls(): DocUrls {
@@ -2043,7 +1998,15 @@ export function createDoc(params: DocParams): Doc {
           "Cannot grant canPushSnapshots " + "— not in own capability",
         );
       }
-      const narrowed = narrowCapability(keys, grant);
+      // Always include _meta — it's library infra,
+      // accessible by any reader/writer.
+      const grantWithMeta = {
+        ...grant,
+        channels: grant.channels
+          ? ["_meta", ...grant.channels]
+          : grant.channels,
+      };
+      const narrowed = narrowCapability(keys, grantWithMeta);
       return buildUrl(origin, ipnsName, narrowed);
     },
 

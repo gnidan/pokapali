@@ -95,13 +95,11 @@ vi.mock("./interpreter.js", () => ({
 const { createDoc, docDocuments } = await import("./create-doc.js");
 
 function baseParams() {
-  const metaDoc = new Y.Doc({ guid: "test:_meta" });
   return {
-    metaDoc,
     cap: {
       isAdmin: true,
       canPushSnapshots: true,
-      channels: new Set(["content"]),
+      channels: new Set(["_meta", "content"]),
     },
     keys: {
       readKey: {} as CryptoKey,
@@ -110,7 +108,7 @@ function baseParams() {
     },
     ipnsName: "test-ipns",
     origin: "https://example.com",
-    channels: ["content"],
+    channels: ["_meta", "content"],
     adminUrl: "https://example.com/doc/test#admin",
     writeUrl: "https://example.com/doc/test#write",
     readUrl: "https://example.com/doc/test#r",

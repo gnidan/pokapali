@@ -73,18 +73,21 @@ function baseContext(overrides?: Partial<RotateContext>): RotateContext {
     cap: {
       isAdmin: true,
       canPushSnapshots: true,
-      channels: new Set(["content"]),
+      channels: new Set(["_meta", "content"]),
     },
     keys: {
       readKey: {} as CryptoKey,
       ipnsKeyBytes: new Uint8Array(32),
       rotationKey: new Uint8Array(32),
-      channelKeys: { content: new Uint8Array(32) },
+      channelKeys: {
+        _meta: new Uint8Array(32),
+        content: new Uint8Array(32),
+      },
       awarenessRoomPassword: "pass",
     },
     ipnsName: "old-ipns-name",
     origin: "https://example.com",
-    channels: ["content"],
+    channels: ["_meta", "content"],
     appId: "test-app",
     networkId: "main",
     primaryChannel: "content",
@@ -155,7 +158,7 @@ describe("rotateDoc", () => {
       .calls[0]![0] as DocParams;
     expect(params.ipnsName).toBe("new-ipns-name");
     expect(params.appId).toBe("test-app");
-    expect(params.channels).toEqual(["content"]);
+    expect(params.channels).toEqual(["_meta", "content"]);
   });
 
   it("copies state from old document surfaces", async () => {

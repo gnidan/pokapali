@@ -152,10 +152,13 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     );
   }
 
-  const { channels, origin } = options;
+  const { channels: appChannels, origin } = options;
+  // Library prepends _meta — a synced channel for
+  // document metadata (title, client identities).
+  const channels = ["_meta", ...appChannels];
   const appId = options.appId ?? "";
   const networkId = options.networkId ?? "main";
-  const primaryChannel = options.primaryChannel ?? channels[0] ?? "";
+  const primaryChannel = options.primaryChannel ?? appChannels[0] ?? "";
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
   const p2pEnabled = options.p2p !== false;
@@ -191,18 +194,15 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     await store.migrated;
     const storeDoc = store.documents.get(ipnsName);
 
-    const cap = inferCapability(keys, channels);
+    // Infer capability from app-level channels only.
+    // _meta is always accessible — it's library infra.
+    const cap = inferCapability(keys, appChannels);
     const chKeys = keys.channelKeys ?? {};
-
-    // Standalone metaDoc for auth state and
-    // client identity.
-    const metaDoc = new Y.Doc({
-      guid: `${ipnsName}:_meta`,
-      gc: true,
-    });
 
     // Create Document + eagerly create surfaces so
     // surface Y.Docs are available for Store replay.
+    // _meta is included in channels — it gets a
+    // surface just like app-defined channels.
     const document = Document.create({
       identity: {
         publicKey: new Uint8Array(32),
@@ -238,7 +238,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           origin,
           ipnsName,
           narrowCapability(keys, {
-            channels: [...cap.channels],
+            channels: ["_meta", ...cap.channels],
             canPushSnapshots: true,
           }),
         )
@@ -434,7 +434,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       performInitialResolve: init.performInitialResolve,
       identity,
       document,
-      metaDoc,
       storeDocument: storeDoc,
     });
   }

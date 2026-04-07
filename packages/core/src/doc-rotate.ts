@@ -168,11 +168,7 @@ export async function rotateDoc(
 
   const newCap = inferCapability(newKeys, ctx.channels);
 
-  const newMetaDoc = new Y.Doc({
-    guid: `${newIpnsName}:_meta`,
-  });
   const newDoc = createDocFn({
-    metaDoc: newMetaDoc,
     syncManager: newSyncManager,
     awarenessRoom: newAwarenessRoom,
     cap: newCap,

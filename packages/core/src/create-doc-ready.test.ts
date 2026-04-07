@@ -92,27 +92,8 @@ vi.mock("./interpreter.js", () => ({
 
 const { createDoc } = await import("./create-doc.js");
 
-function mockMetaDoc() {
-  return {
-    getArray: vi.fn(() => ({ push: vi.fn() })),
-    getMap: vi.fn(() => ({
-      set: vi.fn(),
-      size: 0,
-      observe: vi.fn(),
-      unobserve: vi.fn(),
-      entries: vi.fn(() => []),
-    })),
-    guid: "test:_meta",
-    on: vi.fn(),
-    off: vi.fn(),
-  };
-}
-
 function mockDocParams() {
-  const metaDoc = mockMetaDoc();
-  return {
-    metaDoc: metaDoc as any,
-  };
+  return {};
 }
 
 describe("ready() after interpreter crash (#39)", () => {
@@ -147,7 +128,7 @@ describe("ready() after interpreter crash (#39)", () => {
       },
       ipnsName: "test-ipns",
       origin: "https://example.com",
-      channels: ["content"],
+      channels: ["_meta", "content"],
       adminUrl: null,
       writeUrl: null,
       readUrl: "https://example.com/doc/test#r",
@@ -230,7 +211,7 @@ describe("ready() after interpreter crash (#39)", () => {
       },
       ipnsName: "test-ipns-2",
       origin: "https://example.com",
-      channels: ["content"],
+      channels: ["_meta", "content"],
       adminUrl: null,
       writeUrl: null,
       readUrl: "https://example.com/doc/test#r",
@@ -305,7 +286,7 @@ describe("ready() after interpreter crash (#39)", () => {
       },
       ipnsName: "test-ipns-3",
       origin: "https://example.com",
-      channels: ["content"],
+      channels: ["_meta", "content"],
       adminUrl: null,
       writeUrl: null,
       readUrl: "https://example.com/doc/test#r",
@@ -375,7 +356,7 @@ describe("ready() after interpreter crash (#39)", () => {
       },
       ipnsName: "test-ipns-4",
       origin: "https://example.com",
-      channels: ["content"],
+      channels: ["_meta", "content"],
       adminUrl: null,
       writeUrl: null,
       readUrl: "https://example.com/doc/test#r",
