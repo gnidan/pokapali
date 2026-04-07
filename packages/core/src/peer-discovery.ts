@@ -253,7 +253,16 @@ export function startRoomDiscovery(
 
     try {
       const cid = await networkCID();
-      const timeout = setTimeout(() => ctrl.abort(), FIND_TIMEOUT_MS);
+      const startMs = Date.now();
+      log.info("findProviders starting", "cid:", cid.toString());
+      const timeout = setTimeout(() => {
+        log.info(
+          "findProviders timeout fired",
+          `after ${FIND_TIMEOUT_MS}ms,`,
+          `found so far: ${found}`,
+        );
+        ctrl.abort();
+      }, FIND_TIMEOUT_MS);
 
       // Phase 1: collect providers from iterator
       // (bounded by FIND_TIMEOUT_MS). Slow dials no
@@ -272,20 +281,26 @@ export function startRoomDiscovery(
           .getConnections()
           .some((c) => c.remotePeer.toString() === pid);
 
-        if (already) {
-          const addrs = (provider.multiaddrs ?? []).map(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (ma: any) => ma.toString(),
-          );
-          trackRelay(pid, addrs);
-          upsertCachedRelay(pid, addrs);
-          log.debug(`relay ...${short} (connected)`);
-          continue;
-        }
-
         const addrs =
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           provider.multiaddrs?.map((ma: any) => ma.toString()) ?? [];
+
+        log.info(
+          `provider #${found}: ...${short}`,
+          `addrs: ${addrs.length},`,
+          already ? "(already connected)" : "(new)",
+        );
+        log.debug(
+          `  addrs:`,
+          addrs.slice(0, 5).join(", "),
+          addrs.length > 5 ? `(+${addrs.length - 5} more)` : "",
+        );
+
+        if (already) {
+          trackRelay(pid, addrs);
+          upsertCachedRelay(pid, addrs);
+          continue;
+        }
 
         // Only try providers with browser-dialable
         // addresses (ws, wss, webrtc, webrtc-direct)
@@ -300,11 +315,18 @@ export function startRoomDiscovery(
             a.includes("/p2p-circuit"),
         );
         if (!dialable && addrs.length > 0) {
-          log.debug(`relay ...${short} skipped`, `(no browser-dialable addrs)`);
+          log.info(
+            `provider ...${short} skipped`,
+            "(no browser-dialable addrs)",
+          );
           continue;
         }
 
         const filtered = wssAddrs(pid, addrs);
+        log.debug(
+          `  dialable:`,
+          filtered.map((ma) => ma.toString()).join(", "),
+        );
         toDial.push({
           pid,
           filtered,
@@ -314,9 +336,12 @@ export function startRoomDiscovery(
       }
 
       clearTimeout(timeout);
-      if (found > 0) {
-        log.info(`found ${found} relay(s)`);
-      }
+      const elapsed = Date.now() - startMs;
+      log.info(
+        `findProviders done:`,
+        `${found} provider(s) in ${elapsed}ms,`,
+        `${toDial.length} to dial`,
+      );
 
       // Phase 2: dial all collected providers in
       // parallel (each with its own DIAL_TIMEOUT).
