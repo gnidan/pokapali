@@ -107,14 +107,6 @@ vi.mock("blockstore-idb", () => ({
   })),
 }));
 
-vi.mock("./persistence.js", () => ({
-  createDocPersistence: vi.fn(() => ({
-    whenSynced: Promise.resolve(),
-    providers: new Set(),
-    destroy: vi.fn(),
-  })),
-}));
-
 // Ed25519 public key for the all-zero seed, so
 // the mock identity forms a valid signing pair.
 const ZERO_SEED_PUBKEY = new Uint8Array([

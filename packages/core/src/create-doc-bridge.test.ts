@@ -80,10 +80,6 @@ vi.mock("./topology-sharing.js", () => ({
   createTopologySharing: vi.fn(),
 }));
 
-vi.mock("./persistence.js", () => ({
-  createDocPersistence: vi.fn(),
-}));
-
 vi.mock("./identity.js", () => ({
   signParticipant: vi.fn(async () => ({ sig: "mocksig", v: 2 })),
 }));

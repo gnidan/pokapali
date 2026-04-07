@@ -45,8 +45,6 @@ import { docIdFromUrl } from "./url-utils.js";
 import { createLogger } from "@pokapali/log";
 import { createDoc, populateMeta } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
-import { createDocPersistence } from "./persistence.js";
-import type { DocPersistence } from "./persistence.js";
 import { loadIdentity } from "./identity.js";
 import { Document } from "@pokapali/document";
 import { yjsCodec } from "@pokapali/codec";
@@ -98,13 +96,6 @@ export interface PokapaliConfig {
    *  simple-peer (e.g. custom ICE servers). */
   rtc?: SyncOptions["peerOpts"];
   /**
-   * Enable IndexedDB persistence for Yjs state and
-   * IPFS blocks. Defaults to true. Set to false to
-   * disable (e.g. for cold-start testing via
-   * ?noCache=1).
-   */
-  persistence?: boolean;
-  /**
    * Enable P2P networking (Helia, WebRTC, relay
    * discovery). Defaults to true. Set to false for
    * solo/offline mode — useful for E2E UI tests
@@ -141,8 +132,6 @@ interface DocInit {
   identity: Ed25519KeyPair;
   /** True for open() — triggers IPNS resolution. */
   performInitialResolve: boolean;
-  /** True when IDB cache may exist (open only). */
-  hasCachedState: boolean;
   /** Called after metaDoc + surfaces are created
    *  but before createDoc (e.g. populateMeta). */
   afterSubdocSetup?: (metaDoc: import("yjs").Doc) => void;
@@ -172,7 +161,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
   const primaryChannel = options.primaryChannel ?? channels[0] ?? "";
   const signalingUrls = options.signalingUrls ?? [];
   const bootstrapPeers = options.bootstrapPeers;
-  const persistenceEnabled = options.persistence !== false;
   const p2pEnabled = options.p2p !== false;
 
   // Store — created once, cached for app lifetime.
@@ -208,10 +196,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     const cap = inferCapability(keys, channels);
     const chKeys = keys.channelKeys ?? {};
 
-    // Layer A: y-indexeddb persistence per surface
-    let docPersistence: DocPersistence | null = null;
-    const skipOrigins = new Set<object>();
-
     // Standalone metaDoc for auth state and
     // client identity.
     const metaDoc = new Y.Doc({
@@ -220,7 +204,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     });
 
     // Create Document + eagerly create surfaces so
-    // surface Y.Docs are available for persistence.
+    // surface Y.Docs are available for Store replay.
     const document = Document.create({
       identity: {
         publicKey: new Uint8Array(32),
@@ -235,18 +219,10 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     });
 
     // Eagerly create a surface per channel —
-    // the surface Y.Docs become the persistence
-    // and editing substrate.
-    const surfaceDocs: Y.Doc[] = channels.map(
-      (ch) =>
-        document.surface(ch, { guid: `${ipnsName}:${ch}` }).handle as Y.Doc,
-    );
-
-    if (persistenceEnabled) {
-      docPersistence = createDocPersistence([...surfaceDocs, metaDoc]);
-      for (const p of docPersistence.providers) {
-        skipOrigins.add(p);
-      }
+    // the surface Y.Docs become the editing
+    // substrate.
+    for (const ch of channels) {
+      document.surface(ch, { guid: `${ipnsName}:${ch}` });
     }
 
     init.afterSubdocSetup?.(metaDoc);
@@ -287,15 +263,11 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       : (async () => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let blockstore: any;
-          if (persistenceEnabled && !isHeliaLive()) {
+          if (!isHeliaLive()) {
             const { IDBBlockstore } = await import("blockstore-idb");
             const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
             await bs.open();
             blockstore = bs;
-            if (docPersistence) {
-              const bsRef = bs;
-              docPersistence.closeBlockstore = () => bsRef.close();
-            }
           }
 
           await acquireHelia({
@@ -424,8 +396,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       primaryChannel,
       signalingUrls,
       performInitialResolve: init.performInitialResolve,
-      persistence: docPersistence,
-      hasCachedState: init.hasCachedState,
       identity,
       document,
       metaDoc,
@@ -457,7 +427,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         signingKey,
         identity,
         performInitialResolve: false,
-        hasCachedState: false,
         afterSubdocSetup: (metaDoc) => {
           populateMeta(metaDoc, signingKey.publicKey, docKeys.channelKeys);
         },
@@ -501,7 +470,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
         signingKey,
         identity,
         performInitialResolve: !!keys.readKey,
-        hasCachedState: persistenceEnabled,
       });
     },
 

@@ -45,7 +45,6 @@ import {
 import { createGossipHandler } from "./doc-gossip-bridge.js";
 import { uploadBlock } from "./block-upload.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
-import type { DocPersistence } from "./persistence.js";
 import { createBlockResolver } from "./block-resolver.js";
 import { createSnapshotCodec } from "./snapshot-codec.js";
 import type { Store } from "@pokapali/store";
@@ -127,6 +126,138 @@ const log = createLogger("core");
  * re-persisting replayed edits.
  */
 const STORE_ORIGIN = "store-replay";
+
+// -------------------------------------------------------
+// One-time y-indexeddb hydration
+// -------------------------------------------------------
+
+/**
+ * Open an IDB database by name, returning null if it
+ * does not exist (aborts onupgradeneeded to avoid
+ * creating an empty database).
+ */
+function idbOpen(name: string): Promise<IDBDatabase | null> {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(name);
+      req.onupgradeneeded = () => {
+        req.transaction!.abort();
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Check if a y-indexeddb migration key exists in the
+ * Store's meta store.
+ */
+function metaHas(db: IDBDatabase, key: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction("meta", "readonly");
+      const store = tx.objectStore("meta");
+      const req = store.get(key);
+      req.onsuccess = () => resolve(!!req.result);
+      req.onerror = () => resolve(false);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * Mark a y-indexeddb migration as complete in the
+ * Store's meta store.
+ */
+function metaMark(db: IDBDatabase, key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("meta", "readwrite");
+    const store = tx.objectStore("meta");
+    store.put({ key, migratedAt: Date.now() });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Hydrate Y.Docs from old y-indexeddb databases.
+ *
+ * y-indexeddb stores raw Yjs updates in an `updates`
+ * object store with auto-increment keys. Each value
+ * is a Uint8Array. We read all updates and apply them
+ * sequentially to the Y.Doc.
+ *
+ * Migration is tracked per doc-guid in the Store's
+ * meta store (`y-indexeddb:{guid}`). Old databases
+ * are left read-only.
+ */
+async function hydrateFromYIndexeddb(
+  document: Document,
+  channels: string[],
+  ipnsName: string,
+  appId: string,
+  metaDoc: Y.Doc,
+): Promise<void> {
+  // Open the unified Store database to check/write
+  // meta keys for migration tracking.
+  const storeDb = await idbOpen(`pokapali:${appId}`);
+  if (!storeDb) return;
+
+  try {
+    for (const ch of channels) {
+      if (!document.hasSurface(ch)) continue;
+      const guid = `${ipnsName}:${ch}`;
+      const ydoc = document.surface(ch).handle as Y.Doc;
+      await hydrateOneDoc(guid, ydoc, storeDb);
+    }
+    // Hydrate metaDoc (auth state, client ID
+    // mappings, participant awareness).
+    await hydrateOneDoc(`${ipnsName}:_meta`, metaDoc, storeDb);
+  } finally {
+    storeDb.close();
+  }
+}
+
+async function hydrateOneDoc(
+  guid: string,
+  ydoc: Y.Doc,
+  storeDb: IDBDatabase,
+): Promise<void> {
+  const metaKey = `y-indexeddb:${guid}`;
+  if (await metaHas(storeDb, metaKey)) return;
+
+  const oldDb = await idbOpen(guid);
+  if (!oldDb) {
+    await metaMark(storeDb, metaKey);
+    return;
+  }
+
+  try {
+    if (!oldDb.objectStoreNames.contains("updates")) {
+      await metaMark(storeDb, metaKey);
+      return;
+    }
+    const updates = await new Promise<Uint8Array[]>((resolve, reject) => {
+      const tx = oldDb.transaction("updates", "readonly");
+      const store = tx.objectStore("updates");
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result as Uint8Array[]);
+      req.onerror = () => reject(req.error);
+    });
+    for (const update of updates) {
+      Y.applyUpdate(ydoc, update, STORE_ORIGIN);
+    }
+  } finally {
+    oldDb.close();
+  }
+
+  await metaMark(storeDb, metaKey);
+}
 
 const REANNOUNCE_MS = 15_000;
 const GUARANTEE_INITIAL_DELAY_MS = 3_000;
@@ -373,13 +504,6 @@ export interface DocParams {
   pubsub?: PubSubLike;
   roomDiscovery?: RoomDiscovery;
   performInitialResolve?: boolean;
-  /** y-indexeddb persistence handle — destroyed on
-   *  doc teardown. */
-  persistence?: DocPersistence | null;
-  /** True when persistence is enabled and cached
-   *  state may exist in IndexedDB. Triggers early
-   *  markReady() after y-indexeddb sync. */
-  hasCachedState?: boolean;
   /** Device identity keypair (always present). Used
    *  for publisher attribution and participant
    *  awareness. */
@@ -407,7 +531,7 @@ export interface DocParams {
   /** Standalone metaDoc for auth state, client ID
    *  mapping, and participant awareness. */
   metaDoc: Y.Doc;
-  /** Per-document Store handle for snapshot metadata
+  /** Per-document Store handle for edit/snapshot
    *  persistence. */
   storeDocument?: Store.Document;
 }
@@ -476,40 +600,23 @@ export function createDoc(params: DocParams): Doc {
     markReady();
   }
 
-  // When persistence is enabled on open(), resolve
-  // ready early once y-indexeddb has synced cached
-  // state — the user can start editing immediately
-  // while IPNS resolution + chain fetch continues
-  // in the background.
-  //
-  // Note: hasCachedState is true whenever persistence
-  // is enabled, even on first open (empty DB).
-  // y-indexeddb can't distinguish "synced with data"
-  // from "synced with nothing," so first-open shows
-  // a brief blank editor until IPNS resolves. This
-  // is acceptable — the alternative (blocking on
-  // IPNS) is much slower on repeat visits.
-  if (params.hasCachedState && params.persistence) {
-    params.persistence.whenSynced.then(
-      () => markReady(),
-      // IDB failure is non-fatal — degrade to
-      // in-memory, IPNS path will markReady later.
-      () => markReady(),
-    );
-  }
-
-  // Replay persisted edits from Store into Y.Docs.
-  // Runs in parallel with y-indexeddb sync — both
-  // paths are idempotent (Y.Doc merges duplicates).
-  // Uses STORE_ORIGIN so the editHandler doesn't
-  // re-persist replayed edits.
+  // Replay persisted edits from Store into Y.Docs,
+  // then hydrate any remaining state from old
+  // y-indexeddb databases (one-time migration for
+  // users who haven't loaded since A3a). Both paths
+  // are idempotent (Y.Doc merges duplicates). Uses
+  // STORE_ORIGIN so the editHandler doesn't
+  // re-persist replayed edits. Calls markReady()
+  // after replay completes so the editor is usable
+  // while IPNS resolution continues in background.
   if (params.storeDocument && params.document) {
     const doc = params.document;
     const storeDoc = params.storeDocument;
+    const replayPromises: Promise<void>[] = [];
     for (const ch of channels) {
       if (!doc.hasSurface(ch)) continue;
       const ydoc = doc.surface(ch).handle as Y.Doc;
-      storeDoc
+      const p = storeDoc
         .history(ch)
         .load()
         .then((epochs) => {
@@ -522,7 +629,22 @@ export function createDoc(params: DocParams): Doc {
         .catch((err) => {
           log.debug("store edit replay failed:", err);
         });
+      replayPromises.push(p);
     }
+    // After Store replay, hydrate from old
+    // y-indexeddb databases and markReady.
+    Promise.all(replayPromises)
+      .then(() =>
+        hydrateFromYIndexeddb(
+          params.document!,
+          channels,
+          params.ipnsName,
+          params.appId,
+          params.metaDoc,
+        ),
+      )
+      .then(() => markReady())
+      .catch(() => markReady());
   }
 
   function getHttpUrls(): string[] {
@@ -843,7 +965,7 @@ export function createDoc(params: DocParams): Doc {
 
   // Bridge Y.Doc updates → epoch tree so the
   // reconciliation protocol has edits to send.
-  // Skips snapshot-apply and persistence origins.
+  // Skips snapshot-apply and Store-replay origins.
   //
   // The bridge registers on surface Y.Docs (returned
   // by doc.channel()). Local edits (null origin) are
@@ -864,9 +986,9 @@ export function createDoc(params: DocParams): Doc {
       const channel = params.document.channel(name);
       const editHandler = (update: Uint8Array, origin: unknown) => {
         // Only capture local user edits (null origin
-        // from TipTap/ProseMirror). Skip persistence
-        // hydration, snapshot application, awareness
-        // sync, and any other non-local origins.
+        // from TipTap/ProseMirror). Skip Store replay,
+        // snapshot application, awareness sync, and
+        // any other non-local origins.
         if (origin != null) return;
         // Append synchronously so the epoch tree is
         // up-to-date for immediate publish(). The
@@ -1823,7 +1945,6 @@ export function createDoc(params: DocParams): Doc {
       log.warn("off('change') cleanup error:", (err as Error)?.message ?? err);
     }
     params.roomDiscovery?.stop();
-    params.persistence?.destroy();
     // Tear down reconciliation wirings
     if (reconcileTimer) clearTimeout(reconcileTimer);
     unsubPeerConn?.();

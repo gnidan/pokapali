@@ -93,14 +93,6 @@ vi.mock("blockstore-idb", () => ({
   })),
 }));
 
-vi.mock("./persistence.js", () => ({
-  createDocPersistence: vi.fn(() => ({
-    whenSynced: Promise.resolve(),
-    providers: new Set(),
-    destroy: vi.fn(),
-  })),
-}));
-
 vi.mock("./identity.js", () => ({
   loadIdentity: vi.fn(async () => ({
     publicKey: new Uint8Array(32),

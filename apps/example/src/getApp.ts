@@ -16,7 +16,6 @@ export function getApp(): Promise<PokapaliApp> {
 
   appPromise = import("@pokapali/core").then(({ pokapali }) => {
     const params = new URLSearchParams(window.location.search);
-    const noCache = params.get("noCache") === "1";
     const noP2P =
       params.get("noP2P") === "1" ||
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,7 +29,6 @@ export function getApp(): Promise<PokapaliApp> {
       channels: ["content", "comments"],
       origin:
         window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
-      persistence: !noCache,
       p2p: !noP2P,
       ...(bootstrapPeers ? { bootstrapPeers } : {}),
     });
