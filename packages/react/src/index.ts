@@ -3,6 +3,11 @@ export { useDocReady } from "./use-doc-ready.js";
 export { useAutoSave } from "./use-auto-save.js";
 export { useDocDestroy } from "./use-doc-destroy.js";
 export { useParticipants } from "./use-participants.js";
+export { usePeerPresenceState } from "./use-peer-presence.js";
+export type {
+  PeerPresenceState,
+  PeerPresenceResult,
+} from "./use-peer-presence.js";
 export { useSnapshotFlash } from "./use-snapshot-flash.js";
 
 export { useComments } from "./use-comments.js";
