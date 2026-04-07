@@ -1,24 +1,24 @@
-name: Deploy Relays
+name: Clear Pinner State
 
 on:
   workflow_dispatch:
     inputs:
-      commit:
-        description: >-
-          Target commit SHA (default: latest main)
-        required: false
-        type: string
-        default: ""
       skip_nodes:
         description: >-
-          Comma-separated node names to skip
-          (e.g. "chi,nyc")
+          Comma-separated pinner names to skip
+          (e.g. "chi,bay")
         required: false
         type: string
         default: ""
+      clear_blockstore:
+        description: >-
+          Also clear blockstore (orphaned blocks)
+        required: false
+        type: boolean
+        default: false
       dry_run:
         description: >-
-          Dry run (log commands, don't execute)
+          Dry run (log what would be cleared)
         required: false
         type: boolean
         default: false
@@ -26,13 +26,14 @@ on:
 permissions:
   contents: read
 
+# Serialize — never run concurrent clears
 concurrency:
-  group: deploy-relays
+  group: clear-pinner-state
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy
+  clear:
+    name: Clear Pinners
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,27 +63,9 @@ jobs:
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
 
-      - name: Resolve target commit
-        id: target
+      - name: Clear pinner state
         run: |
-          COMMIT="${{ inputs.commit }}"
-          if [ -z "$COMMIT" ]; then
-            COMMIT=$(git rev-parse origin/main)
-          fi
-          if ! git merge-base --is-ancestor \
-            "$COMMIT" origin/main 2>/dev/null; then
-            echo "::error::Commit $COMMIT is not" \
-              "on main branch"
-            exit 1
-          fi
-          COMMIT=$(git rev-parse "$COMMIT")
-          echo "commit=$COMMIT" \
-            >> "$GITHUB_OUTPUT"
-          echo "Target commit: ${COMMIT:0:7}"
-
-      - name: Deploy all batches
-        run: |
-          bin/deploy-all-batches.sh \
-            "${{ steps.target.outputs.commit }}" \
+          bin/clear-all-pinners.sh \
             "${{ inputs.skip_nodes }}" \
+            "${{ inputs.clear_blockstore }}" \
             "${{ inputs.dry_run }}"
