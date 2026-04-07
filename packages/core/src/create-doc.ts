@@ -1256,22 +1256,44 @@ export function createDoc(params: DocParams): Doc {
           if (destroyed) return;
           for (const e of cached) {
             try {
+              const cid = CID.decode(e.cid);
               fq.push({
                 type: "cid-discovered",
                 ts: e.ts,
-                cid: CID.decode(e.cid),
+                cid,
                 source: "cache",
                 seq: e.seq,
                 snapshotTs: e.ts,
               });
+
+              // Populate localSnapshotHistory so
+              // the version feed shows cached
+              // snapshots immediately (cid-discovered
+              // alone doesn't update snapshotHistory).
+              localSnapshotHistory = reduceSnapshotHistory(
+                localSnapshotHistory ??
+                  interpreterState?.snapshotHistory ??
+                  INITIAL_SNAPSHOT_HISTORY,
+                {
+                  type: "snapshot-materialized",
+                  ts: e.ts,
+                  cid,
+                  seq: e.seq,
+                  channel: e.channel,
+                  epochIndex: e.epochIndex,
+                },
+              );
             } catch {
               // skip undecodable CIDs
             }
           }
-          log.debug("hydrated " + cached.length + " cached versions");
+          if (cached.length > 0) {
+            updateVersionsFeed();
+          }
+          log.info("hydrated " + cached.length + " cached versions");
         })
         .catch((err) => {
-          log.debug("version cache hydration failed:", err);
+          log.warn("version cache hydration failed:", err);
         });
     }
 
