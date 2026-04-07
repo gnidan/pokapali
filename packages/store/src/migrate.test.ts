@@ -349,6 +349,70 @@ describe("migration", () => {
       s2.close();
     });
 
+    it(
+      "recovers from buggy deployment that set " + "flag without writing edits",
+      async () => {
+        const appId = freshId();
+        const guid = `${IPNS}:content`;
+        const updates = [new Uint8Array([1, 2, 3])];
+        await seedYIndexeddb(guid, updates);
+
+        // Simulate the old buggy deployment state:
+        // per-guid meta flag set, but no edits written,
+        // and no global migration:y-indexeddb flag.
+        //
+        // Strategy: let correct migration run, then
+        // delete edits + global flag to simulate the
+        // buggy state where per-guid flag exists but
+        // edits don't.
+        const s0 = await Store.create(appId);
+        await s0.migrated;
+        s0.close();
+
+        await new Promise<void>((resolve, reject) => {
+          const req = indexedDB.open(`pokapali:${appId}`);
+          req.onsuccess = () => {
+            const db = req.result;
+            const tx = db.transaction(["edits", "meta"], "readwrite");
+            // Delete all edits
+            tx.objectStore("edits").clear();
+            // Delete global flag (old code didn't
+            // set this)
+            tx.objectStore("meta").delete("migration:y-indexeddb");
+            // Per-guid flag remains (old code DID
+            // set this)
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          };
+          req.onerror = () => reject(req.error);
+        });
+
+        // Now open Store — migration should detect
+        // the flag-without-edits case and re-migrate
+        const store = await Store.create(appId);
+        await store.migrated;
+        const epochs = await store.documents
+          .get(IPNS)
+          .history("content")
+          .load();
+
+        const allEdits = epochs.flatMap((e) => e.edits);
+        expect(allEdits.length).toBeGreaterThanOrEqual(1);
+        // Our update should be among the edits
+        const found = allEdits.some(
+          (e) => Array.from(e.payload).join(",") === "1,2,3",
+        );
+        expect(found).toBe(true);
+        store.close();
+      },
+    );
+
     it("handles missing y-indexeddb DB", async () => {
       const appId = freshId();
       // No old DB — should not error

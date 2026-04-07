@@ -349,6 +349,29 @@ function latestSnapshotCid(
 }
 
 /**
+ * Check whether any edits exist for an ipnsName +
+ * channel pair. Used to detect the buggy deployment
+ * where the old per-document migration in create-doc.ts
+ * set the per-guid meta flag but never wrote edits
+ * (because Y.Doc updates were applied with non-null
+ * origin, so editHandler skipped persist).
+ */
+function hasEdits(
+  db: IDBDatabase,
+  ipnsName: string,
+  channel: string,
+): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("edits", "readonly");
+    const store = tx.objectStore("edits");
+    const index = store.index("by-doc-channel");
+    const req = index.openCursor(IDBKeyRange.only([ipnsName, channel]));
+    req.onsuccess = () => resolve(req.result !== null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
  * Migrate a single y-indexeddb database into the
  * unified Store's edits table.
  */
@@ -357,13 +380,24 @@ async function migrateOneYIndexeddb(
   guid: string,
 ): Promise<void> {
   const metaKey = `y-indexeddb:${guid}`;
-  const done = await metaGet(db, metaKey);
-  if (done) return;
-
   const parsed = parseGuid(guid);
   if (!parsed) {
     await metaSet(db, metaKey);
     return;
+  }
+
+  const done = await metaGet(db, metaKey);
+  if (done) {
+    // The old buggy migration (create-doc.ts, !392)
+    // set per-guid flags but never wrote edits.
+    // Verify edits actually exist; if not, clear the
+    // flag and re-migrate.
+    const exists = await hasEdits(db, parsed.ipnsName, parsed.channel);
+    if (exists) return;
+    log.info(
+      `${guid}: flag set but no edits found,` +
+        " re-migrating (buggy deployment recovery)",
+    );
   }
 
   const oldDb = await idbOpen(guid);
