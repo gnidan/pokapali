@@ -23,6 +23,8 @@ import { Store } from "@pokapali/store";
 import { Edits } from "./edits.js";
 import type { Edits as EditsType } from "./edits.js";
 
+const TEST_DOC = "k51test-integration";
+
 // -- Helpers --
 
 function fakeIdentity() {
@@ -89,7 +91,7 @@ describe("Phase 4b bridge integration", () => {
   afterEach(() => {
     edits?.destroy();
     document?.destroy();
-    store?.destroy();
+    store?.close();
   });
 
   it(
@@ -129,8 +131,9 @@ describe("Phase 4b bridge integration", () => {
       expect(epochs[0]!.edits[0]!.author).toBe("aabb");
 
       // 4. Persist the local edit
+      const hist = store.documents.get(TEST_DOC).history("content");
       for (const e of epochs[0]!.edits) {
-        await store.persistEdit("content", e);
+        await hist.append(0, e);
       }
 
       // 5. Simulate remote edit
@@ -147,7 +150,7 @@ describe("Phase 4b bridge integration", () => {
       expect(remoteEdits[0]!.author).toBe("");
 
       // Persist remote edit
-      await store.persistEdit("content", remoteEdits[0]!);
+      await hist.append(0, remoteEdits[0]!);
 
       // 6. Simulate convergence (mock -- direct
       //    closeEpoch instead of Convergence)
@@ -160,10 +163,10 @@ describe("Phase 4b bridge integration", () => {
       expect(epochs[1]!.boundary.tag).toBe("open");
 
       // Persist epoch boundary
-      await store.persistEpochBoundary("content", 0, epochs[0]!.boundary);
+      await hist.close(0, epochs[0]!.boundary);
 
       // 7. Load from Store -- verify round-trip
-      const loaded = await store.loadChannelEpochs("content");
+      const loaded = await hist.load();
       expect(loaded).toHaveLength(2);
 
       // Epoch 0: two edits, closed
@@ -207,24 +210,21 @@ describe("Phase 4b bridge integration", () => {
     // Persist all edits
     const contentCh = document.channel("content");
     const commentsCh = document.channel("comments");
+    const doc = store.documents.get(TEST_DOC);
     for (const e of toArray(contentCh.tree).flatMap((ep) => ep.edits)) {
-      await store.persistEdit("content", e);
+      await doc.history("content").append(0, e);
     }
     for (const e of toArray(commentsCh.tree).flatMap((ep) => ep.edits)) {
-      await store.persistEdit("comments", e);
+      await doc.history("comments").append(0, e);
     }
 
     // Close only content
     contentCh.closeEpoch();
-    await store.persistEpochBoundary(
-      "content",
-      0,
-      toArray(contentCh.tree)[0]!.boundary,
-    );
+    await doc.history("content").close(0, toArray(contentCh.tree)[0]!.boundary);
 
     // Verify independent persistence
-    const loadedContent = await store.loadChannelEpochs("content");
-    const loadedComments = await store.loadChannelEpochs("comments");
+    const loadedContent = await doc.history("content").load();
+    const loadedComments = await doc.history("comments").load();
 
     expect(loadedContent).toHaveLength(2);
     expect(loadedContent[0]!.boundary.tag).toBe("closed");
@@ -258,17 +258,14 @@ describe("Phase 4b bridge integration", () => {
     const ch = document.channel("content");
 
     // Persist epoch 0 edit
+    const hist = store.documents.get(TEST_DOC).history("content");
     for (const e of toArray(ch.tree).flatMap((ep) => ep.edits)) {
-      await store.persistEdit("content", e);
+      await hist.append(0, e);
     }
 
     // Converge
     ch.closeEpoch();
-    await store.persistEpochBoundary(
-      "content",
-      0,
-      toArray(ch.tree)[0]!.boundary,
-    );
+    await hist.close(0, toArray(ch.tree)[0]!.boundary);
 
     // Edit after convergence
     docs.get("content")!.getArray("data").push(["after"]);
@@ -277,11 +274,11 @@ describe("Phase 4b bridge integration", () => {
     const epochs = toArray(ch.tree);
     const tipEdits = epochs[epochs.length - 1]!.edits;
     for (const e of tipEdits) {
-      await store.persistEdit("content", e);
+      await hist.append(1, e);
     }
 
     // Load and verify
-    const loaded = await store.loadChannelEpochs("content");
+    const loaded = await hist.load();
     expect(loaded).toHaveLength(2);
     expect(loaded[0]!.edits).toHaveLength(1);
     expect(loaded[0]!.boundary.tag).toBe("closed");
@@ -320,24 +317,21 @@ describe("Phase 4b bridge integration", () => {
       const ch = document.channel("content");
 
       // Persist edits
+      const hist = store.documents.get(TEST_DOC).history("content");
       for (const e of toArray(ch.tree).flatMap((ep) => ep.edits)) {
-        await store.persistEdit("content", e);
+        await hist.append(0, e);
       }
 
       // Converge
       ch.closeEpoch();
-      await store.persistEpochBoundary(
-        "content",
-        0,
-        toArray(ch.tree)[0]!.boundary,
-      );
+      await hist.close(0, toArray(ch.tree)[0]!.boundary);
 
       // One more edit in new epoch
       docs.get("content")!.getArray("data").push(["third"]);
 
       const tipEdits = toArray(ch.tree).at(-1)!.edits;
       for (const e of tipEdits) {
-        await store.persistEdit("content", e);
+        await hist.append(1, e);
       }
 
       // Capture expected tree measure
@@ -347,11 +341,14 @@ describe("Phase 4b bridge integration", () => {
       //     close) ---
       edits.destroy();
       document.destroy();
-      store.destroy();
+      store.close();
 
       // --- Session 2: load from store, rebuild ---
       const store2 = await Store.create(dbName);
-      const loaded = await store2.loadChannelEpochs("content");
+      const loaded = await store2.documents
+        .get(TEST_DOC)
+        .history("content")
+        .load();
 
       expect(loaded).toHaveLength(2);
       expect(loaded[0]!.edits).toHaveLength(2);
@@ -409,7 +406,7 @@ describe("Phase 4b bridge integration", () => {
       }
 
       doc2.destroy();
-      store2.destroy();
+      store2.close();
 
       // Prevent afterEach from double-destroying
       store = undefined as unknown as Store;

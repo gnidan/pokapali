@@ -29,6 +29,8 @@ import { Store } from "@pokapali/store";
 import { fromSnapshots } from "./hydrator.js";
 import { verify } from "./verifier.js";
 
+const TEST_DOC = "k51test-hydration";
+
 // -- Helpers --
 
 const DAG_CBOR_CODE = 0x71;
@@ -155,7 +157,7 @@ describe("Phase 4 hydration integration", () => {
   afterEach(() => {
     edits?.destroy();
     document?.destroy();
-    store?.destroy();
+    store?.close();
   });
 
   it(
@@ -192,17 +194,14 @@ describe("Phase 4 hydration integration", () => {
 
       // Persist edits
       const ch = document.channel("content");
+      const hist = store.documents.get(TEST_DOC).history("content");
       for (const e of toArray(ch.tree).flatMap((ep) => ep.edits)) {
-        await store.persistEdit("content", e);
+        await hist.append(0, e);
       }
 
       // --- Phase 2: Converge ---
       ch.closeEpoch();
-      await store.persistEpochBoundary(
-        "content",
-        0,
-        toArray(ch.tree)[0]!.boundary,
-      );
+      await hist.close(0, toArray(ch.tree)[0]!.boundary);
 
       // --- Phase 3: Create snapshot of
       //     converged state ---
@@ -221,7 +220,7 @@ describe("Phase 4 hydration integration", () => {
       // Persist post-snapshot edit
       const postEdits = toArray(ch.tree).at(-1)!.edits;
       for (const e of postEdits) {
-        await store.persistEdit("content", e);
+        await hist.append(1, e);
       }
 
       // --- Phase 5: Hydrate from snapshot ---
@@ -279,6 +278,7 @@ describe("Phase 4 hydration integration", () => {
 
     const yDoc = docs.get("content")!;
     const ch = document.channel("content");
+    const hist = store.documents.get(TEST_DOC).history("content");
     let prevCid: CID | null = null;
 
     // 3 rounds: edit -> converge -> snapshot
@@ -289,17 +289,13 @@ describe("Phase 4 hydration integration", () => {
       const epochs = toArray(ch.tree);
       const tip = epochs[epochs.length - 1]!;
       for (const e of tip.edits) {
-        await store.persistEdit("content", e);
+        await hist.append(epochs.length - 1, e);
       }
 
       // Converge
       ch.closeEpoch();
       const closedIdx = epochs.length - 1;
-      await store.persistEpochBoundary(
-        "content",
-        closedIdx,
-        toArray(ch.tree)[closedIdx]!.boundary,
-      );
+      await hist.close(closedIdx, toArray(ch.tree)[closedIdx]!.boundary);
 
       // Snapshot
       const snap = await makeSnapshot(
