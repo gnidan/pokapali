@@ -1,12 +1,12 @@
 ---
 ---
 
-ops: restore GHA visual graph for relay deploys
+ops: fix deploy workflow — per-batch GHA jobs
 
-Rework deploy-relays.yml to use dynamic matrix
-strategy with per-batch jobs. Setup job reads
-DEPLOY_NODES_CONFIG and outputs per-batch matrices.
-Batch jobs use strategy.matrix for parallel per-node
-deploys. Restores per-node job graph in GHA UI while
-keeping all node config in the secret. Supports up
-to 5 batches; unused slots auto-skip.
+Rework deploy-relays.yml to use per-batch jobs that
+each read the secret directly and deploy nodes in
+parallel. Avoids GHA secret masking issue where job
+outputs derived from secrets are redacted. Setup job
+outputs only commit and batch count (not secret data).
+New bin/deploy-batch.sh handles single-batch parallel
+deploys. Supports up to 5 batches; unused auto-skip.

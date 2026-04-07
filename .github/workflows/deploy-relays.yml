@@ -36,11 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       commit: ${{ steps.target.outputs.commit }}
-      batch1: ${{ steps.batches.outputs.batch1 }}
-      batch2: ${{ steps.batches.outputs.batch2 }}
-      batch3: ${{ steps.batches.outputs.batch3 }}
-      batch4: ${{ steps.batches.outputs.batch4 }}
-      batch5: ${{ steps.batches.outputs.batch5 }}
+      batch_count: >-
+        ${{ steps.batches.outputs.batch_count }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,44 +53,17 @@ jobs:
       - name: Validate config
         run: bin/validate-nodes-config.sh
 
-      - name: Build batch matrices
+      - name: Count batches
         id: batches
         env:
           NODES_JSON: >-
             ${{ secrets.DEPLOY_NODES_CONFIG }}
         run: |
-          SKIP="${{ inputs.skip_nodes }}"
           COUNT=$(printf '%s\n' "$NODES_JSON" \
             | jq '.batches | length')
-
-          for i in $(seq 0 4); do
-            if [ "$i" -lt "$COUNT" ]; then
-              BATCH=$(printf '%s\n' "$NODES_JSON" \
-                | jq -c \
-                  --arg skip "$SKIP" \
-                  --argjson idx "$i" '
-                  .batches[$idx].nodes
-                  | map(.name)
-                  | map(select(
-                      . as $n
-                      | ($skip | split(","))
-                      | map(. == $n)
-                      | any | not
-                    ))
-                  | if length > 0
-                    then {node: .}
-                    else empty end')
-              # Empty when all nodes skipped
-              BATCH="${BATCH:-}"
-            else
-              BATCH=""
-            fi
-            echo "batch$((i+1))=$BATCH" \
-              >> "$GITHUB_OUTPUT"
-            if [ -n "$BATCH" ]; then
-              echo "Batch $((i+1)): $BATCH"
-            fi
-          done
+          echo "batch_count=$COUNT" \
+            >> "$GITHUB_OUTPUT"
+          echo "Batch count: $COUNT"
 
       - name: Configure SSH
         run: |
@@ -168,14 +138,11 @@ jobs:
   # --- Batch 1 (parallel within batch) ---
 
   batch-1:
-    name: "batch-1 / ${{ matrix.node }}"
+    name: Batch 1
     needs: setup
-    if: needs.setup.outputs.batch1 != ''
+    if: >-
+      needs.setup.outputs.batch_count >= 1
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix: >-
-        ${{ fromJson(needs.setup.outputs.batch1) }}
     steps:
       - uses: actions/checkout@v4
       - name: Write node config
@@ -201,27 +168,23 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-      - name: Deploy + health check
+      - name: Deploy batch 1
         run: |
-          bin/deploy-single-node.sh \
-            "${{ matrix.node }}" \
+          bin/deploy-batch.sh 0 \
             "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
 
   # --- Batch 2 (after batch 1) ---
 
   batch-2:
-    name: "batch-2 / ${{ matrix.node }}"
+    name: Batch 2
     needs: [setup, batch-1]
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
-      needs.setup.outputs.batch2 != ''
+      needs.setup.outputs.batch_count >= 2
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix: >-
-        ${{ fromJson(needs.setup.outputs.batch2) }}
     steps:
       - uses: actions/checkout@v4
       - name: Write node config
@@ -247,27 +210,23 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-      - name: Deploy + health check
+      - name: Deploy batch 2
         run: |
-          bin/deploy-single-node.sh \
-            "${{ matrix.node }}" \
+          bin/deploy-batch.sh 1 \
             "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
 
   # --- Batch 3 (after batch 2) ---
 
   batch-3:
-    name: "batch-3 / ${{ matrix.node }}"
+    name: Batch 3
     needs: [setup, batch-1, batch-2]
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
-      needs.setup.outputs.batch3 != ''
+      needs.setup.outputs.batch_count >= 3
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix: >-
-        ${{ fromJson(needs.setup.outputs.batch3) }}
     steps:
       - uses: actions/checkout@v4
       - name: Write node config
@@ -293,27 +252,23 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-      - name: Deploy + health check
+      - name: Deploy batch 3
         run: |
-          bin/deploy-single-node.sh \
-            "${{ matrix.node }}" \
+          bin/deploy-batch.sh 2 \
             "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
 
   # --- Batch 4 (after batch 3, if present) ---
 
   batch-4:
-    name: "batch-4 / ${{ matrix.node }}"
+    name: Batch 4
     needs: [setup, batch-1, batch-2, batch-3]
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
-      needs.setup.outputs.batch4 != ''
+      needs.setup.outputs.batch_count >= 4
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix: >-
-        ${{ fromJson(needs.setup.outputs.batch4) }}
     steps:
       - uses: actions/checkout@v4
       - name: Write node config
@@ -339,27 +294,24 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-      - name: Deploy + health check
+      - name: Deploy batch 4
         run: |
-          bin/deploy-single-node.sh \
-            "${{ matrix.node }}" \
+          bin/deploy-batch.sh 3 \
             "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
 
   # --- Batch 5 (after batch 4, if present) ---
 
   batch-5:
-    name: "batch-5 / ${{ matrix.node }}"
-    needs: [setup, batch-1, batch-2, batch-3, batch-4]
+    name: Batch 5
+    needs: >-
+      [setup, batch-1, batch-2, batch-3, batch-4]
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
-      needs.setup.outputs.batch5 != ''
+      needs.setup.outputs.batch_count >= 5
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix: >-
-        ${{ fromJson(needs.setup.outputs.batch5) }}
     steps:
       - uses: actions/checkout@v4
       - name: Write node config
@@ -385,9 +337,9 @@ jobs:
             "  ConnectTimeout 15" \
             > ~/.ssh/config
           chmod 600 ~/.ssh/config
-      - name: Deploy + health check
+      - name: Deploy batch 5
         run: |
-          bin/deploy-single-node.sh \
-            "${{ matrix.node }}" \
+          bin/deploy-batch.sh 4 \
             "${{ needs.setup.outputs.commit }}" \
+            "${{ inputs.skip_nodes }}" \
             "${{ inputs.dry_run }}"
