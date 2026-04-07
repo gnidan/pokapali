@@ -17,6 +17,7 @@
  */
 
 import { CID } from "multiformats/cid";
+import { runMigrations } from "./migrate.js";
 import {
   type Edit,
   type Epoch,
@@ -213,6 +214,7 @@ export const Store: {
 } = {
   async create(appId: string): Promise<Store> {
     const db = await openDb(appId);
+    await runMigrations(db, appId);
 
     const identity: Store.Identity = {
       async load(id: string): Promise<Uint8Array | null> {
