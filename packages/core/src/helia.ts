@@ -134,6 +134,13 @@ async function createHeliaInstance(
       // Keep low to prevent accumulating DHT/bootstrap
       // peers that trigger pruning of relay connections.
       maxConnections: 25,
+      // Explicit reconnect backoff to prevent NaN
+      // timeouts. libp2p's ReconnectQueue passes these
+      // through to p-retry → retry; when undefined,
+      // retry's defaults get overwritten with undefined
+      // and timeout arithmetic produces NaN.
+      reconnectRetryInterval: 1000,
+      reconnectBackoffFactor: 2,
     },
     peerDiscovery: [
       ...(defaults.peerDiscovery ?? []),

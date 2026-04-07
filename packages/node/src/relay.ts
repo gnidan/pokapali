@@ -179,6 +179,10 @@ export async function startRelay(config: RelayConfig): Promise<Relay> {
         ...defaults.connectionManager,
         maxConnections: MAX_CONNECTIONS,
         maxIncomingPendingConnections: 10,
+        // Explicit reconnect backoff — see helia.ts
+        // comment for why these are needed.
+        reconnectRetryInterval: 1000,
+        reconnectBackoffFactor: 2,
       },
       services,
     },

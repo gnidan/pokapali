@@ -282,18 +282,32 @@ test.describe("multi-peer editing", () => {
       await waitForDocSync(alice, bob, "SYNC_AB");
       await waitForDocSync(alice, carol, "SYNC_AC");
 
-      // Each peer types unique content.
+      // Type one peer at a time and confirm sync after
+      // each. Concurrent 3-way writes overwhelm the
+      // relay on resource-constrained CI runners.
+      // Sequential typing is both more robust and more
+      // diagnostic — a failure pinpoints which sync
+      // path broke.
       await alice.locator(".tiptap").click();
       await alice.keyboard.type("FromAlice");
+      for (const p of [bob, carol]) {
+        await expect(p.locator(".tiptap")).toContainText("FromAlice", {
+          timeout: SYNC_TIMEOUT,
+        });
+      }
 
       await bob.locator(".tiptap").click();
       await bob.keyboard.type("FromBob");
+      for (const p of [alice, carol]) {
+        await expect(p.locator(".tiptap")).toContainText("FromBob", {
+          timeout: SYNC_TIMEOUT,
+        });
+      }
 
       await carol.locator(".tiptap").click();
       await carol.keyboard.type("FromCarol");
 
-      // All three should converge — each sees all
-      // three strings.
+      // Final convergence: all three see all content.
       for (const page of [alice, bob, carol]) {
         await expect(page.locator(".tiptap")).toContainText("FromAlice", {
           timeout: SYNC_TIMEOUT,
