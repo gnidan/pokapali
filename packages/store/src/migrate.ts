@@ -2,10 +2,18 @@
  * On-open migration for the unified Store.
  *
  * Copies data from old per-concern IDB databases into
- * the unified `pokapali:{appId}` database. Each source
- * is tracked independently in the `meta` store so
- * partial failures (crash mid-migration) are recoverable
- * on the next open.
+ * the unified `pokapali:{appId}` database.
+ *
+ * y-indexeddb migration uses per-edit `legacyId`
+ * tracking: each migrated edit is tagged with
+ * `{guid}:{autoIncrementKey}` in a sparse unique
+ * index. This provides:
+ *   - Idempotent insert (unique constraint)
+ *   - Fast short-circuit (count match = skip)
+ *   - Per-edit precision (partial = resume)
+ *
+ * Identity and doc-cache migrations use simple
+ * boolean flags in the meta store (small, fast).
  *
  * Old databases are preserved read-only for a 2-week
  * safety window after migration.
@@ -22,7 +30,6 @@ const log = createLogger("store:migrate");
 
 const MIGRATION_IDENTITY = "migration:identity";
 const MIGRATION_DOC_CACHE = "migration:doc-cache";
-const MIGRATION_YINDEXEDDB = "migration:y-indexeddb";
 
 interface MigrationMeta {
   key: string;
@@ -104,16 +111,19 @@ async function migrateIdentity(db: IDBDatabase, appId: string): Promise<void> {
   const done = await metaGet(db, MIGRATION_IDENTITY);
   if (done) return;
 
+  log.info("identity: starting migration");
+
   const oldDbName = `pokapali:identity:${appId}`;
   const oldDb = await idbOpen(oldDbName, 1);
   if (!oldDb) {
-    // No old DB — mark as migrated (nothing to do)
+    log.info("identity: no old DB, skipping");
     await metaSet(db, MIGRATION_IDENTITY);
     return;
   }
 
   try {
     if (!oldDb.objectStoreNames.contains("keypair")) {
+      log.info("identity: no keypair store, skipping");
       await metaSet(db, MIGRATION_IDENTITY);
       return;
     }
@@ -123,22 +133,27 @@ async function migrateIdentity(db: IDBDatabase, appId: string): Promise<void> {
       | undefined;
 
     if (record?.seed) {
-      // Copy seed to unified identities store
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction("identities", "readwrite");
         const store = tx.objectStore("identities");
-        // Only write if not already present (don't
-        // overwrite identity set by new code path)
         const getReq = store.get("device");
         getReq.onsuccess = () => {
           if (!getReq.result) {
-            store.put({ id: "device", seed: record.seed });
+            store.put({
+              id: "device",
+              seed: record.seed,
+            });
+            log.info("identity: migrated device seed");
+          } else {
+            log.info("identity: device seed already exists," + " skipping");
           }
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
         };
         getReq.onerror = () => reject(getReq.error);
       });
+    } else {
+      log.info("identity: no seed found, skipping");
     }
   } finally {
     oldDb.close();
@@ -165,14 +180,18 @@ async function migrateDocCache(db: IDBDatabase): Promise<void> {
   const done = await metaGet(db, MIGRATION_DOC_CACHE);
   if (done) return;
 
+  log.info("doc-cache: starting migration");
+
   const oldDb = await idbOpen("pokapali:doc-cache", 1);
   if (!oldDb) {
+    log.info("doc-cache: no old DB, skipping");
     await metaSet(db, MIGRATION_DOC_CACHE);
     return;
   }
 
   try {
     if (!oldDb.objectStoreNames.contains("version-index")) {
+      log.info("doc-cache: no version-index store, skipping");
       await metaSet(db, MIGRATION_DOC_CACHE);
       return;
     }
@@ -183,6 +202,7 @@ async function migrateDocCache(db: IDBDatabase): Promise<void> {
     )) as OldVersionCacheData[];
 
     if (all.length > 0) {
+      let count = 0;
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction("snapshots", "readwrite");
         const store = tx.objectStore("snapshots");
@@ -193,28 +213,27 @@ async function migrateDocCache(db: IDBDatabase): Promise<void> {
             try {
               cidBytes = CID.parse(entry.cid).bytes;
             } catch {
-              // Skip unparseable CIDs
               continue;
             }
 
-            // put() for idempotent upsert
             store.put({
               ipnsName: doc.ipnsName,
               cid: cidBytes,
               seq: entry.seq,
               ts: entry.ts,
-              // TODO: placeholders until snapshot
-              // metadata includes channel/epoch
-              // provenance
               channel: "",
               epochIndex: 0,
             });
+            count++;
           }
         }
 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
+      log.info(`doc-cache: migrated ${count} snapshot entries`);
+    } else {
+      log.info("doc-cache: no entries, skipping");
     }
   } finally {
     oldDb.close();
@@ -251,17 +270,10 @@ function parseGuid(guid: string): {
  * available, falls back to deriving known guids from
  * the snapshots table.
  */
-async function discoverYIndexeddbNames(
-  db: IDBDatabase,
-  appId: string,
-): Promise<string[]> {
-  // Try native enumeration first (Chrome, Edge)
+async function discoverYIndexeddbNames(db: IDBDatabase): Promise<string[]> {
   if (typeof indexedDB.databases === "function") {
     try {
       const all = await indexedDB.databases();
-      // y-indexeddb names look like "{hex}:{channel}"
-      // but NOT "pokapali:..." (our unified store).
-      // Filter to hex:channel patterns.
       return all
         .map((d) => d.name ?? "")
         .filter((name) => {
@@ -269,7 +281,6 @@ async function discoverYIndexeddbNames(
           if (name.startsWith("pokapali:")) return false;
           const parsed = parseGuid(name);
           if (!parsed) return false;
-          // Hex ipnsName is 64 chars
           return /^[0-9a-f]{64}$/.test(parsed.ipnsName);
         });
     } catch {
@@ -277,8 +288,6 @@ async function discoverYIndexeddbNames(
     }
   }
 
-  // Fallback: derive ipnsNames from snapshots table
-  // (migrated from doc-cache in earlier migration).
   const ipnsNames = await new Promise<string[]>((resolve, reject) => {
     const tx = db.transaction("snapshots", "readonly");
     const store = tx.objectStore("snapshots");
@@ -295,7 +304,6 @@ async function discoverYIndexeddbNames(
     req.onerror = () => reject(req.error);
   });
 
-  // Try known channel names for each ipnsName
   const known = ["content", "comments", "_meta"];
   const names: string[] = [];
   for (const ipns of ipnsNames) {
@@ -304,11 +312,6 @@ async function discoverYIndexeddbNames(
     }
   }
 
-  // Also try channel names from the app config by
-  // checking if the database actually exists (via
-  // idbOpen which aborts if DB doesn't exist).
-  // The caller filters non-existent DBs anyway, so
-  // false positives are harmless.
   return names;
 }
 
@@ -337,7 +340,6 @@ function latestSnapshotCid(
         resolve(null);
         return;
       }
-      // Find highest seq
       let best = snaps[0]!;
       for (let i = 1; i < snaps.length; i++) {
         if (snaps[i]!.seq > best.seq) best = snaps[i]!;
@@ -349,92 +351,115 @@ function latestSnapshotCid(
 }
 
 /**
- * Check whether any edits exist for an ipnsName +
- * channel pair. Used to detect the buggy deployment
- * where the old per-document migration in create-doc.ts
- * set the per-guid meta flag but never wrote edits
- * (because Y.Doc updates were applied with non-null
- * origin, so editHandler skipped persist).
+ * Count edits with legacyId prefix matching a guid.
+ * Used for the fast short-circuit: if the count
+ * matches the source update count, skip migration.
  */
-function hasEdits(
-  db: IDBDatabase,
-  ipnsName: string,
-  channel: string,
-): Promise<boolean> {
+function countLegacyEdits(db: IDBDatabase, guid: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction("edits", "readonly");
     const store = tx.objectStore("edits");
-    const index = store.index("by-doc-channel");
-    const req = index.openCursor(IDBKeyRange.only([ipnsName, channel]));
-    req.onsuccess = () => resolve(req.result !== null);
+    const index = store.index("by-legacy-id");
+    // legacyId format: "{guid}:{key}"
+    // Count all keys in range [guid:, guid:\uffff]
+    const range = IDBKeyRange.bound(`${guid}:`, `${guid}:\uffff`);
+    const req = index.count(range);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Read all updates from an old y-indexeddb database,
+ * preserving their auto-increment keys.
+ */
+function readOldUpdates(
+  oldDb: IDBDatabase,
+): Promise<Array<{ key: number; payload: Uint8Array }>> {
+  return new Promise((resolve, reject) => {
+    const tx = oldDb.transaction("updates", "readonly");
+    const store = tx.objectStore("updates");
+    const results: Array<{
+      key: number;
+      payload: Uint8Array;
+    }> = [];
+    const req = store.openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        resolve(results);
+        return;
+      }
+      results.push({
+        key: cursor.key as number,
+        payload: cursor.value as Uint8Array,
+      });
+      cursor.continue();
+    };
     req.onerror = () => reject(req.error);
   });
 }
 
 /**
  * Migrate a single y-indexeddb database into the
- * unified Store's edits table.
+ * unified Store's edits table using per-edit legacyId
+ * tracking for idempotent, resumable migration.
  */
 async function migrateOneYIndexeddb(
   db: IDBDatabase,
   guid: string,
 ): Promise<void> {
-  const metaKey = `y-indexeddb:${guid}`;
   const parsed = parseGuid(guid);
-  if (!parsed) {
-    await metaSet(db, metaKey);
-    return;
-  }
-
-  const done = await metaGet(db, metaKey);
-  if (done) {
-    // The old buggy migration (create-doc.ts, !392)
-    // set per-guid flags but never wrote edits.
-    // Verify edits actually exist; if not, clear the
-    // flag and re-migrate.
-    const exists = await hasEdits(db, parsed.ipnsName, parsed.channel);
-    if (exists) return;
-    log.info(
-      `${guid}: flag set but no edits found,` +
-        " re-migrating (buggy deployment recovery)",
-    );
-  }
+  if (!parsed) return;
 
   const oldDb = await idbOpen(guid);
   if (!oldDb) {
     log.info(`${guid}: no old DB found, skipping`);
-    await metaSet(db, metaKey);
     return;
   }
 
   try {
     if (!oldDb.objectStoreNames.contains("updates")) {
       log.info(`${guid}: no updates store, skipping`);
-      await metaSet(db, metaKey);
       return;
     }
 
-    const updates = await new Promise<Uint8Array[]>((resolve, reject) => {
-      const tx = oldDb.transaction("updates", "readonly");
-      const store = tx.objectStore("updates");
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result as Uint8Array[]);
-      req.onerror = () => reject(req.error);
-    });
+    const updates = await readOldUpdates(oldDb);
 
     if (updates.length === 0) {
       log.info(`${guid}: 0 updates, skipping`);
-      await metaSet(db, metaKey);
       return;
     }
 
-    // Write all raw updates as StoredEdit records at
-    // epoch 0 in a single transaction.
+    // Fast short-circuit: if the count of legacyId
+    // edits matches the source count, skip entirely.
+    const existing = await countLegacyEdits(db, guid);
+    if (existing === updates.length) {
+      log.info(`${guid}: ${existing} edits already` + " migrated, skipping");
+      return;
+    }
+
+    if (existing > 0) {
+      log.info(
+        `${guid}: ${existing}/${updates.length}` +
+          " edits found, resuming migration",
+      );
+    }
+
+    // Write edits with legacyId. The unique index
+    // on legacyId prevents duplicates — we use put()
+    // but the unique constraint on the index means
+    // we need to use add() and catch ConstraintError
+    // for already-migrated edits.
+    let added = 0;
+    let skipped = 0;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction("edits", "readwrite");
       const store = tx.objectStore("edits");
-      for (const payload of updates) {
-        store.add({
+
+      for (const { key, payload } of updates) {
+        const legacyId = `${guid}:${key}`;
+        const addReq = store.add({
           ipnsName: parsed.ipnsName,
           channel: parsed.channel,
           epochIndex: 0,
@@ -444,17 +469,37 @@ async function migrateOneYIndexeddb(
           editChannel: parsed.channel,
           origin: "hydrate",
           signature: new Uint8Array(0),
+          legacyId,
         });
+        addReq.onsuccess = () => {
+          added++;
+        };
+        // ConstraintError = legacyId already exists
+        // (duplicate from partial prior migration).
+        // preventDefault() stops the error from
+        // propagating to the transaction and aborting.
+        addReq.onerror = (event) => {
+          if (addReq.error?.name === "ConstraintError") {
+            skipped++;
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        };
       }
+
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => {
+        reject(tx.error);
+      };
     });
 
-    log.info(`${guid}: migrated ${updates.length} updates`);
+    log.info(
+      `${guid}: migrated ${added} edits` +
+        (skipped > 0 ? ` (${skipped} already present)` : ""),
+    );
 
-    // If a snapshot exists for this ipnsName and
-    // this is NOT the _meta channel, close epoch 0
-    // with a snapshotted boundary.
+    // Close epoch 0 with snapshot if available
+    // (skip for _meta channel).
     if (parsed.channel !== "_meta") {
       const cidBytes = await latestSnapshotCid(db, parsed.ipnsName);
       if (cidBytes) {
@@ -483,8 +528,6 @@ async function migrateOneYIndexeddb(
   } finally {
     oldDb.close();
   }
-
-  await metaSet(db, metaKey);
 }
 
 /**
@@ -496,23 +539,21 @@ async function migrateOneYIndexeddb(
  * is a Uint8Array. We copy these raw bytes directly
  * into the edits table — no Y.Doc needed.
  *
- * Migration is tracked per guid in the meta store
- * (`y-indexeddb:{guid}`) and globally
- * (`migration:y-indexeddb` marks discovery complete).
+ * Migration uses per-edit legacyId tracking for
+ * idempotent, resumable, per-edit precision. No
+ * boolean flags — the edits themselves are the
+ * source of truth.
  */
-async function migrateYIndexeddb(
-  db: IDBDatabase,
-  appId: string,
-): Promise<void> {
-  const done = await metaGet(db, MIGRATION_YINDEXEDDB);
-  if (done) return;
-
+async function migrateYIndexeddb(db: IDBDatabase): Promise<void> {
   try {
-    const names = await discoverYIndexeddbNames(db, appId);
+    const names = await discoverYIndexeddbNames(db);
     if (names.length > 0) {
       log.info(
-        `discovered ${names.length} y-indexeddb` + " databases to migrate",
+        `discovered ${names.length} y-indexeddb` + " databases to check",
       );
+    } else {
+      log.info("no y-indexeddb databases found");
+      return;
     }
 
     for (const guid of names) {
@@ -520,15 +561,11 @@ async function migrateYIndexeddb(
         await migrateOneYIndexeddb(db, guid);
       } catch (err) {
         log.warn(`y-indexeddb migration failed for` + ` ${guid}:`, err);
-        // Continue with other databases — don't let
-        // one failure block the rest.
       }
     }
   } catch (err) {
     log.warn("y-indexeddb discovery failed:", err);
   }
-
-  await metaSet(db, MIGRATION_YINDEXEDDB);
 }
 
 // -------------------------------------------------------
@@ -552,9 +589,13 @@ export async function runMigrations(
   await migrateIdentity(db, appId);
   await migrateDocCache(db);
 
-  const background = migrateYIndexeddb(db, appId).catch((err) => {
-    log.warn("y-indexeddb background migration failed:", err);
-  });
+  const background = migrateYIndexeddb(db)
+    .catch((err) => {
+      log.warn("y-indexeddb background migration failed:", err);
+    })
+    .then(() => {
+      log.info("runMigrations complete");
+    });
 
   return { background };
 }

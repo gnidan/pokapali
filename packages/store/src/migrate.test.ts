@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import "fake-indexeddb/auto";
 import { Store } from "./store.js";
 
@@ -129,10 +129,8 @@ describe("migration", () => {
       const appId = freshId();
       const seed = new Uint8Array([1, 2, 3, 4, 5]);
 
-      // Seed old DB before Store.create
       await seedOldIdentityDb(appId, seed);
 
-      // Store.create should migrate
       const store = await Store.create(appId);
       const loaded = await store.identity.load("device");
       expect(loaded).toEqual(seed);
@@ -144,16 +142,12 @@ describe("migration", () => {
       const oldSeed = new Uint8Array([1, 2, 3]);
       const newSeed = new Uint8Array([4, 5, 6]);
 
-      // Create store first, save new identity
       const store1 = await Store.create(appId);
       await store1.identity.save("device", newSeed);
       store1.close();
 
-      // Now seed old DB (simulating race condition)
       await seedOldIdentityDb(appId, oldSeed);
 
-      // Re-open store — migration should NOT
-      // overwrite the new seed
       const store2 = await Store.create(appId);
       const loaded = await store2.identity.load("device");
       expect(loaded).toEqual(newSeed);
@@ -163,7 +157,6 @@ describe("migration", () => {
     it("handles missing old identity DB", async () => {
       const appId = freshId();
 
-      // No old DB seeded — should not error
       const store = await Store.create(appId);
       const loaded = await store.identity.load("device");
       expect(loaded).toBeNull();
@@ -176,12 +169,10 @@ describe("migration", () => {
 
       await seedOldIdentityDb(appId, seed);
 
-      // First open migrates
       const store1 = await Store.create(appId);
       expect(await store1.identity.load("device")).toEqual(seed);
       store1.close();
 
-      // Second open — migration already done
       const store2 = await Store.create(appId);
       expect(await store2.identity.load("device")).toEqual(seed);
       store2.close();
@@ -193,7 +184,6 @@ describe("migration", () => {
       const appId = freshId();
       const ipnsName = "test-doc-" + appId;
 
-      // Use a valid CIDv1 string (base32)
       const cidStr =
         "bafyreigdp2ksn3n2olbyb4if54oonbslt5sp" + "lsdrwgi5ezr6fy6zl4sney";
 
@@ -210,7 +200,6 @@ describe("migration", () => {
       const store = await Store.create(appId);
       const snaps = await store.documents.get(ipnsName).snapshots.loadAll();
 
-      // Should have migrated entries
       expect(snaps.length).toBeGreaterThanOrEqual(1);
       store.close();
     });
@@ -218,7 +207,6 @@ describe("migration", () => {
     it("handles missing doc-cache DB", async () => {
       const appId = freshId();
 
-      // No old DB — should not error
       const store = await Store.create(appId);
       const snaps = await store.documents
         .get("nonexistent")
@@ -240,12 +228,10 @@ describe("migration", () => {
         },
       ]);
 
-      // First open migrates
       const store1 = await Store.create(appId);
       const snaps1 = await store1.documents.get(ipnsName).snapshots.loadAll();
       store1.close();
 
-      // Second open — no duplicates
       const store2 = await Store.create(appId);
       const snaps2 = await store2.documents.get(ipnsName).snapshots.loadAll();
       expect(snaps2.length).toBe(snaps1.length);
@@ -259,7 +245,8 @@ describe("migration", () => {
       "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" + "e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
     it(
-      "copies raw updates from old y-indexeddb " + "into edits store",
+      "copies raw updates from old y-indexeddb " +
+        "into edits store with legacyId",
       async () => {
         const appId = freshId();
         const guid = `${IPNS}:content`;
@@ -308,21 +295,18 @@ describe("migration", () => {
       const cidStr =
         "bafyreigdp2ksn3n2olbyb4if54oonbslt5sp" + "lsdrwgi5ezr6fy6zl4sney";
 
-      // Seed doc-cache so a snapshot migrates first
       await seedOldDocCache([
         {
           ipnsName: IPNS,
           entries: [{ cid: cidStr, seq: 1, ts: 1000 }],
         },
       ]);
-      // Seed y-indexeddb
       await seedYIndexeddb(guid, [new Uint8Array([1])]);
 
       const store = await Store.create(appId);
       await store.migrated;
       const epochs = await store.documents.get(IPNS).history("content").load();
 
-      // Epoch 0 should be snapshotted, epoch 1 open
       expect(epochs.length).toBeGreaterThanOrEqual(2);
       expect(epochs[0]!.boundary.tag).toBe("snapshotted");
       expect(epochs[epochs.length - 1]!.boundary.tag).toBe("open");
@@ -349,73 +333,56 @@ describe("migration", () => {
       s2.close();
     });
 
-    it(
-      "recovers from buggy deployment that set " + "flag without writing edits",
-      async () => {
-        const appId = freshId();
-        const guid = `${IPNS}:content`;
-        const updates = [new Uint8Array([1, 2, 3])];
-        await seedYIndexeddb(guid, updates);
+    it("resumes partial migration", async () => {
+      const appId = freshId();
+      // Use a unique IPNS so other tests' databases
+      // don't bleed into this one via discovery.
+      const resumeIpns =
+        "b1b2b3b4b5b6b1b2b3b4b5b6b1b2b3b4" + "b5b6b1b2b3b4b5b6b1b2b3b4b5b6b1b2";
+      const guid = `${resumeIpns}:content`;
+      // Start with 1 update
+      await seedYIndexeddb(guid, [new Uint8Array([1, 2, 3])]);
 
-        // Simulate the old buggy deployment state:
-        // per-guid meta flag set, but no edits written,
-        // and no global migration:y-indexeddb flag.
-        //
-        // Strategy: let correct migration run, then
-        // delete edits + global flag to simulate the
-        // buggy state where per-guid flag exists but
-        // edits don't.
-        const s0 = await Store.create(appId);
-        await s0.migrated;
-        s0.close();
+      const s1 = await Store.create(appId);
+      await s1.migrated;
+      const e1 = await s1.documents.get(resumeIpns).history("content").load();
+      const count1 = e1.flatMap((e) => e.edits).length;
+      expect(count1).toBe(1);
+      s1.close();
 
-        await new Promise<void>((resolve, reject) => {
-          const req = indexedDB.open(`pokapali:${appId}`);
-          req.onsuccess = () => {
-            const db = req.result;
-            const tx = db.transaction(["edits", "meta"], "readwrite");
-            // Delete all edits
-            tx.objectStore("edits").clear();
-            // Delete global flag (old code didn't
-            // set this)
-            tx.objectStore("meta").delete("migration:y-indexeddb");
-            // Per-guid flag remains (old code DID
-            // set this)
-            tx.oncomplete = () => {
-              db.close();
-              resolve();
-            };
-            tx.onerror = () => {
-              db.close();
-              reject(tx.error);
-            };
+      // Add more updates to the old DB (simulating
+      // a crash that interrupted migration)
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open(guid, 1);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("updates", "readwrite");
+          const store = tx.objectStore("updates");
+          store.add(new Uint8Array([4, 5, 6]));
+          store.add(new Uint8Array([7, 8, 9]));
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
           };
-          req.onerror = () => reject(req.error);
-        });
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        };
+        req.onerror = () => reject(req.error);
+      });
 
-        // Now open Store — migration should detect
-        // the flag-without-edits case and re-migrate
-        const store = await Store.create(appId);
-        await store.migrated;
-        const epochs = await store.documents
-          .get(IPNS)
-          .history("content")
-          .load();
-
-        const allEdits = epochs.flatMap((e) => e.edits);
-        expect(allEdits.length).toBeGreaterThanOrEqual(1);
-        // Our update should be among the edits
-        const found = allEdits.some(
-          (e) => Array.from(e.payload).join(",") === "1,2,3",
-        );
-        expect(found).toBe(true);
-        store.close();
-      },
-    );
+      // Reopen — should pick up the new updates
+      const s2 = await Store.create(appId);
+      await s2.migrated;
+      const e2 = await s2.documents.get(resumeIpns).history("content").load();
+      const count2 = e2.flatMap((e) => e.edits).length;
+      expect(count2).toBe(3);
+      s2.close();
+    });
 
     it("handles missing y-indexeddb DB", async () => {
       const appId = freshId();
-      // No old DB — should not error
       const store = await Store.create(appId);
       await store.migrated;
       const epochs = await store.documents
@@ -425,5 +392,94 @@ describe("migration", () => {
       expect(epochs).toHaveLength(0);
       store.close();
     });
+
+    it(
+      "v2→v3 upgrade cleans orphaned hydrate " +
+        "edits and re-migrates with legacyId",
+      async () => {
+        const appId = freshId();
+        const guid = `${IPNS}:content`;
+        await seedYIndexeddb(guid, [new Uint8Array([1, 2, 3])]);
+
+        // Create a v2 database manually with an
+        // orphaned hydrate edit (no legacyId)
+        await new Promise<void>((resolve, reject) => {
+          const req = indexedDB.open(`pokapali:${appId}`, 2);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            const edits = db.createObjectStore("edits", {
+              autoIncrement: true,
+            });
+            edits.createIndex("by-doc-channel-epoch", [
+              "ipnsName",
+              "channel",
+              "epochIndex",
+            ]);
+            edits.createIndex("by-doc-channel", ["ipnsName", "channel"]);
+            db.createObjectStore("identities", {
+              keyPath: "id",
+            });
+            db.createObjectStore("epochs", {
+              keyPath: ["ipnsName", "channel", "epochIndex"],
+            });
+            db.createObjectStore("snapshots", {
+              keyPath: ["ipnsName", "seq"],
+            });
+            db.createObjectStore("view-cache", {
+              keyPath: ["ipnsName", "viewName", "channel", "epochOrdinal"],
+            });
+            db.createObjectStore("meta", {
+              keyPath: "key",
+            });
+
+            // Write an orphaned hydrate edit
+            edits.add({
+              ipnsName: IPNS,
+              channel: "content",
+              epochIndex: 0,
+              payload: new Uint8Array([99, 99]),
+              timestamp: 0,
+              author: "",
+              editChannel: "content",
+              origin: "hydrate",
+              signature: new Uint8Array(0),
+              // No legacyId — this is orphaned
+            });
+          };
+          req.onsuccess = () => {
+            req.result.close();
+            resolve();
+          };
+          req.onerror = () => reject(req.error);
+        });
+
+        // Now open Store (triggers v2→v3 upgrade +
+        // migration). The orphaned edit should be
+        // deleted and replaced by properly-tracked
+        // legacyId edits.
+        const store = await Store.create(appId);
+        await store.migrated;
+        const epochs = await store.documents
+          .get(IPNS)
+          .history("content")
+          .load();
+
+        const allEdits = epochs.flatMap((e) => e.edits);
+        // Should have the properly migrated edit,
+        // not the orphaned one
+        expect(allEdits.length).toBeGreaterThanOrEqual(1);
+        // The orphaned [99,99] should be gone
+        const hasOrphan = allEdits.some(
+          (e) => Array.from(e.payload).join(",") === "99,99",
+        );
+        expect(hasOrphan).toBe(false);
+        // The properly migrated [1,2,3] should exist
+        const hasProper = allEdits.some(
+          (e) => Array.from(e.payload).join(",") === "1,2,3",
+        );
+        expect(hasProper).toBe(true);
+        store.close();
+      },
+    );
   });
 });

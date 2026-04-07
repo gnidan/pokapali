@@ -31,7 +31,7 @@ import {
 // Constants
 // -------------------------------------------------------
 
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const IDENTITIES_STORE = "identities";
 const EDITS_STORE = "edits";
@@ -54,6 +54,11 @@ interface StoredEdit {
   editChannel: string;
   origin: "local" | "sync" | "hydrate";
   signature: Uint8Array;
+  /** Links migrated edits to their source record.
+   *  Format: `{guid}:{autoIncrementKey}`. Sparse —
+   *  only present on edits from y-indexeddb migration.
+   *  Unique index prevents duplicate migration. */
+  legacyId?: string;
 }
 
 interface StoredBoundary {
@@ -157,8 +162,9 @@ export namespace Store {
 function openDb(appId: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(`pokapali:${appId}`, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      const oldVersion = event.oldVersion;
 
       if (!db.objectStoreNames.contains(IDENTITIES_STORE)) {
         db.createObjectStore(IDENTITIES_STORE, {
@@ -166,16 +172,64 @@ function openDb(appId: string): Promise<IDBDatabase> {
         });
       }
 
+      let editsStore: IDBObjectStore;
       if (!db.objectStoreNames.contains(EDITS_STORE)) {
-        const store = db.createObjectStore(EDITS_STORE, {
+        editsStore = db.createObjectStore(EDITS_STORE, {
           autoIncrement: true,
         });
-        store.createIndex("by-doc-channel-epoch", [
+        editsStore.createIndex("by-doc-channel-epoch", [
           "ipnsName",
           "channel",
           "epochIndex",
         ]);
-        store.createIndex("by-doc-channel", ["ipnsName", "channel"]);
+        editsStore.createIndex("by-doc-channel", ["ipnsName", "channel"]);
+      } else {
+        editsStore = req.transaction!.objectStore(EDITS_STORE);
+      }
+
+      // v2→v3: add sparse unique index on legacyId
+      // and delete orphaned hydrate edits (from the
+      // buggy flag-based migration) that lack legacyId.
+      if (oldVersion < 3) {
+        if (!editsStore.indexNames.contains("by-legacy-id")) {
+          editsStore.createIndex("by-legacy-id", "legacyId", { unique: true });
+        }
+
+        // Delete orphaned hydrate edits that were
+        // written by the old flag-based migration
+        // without legacyId — they'll be re-migrated
+        // with proper legacyId tracking.
+        const cursorReq = editsStore.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          const record = cursor.value as StoredEdit;
+          if (record.origin === "hydrate" && !record.legacyId) {
+            cursor.delete();
+          }
+          cursor.continue();
+        };
+
+        // Clean up stale per-guid and global
+        // migration flags from the old flag-based
+        // approach. The legacyId-based migration
+        // doesn't use these.
+        if (db.objectStoreNames.contains(META_STORE)) {
+          const metaStore = req.transaction!.objectStore(META_STORE);
+          const metaCursor = metaStore.openCursor();
+          metaCursor.onsuccess = () => {
+            const c = metaCursor.result;
+            if (!c) return;
+            const key = (c.value as { key: string }).key;
+            if (
+              key === "migration:y-indexeddb" ||
+              key.startsWith("y-indexeddb:")
+            ) {
+              c.delete();
+            }
+            c.continue();
+          };
+        }
       }
 
       if (!db.objectStoreNames.contains(EPOCHS_STORE)) {
