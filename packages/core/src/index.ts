@@ -402,9 +402,13 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                 reconnectCbs.add(cb);
                 return () => reconnectCbs.delete(cb);
               },
+              closeBlockstore: blockstore
+                ? () => blockstore.close()
+                : undefined,
             };
           } catch (err) {
             releaseHelia();
+            if (blockstore) blockstore.close();
             throw err;
           }
         })();

@@ -350,6 +350,8 @@ export interface P2PDeps {
    *  signaling stream + awareness room is created.
    *  Replaces the current liveAwarenessRoom. */
   onSignalingReconnect?(cb: (room: AwarenessRoom) => void): () => void;
+  /** Close the IDB blockstore on teardown. */
+  closeBlockstore?: () => Promise<void>;
 }
 
 export interface DocParams {
@@ -551,6 +553,7 @@ export function createDoc(params: DocParams): Doc {
   // knows to release Helia (avoids ref-count
   // underflow if Helia was never acquired).
   let p2pResolved = false;
+  let closeBlockstore: (() => Promise<void>) | null = null;
   // Channels already warned about missing write key —
   // avoids spamming console on repeated channel() calls.
   const warnedChannels = new Set<string>();
@@ -1743,8 +1746,12 @@ export function createDoc(params: DocParams): Doc {
   if (params.p2pReady && !params.pubsub) {
     params.p2pReady
       .then((deps) => {
-        if (destroyed) return;
+        if (destroyed) {
+          deps.closeBlockstore?.();
+          return;
+        }
         p2pResolved = true;
+        closeBlockstore = deps.closeBlockstore ?? null;
         liveSyncManager = deps.syncManager;
         liveAwarenessRoom = deps.awarenessRoom;
         wireSyncBridges(deps.syncManager, deps.awarenessRoom);
@@ -1879,6 +1886,8 @@ export function createDoc(params: DocParams): Doc {
     if (p2pResolved || !params.p2pReady) {
       releaseHelia();
     }
+    // Close IDB blockstore after Helia releases it.
+    closeBlockstore?.();
   }
 
   function assertNotDestroyed() {
