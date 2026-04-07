@@ -219,7 +219,10 @@ describe("lazy P2P init (#200)", () => {
         roomDiscovery: {
           stop: vi.fn(),
           relayPeerIds: new Set(),
+          relayEntries: vi.fn(() => []),
           addExternalRelays: vi.fn(),
+          waitForRelay: vi.fn(),
+          onRelayReconnected: vi.fn(() => () => {}),
         },
       });
 

@@ -365,12 +365,48 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
               upgradeAwareness.catch(() => {});
             }
 
+            // Relay reconnect → re-create signaling
+            // stream and awareness room. Consumers
+            // swap the room via onSignalingReconnect.
+            const reconnectCbs = new Set<(room: AwarenessRoom) => void>();
+            roomDiscovery.onRelayReconnected((relayPid) => {
+              log.info(
+                "relay reconnected, re-opening" + " signaling:",
+                relayPid.slice(0, 12),
+              );
+              void trySignaling(
+                helia,
+                relayPid,
+                ipnsName,
+                awareness,
+                syncOpts,
+                networkId,
+              )
+                .then((newRoom) => {
+                  for (const cb of reconnectCbs) {
+                    cb(newRoom);
+                  }
+                })
+                .catch((err) => {
+                  log.warn(
+                    "signaling reconnect failed:",
+                    (err as Error)?.message ?? err,
+                  );
+                });
+            });
+
             return {
               pubsub,
               syncManager,
               awarenessRoom,
               roomDiscovery,
               upgradeAwareness,
+              onSignalingReconnect(
+                cb: (room: AwarenessRoom) => void,
+              ): () => void {
+                reconnectCbs.add(cb);
+                return () => reconnectCbs.delete(cb);
+              },
             };
           } catch (err) {
             releaseHelia();

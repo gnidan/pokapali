@@ -349,6 +349,10 @@ export interface P2PDeps {
    *  replaces the placeholder passed in
    *  awarenessRoom. */
   upgradeAwareness?: Promise<AwarenessRoom>;
+  /** Fires when a relay reconnects and a new
+   *  signaling stream + awareness room is created.
+   *  Replaces the current liveAwarenessRoom. */
+  onSignalingReconnect?(cb: (room: AwarenessRoom) => void): () => void;
 }
 
 export interface DocParams {
@@ -1786,6 +1790,19 @@ export function createDoc(params: DocParams): Doc {
                 (err as Error)?.message ?? err,
               );
             });
+        }
+
+        // Ongoing signaling reconnection: when a
+        // relay redials, swap the awareness room
+        // and re-wire sync bridges.
+        if (deps.onSignalingReconnect) {
+          deps.onSignalingReconnect((newRoom) => {
+            if (destroyed) return;
+            log.info("signaling reconnected, swapping" + " awareness room");
+            liveAwarenessRoom?.destroy();
+            liveAwarenessRoom = newRoom;
+            wireSyncBridges(deps.syncManager, newRoom);
+          });
         }
 
         // Relay sharing (deferred)

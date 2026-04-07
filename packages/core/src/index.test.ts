@@ -66,6 +66,7 @@ vi.mock("./peer-discovery.js", () => ({
     relayEntries: vi.fn(() => []),
     addExternalRelays: vi.fn(),
     waitForRelay: vi.fn().mockRejectedValue(new Error("no relay in test")),
+    onRelayReconnected: vi.fn(() => () => {}),
     stop: vi.fn(),
   })),
 }));

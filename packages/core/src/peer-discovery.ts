@@ -67,6 +67,9 @@ export interface RoomDiscovery {
   /** Resolves when at least one relay is connected,
    *  or rejects after timeoutMs. */
   waitForRelay(timeoutMs: number): Promise<string>;
+  /** Fires when a previously-disconnected relay
+   *  is successfully redialed. */
+  onRelayReconnected(cb: (relayPid: string) => void): () => void;
   stop(): void;
 }
 
@@ -89,6 +92,7 @@ export function startRoomDiscovery(
   let cycleController: AbortController | null = null;
   const relayPeerIds = new Set<string>();
   const relayAddrs = new Map<string, string[]>();
+  const reconnectCbs = new Set<(relayPid: string) => void>();
 
   let running = false;
 
@@ -411,6 +415,13 @@ export function startRoomDiscovery(
           reconnectAttempts.delete(pid);
           upsertCachedRelay(pid, cached.addrs);
           log.info(`relay ...${short} reconnected`);
+          for (const cb of reconnectCbs) {
+            try {
+              cb(pid);
+            } catch (err) {
+              log.debug("reconnect cb error:", (err as Error)?.message ?? err);
+            }
+          }
         } else {
           reconnectAttempts.set(pid, attempts + 1);
         }
@@ -509,6 +520,10 @@ export function startRoomDiscovery(
         });
       });
     },
+    onRelayReconnected(cb: (relayPid: string) => void): () => void {
+      reconnectCbs.add(cb);
+      return () => reconnectCbs.delete(cb);
+    },
     stop() {
       stopped = true;
       cycleController?.abort();
@@ -520,6 +535,7 @@ export function startRoomDiscovery(
       }
       reconnectTimers.clear();
       reconnectAttempts.clear();
+      reconnectCbs.clear();
       helia.libp2p.removeEventListener("peer:disconnect", disconnectHandler);
     },
   };
