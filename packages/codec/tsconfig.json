@@ -5,5 +5,5 @@
     "rootDir": "."
   },
   "include": ["src"],
-  "references": []
+  "references": [{ "path": "../log" }]
 }

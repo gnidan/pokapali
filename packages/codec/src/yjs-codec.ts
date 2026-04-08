@@ -8,6 +8,9 @@
  */
 import * as Y from "yjs";
 import type { Codec, CodecSurface } from "./codec.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("codec");
 
 const REMOTE_ORIGIN = "remote";
 const SNAPSHOT_ORIGIN = "snapshot";
@@ -70,6 +73,7 @@ export const yjsCodec: Codec = {
 
   createSurface(opts?: { guid?: string }): CodecSurface {
     const doc = new Y.Doc(opts?.guid ? { guid: opts.guid } : undefined);
+    log.debug("createSurface:", opts?.guid ?? "(anonymous)");
     return {
       get handle() {
         return doc;
@@ -90,6 +94,7 @@ export const yjsCodec: Codec = {
         return () => doc.off("update", handler);
       },
       destroy() {
+        log.debug("destroySurface:", doc.guid);
         doc.destroy();
       },
     };

@@ -4,6 +4,9 @@ import { digitToArray, digitMeasure } from "./digit.js";
 import { nodeMeasured, nodeToArray } from "./node.js";
 import { empty, cons, measureTree, viewl, viewr } from "./tree.js";
 import { fromArray } from "./fold.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("finger-tree");
 
 export interface Split<V, A> {
   readonly left: FingerTree<V, A>;
@@ -29,6 +32,7 @@ export function split<V, A>(
 ): Split<V, A> | undefined {
   if (t.tag === "empty") return undefined;
   if (!p(measureTree(m, t))) return undefined;
+  log.debug("split: predicate satisfied, splitting");
   return splitTree(m, p, m.monoid.empty, t);
 }
 

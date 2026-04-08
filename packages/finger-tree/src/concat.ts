@@ -3,6 +3,9 @@ import type { FingerTree, Node, Digit } from "./types.js";
 import { digitToArray, digitMeasure } from "./digit.js";
 import { node2, node3, nodeMeasured } from "./node.js";
 import { empty, cons, snoc, measureTree } from "./tree.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("finger-tree");
 
 /**
  * Concatenate two finger trees.
@@ -54,6 +57,7 @@ function app3<V, A>(
   }
 
   // Both deep: merge inner digits through middle
+  log.debug("concat: merging two deep trees");
   const nm = nodeMeasured(m);
   const combined = [
     ...digitToArray(left.suffix),

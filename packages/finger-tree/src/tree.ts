@@ -11,6 +11,9 @@ import {
   three,
 } from "./digit.js";
 import { node3, nodeMeasured, nodeToArray } from "./node.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("finger-tree");
 
 // -- Construction --
 
@@ -76,6 +79,7 @@ export function cons<V, A>(
         return deep(m, consDigitUnsafe(a, pr), t.middle, t.suffix);
       }
       // Digit overflow: push node3 into middle
+      log.debug("cons: prefix overflow, deepening");
       const nm = nodeMeasured(m);
       const n = node3(m, pr.b, pr.c, pr.d);
       const newMiddle = cons(
@@ -120,6 +124,7 @@ export function snoc<V, A>(
         return deep(m, t.prefix, t.middle, snocDigitUnsafe(sf, a));
       }
       // Digit overflow: push node3 into middle
+      log.debug("snoc: suffix overflow, deepening");
       const nm = nodeMeasured(m);
       const n = node3(m, sf.a, sf.b, sf.c);
       const newMiddle = snoc(

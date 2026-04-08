@@ -3,6 +3,9 @@ import type { FingerTree, Digit, Node } from "./types.js";
 import { digitToArray } from "./digit.js";
 import { nodeToArray } from "./node.js";
 import { empty, snoc } from "./tree.js";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("finger-tree");
 
 /**
  * Convert a finger tree to an array (left-to-right).
@@ -67,6 +70,7 @@ export function fromArray<V, A>(
   for (const x of xs) {
     t = snoc(m, t, x);
   }
+  log.debug("fromArray: built tree from %d elements", xs.length);
   return t;
 }
 
