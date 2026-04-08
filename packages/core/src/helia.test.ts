@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { multiaddr } from "@multiformats/multiaddr";
+import { makeDenyDialMultiaddr } from "./helia.js";
 
 const { mockPubsub, mockStop, mockHelia, mockCreateHelia, mockGossipsub } =
   vi.hoisted(() => {
@@ -327,5 +329,59 @@ describe("helia lifecycle", () => {
     mockCreateHelia.mockResolvedValue(mockHelia);
     const h = await mod.acquireHelia();
     expect(h).toBe(mockHelia);
+  });
+});
+
+describe("makeDenyDialMultiaddr", () => {
+  describe("secure context (HTTPS)", () => {
+    const deny = makeDenyDialMultiaddr(true);
+
+    it("blocks plain ws://", () => {
+      expect(deny(multiaddr("/ip4/1.2.3.4/tcp/80/ws"))).toBe(true);
+    });
+
+    it("allows wss (ws over tls)", () => {
+      expect(deny(multiaddr("/ip4/1.2.3.4/tcp/443/tls/ws"))).toBe(false);
+    });
+
+    it("blocks private IP for non-WS", () => {
+      expect(deny(multiaddr("/ip4/192.168.1.1/tcp/4001"))).toBe(true);
+    });
+
+    it("blocks loopback for non-WS", () => {
+      expect(deny(multiaddr("/ip4/127.0.0.1/tcp/4001"))).toBe(true);
+    });
+
+    it("allows public IP for non-WS", () => {
+      expect(deny(multiaddr("/ip4/8.8.8.8/tcp/4001"))).toBe(false);
+    });
+
+    it("allows wss to private IP (LAN relay)", () => {
+      expect(deny(multiaddr("/ip4/192.168.1.1/tcp/443/tls/ws"))).toBe(false);
+    });
+  });
+
+  describe("non-secure context (HTTP)", () => {
+    const deny = makeDenyDialMultiaddr(false);
+
+    it("allows plain ws://", () => {
+      expect(deny(multiaddr("/ip4/1.2.3.4/tcp/80/ws"))).toBe(false);
+    });
+
+    it("allows wss", () => {
+      expect(deny(multiaddr("/ip4/1.2.3.4/tcp/443/tls/ws"))).toBe(false);
+    });
+
+    it("blocks private IP for non-WS", () => {
+      expect(deny(multiaddr("/ip4/10.0.0.1/tcp/4001"))).toBe(true);
+    });
+
+    it("allows ws to private IP (localhost dev)", () => {
+      expect(deny(multiaddr("/ip4/192.168.1.1/tcp/80/ws"))).toBe(false);
+    });
+
+    it("allows public IP for non-WS", () => {
+      expect(deny(multiaddr("/ip4/5.6.7.8/tcp/4001"))).toBe(false);
+    });
   });
 });

@@ -2,6 +2,7 @@ import { createHelia, libp2pDefaults } from "helia";
 import { bootstrap } from "@libp2p/bootstrap";
 import { gossipsub } from "@chainsafe/libp2p-gossipsub";
 import { pubsubPeerDiscovery } from "@libp2p/pubsub-peer-discovery";
+import { isPrivate } from "@libp2p/utils/multiaddr/is-private";
 import type { Helia } from "helia";
 import type { Libp2p, PubSub } from "@libp2p/interface";
 import { TimeoutError } from "./errors.js";
@@ -112,6 +113,43 @@ export async function acquireHelia(
   }
 }
 
+/**
+ * Build a denyDialMultiaddr gater that:
+ * 1. Blocks plain ws:// from HTTPS (mixed content)
+ * 2. Blocks private IPs for non-WS protocols
+ *    (restores browser default lost when overriding
+ *    denyDialMultiaddr)
+ *
+ * Exported for testing.
+ */
+
+export function makeDenyDialMultiaddr(secure: boolean) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (ma: any): boolean => {
+    const s = ma.toString() as string;
+    // Block plain ws:// from HTTPS pages — browsers
+    // reject mixed content and failed attempts waste
+    // connection slots.
+    if (
+      secure &&
+      (s.includes("/ws/") || s.endsWith("/ws")) &&
+      !s.includes("/tls/")
+    ) {
+      return true;
+    }
+    // Restore default browser private-IP blocking.
+    // libp2pDefaults() omits connectionGater, so the
+    // browser default (which blocks private IPs for
+    // non-WS protocols) is lost when we override
+    // denyDialMultiaddr. WebSocket connections to
+    // private IPs stay allowed for localhost/LAN dev.
+    if (!s.includes("/ws")) {
+      return isPrivate(ma);
+    }
+    return false;
+  };
+}
+
 async function createHeliaInstance(
   _options?: HeliaOptions,
 ): Promise<HeliaWithPubsub> {
@@ -179,24 +217,9 @@ async function createHeliaInstance(
         },
       }),
     },
-    // Block plain ws:// dials from HTTPS pages — browsers
-    // reject mixed content and the failed attempts waste
-    // connection slots and time.
-    ...(isSecureContext
-      ? {
-          connectionGater: {
-            ...defaults.connectionGater,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            denyDialMultiaddr: (ma: any) => {
-              const s = ma.toString();
-              if (s.includes("/ws/") || s.endsWith("/ws")) {
-                return !s.includes("/tls/");
-              }
-              return false;
-            },
-          },
-        }
-      : {}),
+    connectionGater: {
+      denyDialMultiaddr: makeDenyDialMultiaddr(isSecureContext),
+    },
   };
 
   const BOOTSTRAP_TIMEOUT_MS = 30_000;

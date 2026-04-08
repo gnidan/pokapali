@@ -14,6 +14,10 @@ const LOG_INTERVAL_MS = 15_000;
 const RELAY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24h
 const RECONNECT_BASE_DELAY_MS = 5_000;
 const MAX_RECONNECT_DELAY_MS = 120_000;
+// Only reset backoff after connection holds this long.
+// Prevents reconnect loops: reconnect → immediate
+// disconnect → backoff resets → 5s loop.
+const STABILITY_WINDOW_MS = 30_000;
 // Tag value for relay peers. Protects from connection
 // pruning (pruner drops lowest-value peers first)
 // without using KEEP_ALIVE (which triggers libp2p's
@@ -107,20 +111,20 @@ export function startRoomDiscovery(
     return extractWssAddrs(pid, rawAddrs, secure);
   }
 
-  function tagRelay(pid: string) {
+  async function tagRelay(pid: string) {
     const conn = helia.libp2p
       .getConnections()
       .find((c) => c.remotePeer.toString() === pid);
     if (!conn) return;
-    helia.libp2p.peerStore
-      .merge(conn.remotePeer, {
+    try {
+      await helia.libp2p.peerStore.merge(conn.remotePeer, {
         tags: {
           [RELAY_TAG]: { value: RELAY_TAG_VALUE },
         },
-      })
-      .catch((err) => {
-        log.debug("tag relay failed:", (err as Error)?.message ?? err);
       });
+    } catch (err) {
+      log.debug("tag relay failed:", (err as Error)?.message ?? err);
+    }
   }
 
   function untagRelay(pid: string) {
@@ -137,11 +141,15 @@ export function startRoomDiscovery(
       });
   }
 
-  function trackRelay(pid: string, addrs: string[]) {
+  async function trackRelay(pid: string, addrs: string[]) {
     const isNew = !relayPeerIds.has(pid);
     relayPeerIds.add(pid);
     relayAddrs.set(pid, addrs);
-    tagRelay(pid);
+    // Await tag so the connection is protected from
+    // pruning before we return. Fire-and-forget tagging
+    // caused a race: prune could fire before tag applied,
+    // triggering a reconnect loop.
+    await tagRelay(pid);
     if (isNew && relayWaiters.length > 0) {
       for (const resolve of relayWaiters.splice(0)) {
         resolve(pid);
@@ -181,7 +189,7 @@ export function startRoomDiscovery(
       } else {
         return false;
       }
-      trackRelay(pid, rawAddrs);
+      await trackRelay(pid, rawAddrs);
       log.info(`relay ...${short} OK`);
       return true;
     } catch (err) {
@@ -217,7 +225,7 @@ export function startRoomDiscovery(
           .getConnections()
           .some((c) => c.remotePeer.toString() === pid);
         if (already) {
-          trackRelay(pid, entry.addrs);
+          await trackRelay(pid, entry.addrs);
           log.debug(`cached relay ...${short} (connected)`);
           return;
         }
@@ -297,7 +305,7 @@ export function startRoomDiscovery(
         );
 
         if (already) {
-          trackRelay(pid, addrs);
+          await trackRelay(pid, addrs);
           upsertCachedRelay(pid, addrs);
           continue;
         }
@@ -357,7 +365,13 @@ export function startRoomDiscovery(
       }
     } catch (err) {
       const msg = (err as Error).message ?? "";
-      if (!msg.includes("abort")) {
+      if (msg.includes("abort")) {
+        // Expected when cycle is cancelled.
+      } else if (msg.includes("not started")) {
+        // Benign: DHT QueryManager hasn't initialized
+        // yet. Will succeed on next discovery cycle.
+        log.debug(`discovery: ${msg}`);
+      } else {
         log.warn(`discovery error: ${msg}`);
       }
     } finally {
@@ -392,6 +406,12 @@ export function startRoomDiscovery(
 
   const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const reconnectAttempts = new Map<string, number>();
+  // Stability timers: after a successful reconnect,
+  // only reset the attempt counter once the connection
+  // holds for STABILITY_WINDOW_MS. Prevents loops
+  // where reconnect succeeds but drops immediately,
+  // resetting backoff to 5s each time.
+  const stabilityTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const disconnectHandler = (evt: CustomEvent) => {
     const peerId = evt.detail;
@@ -399,11 +419,31 @@ export function startRoomDiscovery(
     if (!relayPeerIds.has(pid)) return;
     const short = pid.slice(-8);
 
+    // Cancel stability timer — connection didn't hold.
+    const stab = stabilityTimers.get(pid);
+    if (stab) {
+      clearTimeout(stab);
+      stabilityTimers.delete(pid);
+    }
+
     // Cancel any pending redial for this peer.
     const existing = reconnectTimers.get(pid);
     if (existing) clearTimeout(existing);
 
     if (stopped) return;
+
+    // Liveness check: if other connections to this peer
+    // still exist, skip reconnect scheduling.
+    const stillConnected = helia.libp2p
+      .getConnections()
+      .some((c) => c.remotePeer.toString() === pid);
+    if (stillConnected) {
+      log.debug(
+        `relay ...${short} disconnect event,`,
+        `but still connected — skipping redial`,
+      );
+      return;
+    }
 
     const attempts = reconnectAttempts.get(pid) ?? 0;
 
@@ -437,7 +477,17 @@ export function startRoomDiscovery(
 
         const ok = await dialRelay(pid, redialAddrs, cached.addrs);
         if (ok) {
-          reconnectAttempts.delete(pid);
+          // Don't reset attempts immediately — wait for
+          // the connection to prove stable. If it drops
+          // within STABILITY_WINDOW_MS, backoff stays.
+          reconnectAttempts.set(pid, attempts + 1);
+          stabilityTimers.set(
+            pid,
+            setTimeout(() => {
+              reconnectAttempts.delete(pid);
+              stabilityTimers.delete(pid);
+            }, STABILITY_WINDOW_MS),
+          );
           upsertCachedRelay(pid, cached.addrs);
           log.info(`relay ...${short} reconnected`);
           for (const cb of reconnectCbs) {
@@ -493,7 +543,7 @@ export function startRoomDiscovery(
         .some((c) => c.remotePeer.toString() === pid);
 
       if (connected) {
-        trackRelay(pid, entry.addrs);
+        await trackRelay(pid, entry.addrs);
         log.debug(`peer-shared relay ...${short}`, `(connected)`);
         upsertCachedRelay(pid, entry.addrs);
         continue;
@@ -559,6 +609,10 @@ export function startRoomDiscovery(
         clearTimeout(timer);
       }
       reconnectTimers.clear();
+      for (const timer of stabilityTimers.values()) {
+        clearTimeout(timer);
+      }
+      stabilityTimers.clear();
       reconnectAttempts.clear();
       reconnectCbs.clear();
       helia.libp2p.removeEventListener("peer:disconnect", disconnectHandler);

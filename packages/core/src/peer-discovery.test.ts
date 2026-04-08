@@ -421,6 +421,129 @@ describe("startRoomDiscovery", () => {
       },
     );
 
+    it(
+      "skips redial when peer still has " +
+        "active connections (liveness check)",
+      async () => {
+        vi.mocked(loadCachedRelays).mockReturnValue([
+          {
+            peerId: RELAY_PID,
+            addrs: RELAY_ADDRS,
+            lastSeen: Date.now(),
+          },
+        ]);
+
+        const rd = await setupTrackedRelay(helia);
+        helia.libp2p.dial.mockClear();
+
+        // Peer still has a connection open
+        helia.libp2p.getConnections.mockReturnValue([
+          {
+            remotePeer: {
+              toString: () => RELAY_PID,
+            },
+          },
+        ]);
+
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+
+        // Advance past all backoff delays — no
+        // redial should happen
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(helia.libp2p.dial).not.toHaveBeenCalled();
+
+        rd.stop();
+      },
+    );
+
+    it(
+      "stability window: backoff stays elevated " +
+        "if connection drops quickly",
+      async () => {
+        vi.mocked(loadCachedRelays).mockReturnValue([
+          {
+            peerId: RELAY_PID,
+            addrs: RELAY_ADDRS,
+            lastSeen: Date.now(),
+          },
+        ]);
+
+        const rd = await setupTrackedRelay(helia);
+        helia.libp2p.dial.mockClear();
+
+        // First disconnect + successful reconnect
+        helia.libp2p.dial.mockResolvedValue({});
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+        await vi.advanceTimersByTimeAsync(5_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        helia.libp2p.dial.mockClear();
+
+        // Drop again quickly (before 30s stability
+        // window) — backoff should NOT reset to 5s
+        helia.libp2p.dial.mockRejectedValue(new Error("refused"));
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+
+        // If backoff reset, delay would be 5s.
+        // With stability window, it stays at 10s.
+        await vi.advanceTimersByTimeAsync(5_001);
+        expect(helia.libp2p.dial).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(5_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+
+        rd.stop();
+      },
+    );
+
+    it(
+      "stability window: backoff resets after " + "connection holds 30s",
+      async () => {
+        vi.mocked(loadCachedRelays).mockReturnValue([
+          {
+            peerId: RELAY_PID,
+            addrs: RELAY_ADDRS,
+            lastSeen: Date.now(),
+          },
+        ]);
+
+        const rd = await setupTrackedRelay(helia);
+        helia.libp2p.dial.mockClear();
+
+        // First disconnect + successful reconnect
+        helia.libp2p.dial.mockResolvedValue({});
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+        await vi.advanceTimersByTimeAsync(5_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        helia.libp2p.dial.mockClear();
+
+        // Connection holds for 30s — stability
+        // window passes, backoff resets
+        await vi.advanceTimersByTimeAsync(30_001);
+
+        // Now disconnect again — delay should be
+        // back to 5s (attempt counter was reset)
+        helia.libp2p.dial.mockRejectedValue(new Error("refused"));
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+        await vi.advanceTimersByTimeAsync(4_000);
+        expect(helia.libp2p.dial).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+
+        rd.stop();
+      },
+    );
+
     it("tags relay peer in peerStore on track", async () => {
       const remotePeer = {
         toString: () => RELAY_PID,
