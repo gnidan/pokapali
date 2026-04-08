@@ -620,6 +620,8 @@ export function ConnectionStatusView({
       >
         <span
           className={"cs-section" + ` poka-peer-presence--${presence.state}`}
+          role="status"
+          aria-label={pLabel}
           title="Users on this document"
           data-testid="cs-users-count"
         >
