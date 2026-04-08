@@ -571,6 +571,20 @@ async function main() {
     }
   }
 
+  // Try to load build-time commit stamp (optional).
+  // Uses URL-based import to avoid TS module
+  // resolution errors when the file is absent.
+  let commit: string | undefined;
+  try {
+    const buildInfoUrl = new URL("../src/build-info.js", import.meta.url);
+    const info = (await import(buildInfoUrl.href)) as {
+      BUILD_COMMIT?: string;
+    };
+    commit = info.BUILD_COMMIT;
+  } catch {
+    // build-info.ts not generated — commit unknown
+  }
+
   // Always start HTTP server for health/status
   // endpoints (and pinner ingest if applicable).
   const server = startHttpServer({
@@ -578,6 +592,7 @@ async function main() {
     relay: relayHandle,
     pinner,
     pinAppIds: pinApps,
+    commit,
   });
   log.info(`HTTP server on port ${port}`);
 

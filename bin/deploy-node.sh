@@ -50,7 +50,7 @@ fi
 git fetch origin main
 git reset --hard "$COMMIT"
 npm install --no-audit --no-fund
-npx tsc --build
+npm run build -w @pokapali/node
 sudo systemctl restart "$SERVICE"
 
 echo "Deployed $(git rev-parse --short HEAD), service restarted."

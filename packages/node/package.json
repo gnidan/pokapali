@@ -42,6 +42,7 @@
     "pokapali": "dist/bin/node.js"
   },
   "scripts": {
+    "prebuild": "node bin/stamp-commit.mjs",
     "build": "tsc --build",
     "prepublishOnly": "npm run build",
     "test": "vitest run"

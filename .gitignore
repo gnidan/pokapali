@@ -8,3 +8,4 @@ deploy/
 test-results
 playwright-report
 docs/plans/
+packages/node/src/build-info.ts

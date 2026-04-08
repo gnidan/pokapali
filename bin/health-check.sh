@@ -59,7 +59,7 @@ if [ "$HEALTHY" != "true" ]; then
   exit 1
 fi
 
-# 3. Commit verification
+# 3. Commit verification (git repo)
 RAW_ACTUAL=$(ssh -o ConnectTimeout=15 \
   "$USER@$HOST" \
   "cd $REPO_PATH && git rev-parse HEAD" \
@@ -75,6 +75,26 @@ if [ "$ACTUAL" != "$EXPECTED" ]; then
   echo "[$HOST] DEBUG actual hex:" \
     "$(echo -n "$RAW_ACTUAL" | xxd -p)"
   exit 1
+fi
+
+# 4. Running process commit verification (smoke check)
+# Confirms the running process was restarted with
+# the new code, not just the git checkout.
+HEALTH_COMMIT=$(echo "$HEALTH" \
+  | jq -r '.commit // empty' 2>/dev/null || true)
+if [ -n "$HEALTH_COMMIT" ]; then
+  HC_CLEAN=$(echo "$HEALTH_COMMIT" \
+    | tr -cd '[:xdigit:]')
+  if [ "$HC_CLEAN" != "$EXPECTED" ]; then
+    echo "[$HOST] FAIL: running process reports" \
+      "commit ${HC_CLEAN:0:7}," \
+      "expected ${EXPECTED:0:7}"
+    echo "[$HOST] The service may not have" \
+      "restarted properly."
+    exit 1
+  fi
+  echo "[$HOST] Smoke check: running process" \
+    "confirmed at ${HC_CLEAN:0:7}"
 fi
 
 echo "[$HOST] Healthy. Commit ${COMMIT:0:7}," \

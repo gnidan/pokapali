@@ -69,10 +69,11 @@ export interface HttpConfig {
   relay: Relay | null;
   pinner: Pinner | null;
   pinAppIds: string[];
+  commit?: string;
 }
 
 function getHealthData(config: HttpConfig) {
-  const { relay } = config;
+  const { relay, commit } = config;
   const conns = relay ? relay.helia.libp2p.getConnections().length : 0;
   const peers = relay ? relay.helia.libp2p.getPeers().length : 0;
 
@@ -82,6 +83,7 @@ function getHealthData(config: HttpConfig) {
     peerId: relay?.peerId() ?? null,
     peers,
     connections: conns,
+    ...(commit ? { commit } : {}),
   };
 }
 
