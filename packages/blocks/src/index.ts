@@ -7,6 +7,9 @@ import {
   signBytes,
   verifyBytes,
 } from "@pokapali/crypto";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("blocks");
 
 /**
  * A single node in the snapshot chain. Contains
@@ -113,6 +116,12 @@ export async function encodeSnapshot(
   const signature = await signBytes(signingKey, payloadBytes);
 
   const node = { ...payload, signature };
+  log.debug(
+    "encodeSnapshot: seq=%d channels=%d prev=%s",
+    seq,
+    Object.keys(plaintextSubdocs).length,
+    prev ? prev.toString().slice(0, 12) + "..." : "null",
+  );
   return dagCbor.encode(node);
 }
 
@@ -179,7 +188,10 @@ export async function validateSnapshot(block: Uint8Array): Promise<boolean> {
       node.signature,
       payloadBytes,
     );
-    if (!docSigValid) return false;
+    if (!docSigValid) {
+      log.debug("validateSnapshot: doc signature invalid");
+      return false;
+    }
 
     // Verify publisher signature if present
     if (node.publisher && node.publisherSig) {
@@ -194,11 +206,15 @@ export async function validateSnapshot(block: Uint8Array): Promise<boolean> {
         node.publisherSig,
         pubBytes,
       );
-      if (!pubSigValid) return false;
+      if (!pubSigValid) {
+        log.debug("validateSnapshot: publisher signature invalid");
+        return false;
+      }
     }
 
     return true;
   } catch {
+    log.debug("validateSnapshot: malformed block");
     return false;
   }
 }
@@ -259,9 +275,11 @@ export async function* walkChain(
   while (current !== null) {
     const key = current.toString();
     if (visited.has(key)) {
+      log.warn("walkChain: cycle at", key.slice(0, 16));
       throw new ChainCycleError(key);
     }
     if (depth >= maxDepth) {
+      log.warn("walkChain: depth exceeded", maxDepth);
       throw new ChainDepthExceededError(maxDepth);
     }
     visited.add(key);
@@ -271,6 +289,7 @@ export async function* walkChain(
     current = node.prev;
     depth++;
   }
+  log.debug("walkChain: traversed", depth, "snapshots");
 }
 
 /** Re-exported from `multiformats` for callers

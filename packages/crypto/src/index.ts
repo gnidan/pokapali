@@ -1,4 +1,7 @@
 import * as ed25519 from "@noble/ed25519";
+import { createLogger } from "@pokapali/log";
+
+const log = createLogger("crypto");
 
 export function generateAdminSecret(): string {
   const bytes = new Uint8Array(32);
@@ -85,6 +88,8 @@ export async function deriveDocKeys(
     ),
   );
 
+  log.debug("deriveDocKeys: derived keys for", channels.length, "channels");
+
   return {
     readKey,
     ipnsKeyBytes,
@@ -104,6 +109,7 @@ export async function deriveDocKeys(
 export async function deriveMetaChannelKey(
   readKey: CryptoKey,
 ): Promise<Uint8Array> {
+  log.debug("deriveMetaChannelKey: backfilling _meta");
   const raw = new Uint8Array(await crypto.subtle.exportKey("raw", readKey));
   const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, [
     "deriveBits",
@@ -181,6 +187,7 @@ export async function decryptSubdoc(
     );
     return new Uint8Array(plaintext);
   } catch (err) {
+    log.debug("decryptSubdoc failed:", (err as Error)?.message ?? err);
     throw new Error("decryptSubdoc failed: wrong key or" + " corrupted data", {
       cause: err,
     });
