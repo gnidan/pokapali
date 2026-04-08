@@ -305,8 +305,7 @@ jobs:
 
   batch-5:
     name: Batch 5
-    needs: >-
-      [setup, batch-1, batch-2, batch-3, batch-4]
+    needs: [setup, batch-1, batch-2, batch-3, batch-4]
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
