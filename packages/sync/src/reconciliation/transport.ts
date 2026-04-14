@@ -7,6 +7,11 @@
  *   [channelName: utf8 bytes]
  *   [messageBytes: rest]
  *
+ * Keepalive: 1-byte frames (0x01 = PING, 0x02 = PONG)
+ * prevent NAT/firewall timeout during idle periods.
+ * Too short to be valid reconciliation frames, so
+ * they're handled before decoding.
+ *
  * @module
  */
 
@@ -14,6 +19,15 @@ import { createLogger } from "@pokapali/log";
 import { encodeMessage, decodeMessage, type Message } from "./messages.js";
 
 const diagLog = createLogger("p2p-diag");
+
+// Keepalive: 1-byte frames below the reconciliation
+// message layer. Sent periodically to prevent
+// NAT/firewall timeout on idle data channels.
+const KEEPALIVE_PING = new Uint8Array([0x01]);
+const KEEPALIVE_PONG = new Uint8Array([0x02]);
+// 20s interval — well under typical NAT timeouts
+// (30s–5min) and TURN relay timeouts (5min).
+const KEEPALIVE_INTERVAL_MS = 20_000;
 
 // -------------------------------------------------------
 // Frame encoding / decoding
@@ -63,15 +77,42 @@ export function createTransport(
   dataChannel: RTCDataChannel,
 ): ReconciliationTransport {
   let destroyed = false;
+  let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   const messageCallbacks = new Set<
     (channelName: string, msg: Message) => void
   >();
   const connectionCallbacks = new Set<(connected: boolean) => void>();
 
+  function startKeepalive(): void {
+    stopKeepalive();
+    keepaliveTimer = setInterval(() => {
+      if (dataChannel.readyState === "open") {
+        dataChannel.send(KEEPALIVE_PING as ArrayBufferView<ArrayBuffer>);
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }
+
+  function stopKeepalive(): void {
+    if (keepaliveTimer !== null) {
+      clearInterval(keepaliveTimer);
+      keepaliveTimer = null;
+    }
+  }
+
   function onDCMessage(event: MessageEvent): void {
     if (destroyed) return;
     const frame = new Uint8Array(event.data as ArrayBuffer);
+    // Keepalive: 1-byte frames handled before
+    // reconciliation message decoding.
+    if (frame.length === 1) {
+      if (frame[0] === KEEPALIVE_PING[0]) {
+        dataChannel.send(KEEPALIVE_PONG as ArrayBufferView<ArrayBuffer>);
+      }
+      // PONG (or unknown 1-byte) — no action needed,
+      // receiving it already kept the NAT alive.
+      return;
+    }
     const { channelName, message } = decodeFrame(frame);
     diagLog.debug(
       "transport recv:",
@@ -88,6 +129,7 @@ export function createTransport(
 
   function onDCClose(): void {
     if (destroyed) return;
+    stopKeepalive();
     for (const cb of connectionCallbacks) {
       cb(false);
     }
@@ -95,6 +137,7 @@ export function createTransport(
 
   function onDCOpen(): void {
     if (destroyed) return;
+    startKeepalive();
     for (const cb of connectionCallbacks) {
       cb(true);
     }
@@ -103,6 +146,11 @@ export function createTransport(
   dataChannel.addEventListener("message", onDCMessage as EventListener);
   dataChannel.addEventListener("close", onDCClose as EventListener);
   dataChannel.addEventListener("open", onDCOpen as EventListener);
+
+  // If already open (initiator side), start now.
+  if (dataChannel.readyState === "open") {
+    startKeepalive();
+  }
 
   return {
     send(channelName: string, msg: Message): void {
@@ -134,6 +182,7 @@ export function createTransport(
 
     destroy(): void {
       destroyed = true;
+      stopKeepalive();
       messageCallbacks.clear();
       connectionCallbacks.clear();
       dataChannel.removeEventListener("message", onDCMessage as EventListener);

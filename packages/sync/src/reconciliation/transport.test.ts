@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fc from "fast-check";
 import { MessageType, type Message } from "./messages.js";
 import {
@@ -238,6 +238,119 @@ describe("transport", () => {
 
       expect(dc._sent).toHaveLength(1);
       expect(dc._sent[0]).toBeInstanceOf(Uint8Array);
+    });
+  });
+
+  describe("keepalive", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("sends PING every 20s when channel is open", () => {
+      const dc = mockDataChannel();
+      const transport = createTransport(dc);
+
+      // Already open → keepalive started
+      dc._sent.length = 0;
+
+      vi.advanceTimersByTime(20_000);
+      expect(dc._sent).toHaveLength(1);
+      expect(dc._sent[0]).toEqual(new Uint8Array([0x01]));
+
+      vi.advanceTimersByTime(20_000);
+      expect(dc._sent).toHaveLength(2);
+
+      transport.destroy();
+    });
+
+    it("auto-responds to PING with PONG", () => {
+      const dc = mockDataChannel();
+      const transport = createTransport(dc);
+      dc._sent.length = 0;
+
+      // Simulate receiving PING
+      dc._fire("message", {
+        data: new Uint8Array([0x01]).buffer,
+      });
+
+      expect(dc._sent).toHaveLength(1);
+      expect(dc._sent[0]).toEqual(new Uint8Array([0x02]));
+
+      transport.destroy();
+    });
+
+    it("does not bubble keepalive to onMessage", () => {
+      const dc = mockDataChannel();
+      const transport = createTransport(dc);
+
+      const received: unknown[] = [];
+      transport.onMessage((ch, msg) => {
+        received.push({ ch, msg });
+      });
+
+      // PING + PONG
+      dc._fire("message", {
+        data: new Uint8Array([0x01]).buffer,
+      });
+      dc._fire("message", {
+        data: new Uint8Array([0x02]).buffer,
+      });
+
+      expect(received).toHaveLength(0);
+
+      transport.destroy();
+    });
+
+    it("starts keepalive on open event", () => {
+      const dc = mockDataChannel();
+      dc._setReadyState("connecting");
+      const transport = createTransport(dc);
+
+      vi.advanceTimersByTime(20_000);
+      expect(dc._sent).toHaveLength(0);
+
+      // Channel opens
+      dc._setReadyState("open");
+      dc._fire("open");
+
+      vi.advanceTimersByTime(20_000);
+      expect(dc._sent).toHaveLength(1);
+      expect(dc._sent[0]).toEqual(new Uint8Array([0x01]));
+
+      transport.destroy();
+    });
+
+    it("stops keepalive on close", () => {
+      const dc = mockDataChannel();
+      const transport = createTransport(dc);
+
+      // Verify running
+      vi.advanceTimersByTime(20_000);
+      expect(dc._sent).toHaveLength(1);
+      dc._sent.length = 0;
+
+      // Close
+      dc._setReadyState("closed");
+      dc._fire("close");
+
+      vi.advanceTimersByTime(40_000);
+      expect(dc._sent).toHaveLength(0);
+
+      transport.destroy();
+    });
+
+    it("stops keepalive on destroy", () => {
+      const dc = mockDataChannel();
+      const transport = createTransport(dc);
+      dc._sent.length = 0;
+
+      transport.destroy();
+
+      vi.advanceTimersByTime(40_000);
+      expect(dc._sent).toHaveLength(0);
     });
   });
 
