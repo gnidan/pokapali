@@ -145,16 +145,19 @@ export function startRoomDiscovery(
     const isNew = !relayPeerIds.has(pid);
     relayPeerIds.add(pid);
     relayAddrs.set(pid, addrs);
-    // Await tag so the connection is protected from
-    // pruning before we return. Fire-and-forget tagging
-    // caused a race: prune could fire before tag applied,
-    // triggering a reconnect loop.
-    await tagRelay(pid);
+    // Resolve waiters immediately — the relay is
+    // connected (dial succeeded). Waiting for the tag
+    // risks hanging if peerStore.merge stalls (e.g.
+    // IDB transaction stuck in a background tab).
     if (isNew && relayWaiters.length > 0) {
       for (const resolve of relayWaiters.splice(0)) {
         resolve(pid);
       }
     }
+    // Tag after waiter resolution. Still awaited so
+    // the caller knows pruning protection is applied
+    // before returning.
+    await tagRelay(pid);
   }
 
   function untrackRelay(pid: string) {
