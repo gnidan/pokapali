@@ -74,14 +74,11 @@ import type { Codec } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
-import {
-  createAsyncQueue,
-  scan,
-  merge,
-  reannounceFacts,
-  createFeed,
-} from "./sources.js";
-import type { AsyncQueue, Feed, WritableFeed } from "./sources.js";
+import { createAsyncQueue, scan, merge } from "./async-utils.js";
+import type { AsyncQueue } from "./async-utils.js";
+import { createFeed } from "./feed.js";
+import type { Feed, WritableFeed } from "./feed.js";
+import { reannounceFacts } from "./fact-sources.js";
 import {
   reduce,
   reduceChain,
@@ -200,10 +197,6 @@ export interface Doc {
    * creation time — throws otherwise.
    */
   surface(name: string): Y.Doc;
-  /** @deprecated Use `doc.awareness` directly. */
-  readonly provider: {
-    readonly awareness: Awareness;
-  };
   readonly awareness: Awareness;
   readonly capability: Capability;
   /** All channels configured for this app. Compare
@@ -251,20 +244,6 @@ export interface Doc {
     cid: string;
     message: string;
   } | null>;
-
-  // ── Derived getters (from tip Feed) ────────
-  /** @deprecated Use `tip.getSnapshot()?.cid`. */
-  readonly tipCid: CID | null;
-  /** @deprecated Use `tip.getSnapshot()?.ackedBy`. */
-  readonly ackedBy: ReadonlySet<string>;
-  /** @deprecated Use
-   *  `tip.getSnapshot()?.guaranteeUntil`. */
-  readonly guaranteeUntil: number | null;
-  /** @deprecated Use
-   *  `tip.getSnapshot()?.retainUntil`. */
-  readonly retainUntil: number | null;
-  /** @deprecated Use `loading.getSnapshot()`. */
-  readonly loadingState: LoadingState;
 
   // ── Lifecycle ──────────────────────────────
   /**
@@ -1856,12 +1835,6 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
-  const providerObj = {
-    get awareness(): Awareness {
-      return awareness!;
-    },
-  };
-
   // Lazily register a reconciliation trigger on a
   // surface Y.Doc. The surface's onLocalEdit already
   // puts edits in the epoch tree via ch.appendEdit(),
@@ -1948,11 +1921,6 @@ export function createDoc(params: DocParams): Doc {
       return handle;
     },
 
-    /** @deprecated Use doc.awareness directly. */
-    get provider() {
-      return providerObj;
-    },
-
     get awareness(): Awareness {
       return awareness!;
     },
@@ -2014,41 +1982,6 @@ export function createDoc(params: DocParams): Doc {
 
     status: statusFeed as Feed<DocStatus>,
     saveState: saveStateFeed as Feed<SaveState>,
-
-    /** @deprecated Use tip.getSnapshot()?.ackedBy. */
-    get ackedBy(): ReadonlySet<string> {
-      if (!interpreterState?.chain.tip) {
-        return EMPTY_SET;
-      }
-      const entry = interpreterState.chain.entries.get(
-        interpreterState.chain.tip.toString(),
-      );
-      return entry?.ackedBy ?? EMPTY_SET;
-    },
-
-    /** @deprecated Use tip.getSnapshot()?.guaranteeUntil. */
-    get guaranteeUntil(): number | null {
-      if (!interpreterState) return null;
-      const g = bestGuarantee(interpreterState.chain);
-      return g.guaranteeUntil || null;
-    },
-
-    /** @deprecated Use tip.getSnapshot()?.retainUntil. */
-    get retainUntil(): number | null {
-      if (!interpreterState) return null;
-      const g = bestGuarantee(interpreterState.chain);
-      return g.retainUntil || null;
-    },
-
-    /** @deprecated Use tip.getSnapshot()?.cid. */
-    get tipCid(): CID | null {
-      return snapshotLC.prev;
-    },
-
-    /** @deprecated Use loading.getSnapshot(). */
-    get loadingState(): LoadingState {
-      return loadingFeed.getSnapshot();
-    },
 
     tip: tipFeed as Feed<VersionInfo | null>,
     loading: loadingFeed as Feed<LoadingState>,
@@ -2216,6 +2149,19 @@ export function createDoc(params: DocParams): Doc {
       );
 
       updateVersionsFeed();
+
+      // Synchronously update tipFeed so consumers
+      // see the new CID without waiting for the
+      // interpreter pipeline (which may not run in
+      // no-P2P / E2E mode).
+      lastTipInfo = {
+        cid,
+        seq: pushResult.seq,
+        ackedBy: new Set(),
+        guaranteeUntil: 0,
+        retainUntil: 0,
+      };
+      tipFeed._update(lastTipInfo);
 
       // Sync saveState after localChain is set so
       // deriveSaveState sees chain.tip and returns

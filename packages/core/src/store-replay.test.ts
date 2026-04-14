@@ -14,7 +14,7 @@
 import { describe, it, expect } from "vitest";
 import "fake-indexeddb/auto";
 import * as Y from "yjs";
-import { Edit, epochMeasured } from "@pokapali/document";
+import { Edit, Summary } from "@pokapali/document";
 import { measureTree } from "@pokapali/finger-tree";
 import { Channel } from "@pokapali/document";
 import { Store } from "@pokapali/store";
@@ -58,7 +58,7 @@ describe("Store persist → replay cycle", () => {
       });
       channel1.appendEdit(edit);
 
-      const summary = measureTree(epochMeasured, channel1.tree);
+      const summary = measureTree(Summary.measured, channel1.tree);
       const tipIndex = summary.epochCount - 1;
       editsToStore.push({ epochIndex: tipIndex, edit });
     });
@@ -183,7 +183,7 @@ describe("Store persist → replay cycle", () => {
         signature: new Uint8Array(),
       });
       channel.appendEdit(edit);
-      const summary = measureTree(epochMeasured, channel.tree);
+      const summary = measureTree(Summary.measured, channel.tree);
       const tipIndex = summary.epochCount - 1;
       // Fire and forget — no await
       storeDoc

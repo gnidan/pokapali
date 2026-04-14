@@ -219,7 +219,6 @@ describe("@pokapali/core", () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     expect(doc.channel).toBeTypeOf("function");
-    expect(doc.provider).toBeDefined();
     expect(doc.awareness).toBeDefined();
     expect(doc.capability).toBeDefined();
     expect(doc.urls.admin).toBeTypeOf("string");
@@ -262,11 +261,10 @@ describe("@pokapali/core", () => {
     doc.destroy();
   });
 
-  it("create() provider.awareness exists", async () => {
+  it("create() awareness exists", async () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
-    expect(doc.provider.awareness).toBeDefined();
-    expect(doc.awareness).toBe(doc.provider.awareness);
+    expect(doc.awareness).toBeDefined();
     doc.destroy();
   });
 

@@ -4,7 +4,7 @@ import type { Measured } from "@pokapali/finger-tree";
 import { toArray } from "@pokapali/finger-tree";
 import type { Epoch } from "@pokapali/document";
 import type { Codec as CrdtCodec } from "@pokapali/codec";
-import { Channel, edit, View, State } from "@pokapali/document";
+import { Channel, Edit, View, State } from "@pokapali/document";
 
 // -- Helpers --
 
@@ -14,7 +14,7 @@ function fakeEdit(
   channel = "content",
   timestamp = Date.now(),
 ) {
-  return edit({
+  return Edit.create({
     payload: new Uint8Array([id]),
     timestamp,
     author,

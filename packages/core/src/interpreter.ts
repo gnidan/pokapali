@@ -15,7 +15,7 @@ import type {
   CidSource,
   GossipActivity,
 } from "./facts.js";
-import type { AsyncQueue } from "./sources.js";
+import type { AsyncQueue } from "./async-utils.js";
 import type { SnapshotOps } from "./snapshot-ops.js";
 import { SnapshotValidationError } from "./snapshot-ops.js";
 import { createLogger } from "@pokapali/log";

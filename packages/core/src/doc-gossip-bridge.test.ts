@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { createGossipHandler } from "./doc-gossip-bridge.js";
-import type { AsyncQueue } from "./sources.js";
+import type { AsyncQueue } from "./async-utils.js";
 import type { Fact } from "./facts.js";
 
 const TOPIC = "/pokapali/app/test-app/announce";

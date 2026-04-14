@@ -14,8 +14,8 @@ import type { Ed25519KeyPair } from "@pokapali/crypto";
 import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
 import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
-import { createFeed } from "./sources.js";
-import type { WritableFeed } from "./sources.js";
+import { createFeed } from "./feed.js";
+import type { WritableFeed } from "./feed.js";
 import type { ClientIdentityInfo } from "./create-doc.js";
 import { createLogger } from "@pokapali/log";
 

@@ -28,7 +28,7 @@ import type { EffectHandlers } from "./interpreter.js";
 import { initialDocState } from "./facts.js";
 import type { Fact } from "./facts.js";
 import { reduce } from "./reducers.js";
-import { createAsyncQueue, merge, scan } from "./sources.js";
+import { createAsyncQueue, merge, scan } from "./async-utils.js";
 
 // --- Constants ---
 

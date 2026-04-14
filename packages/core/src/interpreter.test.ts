@@ -26,8 +26,8 @@ import {
 } from "./facts.js";
 import type { Fact, DocState, ChainEntry } from "./facts.js";
 import { reduce } from "./reducers.js";
-import { createAsyncQueue } from "./sources.js";
-import type { AsyncQueue } from "./sources.js";
+import { createAsyncQueue } from "./async-utils.js";
+import type { AsyncQueue } from "./async-utils.js";
 
 // --- Helpers ---
 

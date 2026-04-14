@@ -181,7 +181,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
             }),
             DragSafeCursors,
             CollaborationCursor.configure({
-              provider: doc.provider,
+              provider: { awareness: doc.awareness },
               user: {
                 name: user.name || "Anonymous",
                 color: user.color,

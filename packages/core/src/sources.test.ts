@@ -6,14 +6,8 @@
  * Level 2 tests: async, isolated, minimal mocks.
  */
 import { describe, it, expect } from "vitest";
-import {
-  merge,
-  scan,
-  createAsyncQueue,
-  reannounceFacts,
-  ipnsFacts,
-  eventFacts,
-} from "./sources.js";
+import { merge, scan, createAsyncQueue } from "./async-utils.js";
+import { reannounceFacts, ipnsFacts, eventFacts } from "./fact-sources.js";
 
 // --- Helper: async iterable from array ---
 

@@ -16,7 +16,7 @@ import type { EffectHandlers, ScanOutput } from "./interpreter.js";
 import { initialDocState } from "./facts.js";
 import type { Fact, DocState } from "./facts.js";
 import { reduce } from "./reducers.js";
-import { createAsyncQueue } from "./sources.js";
+import { createAsyncQueue } from "./async-utils.js";
 
 // --- Helpers ---
 

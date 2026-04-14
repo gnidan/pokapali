@@ -4,7 +4,7 @@ import type { Ed25519KeyPair } from "@pokapali/crypto";
 import type { Capability } from "@pokapali/capability";
 import type { Codec as CrdtCodec } from "@pokapali/codec";
 import type { Epoch } from "@pokapali/document";
-import { Document, edit, View } from "@pokapali/document";
+import { Document, Edit, View } from "@pokapali/document";
 
 // -- Helpers --
 
@@ -45,7 +45,7 @@ function fakeCodec(): CrdtCodec {
 }
 
 function fakeEdit(id: number) {
-  return edit({
+  return Edit.create({
     payload: new Uint8Array([id]),
     timestamp: Date.now(),
     author: "aabb",

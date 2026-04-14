@@ -14,8 +14,8 @@ import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
 import { Awareness } from "y-protocols/awareness";
 import { signParticipant } from "./identity.js";
 import { setupParticipantAwareness } from "./doc-identity.js";
-import { createFeed } from "./sources.js";
-import type { WritableFeed } from "./sources.js";
+import { createFeed } from "./feed.js";
+import type { WritableFeed } from "./feed.js";
 
 // ── clientIdentities Y.Map tests ────────────────
 

@@ -319,7 +319,7 @@ export function VersionPreviewOverlay({
     return getTextWithPositions(pmDoc).text;
   }, [liveEditor]);
 
-  const tipCidStr = doc.tipCid?.toString() ?? null;
+  const tipCidStr = doc.tip.getSnapshot()?.cid?.toString() ?? null;
   const isCurrent = tipCidStr != null && entry.cid.toString() === tipCidStr;
   const canRestore =
     liveEditor != null && doc.capability.canPushSnapshots && !isCurrent;

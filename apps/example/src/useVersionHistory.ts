@@ -96,7 +96,8 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
   const cancelRef = useRef(false);
   const loadedSeqsRef = useRef<Set<number>>(new Set());
 
-  const tipCidStr = doc.tipCid?.toString() ?? null;
+  const tipCid = doc.tip.getSnapshot()?.cid ?? null;
+  const tipCidStr = tipCid?.toString() ?? null;
 
   // Merge feed entries with pinner metadata to
   // produce the final versions list (sorted by
@@ -292,23 +293,32 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
     return result;
   }, [versions, versionTexts]);
 
+  // Fall back to newest version CID when tipFeed
+  // hasn't been updated yet (e.g. no-P2P mode).
+  const effectiveTipCidStr = tipCidStr ?? versions[0]?.cid.toString() ?? null;
+
   const visibleVersions = useMemo(() => {
     return versions.filter((entry) => {
       const delta = deltas.get(entry.seq);
       if (delta === undefined) return true;
       if (delta !== 0) return true;
-      if (tipCidStr != null && entry.cid.toString() === tipCidStr) {
+      if (
+        effectiveTipCidStr != null &&
+        entry.cid.toString() === effectiveTipCidStr
+      ) {
         return true;
       }
       return false;
     });
-  }, [versions, deltas, tipCidStr]);
+  }, [versions, deltas, effectiveTipCidStr]);
 
   // Still settling: list fetched OK with zero results
   // but the doc has a tip CID (content exists), so IDB
   // or network may still deliver version history.
   const settling =
-    listState.status === "idle" && versions.length === 0 && doc.tipCid != null;
+    listState.status === "idle" &&
+    versions.length === 0 &&
+    effectiveTipCidStr != null;
 
   return {
     versions,

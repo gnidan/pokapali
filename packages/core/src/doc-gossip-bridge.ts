@@ -13,7 +13,7 @@ import {
   base64ToUint8,
 } from "./announce.js";
 import { verifyCid } from "./verify-cid.js";
-import type { AsyncQueue } from "./sources.js";
+import type { AsyncQueue } from "./async-utils.js";
 import type { Fact } from "./facts.js";
 
 export interface GossipBridgeDeps {

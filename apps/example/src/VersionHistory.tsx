@@ -183,7 +183,7 @@ export function VersionHistory({
     };
   }, []);
 
-  const tipCidStr = doc.tipCid?.toString() ?? null;
+  const tipCidStr = doc.tip.getSnapshot()?.cid?.toString() ?? null;
 
   // Load a specific version with retry support.
   const selectVersion = useCallback(
