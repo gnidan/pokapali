@@ -403,9 +403,10 @@ export function startRoomDiscovery(
   // We tag relays (not KEEP_ALIVE) for pruning
   // protection. Our own handler manages reconnection
   // with exponential backoff capped at 120s. Retries
-  // indefinitely — relays stay in relayPeerIds so
-  // they remain visible in diagnostics and relay
-  // sharing.
+  // indefinitely — on failed redial, another attempt
+  // is scheduled with increased backoff. Relays stay
+  // in relayPeerIds so they remain visible in
+  // diagnostics and relay sharing.
 
   const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const reconnectAttempts = new Map<string, number>();
@@ -415,6 +416,73 @@ export function startRoomDiscovery(
   // where reconnect succeeds but drops immediately,
   // resetting backoff to 5s each time.
   const stabilityTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function scheduleReconnect(pid: string, attempts: number) {
+    const short = pid.slice(-8);
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts),
+      MAX_RECONNECT_DELAY_MS,
+    );
+    log.info(
+      `relay ...${short}`,
+      `redial in ${delay / 1000}s`,
+      `(attempt ${attempts + 1})`,
+    );
+
+    // Cancel any existing timer for this peer before
+    // scheduling a new one.
+    const existing = reconnectTimers.get(pid);
+    if (existing) clearTimeout(existing);
+
+    reconnectTimers.set(
+      pid,
+      setTimeout(async () => {
+        reconnectTimers.delete(pid);
+        if (stopped) return;
+
+        const cached = loadCachedRelays().find((r) => r.peerId === pid);
+        if (!cached) {
+          untrackRelay(pid);
+          return;
+        }
+
+        const redialAddrs = wssAddrs(pid, cached.addrs);
+        if (redialAddrs.length === 0) {
+          untrackRelay(pid);
+          return;
+        }
+
+        const ok = await dialRelay(pid, redialAddrs, cached.addrs);
+        if (ok) {
+          // Don't reset attempts immediately — wait
+          // for connection to prove stable. If it
+          // drops within STABILITY_WINDOW_MS, backoff
+          // stays.
+          reconnectAttempts.set(pid, attempts + 1);
+          stabilityTimers.set(
+            pid,
+            setTimeout(() => {
+              reconnectAttempts.delete(pid);
+              stabilityTimers.delete(pid);
+            }, STABILITY_WINDOW_MS),
+          );
+          upsertCachedRelay(pid, cached.addrs);
+          log.info(`relay ...${short} reconnected`);
+          for (const cb of reconnectCbs) {
+            try {
+              cb(pid);
+            } catch (err) {
+              log.debug("reconnect cb error:", (err as Error)?.message ?? err);
+            }
+          }
+        } else {
+          // Retry with increased backoff.
+          reconnectAttempts.set(pid, attempts + 1);
+          scheduleReconnect(pid, attempts + 1);
+        }
+      }, delay),
+    );
+  }
 
   const disconnectHandler = (evt: CustomEvent) => {
     const peerId = evt.detail;
@@ -449,63 +517,45 @@ export function startRoomDiscovery(
     }
 
     const attempts = reconnectAttempts.get(pid) ?? 0;
-
-    const delay = Math.min(
-      RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts),
-      MAX_RECONNECT_DELAY_MS,
-    );
-    log.info(
-      `relay ...${short} disconnected,`,
-      `redial in ${delay / 1000}s`,
-      `(attempt ${attempts + 1})`,
-    );
-
-    reconnectTimers.set(
-      pid,
-      setTimeout(async () => {
-        reconnectTimers.delete(pid);
-        if (stopped) return;
-
-        const cached = loadCachedRelays().find((r) => r.peerId === pid);
-        if (!cached) {
-          untrackRelay(pid);
-          return;
-        }
-
-        const redialAddrs = wssAddrs(pid, cached.addrs);
-        if (redialAddrs.length === 0) {
-          untrackRelay(pid);
-          return;
-        }
-
-        const ok = await dialRelay(pid, redialAddrs, cached.addrs);
-        if (ok) {
-          // Don't reset attempts immediately — wait for
-          // the connection to prove stable. If it drops
-          // within STABILITY_WINDOW_MS, backoff stays.
-          reconnectAttempts.set(pid, attempts + 1);
-          stabilityTimers.set(
-            pid,
-            setTimeout(() => {
-              reconnectAttempts.delete(pid);
-              stabilityTimers.delete(pid);
-            }, STABILITY_WINDOW_MS),
-          );
-          upsertCachedRelay(pid, cached.addrs);
-          log.info(`relay ...${short} reconnected`);
-          for (const cb of reconnectCbs) {
-            try {
-              cb(pid);
-            } catch (err) {
-              log.debug("reconnect cb error:", (err as Error)?.message ?? err);
-            }
-          }
-        } else {
-          reconnectAttempts.set(pid, attempts + 1);
-        }
-      }, delay),
-    );
+    log.info(`relay ...${short} disconnected`);
+    scheduleReconnect(pid, attempts);
   };
+
+  // On tab resume, immediately redial any tracked
+  // relays that lost their connection while hidden.
+  // Browsers throttle/suspend timers in background
+  // tabs, so pending reconnect timers may not have
+  // fired. This gives instant recovery instead of
+  // waiting for DHT discovery (which is slow).
+  function onVisibilityResume() {
+    if (stopped) return;
+    for (const pid of relayPeerIds) {
+      const connected = helia.libp2p
+        .getConnections()
+        .some((c) => c.remotePeer.toString() === pid);
+      if (connected) continue;
+      // Cancel stale timer (may carry high backoff
+      // from before the tab was hidden) and schedule
+      // immediate redial with fresh backoff.
+      const existing = reconnectTimers.get(pid);
+      if (existing) clearTimeout(existing);
+      reconnectTimers.delete(pid);
+      reconnectAttempts.delete(pid);
+      scheduleReconnect(pid, 0);
+    }
+  }
+
+  const visibilityHandler = () => {
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState === "visible"
+    ) {
+      onVisibilityResume();
+    }
+  };
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", visibilityHandler);
+  }
 
   helia.libp2p.addEventListener("peer:disconnect", disconnectHandler);
 
@@ -619,6 +669,9 @@ export function startRoomDiscovery(
       reconnectAttempts.clear();
       reconnectCbs.clear();
       helia.libp2p.removeEventListener("peer:disconnect", disconnectHandler);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", visibilityHandler);
+      }
     },
   };
 }

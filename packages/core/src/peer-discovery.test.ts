@@ -544,6 +544,171 @@ describe("startRoomDiscovery", () => {
       },
     );
 
+    it(
+      "retries automatically after failed " +
+        "redial (no disconnect event needed)",
+      async () => {
+        vi.mocked(loadCachedRelays).mockReturnValue([
+          {
+            peerId: RELAY_PID,
+            addrs: RELAY_ADDRS,
+            lastSeen: Date.now(),
+          },
+        ]);
+
+        const rd = await setupTrackedRelay(helia);
+        helia.libp2p.dial.mockClear();
+
+        // Disconnect — first redial at 5s
+        helia.libp2p.dial.mockRejectedValue(new Error("refused"));
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+
+        await vi.advanceTimersByTimeAsync(5_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        helia.libp2p.dial.mockClear();
+
+        // Without a new disconnect event, auto-retry
+        // should fire at 10s (5s * 2^1).
+        await vi.advanceTimersByTimeAsync(9_000);
+        expect(helia.libp2p.dial).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        helia.libp2p.dial.mockClear();
+
+        // Third auto-retry at 20s (5s * 2^2).
+        // Succeeds this time.
+        helia.libp2p.dial.mockResolvedValue({});
+        await vi.advanceTimersByTimeAsync(20_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+
+        rd.stop();
+      },
+    );
+
+    describe("visibility resume", () => {
+      let origDocument: typeof globalThis.document;
+
+      beforeEach(() => {
+        origDocument = globalThis.document;
+        // Provide a minimal mock document for tests
+        // that need visibilitychange support.
+        const listeners = new Map<
+          string,
+          Set<EventListenerOrEventListenerObject>
+        >();
+
+        (globalThis as any).document = {
+          visibilityState: "visible",
+          addEventListener: (
+            event: string,
+            handler: EventListenerOrEventListenerObject,
+          ) => {
+            if (!listeners.has(event)) {
+              listeners.set(event, new Set());
+            }
+            listeners.get(event)!.add(handler);
+          },
+          removeEventListener: (
+            event: string,
+            handler: EventListenerOrEventListenerObject,
+          ) => {
+            listeners.get(event)?.delete(handler);
+          },
+          _emit(event: string) {
+            const handlers = listeners.get(event);
+            if (!handlers) return;
+            for (const h of handlers) {
+              if (typeof h === "function") h(new Event(event));
+            }
+          },
+        };
+      });
+
+      afterEach(() => {
+        (globalThis as any).document = origDocument;
+      });
+
+      it("redials disconnected relays with " + "fresh backoff", async () => {
+        vi.mocked(loadCachedRelays).mockReturnValue([
+          {
+            peerId: RELAY_PID,
+            addrs: RELAY_ADDRS,
+            lastSeen: Date.now(),
+          },
+        ]);
+
+        const rd = await setupTrackedRelay(helia);
+        helia.libp2p.dial.mockClear();
+
+        // Disconnect — schedule redial at 5s
+        helia.libp2p.dial.mockRejectedValue(new Error("refused"));
+        helia._emit("peer:disconnect", {
+          toString: () => RELAY_PID,
+        });
+
+        // Advance to fire first attempt (5s) and
+        // let auto-retry schedule at 10s
+        await vi.advanceTimersByTimeAsync(5_001);
+        await vi.advanceTimersByTimeAsync(1);
+        helia.libp2p.dial.mockClear();
+
+        // Simulate tab becoming visible — should
+        // cancel stale timer and redial with fresh
+        // backoff (attempt 0 → 5s delay).
+        helia.libp2p.dial.mockResolvedValue({});
+
+        (document as any).visibilityState = "visible";
+
+        (document as any)._emit("visibilitychange");
+
+        // Fresh backoff: 5s delay (attempt 0)
+        await vi.advanceTimersByTimeAsync(4_000);
+        expect(helia.libp2p.dial).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1_001);
+        expect(helia.libp2p.dial).toHaveBeenCalledTimes(1);
+
+        rd.stop();
+      });
+
+      it("skips relays that are still connected", async () => {
+        vi.mocked(loadCachedRelays).mockReturnValue([
+          {
+            peerId: RELAY_PID,
+            addrs: RELAY_ADDRS,
+            lastSeen: Date.now(),
+          },
+        ]);
+
+        const rd = await setupTrackedRelay(helia);
+        helia.libp2p.dial.mockClear();
+
+        // Relay is still connected
+        helia.libp2p.getConnections.mockReturnValue([
+          {
+            remotePeer: {
+              toString: () => RELAY_PID,
+            },
+          },
+        ]);
+
+        // Simulate tab becoming visible
+
+        (document as any).visibilityState = "visible";
+
+        (document as any)._emit("visibilitychange");
+
+        // No redial — relay is connected
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(helia.libp2p.dial).not.toHaveBeenCalled();
+
+        rd.stop();
+      });
+    });
+
     it("tags relay peer in peerStore on track", async () => {
       const remotePeer = {
         toString: () => RELAY_PID,
