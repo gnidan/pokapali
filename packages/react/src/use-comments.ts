@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { AbstractType } from "yjs";
+import type { AbstractType, Doc as YDoc } from "yjs";
 import type { Doc } from "@pokapali/core";
 import {
   comments,
@@ -32,9 +32,9 @@ export interface CommentData {
 
 // ── Helpers ─────────────────────────────────────
 
-function tryChannel(doc: Doc, name: string): ReturnType<Doc["channel"]> | null {
+function tryChannel(doc: Doc, name: string): YDoc | null {
   try {
-    return doc.channel(name);
+    return doc.channel(name).handle as YDoc;
   } catch {
     // Old docs created before this channel existed.
     return null;
@@ -56,7 +56,10 @@ export interface UseCommentsOptions {
 
 export function useComments<T>(doc: Doc, options?: UseCommentsOptions) {
   const commentsDoc = useMemo(() => tryChannel(doc, "comments"), [doc]);
-  const contentDoc = useMemo(() => doc.channel("content"), [doc]);
+  const contentDoc = useMemo(
+    () => doc.channel("content").handle as YDoc,
+    [doc],
+  );
 
   const [instance, setInstance] = useState<Comments<T> | null>(null);
 

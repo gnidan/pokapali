@@ -48,6 +48,9 @@ function fakeSurface(): CodecSurface & {
         cb = null;
       };
     }),
+    onEdit: vi.fn(() => () => {}),
+    encodeStateVector: vi.fn(() => new Uint8Array()),
+    encodeState: vi.fn(() => new Uint8Array()),
     destroy: vi.fn(),
     fireLocalEdit(payload: Uint8Array) {
       if (cb) cb(payload);

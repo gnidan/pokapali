@@ -78,7 +78,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   const nameRef = useRef<HTMLInputElement>(null);
   const nameBtnRef = useRef<HTMLButtonElement>(null);
   const sharePanelRef = useRef<HTMLDivElement>(null);
-  const metaDoc = doc.channel("_meta");
+  const metaDoc = doc.channel("_meta").handle as YDoc;
   const docMap = metaDoc.getMap("doc");
   const [docTitle, setDocTitle] = useState(
     () => (docMap.get("title") as string) || "Untitled",
@@ -163,7 +163,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     return unsub;
   }, [doc]);
 
-  const contentDoc = doc.surface("content");
+  const contentDoc = doc.surface("content").handle as YDoc;
   const shouldMount = ready || !isReadOnly;
   // Writers always show the editor — they don't need
   // to wait for a snapshot load. Readers wait for

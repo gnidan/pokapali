@@ -93,6 +93,20 @@ export const yjsCodec: Codec = {
         doc.on("update", handler);
         return () => doc.off("update", handler);
       },
+      onEdit(cb) {
+        const handler = (update: Uint8Array, origin: unknown) => {
+          if (origin === SNAPSHOT_ORIGIN) return;
+          cb(update, origin == null);
+        };
+        doc.on("update", handler);
+        return () => doc.off("update", handler);
+      },
+      encodeStateVector() {
+        return Y.encodeStateVector(doc);
+      },
+      encodeState() {
+        return Y.encodeStateAsUpdate(doc);
+      },
       destroy() {
         log.debug("destroySurface:", doc.guid);
         doc.destroy();

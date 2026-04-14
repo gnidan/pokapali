@@ -15,7 +15,6 @@ import {
   setupParticipantAwareness,
 } from "./doc-identity.js";
 import type { IdentityMap } from "./doc-identity.js";
-import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
 import type {
   SyncManager,
   AwarenessRoom,
@@ -70,7 +69,7 @@ import {
   epochMeasured,
 } from "@pokapali/document";
 import { measureTree } from "@pokapali/finger-tree";
-import type { Codec } from "@pokapali/codec";
+import type { Codec, CodecSurface } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
@@ -122,7 +121,6 @@ const log = createLogger("core");
  * startup. Non-null so the Y.Doc editHandler skips
  * re-persisting replayed edits.
  */
-const STORE_ORIGIN = "store-replay";
 
 const REANNOUNCE_MS = 15_000;
 const GUARANTEE_INITIAL_DELAY_MS = 3_000;
@@ -185,18 +183,24 @@ export interface DocUrls {
 }
 
 export interface Doc {
-  channel(name: string): Y.Doc;
   /**
    * Get or create a CodecSurface for a channel.
    *
-   * Returns the surface's Y.Doc handle for use
-   * with TipTap Collaboration. Edits on this doc
-   * flow through the epoch tree via onLocalEdit.
-   *
-   * Requires a Document to have been provided at
-   * creation time — throws otherwise.
+   * Returns the opaque CodecSurface. Use `.handle`
+   * when binding to an editor (e.g. TipTap
+   * Collaboration). Edits flow through the epoch
+   * tree automatically.
    */
-  surface(name: string): Y.Doc;
+  channel(name: string): CodecSurface;
+  /**
+   * Get or create a CodecSurface for a channel.
+   *
+   * Like channel() but requires a Document to have
+   * been provided at creation time — throws
+   * otherwise. Ensures the surface is bridged for
+   * reconciliation.
+   */
+  surface(name: string): CodecSurface;
   readonly awareness: Awareness;
   readonly capability: Capability;
   /** All channels configured for this app. Compare
@@ -433,21 +437,22 @@ export function createDoc(params: DocParams): Doc {
     markReady();
   }
 
-  // Replay persisted edits from Store into Y.Docs.
+  // Replay persisted edits from Store into surfaces.
   // Old y-indexeddb data is migrated into Store at
   // Store.create time (store/migrate.ts), so this is
-  // the only hydration path. Uses STORE_ORIGIN so
-  // the editHandler doesn't re-persist replayed edits.
-  // Calls markReady() after replay completes so the
-  // editor is usable while IPNS resolution continues
-  // in background.
+  // the only hydration path. Uses applyEdit() so
+  // replayed edits are treated as remote (not
+  // re-persisted by the edit bridge). Calls
+  // markReady() after replay completes so the editor
+  // is usable while IPNS resolution continues in
+  // background.
   if (params.storeDocument && params.document) {
     const doc = params.document;
     const storeDoc = params.storeDocument;
     const replayPromises: Promise<void>[] = [];
     for (const ch of channels) {
       if (!doc.hasSurface(ch)) continue;
-      const ydoc = doc.surface(ch).handle as Y.Doc;
+      const surface = doc.surface(ch);
       const p = storeDoc
         .history(ch)
         .load()
@@ -455,7 +460,7 @@ export function createDoc(params: DocParams): Doc {
           let count = 0;
           for (const epoch of epochs) {
             for (const edit of epoch.edits) {
-              Y.applyUpdate(ydoc, edit.payload, STORE_ORIGIN);
+              surface.applyEdit(edit.payload);
               count++;
             }
           }
@@ -564,8 +569,7 @@ export function createDoc(params: DocParams): Doc {
     let sum = 0;
     for (const ns of channels) {
       if (!params.document.hasSurface(ns)) continue;
-      const handle = params.document.surface(ns).handle as Y.Doc;
-      const sv = Y.encodeStateVector(handle);
+      const sv = params.document.surface(ns).encodeStateVector();
       const decoded = Y.decodeStateVector(sv);
       for (const clock of decoded.values()) {
         sum += clock;
@@ -803,50 +807,39 @@ export function createDoc(params: DocParams): Doc {
   // idempotent.
   const editBridgeCleanups: Array<() => void> = [];
   const surfaceBridged = new Set<string>();
-  // Fallback Y.Docs for channels when no Document
+  // Fallback surfaces for channels when no Document
   // is provided (e.g. lazy/solo mode tests).
-  const fallbackDocs = new Map<string, Y.Doc>();
+  const fallbackSurfaces = new Map<string, CodecSurface>();
   if (params.document) {
     for (const name of channels) {
       if (!params.document.hasSurface(name)) continue;
-      const ydoc = params.document.surface(name).handle as Y.Doc;
+      const surface = params.document.surface(name);
       const channel = params.document.channel(name);
-      const editHandler = (update: Uint8Array, origin: unknown) => {
-        // Only capture local user edits (null origin
-        // from TipTap/ProseMirror). Skip Store replay,
-        // snapshot application, awareness sync, and
-        // any other non-local origins.
-        if (origin != null) return;
-        // Append synchronously so the epoch tree is
-        // up-to-date for immediate publish(). The
-        // signature is empty here — outgoing wire
-        // paths (live forwarding + reconciliation)
-        // sign on-the-fly with the envelope format.
-        const edit = Edit.create({
-          payload: update,
-          timestamp: Date.now(),
-          author: identityPubkeyHex ?? "",
-          channel: name,
-          origin: "local",
-          signature: new Uint8Array(),
-        });
-        channel.appendEdit(edit);
-        persistEdit(name, edit);
-        scheduleReconcile();
+      const unsub = surface.onEdit((update, isLocal) => {
+        if (isLocal) {
+          // Capture local user edits (from TipTap/
+          // ProseMirror). Append synchronously so the
+          // epoch tree is up-to-date for immediate
+          // publish(). Signature is empty — outgoing
+          // wire paths sign on-the-fly.
+          const edit = Edit.create({
+            payload: update,
+            timestamp: Date.now(),
+            author: identityPubkeyHex ?? "",
+            channel: name,
+            origin: "local",
+            signature: new Uint8Array(),
+          });
+          channel.appendEdit(edit);
+          persistEdit(name, edit);
+          scheduleReconcile();
+        }
+        // Dirty tracking for all edits (local +
+        // remote). Snapshot-origin updates are
+        // excluded by onEdit itself.
         markContentDirty();
-      };
-      ydoc.on("update", editHandler);
-      editBridgeCleanups.push(() => ydoc.off("update", editHandler));
-
-      // Dirty tracking for non-local updates too
-      // (e.g. remote edits applied via editListeners).
-      const dirtyHandler = (_update: Uint8Array, origin: unknown) => {
-        if (origin === SNAPSHOT_ORIGIN) return;
-        if (origin == null) return; // handled above
-        markContentDirty();
-      };
-      ydoc.on("update", dirtyHandler);
-      editBridgeCleanups.push(() => ydoc.off("update", dirtyHandler));
+      });
+      editBridgeCleanups.push(unsub);
     }
   }
 
@@ -1782,8 +1775,10 @@ export function createDoc(params: DocParams): Doc {
     for (const cleanup of editBridgeCleanups) cleanup();
     editBridgeCleanups.length = 0;
     // Destroy fallback channel docs
-    for (const fb of fallbackDocs.values()) fb.destroy();
-    fallbackDocs.clear();
+    for (const fb of fallbackSurfaces.values()) {
+      fb.destroy();
+    }
+    fallbackSurfaces.clear();
     // Unsubscribe all event→Feed bridges
     for (const map of eventSubs.values()) {
       for (const unsub of map.values()) unsub();
@@ -1836,52 +1831,45 @@ export function createDoc(params: DocParams): Doc {
   }
 
   // Lazily register a reconciliation trigger on a
-  // surface Y.Doc. The surface's onLocalEdit already
+  // CodecSurface. The surface's onLocalEdit already
   // puts edits in the epoch tree via ch.appendEdit(),
   // but scheduleReconcile() isn't called from that
   // path. This bridges the gap.
-  function ensureSurfaceBridged(name: string, handle: Y.Doc): void {
+  function ensureSurfaceBridged(name: string, surface: CodecSurface): void {
     if (surfaceBridged.has(name)) return;
     surfaceBridged.add(name);
-    const handler = (_update: Uint8Array, origin: unknown) => {
-      // Skip remote/snapshot origins — only
-      // local edits should trigger reconcile.
-      if (origin === "remote" || origin === "snapshot") {
-        return;
-      }
+    const unsub = surface.onLocalEdit(() => {
       markContentDirty();
       scheduleReconcile();
-    };
-    handle.on("update", handler);
-    editBridgeCleanups.push(() => handle.off("update", handler));
+    });
+    editBridgeCleanups.push(unsub);
   }
 
   const doc = {
-    channel(name: string): Y.Doc {
+    channel(name: string): CodecSurface {
       assertNotDestroyed();
       try {
-        let doc: Y.Doc;
+        let result: CodecSurface;
         if (params.document?.hasSurface(name)) {
-          doc = params.document.surface(name).handle as Y.Doc;
+          result = params.document.surface(name);
         } else if (channels.includes(name)) {
           // No Document or surface not wired yet.
-          // Return a standalone Y.Doc (lazily
+          // Return a standalone surface (lazily
           // created) so callers like tests and
-          // rotate can access channel docs.
-          let fb = fallbackDocs.get(name);
+          // rotate can access channel surfaces.
+          let fb = fallbackSurfaces.get(name);
           if (!fb) {
-            fb = new Y.Doc({
+            fb = params.codec.createSurface({
               guid: `${ipnsName}:${name}`,
             });
-            // Wire dirty tracking on fallback docs
-            const dirtyH = (_u: Uint8Array, origin: unknown) => {
-              if (origin === SNAPSHOT_ORIGIN) return;
+            // Wire dirty tracking on fallback
+            const unsub = fb.onEdit(() => {
               markContentDirty();
-            };
-            fb.on("update", dirtyH);
-            fallbackDocs.set(name, fb);
+            });
+            editBridgeCleanups.push(unsub);
+            fallbackSurfaces.set(name, fb);
           }
-          doc = fb;
+          result = fb;
         } else {
           throw new Error(`No surface for channel "${name}"`);
         }
@@ -1895,13 +1883,13 @@ export function createDoc(params: DocParams): Doc {
           warnedChannels.add(name);
           log.warn(
             `Channel "${name}" accessed without` +
-              " write key — sync disabled for this" +
-              " channel. Ask the document admin for" +
-              " a re-invite that includes this" +
-              " channel.",
+              " write key — sync disabled for" +
+              " this channel. Ask the document" +
+              " admin for a re-invite that" +
+              " includes this channel.",
           );
         }
-        return doc;
+        return result;
       } catch {
         throw new Error(
           `Unknown channel "${name}". ` + "Configured: " + channels.join(", "),
@@ -1909,16 +1897,16 @@ export function createDoc(params: DocParams): Doc {
       }
     },
 
-    surface(name: string): Y.Doc {
+    surface(name: string): CodecSurface {
       assertNotDestroyed();
       if (!params.document) {
         throw new Error(
           "surface() requires a Document." + " Pass a document to createDoc().",
         );
       }
-      const handle = params.document.surface(name).handle as Y.Doc;
-      ensureSurfaceBridged(name, handle);
-      return handle;
+      const surface = params.document.surface(name);
+      ensureSurfaceBridged(name, surface);
+      return surface;
     },
 
     get awareness(): Awareness {

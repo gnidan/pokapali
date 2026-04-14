@@ -17,6 +17,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import type { Doc as YDoc } from "yjs";
 import { pokapali, type Doc, statusLabel } from "@pokapali/core";
 import { useFeed, useDocReady } from "@pokapali/react";
 import { comments, type Comments, type Comment } from "@pokapali/comments";
@@ -85,8 +86,8 @@ function DocumentEditor({ doc }: { doc: Doc }) {
 
   // -- Create Comments instance --
   useEffect(() => {
-    const commentsDoc = doc.channel("comments");
-    const contentDoc = doc.channel("content");
+    const commentsDoc = doc.channel("comments").handle as YDoc;
+    const contentDoc = doc.channel("content").handle as YDoc;
 
     // Note: Tiptap uses XmlFragment, not Text.
     // Pass the correct content type or anchors
@@ -111,11 +112,11 @@ function DocumentEditor({ doc }: { doc: Doc }) {
       extensions: [
         StarterKit.configure({ history: false }),
         Collaboration.configure({
-          document: doc.channel("content"),
+          document: doc.channel("content").handle as YDoc,
         }),
         CommentHighlight.configure({
-          commentsDoc: doc.channel("comments"),
-          contentDoc: doc.channel("content"),
+          commentsDoc: doc.channel("comments").handle as YDoc,
+          contentDoc: doc.channel("content").handle as YDoc,
           activeCommentId: null,
         }),
         PendingAnchorHighlight,
@@ -217,7 +218,11 @@ function CommentsSidebar({
   // the document (spatial anchoring).
   const syncState = editor ? getSyncState(editor) : null;
   const resolved = editor
-    ? resolveAnchors(doc.channel("comments"), doc.channel("content"), syncState)
+    ? resolveAnchors(
+        doc.channel("comments").handle as YDoc,
+        doc.channel("content").handle as YDoc,
+        syncState,
+      )
     : [];
   const posMap = new Map(resolved.map((r) => [r.id, r.from]));
 

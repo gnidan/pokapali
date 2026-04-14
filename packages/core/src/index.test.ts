@@ -232,13 +232,13 @@ describe("@pokapali/core", () => {
     doc.destroy();
   });
 
-  it("create() channel(name) returns Y.Doc", async () => {
+  it("create() channel(name) returns CodecSurface", async () => {
     const lib = pokapali(OPTS);
     const doc = await lib.create();
     const content = doc.channel("content");
     const comments = doc.channel("comments");
-    expect(content).toBeInstanceOf(Y.Doc);
-    expect(comments).toBeInstanceOf(Y.Doc);
+    expect(content.handle).toBeInstanceOf(Y.Doc);
+    expect(comments.handle).toBeInstanceOf(Y.Doc);
     doc.destroy();
   });
 
@@ -475,7 +475,7 @@ describe("@pokapali/core", () => {
     expect(doc.saveState.getSnapshot()).toBe("saved");
 
     // Edit a subdoc to trigger dirty
-    const content = doc.channel("content");
+    const content = doc.channel("content").handle as Y.Doc;
     content.getMap("test").set("key", "value");
     expect(doc.saveState.getSnapshot()).toBe("dirty");
     doc.destroy();
@@ -495,7 +495,7 @@ describe("@pokapali/core", () => {
     });
 
     // Edit to trigger dirty → save-state change
-    const content = doc.channel("content");
+    const content = doc.channel("content").handle as Y.Doc;
     content.getMap("test").set("k", "v");
     expect(states).toContain("dirty");
     doc.destroy();
@@ -525,7 +525,7 @@ describe("@pokapali/core", () => {
       fired = true;
     });
 
-    const content = doc.channel("content");
+    const content = doc.channel("content").handle as Y.Doc;
     content.getMap("test").set("k", "v");
     expect(fired).toBe(true);
     doc.destroy();
@@ -572,7 +572,7 @@ describe("@pokapali/core", () => {
       const doc = await lib.create();
 
       await doc.publish();
-      const content = doc.channel("content");
+      const content = doc.channel("content").handle as Y.Doc;
       content.getMap("test").set("k", "v");
       await doc.publish();
 
@@ -591,7 +591,7 @@ describe("@pokapali/core", () => {
       const doc = await lib.create();
 
       await doc.publish();
-      const content = doc.channel("content");
+      const content = doc.channel("content").handle as Y.Doc;
       content.getMap("test").set("k", "v");
       await doc.publish();
       content.getMap("test").set("k", "v2");
@@ -612,7 +612,7 @@ describe("@pokapali/core", () => {
       const lib = pokapali(OPTS);
       const doc = await lib.create();
 
-      const content = doc.channel("content");
+      const content = doc.channel("content").handle as Y.Doc;
       content.getMap("data").set("hello", "world");
       await doc.publish();
 
@@ -643,7 +643,7 @@ describe("@pokapali/core", () => {
       const lib = pokapali(OPTS);
       const doc = await lib.create();
 
-      const content = doc.channel("content");
+      const content = doc.channel("content").handle as Y.Doc;
       content.getMap("data").set("hello", "world");
 
       const { newDoc, forwardingRecord } = await doc.rotate();
@@ -651,7 +651,7 @@ describe("@pokapali/core", () => {
       expect(forwardingRecord).toBeInstanceOf(Uint8Array);
       expect(newDoc.capability.isAdmin).toBe(true);
 
-      const newContent = newDoc.channel("content");
+      const newContent = newDoc.channel("content").handle as Y.Doc;
       expect(newContent.getMap("data").get("hello")).toBe("world");
 
       // Old doc is destroyed
@@ -735,7 +735,7 @@ describe("@pokapali/core", () => {
       const lib = pokapali(OPTS);
       const doc = await lib.create();
 
-      const content = doc.channel("content");
+      const content = doc.channel("content").handle as Y.Doc;
       content.getMap("data").set("key", "value");
 
       const oldAdminUrl = doc.urls.admin!;
@@ -999,7 +999,7 @@ describe("@pokapali/core", () => {
       // Doc should be returned even though Helia
       // hasn't bootstrapped yet
       expect(doc.channel).toBeTypeOf("function");
-      expect(doc.channel("content")).toBeInstanceOf(Y.Doc);
+      expect(doc.channel("content").handle).toBeInstanceOf(Y.Doc);
 
       // Clean up: resolve Helia to avoid leaks
       resolveHelia();

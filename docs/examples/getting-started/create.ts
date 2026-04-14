@@ -32,9 +32,10 @@ console.log("  Admin URL:", doc.urls.admin);
 console.log("  Write URL:", doc.urls.write);
 console.log("  Read URL: ", doc.urls.read);
 
-// 3. Access the "content" channel as a Y.Doc.
+// 3. Access the "content" channel's Y.Doc handle.
 //    Use any Yjs shared type (Y.Text, Y.Map, etc.).
-const ydoc = doc.channel("content");
+import type { Doc as YDoc } from "yjs";
+const ydoc = doc.channel("content").handle as YDoc;
 const text = ydoc.getText("body");
 text.insert(0, "Hello from pokapali!");
 console.log("\nContent:", text.toString());

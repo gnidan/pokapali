@@ -41,8 +41,9 @@ console.log("Opened doc (role: %s)", role);
 //    (from IndexedDB, peers, or pinner HTTP).
 await doc.ready();
 
-// 4. Read the content channel.
-const ydoc = doc.channel("content");
+// 4. Read the content channel's Y.Doc handle.
+import type { Doc as YDoc } from "yjs";
+const ydoc = doc.channel("content").handle as YDoc;
 const text = ydoc.getText("body");
 console.log("Content:", text.toString());
 

@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+import { yjsCodec } from "@pokapali/codec";
 
 vi.mock("@pokapali/crypto", () => ({
   hexToBytes: vi.fn(() => new Uint8Array(32)),
@@ -130,7 +131,7 @@ function baseParams() {
     signalingUrls: [],
     performInitialResolve: false,
 
-    codec: {} as any,
+    codec: yjsCodec,
   };
 }
 

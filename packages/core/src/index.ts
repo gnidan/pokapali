@@ -734,6 +734,7 @@ export type {
 } from "./topology-sharing.js";
 
 export type { Capability, CapabilityGrant } from "@pokapali/capability";
+export type { CodecSurface } from "@pokapali/codec";
 export type { Awareness } from "y-protocols/awareness";
 
 export {

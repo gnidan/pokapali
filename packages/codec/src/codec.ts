@@ -116,6 +116,23 @@ export interface CodecSurface {
    *  unsubscribe function. */
   onLocalEdit(cb: (payload: Uint8Array) => void): () => void;
 
+  /** Register callback for any edit (local or
+   *  remote). Fires for applyEdit() and local
+   *  edits but NOT applyState(). `isLocal` is
+   *  true when the edit originated from the
+   *  surface itself (user typing). Returns
+   *  unsubscribe function. */
+  onEdit(cb: (payload: Uint8Array, isLocal: boolean) => void): () => void;
+
+  /** Encode the surface's state vector — a
+   *  compact summary of which operations the
+   *  surface has seen. */
+  encodeStateVector(): Uint8Array;
+
+  /** Encode the full surface state as a single
+   *  update payload. */
+  encodeState(): Uint8Array;
+
   /** Clean up the surface. */
   destroy(): void;
 }

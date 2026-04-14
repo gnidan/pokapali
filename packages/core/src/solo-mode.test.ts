@@ -173,7 +173,7 @@ describe("solo mode (no relay)", () => {
     const lib = pokapali(SOLO_OPTS);
     const doc = await lib.create();
 
-    const content = doc.channel("content");
+    const content = doc.channel("content").handle as Y.Doc;
     content.getText("body").insert(0, "solo edit");
     expect(content.getText("body").toString()).toBe("solo edit");
     doc.destroy();
@@ -231,7 +231,7 @@ describe("solo mode (no relay)", () => {
     expect(doc.saveState.getSnapshot()).toBe("saved");
 
     // Edit triggers dirty
-    const content = doc.channel("content");
+    const content = doc.channel("content").handle as Y.Doc;
     content.getMap("test").set("k", "v");
     expect(doc.saveState.getSnapshot()).toBe("dirty");
 
@@ -246,7 +246,7 @@ describe("solo mode (no relay)", () => {
     const doc = await lib.create();
 
     // Write some content first
-    doc.channel("content").getText("t").insert(0, "x");
+    (doc.channel("content").handle as Y.Doc).getText("t").insert(0, "x");
     await doc.publish();
 
     // destroy should not throw
@@ -277,7 +277,7 @@ describe("solo mode (no relay)", () => {
       fired = true;
     });
 
-    doc.channel("content").getMap("m").set("a", 1);
+    (doc.channel("content").handle as Y.Doc).getMap("m").set("a", 1);
     expect(fired).toBe(true);
     doc.destroy();
   });
@@ -297,7 +297,7 @@ describe("solo mode (no relay)", () => {
     const doc = await lib.create();
 
     mockHistoryAppend.mockClear();
-    doc.channel("content").getText("body").insert(0, "hello");
+    (doc.channel("content").handle as Y.Doc).getText("body").insert(0, "hello");
 
     // Fire-and-forget persist — flush microtasks
     await new Promise((r) => setTimeout(r, 0));

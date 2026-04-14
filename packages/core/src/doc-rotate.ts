@@ -103,8 +103,7 @@ export async function rotateDoc(
   const channelState: Record<string, Uint8Array> = {};
   for (const ch of ctx.channels) {
     if (ctx.document.hasSurface(ch)) {
-      const handle = ctx.document.surface(ch).handle as Y.Doc;
-      channelState[ch] = Y.encodeStateAsUpdate(handle);
+      channelState[ch] = ctx.document.surface(ch).encodeState();
     }
   }
 
@@ -196,8 +195,7 @@ export async function rotateDoc(
 
   // Apply old channel state to new doc's surfaces
   for (const [ch, state] of Object.entries(channelState)) {
-    const ydoc = newDoc.channel(ch);
-    Y.applyUpdate(ydoc, state);
+    newDoc.channel(ch).applyState(state);
   }
 
   // Create and store forwarding record
