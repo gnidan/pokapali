@@ -75,8 +75,9 @@ import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
 import { createAsyncQueue, scan, merge } from "./async-utils.js";
 import type { AsyncQueue } from "./async-utils.js";
-import { createFeed } from "./feed.js";
-import type { Feed, WritableFeed } from "./feed.js";
+import type { Feed } from "./feed.js";
+import { createDocFeeds } from "./doc-feeds.js";
+import type { ValidationErrorInfo } from "./doc-feeds.js";
 import { reannounceFacts } from "./fact-sources.js";
 import {
   reduce,
@@ -109,10 +110,7 @@ import {
   deriveStatus,
   deriveLoadingState,
   loadingStateChanged,
-  MESH_GRACE_MS,
 } from "./doc-status.js";
-import { projectFeed } from "./project-feed.js";
-import { selectStatus, selectSaveState } from "./state-selectors.js";
 
 const log = createLogger("core");
 
@@ -601,31 +599,29 @@ export function createDoc(params: DocParams): Doc {
     { guaranteeUntil: number; retainUntil: number }
   >();
   // --- Feeds ---
-  // DocState feed — source of truth for derived
-  // status and saveState projections. Updated in
-  // captureState() as the interpreter produces new
-  // state.
-  const docStateInit = initialDocState({
+  const {
+    docStateFeed,
+    statusFeed,
+    saveStateFeed,
+    tipFeed,
+    loadingFeed,
+    backedUpFeed,
+    versionsFeed,
+    snapshotEventFeed,
+    ackEventFeed,
+    nodeChangeFeed,
+    dirtyCountFeed,
+    gossipActivityFeed,
+    persistenceErrorFeed,
+    validationErrorFeed,
+    graceTimer,
+  } = createDocFeeds({
     ipnsName,
     role: cap.isAdmin ? "admin" : cap.channels.size > 0 ? "writer" : "reader",
     channels,
     appId: params.appId ?? "",
-  });
-  // Set createdAt for mesh grace period and
-  // re-derive status so initial value is
-  // "connecting" instead of "offline".
-  docStateInit.connectivity = {
-    ...docStateInit.connectivity,
     createdAt: docCreatedAt,
-  };
-  docStateInit.status = deriveStatus(docStateInit.connectivity);
-  const docStateFeed: WritableFeed<DocState> =
-    createFeed<DocState>(docStateInit);
-  const statusFeed: Feed<DocStatus> = projectFeed(docStateFeed, selectStatus);
-  const saveStateFeed: Feed<SaveState> = projectFeed(
-    docStateFeed,
-    selectSaveState,
-  );
+  });
 
   // Synchronous local-state push: updates
   // docStateFeed immediately when local vars
@@ -656,74 +652,7 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
-  // After grace period expires, re-derive status
-  // so it transitions from "connecting" to "offline"
-  // if nothing has connected.
-  const graceTimer = setTimeout(() => {
-    const current = docStateFeed.getSnapshot();
-    const fresh = deriveStatus(current.connectivity);
-    if (fresh !== current.status) {
-      docStateFeed._update({
-        ...current,
-        status: fresh,
-      });
-    }
-  }, MESH_GRACE_MS + 50);
   let lastTipInfo: VersionInfo | null = null;
-  const tipFeed: WritableFeed<VersionInfo | null> =
-    createFeed<VersionInfo | null>(null, (a, b) => {
-      if (a === b) return true;
-      if (!a || !b) return false;
-      return (
-        a.cid.equals(b.cid) &&
-        a.seq === b.seq &&
-        a.ackedBy === b.ackedBy &&
-        a.guaranteeUntil === b.guaranteeUntil &&
-        a.retainUntil === b.retainUntil
-      );
-    });
-  const loadingFeed: WritableFeed<LoadingState> = createFeed<LoadingState>(
-    { status: "idle" },
-    (a, b) => !loadingStateChanged(a, b),
-  );
-  const backedUpFeed: WritableFeed<boolean> = createFeed<boolean>(false);
-
-  const EMPTY_VERSION_HISTORY: VersionHistory = {
-    entries: [],
-    walking: false,
-  };
-  const versionsFeed: WritableFeed<VersionHistory> = createFeed<VersionHistory>(
-    EMPTY_VERSION_HISTORY,
-  );
-
-  // --- Event feeds (replace emit/listeners) ---
-  // For event-like notifications, use a comparator
-  // that never deduplicates so every _update fires.
-  const snapshotEventFeed: WritableFeed<SnapshotEvent | null> =
-    createFeed<SnapshotEvent | null>(null, () => false);
-  const ackEventFeed: WritableFeed<string | null> = createFeed<string | null>(
-    null,
-    () => false,
-  );
-  const nodeChangeFeed: WritableFeed<number> = createFeed<number>(
-    0,
-    () => false,
-  );
-  const dirtyCountFeed: WritableFeed<number> = createFeed<number>(
-    0,
-    () => false,
-  );
-  const gossipActivityFeed: WritableFeed<GossipActivity> =
-    createFeed<GossipActivity>("inactive");
-  const persistenceErrorFeed: WritableFeed<string | null> = createFeed<
-    string | null
-  >(null);
-  type ValidationErrorInfo = {
-    cid: string;
-    message: string;
-  } | null;
-  const validationErrorFeed: WritableFeed<ValidationErrorInfo> =
-    createFeed<ValidationErrorInfo>(null);
 
   // --- Client identity mapping feed ---
   const clientIdMapping = createClientIdMapping(metaDoc, ipnsName);
