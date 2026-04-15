@@ -77,29 +77,35 @@ vi.mock("./node-registry.js", () => ({
   NODE_CAPS_TOPIC: "pokapali._node-caps._p2p._pubsub",
 }));
 
-vi.mock("@pokapali/sync", () => ({
-  SNAPSHOT_ORIGIN: Symbol("snapshot-apply"),
-  setupNamespaceRooms: vi.fn(() => ({
-    status: "connected",
-    onStatusChange: vi.fn(),
-    destroy: vi.fn(),
-  })),
-  setupSignaledAwarenessRoom: vi.fn(() => ({
-    awareness: {
-      on: vi.fn(),
-      off: vi.fn(),
-      setLocalStateField: vi.fn(),
-      states: new Map(),
-    },
-    connected: true,
-    onStatusChange: vi.fn(),
-    onPeerCreated: vi.fn(() => () => {}),
-    onPeerConnection: vi.fn(() => () => {}),
-    destroy: vi.fn(),
-  })),
-  createSignalingClient: vi.fn(() => ({})),
-  SIGNALING_PROTOCOL: "/pokapali/signaling/1.0.0",
-}));
+vi.mock("@pokapali/sync", async () => {
+  const actual = await vi.importActual("@pokapali/sync");
+  return {
+    SNAPSHOT_ORIGIN: Symbol("snapshot-apply"),
+    setupNamespaceRooms: vi.fn(() => ({
+      status: "connected",
+      onStatusChange: vi.fn(),
+      destroy: vi.fn(),
+    })),
+    setupSignaledAwarenessRoom: vi.fn(() => ({
+      awareness: {
+        on: vi.fn(),
+        off: vi.fn(),
+        setLocalStateField: vi.fn(),
+        states: new Map(),
+      },
+      connected: true,
+      onStatusChange: vi.fn(),
+      onPeerCreated: vi.fn(() => () => {}),
+      onPeerConnection: vi.fn(() => () => {}),
+      onNeedsSwap: vi.fn(() => () => {}),
+      destroy: vi.fn(),
+    })),
+    createSignalingClient: vi.fn(() => ({})),
+    createMultiRelayRoom: (actual as Record<string, unknown>)
+      .createMultiRelayRoom,
+    SIGNALING_PROTOCOL: "/pokapali/signaling/1.0.0",
+  };
+});
 
 vi.mock("blockstore-idb", () => ({
   IDBBlockstore: vi.fn(() => ({
@@ -875,27 +881,27 @@ describe("@pokapali/core", () => {
 
   describe("signaling retry after relay timeout", () => {
     it(
-      "retries signaling when initial relay" + " discovery times out",
+      "connects via onRelayReconnected after" +
+        " initial relay discovery fails",
       async () => {
         const { startRoomDiscovery } = await import("./peer-discovery.js");
         const { getHelia } = await import("./helia.js");
 
-        // Override peer-discovery to reject first
-        // waitForRelay (30s timeout) then resolve
-        // on retry (simulating a late relay).
+        // Capture the onRelayReconnected callback
+        // so we can fire it manually.
+        let reconnectCb: ((pid: string) => void) | undefined;
         const relayPeerIds = new Set<string>();
-        const mockWaitForRelay = vi
-          .fn()
-          .mockRejectedValueOnce(new Error("no relay within timeout"))
-          .mockImplementation(async () => {
-            relayPeerIds.add("late-relay-pid");
-            return "late-relay-pid";
-          });
         vi.mocked(startRoomDiscovery).mockReturnValue({
           relayPeerIds,
           relayEntries: vi.fn(() => []),
           addExternalRelays: vi.fn(),
-          waitForRelay: mockWaitForRelay,
+          waitForRelay: vi
+            .fn()
+            .mockRejectedValue(new Error("no relay within timeout")),
+          onRelayReconnected: vi.fn((cb: (pid: string) => void) => {
+            reconnectCb = cb;
+            return () => {};
+          }),
           stop: vi.fn(),
         } as any);
 
@@ -931,20 +937,27 @@ describe("@pokapali/core", () => {
           const lib = pokapali(OPTS);
           const doc = await lib.create();
 
-          // Wait for the background retry to call
-          // setupSignaledAwarenessRoom. This proves
-          // signaling recovered after the initial
-          // 30s relay timeout.
+          // onRelayReconnected should have been
+          // registered during p2p setup.
+          await vi.waitFor(
+            () => {
+              expect(reconnectCb).toBeDefined();
+            },
+            { timeout: 5000 },
+          );
+
+          // Simulate a late relay appearing.
+          relayPeerIds.add("late-relay-pid");
+          reconnectCb!("late-relay-pid");
+
+          // Wait for connectRelay → trySignaling
+          // → setupSignaledAwarenessRoom.
           await vi.waitFor(
             () => {
               expect(setupSignaledAwarenessRoom).toHaveBeenCalled();
             },
             { timeout: 5000 },
           );
-
-          // waitForRelay called at least twice:
-          // initial attempt + retry.
-          expect(mockWaitForRelay).toHaveBeenCalledTimes(2);
 
           doc.destroy();
         } finally {
@@ -957,6 +970,7 @@ describe("@pokapali/core", () => {
             waitForRelay: vi
               .fn()
               .mockRejectedValue(new Error("no relay in test")),
+            onRelayReconnected: vi.fn(() => () => {}),
             stop: vi.fn(),
           } as any);
           vi.mocked(getHelia).mockReturnValue({

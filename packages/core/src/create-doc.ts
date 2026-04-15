@@ -308,19 +308,9 @@ export interface P2PDeps {
   syncManager: SyncManager;
   awarenessRoom: AwarenessRoom;
   roomDiscovery: RoomDiscovery;
-  /** Resolves when signaling connects after the
-   *  initial relay timeout. The new AwarenessRoom
-   *  replaces the placeholder passed in
-   *  awarenessRoom. */
-  upgradeAwareness?: Promise<AwarenessRoom>;
-  /** Fires when a relay reconnects and a new
-   *  signaling stream + awareness room is created.
-   *  Replaces the current liveAwarenessRoom. */
-  onSignalingReconnect?(cb: (room: AwarenessRoom) => void): () => void;
   /** Request re-establishment of signaling with any
-   *  available relay. Used when the current room
-   *  detects it is fully dead (signaling closed +
-   *  no WebRTC peers). */
+   *  available relay. Used when the MultiRelayRoom
+   *  fires onNeedsSwap (all relays dead). */
   requestReconnect?(): void;
   /** Close the IDB blockstore on teardown. */
   closeBlockstore?: () => Promise<void>;
@@ -1284,76 +1274,15 @@ export function createDoc(params: DocParams): Doc {
         liveAwarenessRoom = deps.awarenessRoom;
         wireSyncBridges(deps.syncManager, deps.awarenessRoom);
 
-        // Wire onNeedsSwap on the current room so
-        // that when signaling dies AND WebRTC peers
-        // drop, we proactively re-establish.
-        let unsubNeedsSwap: (() => void) | null = null;
-        function wireNeedsSwap(room: AwarenessRoom): void {
-          unsubNeedsSwap?.();
-          unsubNeedsSwap = room.onNeedsSwap(() => {
-            if (destroyed) return;
-            log.info("room needs swap — requesting" + " reconnect");
-            deps.requestReconnect?.();
-          });
-        }
-        wireNeedsSwap(deps.awarenessRoom);
-
-        // Upgrade awareness room when signaling
-        // connects after the initial relay timeout.
-        if (deps.upgradeAwareness) {
-          deps.upgradeAwareness
-            .then((newRoom) => {
-              if (destroyed) return;
-              log.info("upgrading awareness room");
-              liveAwarenessRoom?.destroy();
-              liveAwarenessRoom = newRoom;
-              wireSyncBridges(deps.syncManager, newRoom);
-              wireNeedsSwap(newRoom);
-            })
-            .catch((err) => {
-              log.debug(
-                "awareness upgrade skipped:",
-                (err as Error)?.message ?? err,
-              );
-            });
-        }
-
-        // Ongoing signaling reconnection: when a
-        // relay redials, swap the awareness room
-        // — but only if the current room is
-        // disconnected. Multiple relays reconnect
-        // in rapid succession after idle resume;
-        // swapping on each one tears down peer
-        // connections before they finish
-        // establishing.
-        if (deps.onSignalingReconnect) {
-          deps.onSignalingReconnect((newRoom) => {
-            if (destroyed) {
-              newRoom.destroy();
-              return;
-            }
-            if (liveAwarenessRoom?.connected) {
-              log.info(
-                "signaling reconnected but current" +
-                  " room is connected — keeping" +
-                  " it, destroying new room",
-              );
-              newRoom.destroy();
-              return;
-            }
-            log.info(
-              "signaling reconnected, swapping" +
-                " awareness room" +
-                " (current connected=" +
-                String(liveAwarenessRoom?.connected) +
-                ")",
-            );
-            liveAwarenessRoom?.destroy();
-            liveAwarenessRoom = newRoom;
-            wireSyncBridges(deps.syncManager, newRoom);
-            wireNeedsSwap(newRoom);
-          });
-        }
+        // Wire onNeedsSwap on the MultiRelayRoom so
+        // that when ALL relays are dead (signaling
+        // closed + no WebRTC peers), we proactively
+        // re-establish signaling.
+        deps.awarenessRoom.onNeedsSwap(() => {
+          if (destroyed) return;
+          log.info("all relays dead — requesting" + " reconnect");
+          deps.requestReconnect?.();
+        });
 
         // Relay sharing (deferred)
         if (deps.roomDiscovery && awareness) {

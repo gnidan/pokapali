@@ -19,6 +19,7 @@ import {
   setupNamespaceRooms,
   setupSignaledAwarenessRoom,
   createSignalingClient,
+  createMultiRelayRoom,
   SIGNALING_PROTOCOL,
 } from "@pokapali/sync";
 import type {
@@ -26,6 +27,7 @@ import type {
   PubSubLike,
   SignalingStream,
   AwarenessRoom,
+  MultiRelayRoom,
 } from "@pokapali/sync";
 import {
   lookupForwardingRecord,
@@ -328,66 +330,23 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
               }
             }
 
-            // Wait for relay discovery, then open a
-            // signaling stream for WebRTC peer discovery.
-            // If the initial wait times out, resolve with
-            // a placeholder and retry signaling in the
-            // background — relays often connect after the
-            // DHT finishes its slow initial lookup.
+            // Multi-relay room: wraps N per-relay
+            // awareness rooms behind a single interface.
+            // Relays are added/removed dynamically —
+            // no swap logic needed.
+            const multiRoom = createMultiRelayRoom(awareness);
             const RELAY_WAIT_MS = 30_000;
-            const RETRY_RELAY_WAIT_MS = 120_000;
 
             log.info("waiting for relay discovery...");
 
-            let awarenessRoom: AwarenessRoom;
-            let upgradeAwareness: Promise<AwarenessRoom> | undefined;
-            try {
-              const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
-
-              log.info("relay discovered:", relayPid.slice(0, 12));
-              awarenessRoom = await trySignaling(
-                helia,
-                relayPid,
-                ipnsName,
-                awareness,
-                syncOpts,
-                networkId,
-              );
-            } catch (err) {
-              log.warn(
-                "signaling setup failed, retrying in bg:",
-                (err as Error)?.message ?? err,
-              );
-              awarenessRoom = placeholderAwarenessRoom(awareness);
-              upgradeAwareness = retrySignaling(
-                helia,
-                roomDiscovery,
-                ipnsName,
-                awareness,
-                syncOpts,
-                networkId,
-                RETRY_RELAY_WAIT_MS,
-              );
-              // Prevent unhandled-rejection if createDoc
-              // hasn't attached its handler yet.
-              upgradeAwareness.catch(() => {});
-            }
-
-            // Relay reconnect → re-create signaling
-            // stream and awareness room. Consumers
-            // swap the room via onSignalingReconnect.
-            //
-            // Concurrency gate with latest-wins: if
-            // multiple relays reconnect in rapid
-            // succession (e.g. after idle resume), only
-            // one trySignaling runs at a time. Later
-            // reconnects update pendingRelay so the most
-            // recent relay always gets a chance.
-            const reconnectCbs = new Set<(room: AwarenessRoom) => void>();
+            // Connect to a relay and add it to the
+            // multi-relay room. Serialized: only one
+            // trySignaling runs at a time, later
+            // requests queue up.
             let signalingInFlight = false;
             let pendingRelay: string | null = null;
 
-            function attemptSignaling(relayPid: string): void {
+            function connectRelay(relayPid: string): void {
               if (signalingInFlight) {
                 log.info(
                   "signaling in flight, queuing" + " relay:",
@@ -398,10 +357,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
               }
               signalingInFlight = true;
               pendingRelay = null;
-              log.info(
-                "relay reconnected, re-opening" + " signaling:",
-                relayPid.slice(0, 12),
-              );
+              log.info("connecting relay:", relayPid.slice(0, 12));
               void trySignaling(
                 helia,
                 relayPid,
@@ -410,14 +366,12 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                 syncOpts,
                 networkId,
               )
-                .then((newRoom) => {
-                  for (const cb of reconnectCbs) {
-                    cb(newRoom);
-                  }
+                .then((room) => {
+                  multiRoom.addRelay(relayPid, room);
                 })
                 .catch((err) => {
                   log.warn(
-                    "signaling reconnect failed:",
+                    "relay signaling failed:",
                     (err as Error)?.message ?? err,
                   );
                 })
@@ -426,16 +380,39 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                   if (pendingRelay) {
                     const next = pendingRelay;
                     pendingRelay = null;
-                    attemptSignaling(next);
+                    connectRelay(next);
                   }
                 });
             }
 
-            roomDiscovery.onRelayReconnected(attemptSignaling);
+            // Initial relay: try to connect within
+            // the timeout. If it fails, connectRelay
+            // will retry when relays appear.
+            try {
+              const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
+              log.info("relay discovered:", relayPid.slice(0, 12));
+              const room = await trySignaling(
+                helia,
+                relayPid,
+                ipnsName,
+                awareness,
+                syncOpts,
+                networkId,
+              );
+              multiRoom.addRelay(relayPid, room);
+            } catch (err) {
+              log.warn(
+                "initial relay failed, will retry:",
+                (err as Error)?.message ?? err,
+              );
+            }
+
+            // New/reconnected relays → connect and add.
+            roomDiscovery.onRelayReconnected(connectRelay);
 
             function requestReconnect(): void {
               // Pick the first connected relay and
-              // route through attemptSignaling so the
+              // route through connectRelay so the
               // concurrency gate serializes it.
               const conns = helia.libp2p.getConnections();
               const relayPid = [...roomDiscovery.relayPeerIds].find((pid) =>
@@ -449,21 +426,14 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                 "requestReconnect: trying relay:",
                 relayPid.slice(0, 12),
               );
-              attemptSignaling(relayPid);
+              connectRelay(relayPid);
             }
 
             return {
               pubsub,
               syncManager,
-              awarenessRoom,
+              awarenessRoom: multiRoom,
               roomDiscovery,
-              upgradeAwareness,
-              onSignalingReconnect(
-                cb: (room: AwarenessRoom) => void,
-              ): () => void {
-                reconnectCbs.add(cb);
-                return () => reconnectCbs.delete(cb);
-              },
               requestReconnect,
               closeBlockstore: blockstore
                 ? () => blockstore.close()
@@ -632,100 +602,6 @@ async function trySignaling(
     rtcConfig,
     networkId,
   });
-}
-
-// --- Placeholder awareness room ---
-
-/**
- * Minimal AwarenessRoom used while waiting for a
- * late relay to connect. Does nothing except hold
- * the awareness instance.
- */
-function placeholderAwarenessRoom(awareness: Awareness): AwarenessRoom {
-  return {
-    get awareness() {
-      return awareness;
-    },
-    get connected() {
-      return false;
-    },
-    onStatusChange() {},
-    onPeerCreated() {
-      return () => {};
-    },
-    onPeerConnection() {
-      return () => {};
-    },
-    onNeedsSwap() {
-      return () => {};
-    },
-    destroy() {},
-  };
-}
-
-/**
- * Keep watching for relay connections and retry
- * signaling setup. Resolves when signaling succeeds;
- * rejects only if a hard timeout expires.
- */
-async function retrySignaling(
-  helia: ReturnType<typeof getHelia>,
-  roomDiscovery: ReturnType<typeof startRoomDiscovery>,
-  ipnsName: string,
-  awareness: Awareness,
-  syncOpts: SyncOptions,
-  networkId: string,
-  retryTimeoutMs: number,
-): Promise<AwarenessRoom> {
-  const deadline = Date.now() + retryTimeoutMs;
-  const tried = new Set<string>();
-
-  while (Date.now() < deadline) {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-
-    let relayPid: string;
-    try {
-      relayPid = await roomDiscovery.waitForRelay(remaining);
-    } catch {
-      break;
-    }
-
-    // Try each tracked relay, not just the first
-    const relays = [...roomDiscovery.relayPeerIds];
-    for (const pid of relays) {
-      if (tried.has(pid)) continue;
-      tried.add(pid);
-
-      try {
-        log.info("trying signaling to late relay:", pid.slice(0, 12));
-        const room = await trySignaling(
-          helia,
-          pid,
-          ipnsName,
-          awareness,
-          syncOpts,
-          networkId,
-        );
-        log.info("signaling upgraded via late relay");
-        return room;
-      } catch (err) {
-        log.debug(
-          "signaling retry failed for",
-          pid.slice(0, 12) + ":",
-          (err as Error)?.message ?? err,
-        );
-      }
-    }
-
-    // All known relays tried — wait for new ones.
-    tried.clear();
-    await new Promise((r) => setTimeout(r, 10_000));
-  }
-
-  throw new Error(
-    "signaling retry timed out after " + `${retryTimeoutMs / 1000}s`,
-  );
 }
 
 // --- Re-exports ---
