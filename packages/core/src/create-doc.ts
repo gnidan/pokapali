@@ -78,6 +78,7 @@ import type { AsyncQueue } from "./async-utils.js";
 import type { Feed } from "./feed.js";
 import { createDocFeeds } from "./doc-feeds.js";
 import type { ValidationErrorInfo } from "./doc-feeds.js";
+import { createEditBridge } from "./edit-bridge.js";
 import { reannounceFacts } from "./fact-sources.js";
 import {
   reduce,
@@ -736,43 +737,17 @@ export function createDoc(params: DocParams): Doc {
   // Document also fires (async, signed) — the
   // duplicate is harmless because codec merge is
   // idempotent.
-  const editBridgeCleanups: Array<() => void> = [];
-  const surfaceBridged = new Set<string>();
-  // Fallback surfaces for channels when no Document
-  // is provided (e.g. lazy/solo mode tests).
-  const fallbackSurfaces = new Map<string, CodecSurface>();
-  if (params.document) {
-    for (const name of channels) {
-      if (!params.document.hasSurface(name)) continue;
-      const surface = params.document.surface(name);
-      const channel = params.document.channel(name);
-      const unsub = surface.onEdit((update, isLocal) => {
-        if (isLocal) {
-          // Capture local user edits (from TipTap/
-          // ProseMirror). Append synchronously so the
-          // epoch tree is up-to-date for immediate
-          // publish(). Signature is empty — outgoing
-          // wire paths sign on-the-fly.
-          const edit = Edit.create({
-            payload: update,
-            timestamp: Date.now(),
-            author: identityPubkeyHex ?? "",
-            channel: name,
-            origin: "local",
-            signature: new Uint8Array(),
-          });
-          channel.appendEdit(edit);
-          persistEdit(name, edit);
-          scheduleReconcile();
-        }
-        // Dirty tracking for all edits (local +
-        // remote). Snapshot-origin updates are
-        // excluded by onEdit itself.
-        markContentDirty();
-      });
-      editBridgeCleanups.push(unsub);
-    }
-  }
+  const editBridge = createEditBridge({
+    channels,
+    document: params.document,
+    codec: params.codec,
+    identityPubkeyHex,
+    ipnsName,
+    persistEdit,
+    scheduleReconcile,
+    markContentDirty,
+  });
+  const { surfaceBridged, fallbackSurfaces } = editBridge;
 
   // Wire sync/awareness status bridges. These are
   // called immediately if deps are available, or
@@ -1708,13 +1683,7 @@ export function createDoc(params: DocParams): Doc {
       stopIPNSWatch = null;
     }
     // Tear down edit bridge
-    for (const cleanup of editBridgeCleanups) cleanup();
-    editBridgeCleanups.length = 0;
-    // Destroy fallback channel docs
-    for (const fb of fallbackSurfaces.values()) {
-      fb.destroy();
-    }
-    fallbackSurfaces.clear();
+    editBridge.destroy();
     // Unsubscribe all event→Feed bridges
     for (const map of eventSubs.values()) {
       for (const unsub of map.values()) unsub();
@@ -1766,20 +1735,7 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
-  // Lazily register a reconciliation trigger on a
-  // CodecSurface. The surface's onLocalEdit already
-  // puts edits in the epoch tree via ch.appendEdit(),
-  // but scheduleReconcile() isn't called from that
-  // path. This bridges the gap.
-  function ensureSurfaceBridged(name: string, surface: CodecSurface): void {
-    if (surfaceBridged.has(name)) return;
-    surfaceBridged.add(name);
-    const unsub = surface.onLocalEdit(() => {
-      markContentDirty();
-      scheduleReconcile();
-    });
-    editBridgeCleanups.push(unsub);
-  }
+  const ensureSurfaceBridged = editBridge.ensureSurfaceBridged;
 
   const doc = {
     channel(name: string): CodecSurface {
@@ -1793,19 +1749,7 @@ export function createDoc(params: DocParams): Doc {
           // Return a standalone surface (lazily
           // created) so callers like tests and
           // rotate can access channel surfaces.
-          let fb = fallbackSurfaces.get(name);
-          if (!fb) {
-            fb = params.codec.createSurface({
-              guid: `${ipnsName}:${name}`,
-            });
-            // Wire dirty tracking on fallback
-            const unsub = fb.onEdit(() => {
-              markContentDirty();
-            });
-            editBridgeCleanups.push(unsub);
-            fallbackSurfaces.set(name, fb);
-          }
-          result = fb;
+          result = editBridge.getOrCreateFallback(name);
         } else {
           throw new Error(`No surface for channel "${name}"`);
         }
