@@ -23,18 +23,12 @@ import type {
 import { createPeerSync } from "./peer-sync.js";
 import type { PeerSync } from "./peer-sync.js";
 import { createSnapshotOps } from "./snapshot-ops.js";
+import { createEffectHandlers } from "./effect-handlers.js";
 import { CID } from "multiformats/cid";
 import { getHelia, releaseHelia } from "./helia.js";
 import { publishIPNS, resolveIPNS, watchIPNS } from "./ipns-helpers.js";
-import {
-  announceTopic,
-  announceSnapshot,
-  signAnnouncementProof,
-  publishGuaranteeQuery,
-  MAX_INLINE_BLOCK_BYTES,
-} from "./announce.js";
+import { announceTopic, publishGuaranteeQuery } from "./announce.js";
 import { createGossipHandler } from "./doc-gossip-bridge.js";
-import { uploadBlock } from "./block-upload.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { createBlockResolver } from "./block-resolver.js";
 import { createSnapshotCodec } from "./snapshot-codec.js";
@@ -98,7 +92,6 @@ import type {
   SnapshotHistory,
 } from "./facts.js";
 import { runInterpreter } from "./interpreter.js";
-import type { EffectHandlers } from "./interpreter.js";
 import {
   deriveStatus,
   deriveLoadingState,
@@ -575,13 +568,10 @@ export function createDoc(params: DocParams): Doc {
   let localSnapshotHistory: SnapshotHistory | null = null;
 
   let interpreterAc: AbortController | null = null;
-  let pendingAnnounceRetry: ReturnType<typeof setTimeout> | null = null;
-  let lastLocalPublishCid: string | null = null;
-  let lastEmittedAcks = new Set<string>();
-  let lastEmittedGuarantees = new Map<
-    string,
-    { guaranteeUntil: number; retainUntil: number }
-  >();
+  // Effect handler state (announce retries, dedup)
+  // is managed inside createEffectHandlers().
+  let effectHandlersCleanup: (() => void) | null = null;
+  let setLastLocalPublishCid: ((cid: string) => void) | null = null;
   // --- Feeds ---
   const {
     docStateFeed,
@@ -1073,181 +1063,28 @@ export function createDoc(params: DocParams): Doc {
       getClockSum: computeClockSum,
     });
 
-    const effects: EffectHandlers = {
-      fetchBlock: async (cid) => {
-        return resolver.get(cid);
-      },
-
-      getBlock: (cid) => {
-        return resolver.getCached(cid);
-      },
-
-      ...snapshotOps,
-
-      announce: (cid, block, seq) => {
-        // Cancel any pending retry from a previous
-        // announce — superseded by this one.
-        if (pendingAnnounceRetry !== null) {
-          clearTimeout(pendingAnnounceRetry);
-          pendingAnnounceRetry = null;
-        }
-
-        const cidStr = cid.toString();
-
-        const doAnnounce = (proof?: string) => {
-          if (block.length > MAX_INLINE_BLOCK_BYTES) {
-            const urls = getHttpUrls();
-            if (urls.length > 0) {
-              uploadBlock(cid, block, urls, { signal }).catch((err) => {
-                if (!signal.aborted) {
-                  log.warn("announce upload failed:", err);
-                }
-              });
-            }
-            announceSnapshot(
-              pubsub,
-              params.networkId,
-              appId,
-              ipnsName,
-              cidStr,
-              seq,
-              undefined,
-              undefined,
-              undefined,
-              proof,
-            ).catch((err) => {
-              log.warn("announce failed:", err);
-            });
-          } else {
-            announceSnapshot(
-              pubsub,
-              params.networkId,
-              appId,
-              ipnsName,
-              cidStr,
-              seq,
-              block,
-              undefined,
-              undefined,
-              proof,
-            ).catch((err) => {
-              log.warn("announce failed:", err);
-            });
-          }
-        };
-
-        // Compute proof if we have the signing key,
-        // then announce. Proof is async so we fire
-        // immediately and let it resolve.
-        const proofP = signingKey
-          ? signAnnouncementProof(signingKey, ipnsName, cidStr)
-          : Promise.resolve(undefined);
-
-        const announceWithRetries = (proof: string | undefined) => {
-          if (signal.aborted) return;
-
-          // Announce immediately (may reach fanout
-          // peers even without mesh).
-          doAnnounce(proof);
-
-          // Check mesh peers — if none, retry with
-          // short interval until mesh forms. Prevents
-          // silent publish drop when floodPublish is
-          // false and the mesh hasn't formed yet.
-          const topic = announceTopic(params.networkId, appId);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const gs = pubsub as any;
-          const hasMesh = () => (gs.getMeshPeers?.(topic)?.length ?? 0) > 0;
-
-          if (!hasMesh()) {
-            log.info(
-              "no mesh peers for announce topic," + " scheduling retries",
-            );
-            let retries = 0;
-            const ANNOUNCE_RETRY_MAX = 14;
-            const ANNOUNCE_RETRY_MS = 1_000;
-            const scheduleRetry = () => {
-              if (signal.aborted) return;
-              if (retries >= ANNOUNCE_RETRY_MAX) return;
-              retries++;
-              pendingAnnounceRetry = setTimeout(() => {
-                pendingAnnounceRetry = null;
-                if (signal.aborted) return;
-                if (hasMesh()) {
-                  log.info("mesh peers available," + " re-announcing");
-                  doAnnounce(proof);
-                } else {
-                  scheduleRetry();
-                }
-              }, ANNOUNCE_RETRY_MS);
-            };
-            scheduleRetry();
-          }
-        };
-
-        proofP.then(
-          (proof) => announceWithRetries(proof),
-          (err) => {
-            log.warn("proof signing failed:", err);
-            announceWithRetries(undefined);
-          },
-        );
-      },
-
-      markReady: () => markReady(),
-
-      emitSnapshotApplied: (cid, seq) => {
-        validationErrorFeed._update(null);
-        const cidStr = cid.toString();
-        if (cidStr === lastLocalPublishCid) {
-          lastLocalPublishCid = null;
-          return;
-        }
-        snapshotEventFeed._update({
-          cid,
-          seq,
-          ts: Date.now(),
-          isLocal: false,
-        });
-      },
-
-      emitAck: (_cid, ackedBy) => {
-        for (const pid of ackedBy) {
-          if (!lastEmittedAcks.has(pid)) {
-            ackEventFeed._update(pid);
-          }
-        }
-        lastEmittedAcks = new Set(ackedBy);
-      },
-
-      emitGossipActivity: (activity) => {
+    const effectHandlers = createEffectHandlers({
+      resolver,
+      snapshotOps,
+      pubsub,
+      networkId: params.networkId,
+      appId,
+      ipnsName,
+      signingKey,
+      signal,
+      getHttpUrls,
+      markReady,
+      validationErrorFeed,
+      snapshotEventFeed,
+      ackEventFeed,
+      gossipActivityFeed,
+      onGossipActivity: (activity) => {
         gossipActivity = activity;
-        gossipActivityFeed._update(activity);
       },
-
-      emitLoading: () => {
-        // Loading state is derived in
-        // captureState — this is a no-op.
-      },
-
-      emitGuarantee: (_cid, guarantees) => {
-        for (const [pid, g] of guarantees) {
-          const prev = lastEmittedGuarantees.get(pid);
-          if (
-            !prev ||
-            prev.guaranteeUntil !== g.guaranteeUntil ||
-            prev.retainUntil !== g.retainUntil
-          ) {
-            ackEventFeed._update(pid);
-          }
-        }
-        lastEmittedGuarantees = new Map(guarantees);
-      },
-
-      emitValidationError: (info) => {
-        validationErrorFeed._update(info);
-      },
-    };
+    });
+    const { effects } = effectHandlers;
+    effectHandlersCleanup = effectHandlers.cleanup;
+    setLastLocalPublishCid = effectHandlers.setLastLocalPublishCid;
 
     // --- Run interpreter ---
     runInterpreter(captureState(stateStream), effects, factQueue, signal, {
@@ -1530,10 +1367,7 @@ export function createDoc(params: DocParams): Doc {
     destroyed = true;
     clearTimeout(graceTimer);
     // Interpreter cleanup
-    if (pendingAnnounceRetry !== null) {
-      clearTimeout(pendingAnnounceRetry);
-      pendingAnnounceRetry = null;
-    }
+    effectHandlersCleanup?.();
     interpreterAc?.abort();
     if (initialQueryTimer) {
       clearTimeout(initialQueryTimer);
@@ -1803,7 +1637,7 @@ export function createDoc(params: DocParams): Doc {
       // Suppress the interpreter's
       // emitSnapshotApplied for this CID since
       // we emit the local snapshot event below.
-      lastLocalPublishCid = cid.toString();
+      setLastLocalPublishCid?.(cid.toString());
 
       isSaving = false;
       lastSaveError = null;
