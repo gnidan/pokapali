@@ -95,6 +95,7 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
   );
   const cancelRef = useRef(false);
   const loadedSeqsRef = useRef<Set<number>>(new Set());
+  const failedAttemptsRef = useRef(new Map<number, number>());
 
   const tipCid = doc.tip.getSnapshot()?.cid ?? null;
   const tipCidStr = tipCid?.toString() ?? null;
@@ -250,10 +251,11 @@ export function useVersionHistory(doc: Doc): VersionHistoryData {
             return next;
           });
         } catch {
-          // Don't mark as loaded — allows retry on
-          // next render cycle. Transient errors (slow
-          // IPNS, network) should not permanently
-          // prevent diff data from loading.
+          const attempts = (failedAttemptsRef.current.get(entry.seq) ?? 0) + 1;
+          failedAttemptsRef.current.set(entry.seq, attempts);
+          if (attempts >= 3) {
+            loadedSeqsRef.current.add(entry.seq);
+          }
         }
       }
     })();

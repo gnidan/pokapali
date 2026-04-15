@@ -42,8 +42,11 @@ export interface BlockResolverOptions {
   onWriteError?: (err: unknown) => void;
 }
 
+const NEGATIVE_CACHE_TTL_MS = 60_000;
+
 export function createBlockResolver(opts: BlockResolverOptions): BlockResolver {
   const cache = new Map<string, Uint8Array>();
+  const negativeCache = new Map<string, number>();
 
   return {
     async get(cid) {
@@ -52,6 +55,15 @@ export function createBlockResolver(opts: BlockResolverOptions): BlockResolver {
       // Layer 1: in-memory cache
       const cached = cache.get(key);
       if (cached) return cached;
+
+      // Negative cache: skip re-fetch within TTL
+      const missAt = negativeCache.get(key);
+      if (missAt !== undefined) {
+        if (Date.now() - missAt < NEGATIVE_CACHE_TTL_MS) {
+          return null;
+        }
+        negativeCache.delete(key);
+      }
 
       // Layer 2+3+4: IDB → HTTP → bitswap
       // (fetchBlock handles all three internally)
@@ -64,11 +76,14 @@ export function createBlockResolver(opts: BlockResolverOptions): BlockResolver {
         });
         if (block && block.length > 0) {
           cache.set(key, block);
+          negativeCache.delete(key);
           return block;
         }
+        negativeCache.set(key, Date.now());
         return null;
       } catch (err) {
         log.debug("block resolution failed for", key.slice(0, 16) + "...", err);
+        negativeCache.set(key, Date.now());
         return null;
       }
     },
