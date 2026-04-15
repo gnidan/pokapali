@@ -15,4 +15,9 @@ export {
   type PubSubLike,
 } from "./rooms.js";
 
+export {
+  createMultiRelayRoom,
+  type MultiRelayRoom,
+} from "./multi-relay-room.js";
+
 export type { Awareness } from "y-protocols/awareness";

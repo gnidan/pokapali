@@ -10,6 +10,8 @@ export {
   type SyncOptions,
   type AwarenessRoom,
   type SignaledAwarenessOptions,
+  createMultiRelayRoom,
+  type MultiRelayRoom,
   type Awareness,
 } from "./webrtc/index.js";
 
