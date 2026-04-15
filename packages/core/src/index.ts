@@ -376,8 +376,28 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
             // Relay reconnect → re-create signaling
             // stream and awareness room. Consumers
             // swap the room via onSignalingReconnect.
+            //
+            // Concurrency gate with latest-wins: if
+            // multiple relays reconnect in rapid
+            // succession (e.g. after idle resume), only
+            // one trySignaling runs at a time. Later
+            // reconnects update pendingRelay so the most
+            // recent relay always gets a chance.
             const reconnectCbs = new Set<(room: AwarenessRoom) => void>();
-            roomDiscovery.onRelayReconnected((relayPid) => {
+            let signalingInFlight = false;
+            let pendingRelay: string | null = null;
+
+            function attemptSignaling(relayPid: string): void {
+              if (signalingInFlight) {
+                log.info(
+                  "signaling in flight, queuing" + " relay:",
+                  relayPid.slice(0, 12),
+                );
+                pendingRelay = relayPid;
+                return;
+              }
+              signalingInFlight = true;
+              pendingRelay = null;
               log.info(
                 "relay reconnected, re-opening" + " signaling:",
                 relayPid.slice(0, 12),
@@ -400,8 +420,18 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                     "signaling reconnect failed:",
                     (err as Error)?.message ?? err,
                   );
+                })
+                .finally(() => {
+                  signalingInFlight = false;
+                  if (pendingRelay) {
+                    const next = pendingRelay;
+                    pendingRelay = null;
+                    attemptSignaling(next);
+                  }
                 });
-            });
+            }
+
+            roomDiscovery.onRelayReconnected(attemptSignaling);
 
             return {
               pubsub,
@@ -568,7 +598,14 @@ async function trySignaling(
   );
 
   const client = createSignalingClient(stream as unknown as SignalingStream);
-  log.info("signaling connected to relay:", relayPid.slice(0, 12));
+  log.info(
+    "signaling connected to relay:",
+    relayPid.slice(0, 12),
+    "localPeer:",
+    localPeerId.slice(0, 12),
+    "doc:",
+    ipnsName.slice(0, 12),
+  );
 
   const rtcConfig = syncOpts.peerOpts?.config;
   return setupSignaledAwarenessRoom(ipnsName, localPeerId, client, awareness, {

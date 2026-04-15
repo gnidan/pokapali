@@ -1313,14 +1313,21 @@ export function createDoc(params: DocParams): Doc {
               return;
             }
             if (liveAwarenessRoom?.connected) {
-              log.debug(
+              log.info(
                 "signaling reconnected but current" +
-                  " room is connected — keeping it",
+                  " room is connected — keeping" +
+                  " it, destroying new room",
               );
               newRoom.destroy();
               return;
             }
-            log.info("signaling reconnected, swapping" + " awareness room");
+            log.info(
+              "signaling reconnected, swapping" +
+                " awareness room" +
+                " (current connected=" +
+                String(liveAwarenessRoom?.connected) +
+                ")",
+            );
             liveAwarenessRoom?.destroy();
             liveAwarenessRoom = newRoom;
             wireSyncBridges(deps.syncManager, newRoom);

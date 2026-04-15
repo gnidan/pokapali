@@ -150,8 +150,32 @@ export function setupSignaledAwarenessRoom(
     }
   });
 
+  // Log awareness data channel lifecycle
+  const unsubAwareDC = peerManager.onPeerCreated((pc) => {
+    pc.addEventListener("datachannel", (evt: RTCDataChannelEvent) => {
+      const dc = evt.channel;
+      if (dc.label !== "pokapali-awareness") return;
+      diagLog.info("awareness DC opened:", roomName);
+      dc.addEventListener("close", () => {
+        diagLog.info("awareness DC closed:", roomName);
+      });
+      dc.addEventListener("error", (e) => {
+        diagLog.info(
+          "awareness DC error:",
+          roomName,
+          (e as ErrorEvent)?.message ?? e,
+        );
+      });
+    });
+  });
+
   // Join the signaling room
-  diagLog.debug("setupSignaledAwarenessRoom: joining", roomName);
+  diagLog.info(
+    "awareness room joining:",
+    roomName,
+    "localPeer:",
+    localPeerId.slice(0, 12),
+  );
   signalingClient.joinRoom(roomName);
 
   return {
@@ -171,8 +195,15 @@ export function setupSignaledAwarenessRoom(
       return peerManager.onPeerConnection(cb);
     },
     destroy() {
+      diagLog.info(
+        "awareness room destroying:",
+        roomName,
+        "activePeers:",
+        activePeers,
+      );
       signalingClient.leaveRoom(roomName);
       unsubCreated();
+      unsubAwareDC();
       unsubPC();
       unsubDisc();
       peerManager.destroy();

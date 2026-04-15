@@ -271,7 +271,7 @@ export function createPeerManager(
 
     // Connection state logging + cleanup
     pc.onconnectionstatechange = () => {
-      diagLog.debug("connection state:", rpid, pc!.connectionState, tag);
+      diagLog.info("connection state:", rpid, pc!.connectionState, tag);
       if (pc!.connectionState === "connected") {
         log.debug(
           "connected to:",
@@ -337,7 +337,7 @@ export function createPeerManager(
         }
       }
 
-      diagLog.debug(
+      diagLog.info(
         "PEER_JOINED:",
         peerId.slice(0, 12),
         "room:",

@@ -174,6 +174,12 @@ export function createRelayForwarder(
   networkId = "main",
 ): RelayForwarder {
   const sigTopic = relaySignalingTopic(networkId);
+  log.info(
+    "forwarder subscribing to:",
+    sigTopic,
+    "self:",
+    selfRelayPeerId.slice(0, 12),
+  );
   pubsub.subscribe(sigTopic);
 
   // Track remote peers: peerId → Map<room, relayPeerId>
@@ -260,9 +266,9 @@ export function createRelayForwarder(
   function handleRemoteJoin(msg: RelayJoin): void {
     if (!addRemote(msg.room, msg.peerId, msg.relayPeerId)) return;
 
-    log.debug(
+    log.info(
       "remote join:",
-      msg.peerId,
+      msg.peerId.slice(0, 12),
       msg.room,
       "via",
       msg.relayPeerId.slice(0, 12),
@@ -314,9 +320,9 @@ export function createRelayForwarder(
   function handleRemoteLeave(msg: RelayLeave): void {
     if (!removeRemote(msg.room, msg.peerId, msg.relayPeerId)) return;
 
-    log.debug(
+    log.info(
       "remote leave:",
-      msg.peerId,
+      msg.peerId.slice(0, 12),
       msg.room,
       "via",
       msg.relayPeerId.slice(0, 12),
@@ -358,6 +364,14 @@ export function createRelayForwarder(
         if (rooms.size === 0) remotePeers.delete(peerId);
       }
 
+      log.info(
+        "local join →",
+        peerId.slice(0, 12),
+        room,
+        "remotePeers:",
+        remotePeers.size,
+      );
+
       publish({
         type: RelayMsgType.JOIN,
         relayPeerId: selfRelayPeerId,
@@ -367,6 +381,8 @@ export function createRelayForwarder(
     },
 
     onLocalLeave(room: string, peerId: string): void {
+      log.info("local leave →", peerId.slice(0, 12), room);
+
       publish({
         type: RelayMsgType.LEAVE,
         relayPeerId: selfRelayPeerId,
