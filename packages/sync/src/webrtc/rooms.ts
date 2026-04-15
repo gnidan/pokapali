@@ -70,6 +70,10 @@ export interface AwarenessRoom {
   onPeerConnection(
     cb: (pc: RTCPeerConnection, initiator: boolean) => void,
   ): () => void;
+  /** Fires when the room is fully dead: signaling
+   *  stream closed AND no WebRTC peers remain.
+   *  Consumers should re-establish signaling. */
+  onNeedsSwap(cb: () => void): () => void;
   destroy(): void;
 }
 
@@ -97,8 +101,19 @@ export function setupSignaledAwarenessRoom(
   const nid = options?.networkId ?? "main";
   const roomName = `${nid}.${ipnsName}:awareness`;
   let connected = false;
+  let signalingAlive = true;
+  let needsSwapFired = false;
   const statusListeners: Array<() => void> = [];
+  const swapListeners = new Set<() => void>();
   const cleanups: Array<() => void> = [];
+
+  function checkNeedsSwap(): void {
+    if (!signalingAlive && activePeers === 0 && !needsSwapFired) {
+      needsSwapFired = true;
+      diagLog.info("needs-swap: signaling dead, no peers:", roomName);
+      for (const cb of swapListeners) cb();
+    }
+  }
 
   const peerManager = createPeerManager(
     signalingClient,
@@ -106,6 +121,13 @@ export function setupSignaledAwarenessRoom(
     localPeerId,
     { rtcConfig: options?.rtcConfig },
   );
+
+  // Detect signaling stream death
+  const unsubClose = signalingClient.onClose(() => {
+    signalingAlive = false;
+    diagLog.info("signaling stream closed:", roomName);
+    checkNeedsSwap();
+  });
 
   // Add data channels BEFORE the SDP offer so ICE
   // negotiation has something to work with. The
@@ -148,6 +170,7 @@ export function setupSignaledAwarenessRoom(
       connected = false;
       for (const cb of statusListeners) cb();
     }
+    checkNeedsSwap();
   });
 
   // Log awareness data channel lifecycle
@@ -194,6 +217,10 @@ export function setupSignaledAwarenessRoom(
     onPeerConnection(cb: (pc: RTCPeerConnection, initiator: boolean) => void) {
       return peerManager.onPeerConnection(cb);
     },
+    onNeedsSwap(cb: () => void) {
+      swapListeners.add(cb);
+      return () => swapListeners.delete(cb);
+    },
     destroy() {
       diagLog.info(
         "awareness room destroying:",
@@ -202,6 +229,7 @@ export function setupSignaledAwarenessRoom(
         activePeers,
       );
       signalingClient.leaveRoom(roomName);
+      unsubClose();
       unsubCreated();
       unsubAwareDC();
       unsubPC();
@@ -210,6 +238,7 @@ export function setupSignaledAwarenessRoom(
       for (const cleanup of cleanups) cleanup();
       cleanups.length = 0;
       statusListeners.length = 0;
+      swapListeners.clear();
     },
   };
 }

@@ -284,6 +284,9 @@ function placeholderAwarenessRoom(awareness: Awareness): AwarenessRoom {
     onPeerConnection() {
       return () => {};
     },
+    onNeedsSwap() {
+      return () => {};
+    },
     destroy() {},
   };
 }

@@ -433,6 +433,25 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
             roomDiscovery.onRelayReconnected(attemptSignaling);
 
+            function requestReconnect(): void {
+              // Pick the first connected relay and
+              // route through attemptSignaling so the
+              // concurrency gate serializes it.
+              const conns = helia.libp2p.getConnections();
+              const relayPid = [...roomDiscovery.relayPeerIds].find((pid) =>
+                conns.some((c) => c.remotePeer.toString() === pid),
+              );
+              if (!relayPid) {
+                log.warn("requestReconnect: no connected" + " relay available");
+                return;
+              }
+              log.info(
+                "requestReconnect: trying relay:",
+                relayPid.slice(0, 12),
+              );
+              attemptSignaling(relayPid);
+            }
+
             return {
               pubsub,
               syncManager,
@@ -445,6 +464,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
                 reconnectCbs.add(cb);
                 return () => reconnectCbs.delete(cb);
               },
+              requestReconnect,
               closeBlockstore: blockstore
                 ? () => blockstore.close()
                 : undefined,
@@ -634,6 +654,9 @@ function placeholderAwarenessRoom(awareness: Awareness): AwarenessRoom {
       return () => {};
     },
     onPeerConnection() {
+      return () => {};
+    },
+    onNeedsSwap() {
       return () => {};
     },
     destroy() {},

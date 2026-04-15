@@ -317,6 +317,11 @@ export interface P2PDeps {
    *  signaling stream + awareness room is created.
    *  Replaces the current liveAwarenessRoom. */
   onSignalingReconnect?(cb: (room: AwarenessRoom) => void): () => void;
+  /** Request re-establishment of signaling with any
+   *  available relay. Used when the current room
+   *  detects it is fully dead (signaling closed +
+   *  no WebRTC peers). */
+  requestReconnect?(): void;
   /** Close the IDB blockstore on teardown. */
   closeBlockstore?: () => Promise<void>;
 }
@@ -1279,6 +1284,20 @@ export function createDoc(params: DocParams): Doc {
         liveAwarenessRoom = deps.awarenessRoom;
         wireSyncBridges(deps.syncManager, deps.awarenessRoom);
 
+        // Wire onNeedsSwap on the current room so
+        // that when signaling dies AND WebRTC peers
+        // drop, we proactively re-establish.
+        let unsubNeedsSwap: (() => void) | null = null;
+        function wireNeedsSwap(room: AwarenessRoom): void {
+          unsubNeedsSwap?.();
+          unsubNeedsSwap = room.onNeedsSwap(() => {
+            if (destroyed) return;
+            log.info("room needs swap — requesting" + " reconnect");
+            deps.requestReconnect?.();
+          });
+        }
+        wireNeedsSwap(deps.awarenessRoom);
+
         // Upgrade awareness room when signaling
         // connects after the initial relay timeout.
         if (deps.upgradeAwareness) {
@@ -1289,6 +1308,7 @@ export function createDoc(params: DocParams): Doc {
               liveAwarenessRoom?.destroy();
               liveAwarenessRoom = newRoom;
               wireSyncBridges(deps.syncManager, newRoom);
+              wireNeedsSwap(newRoom);
             })
             .catch((err) => {
               log.debug(
@@ -1331,6 +1351,7 @@ export function createDoc(params: DocParams): Doc {
             liveAwarenessRoom?.destroy();
             liveAwarenessRoom = newRoom;
             wireSyncBridges(deps.syncManager, newRoom);
+            wireNeedsSwap(newRoom);
           });
         }
 

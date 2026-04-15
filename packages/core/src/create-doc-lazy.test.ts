@@ -213,6 +213,9 @@ describe("lazy P2P init (#200)", () => {
           awareness,
           connected: true,
           onStatusChange: vi.fn(),
+          onPeerCreated: vi.fn(() => () => {}),
+          onPeerConnection: vi.fn(() => () => {}),
+          onNeedsSwap: vi.fn(() => () => {}),
           destroy: vi.fn(),
         },
         roomDiscovery: {
@@ -267,6 +270,9 @@ describe("lazy P2P init (#200)", () => {
             awareness,
             connected: true,
             onStatusChange: vi.fn(),
+            onPeerCreated: vi.fn(() => () => {}),
+            onPeerConnection: vi.fn(() => () => {}),
+            onNeedsSwap: vi.fn(() => () => {}),
             destroy: vi.fn(),
           },
           roomDiscovery: {
