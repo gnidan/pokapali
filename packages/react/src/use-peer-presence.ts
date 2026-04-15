@@ -18,10 +18,15 @@ export interface PeerPresenceResult {
   label: string;
 }
 
-/** Delay (ms) before "Looking for peers" settles
- *  into "Just you". Gives peer discovery time to
- *  complete. */
-const SETTLE_MS = 5_000;
+/** Maximum delay (ms) before "Looking for peers"
+ *  settles into "Just you" when signaling hasn't
+ *  connected yet. */
+const MAX_SETTLE_MS = 10_000;
+/** Short delay (ms) once signaling is established
+ *  (status "synced") with no peers. Awareness has
+ *  already exchanged state at this point, so a
+ *  brief pause suffices. */
+const SYNCED_SETTLE_MS = 2_000;
 
 function isConnected(status: DocStatus): boolean {
   return status === "synced" || status === "receiving";
@@ -83,18 +88,21 @@ export function usePeerPresenceState(doc: Doc): PeerPresenceResult {
     wasConnected.current = true;
   }
 
-  // 5s settling timer: after reaching "looking",
-  // wait before showing "Just you"
+  // Settling timer: wait for awareness/signaling
+  // to establish before showing "Just you".
+  // "synced" means WebRTC (and awareness) is
+  // connected — settle quickly. Otherwise use
+  // a longer window for signaling to establish.
   useEffect(() => {
     if (!isConnected(status) || peerCount > 0) {
       setSettled(false);
       return;
     }
 
-    // Connected with no peers — start settling
+    const delay = status === "synced" ? SYNCED_SETTLE_MS : MAX_SETTLE_MS;
     const timer = setTimeout(() => {
       setSettled(true);
-    }, SETTLE_MS);
+    }, delay);
     return () => clearTimeout(timer);
   }, [status, peerCount]);
 

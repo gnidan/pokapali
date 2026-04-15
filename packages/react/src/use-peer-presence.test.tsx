@@ -167,7 +167,7 @@ describe("usePeerPresenceState", () => {
     expect(result.current.state).toBe("looking");
   });
 
-  it("settles to 'Just you' after 5s with no peers", () => {
+  it("settles to 'Just you' after 2s when" + " synced with no peers", () => {
     const { doc, statusFeed } = mockDoc();
     const { result } = renderHook(() => usePeerPresenceState(doc));
 
@@ -175,7 +175,7 @@ describe("usePeerPresenceState", () => {
     expect(result.current.state).toBe("looking");
 
     act(() => {
-      vi.advanceTimersByTime(5_000);
+      vi.advanceTimersByTime(2_000);
     });
 
     expect(result.current.state).toBe("active");
@@ -183,29 +183,70 @@ describe("usePeerPresenceState", () => {
     expect(result.current.label).toBe("Just you");
   });
 
-  it("does not settle before 5s", () => {
+  it("does not settle before 2s when synced", () => {
     const { doc, statusFeed } = mockDoc();
     const { result } = renderHook(() => usePeerPresenceState(doc));
 
     act(() => statusFeed._update("synced"));
 
     act(() => {
-      vi.advanceTimersByTime(4_999);
+      vi.advanceTimersByTime(1_999);
     });
 
     expect(result.current.state).toBe("looking");
   });
 
-  it("resets settling timer when peers appear then leave", () => {
+  it("uses 10s settling window when receiving" + " (no WebRTC yet)", () => {
+    const { doc, statusFeed } = mockDoc();
+    const { result } = renderHook(() => usePeerPresenceState(doc));
+
+    act(() => statusFeed._update("receiving"));
+    expect(result.current.state).toBe("looking");
+
+    // Not settled at 5s (old timer would fire)
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(result.current.state).toBe("looking");
+
+    // Settles at 10s
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(result.current.state).toBe("active");
+    expect(result.current.label).toBe("Just you");
+  });
+
+  it("shortens settling window when status" + " upgrades to synced", () => {
+    const { doc, statusFeed } = mockDoc();
+    const { result } = renderHook(() => usePeerPresenceState(doc));
+
+    // Start with receiving (10s window)
+    act(() => statusFeed._update("receiving"));
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(result.current.state).toBe("looking");
+
+    // Upgrade to synced — restarts with 2s window
+    act(() => statusFeed._update("synced"));
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(result.current.state).toBe("active");
+    expect(result.current.label).toBe("Just you");
+  });
+
+  it("resets settling timer when peers appear" + " then leave", () => {
     const { doc, statusFeed, fire, setParticipants } = mockDoc({ clientID: 1 });
 
     const { result } = renderHook(() => usePeerPresenceState(doc));
 
     act(() => statusFeed._update("synced"));
 
-    // Advance 3s into settling
+    // Advance 1s into settling
     act(() => {
-      vi.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(1_000);
     });
     expect(result.current.state).toBe("looking");
 
@@ -228,15 +269,15 @@ describe("usePeerPresenceState", () => {
     });
     expect(result.current.state).toBe("looking");
 
-    // Only 3s after peer left — still looking
+    // Only 1s after peer left — still looking
     act(() => {
-      vi.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(1_000);
     });
     expect(result.current.state).toBe("looking");
 
-    // Full 5s after peer left — settles
+    // Full 2s after peer left — settles
     act(() => {
-      vi.advanceTimersByTime(2_000);
+      vi.advanceTimersByTime(1_000);
     });
     expect(result.current.state).toBe("active");
     expect(result.current.label).toBe("Just you");

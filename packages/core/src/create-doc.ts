@@ -1616,10 +1616,26 @@ export function createDoc(params: DocParams): Doc {
 
         // Ongoing signaling reconnection: when a
         // relay redials, swap the awareness room
-        // and re-wire sync bridges.
+        // — but only if the current room is
+        // disconnected. Multiple relays reconnect
+        // in rapid succession after idle resume;
+        // swapping on each one tears down peer
+        // connections before they finish
+        // establishing.
         if (deps.onSignalingReconnect) {
           deps.onSignalingReconnect((newRoom) => {
-            if (destroyed) return;
+            if (destroyed) {
+              newRoom.destroy();
+              return;
+            }
+            if (liveAwarenessRoom?.connected) {
+              log.debug(
+                "signaling reconnected but current" +
+                  " room is connected — keeping it",
+              );
+              newRoom.destroy();
+              return;
+            }
             log.info("signaling reconnected, swapping" + " awareness room");
             liveAwarenessRoom?.destroy();
             liveAwarenessRoom = newRoom;
