@@ -8,7 +8,6 @@ import type {
 import { narrowCapability, buildUrl } from "@pokapali/capability";
 import { hexToBytes, bytesToHex } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
-import { signEdit } from "./epoch/sign-edit.js";
 import type { ParticipantAwareness } from "./identity.js";
 import {
   createClientIdMapping,
@@ -21,15 +20,8 @@ import type {
   SyncOptions,
   PubSubLike,
 } from "@pokapali/sync";
-import {
-  createReconcileChannel,
-  createTransport,
-  ReconciliationMessageType,
-} from "@pokapali/sync";
-import {
-  createReconciliationWiring,
-  type ReconciliationWiring,
-} from "./reconciliation-wiring.js";
+import { createPeerSync } from "./peer-sync.js";
+import type { PeerSync } from "./peer-sync.js";
 import { createSnapshotOps } from "./snapshot-ops.js";
 import { CID } from "multiformats/cid";
 import { getHelia, releaseHelia } from "./helia.js";
@@ -523,21 +515,10 @@ export function createDoc(params: DocParams): Doc {
   // Channels already warned about missing write key —
   // avoids spamming console on repeated channel() calls.
   const warnedChannels = new Set<string>();
-  // Active reconciliation wirings (one per peer).
-  const reconciliationWirings = new Set<ReconciliationWiring>();
-  let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Re-trigger reconciliation when local edits arrive.
-  // Debounced to avoid re-running on every keystroke.
-  function scheduleReconcile(): void {
-    if (reconcileTimer) return;
-    reconcileTimer = setTimeout(() => {
-      reconcileTimer = null;
-      for (const w of reconciliationWirings) {
-        w.reconcile();
-      }
-    }, 100);
-  }
+  // Peer sync is created lazily (after persistEdit
+  // is defined) — declare the variable here so
+  // unsubPeerConn and wireSyncBridges can reference it.
+  let peerSync: PeerSync | null = null;
 
   let unsubPeerConn: (() => void) | null = null;
   // Standalone awareness: prefer awarenessRoom's if
@@ -696,6 +677,25 @@ export function createDoc(params: DocParams): Doc {
       });
   }
 
+  // Peer sync: reconciliation wirings + live edit
+  // forwarding across WebRTC data channels.
+  if (params.document) {
+    peerSync = createPeerSync({
+      channels,
+      document: params.document,
+      codec: params.codec,
+      identity: params.identity,
+      persistEdit,
+      onSyncStatusChanged: (status) => {
+        factQueue?.push({
+          type: "sync-status-changed",
+          ts: Date.now(),
+          status,
+        });
+      },
+    });
+  }
+
   function updateVersionsFeed(): void {
     const prev = versionsFeed.getSnapshot();
     const next = deriveVersionHistoryFromSnapshots(
@@ -744,7 +744,7 @@ export function createDoc(params: DocParams): Doc {
     identityPubkeyHex,
     ipnsName,
     persistEdit,
-    scheduleReconcile,
+    scheduleReconcile: () => peerSync?.scheduleReconcile(),
     markContentDirty,
   });
   const { surfaceBridged, fallbackSurfaces } = editBridge;
@@ -754,8 +754,7 @@ export function createDoc(params: DocParams): Doc {
   // deferred until p2pReady resolves.
   function wireSyncBridges(_sm: SyncManager, ar: AwarenessRoom): void {
     // Sync status facts are now emitted by
-    // transport.onConnectionChange inside
-    // wireDataChannel (below), not by
+    // peerSync.onSyncStatusChanged, not by
     // SyncManager.onStatusChange.
     ar.onStatusChange(() => {
       factQueue?.push({
@@ -771,163 +770,11 @@ export function createDoc(params: DocParams): Doc {
     // the callback is registered before the room
     // discovers any peers — critical for the upgrade
     // path where the room may already be joining.
-    if (!ar.onPeerCreated) return;
+    if (!ar.onPeerCreated || !peerSync) return;
     unsubPeerConn?.();
     unsubPeerConn = ar.onPeerCreated((pc, initiator) => {
-      if (destroyed || !params.document) return;
-      const doc = params.document;
-
-      function wireDataChannel(dc: RTCDataChannel): void {
-        dc.binaryType = "arraybuffer";
-
-        const transport = createTransport(dc);
-        const wiring = createReconciliationWiring({
-          channels,
-          getChannel: (name) => doc.channel(name),
-          codec: params.codec,
-          transport,
-          identity: params.identity,
-          onRemoteEdit: (ch, edit) => {
-            persistEdit(ch, edit);
-          },
-        });
-        reconciliationWirings.add(wiring);
-
-        // Bridge transport connectivity → sync
-        // status facts (replaces the old
-        // WebrtcProvider status bridge).
-        const unsubConn = transport.onConnectionChange((connected) => {
-          factQueue?.push({
-            type: "sync-status-changed",
-            ts: Date.now(),
-            status: connected ? "connected" : "disconnected",
-          });
-        });
-
-        // Live edit forwarding: forward local edits
-        // to the peer and apply incoming edits.
-        const editUnsubs: Array<() => void> = [];
-
-        function startLiveForwarding(): void {
-          for (const ch of channels) {
-            const unsub = doc.onEdit(ch, (edit) => {
-              // Only forward local edits — remote
-              // edits (origin "sync") are already
-              // on the peer.
-              if (edit.origin !== "local") return;
-              if (!transport.connected) return;
-              // Sign on-the-fly: produce a 97-byte
-              // envelope for the wire. Signing is
-              // async (~0.23ms) so we fire-and-forget.
-              // If no identity, send the raw signature
-              // (empty or pre-signed by Document).
-              if (params.identity) {
-                void signEdit(edit.payload, params.identity)
-                  .then((envelope) => {
-                    if (!transport.connected) return;
-                    transport.send(ch, {
-                      type: ReconciliationMessageType.EDIT_BATCH,
-                      channel: ch,
-                      edits: [
-                        {
-                          payload: edit.payload,
-                          signature: envelope,
-                        },
-                      ],
-                    });
-                  })
-                  .catch(() => {
-                    // Signing failed — drop silently.
-                  });
-              } else {
-                transport.send(ch, {
-                  type: ReconciliationMessageType.EDIT_BATCH,
-                  channel: ch,
-                  edits: [
-                    {
-                      payload: edit.payload,
-                      signature: edit.signature,
-                    },
-                  ],
-                });
-              }
-            });
-            editUnsubs.push(unsub);
-          }
-        }
-
-        // Handle incoming live edits (EDIT_BATCH
-        // messages that arrive after initial
-        // reconciliation).
-        const unsubLiveEdits = transport.onMessage((channelName, msg) => {
-          if (msg.type !== ReconciliationMessageType.EDIT_BATCH) {
-            return;
-          }
-          const channel = doc.channel(channelName);
-          for (const e of msg.edits) {
-            const edit = {
-              payload: e.payload,
-              timestamp: Date.now(),
-              author: "",
-              channel: channelName,
-              origin: "sync" as const,
-              signature: e.signature,
-            };
-            channel.appendEdit(edit);
-            persistEdit(channelName, edit);
-          }
-        });
-
-        // Start reconciliation when channel opens
-        if (dc.readyState === "open") {
-          wiring.reconcile();
-          startLiveForwarding();
-        } else {
-          dc.addEventListener("open", () => {
-            if (!reconciliationWirings.has(wiring)) {
-              return;
-            }
-            wiring.reconcile();
-            startLiveForwarding();
-          });
-        }
-
-        function cleanup() {
-          for (const unsub of editUnsubs) unsub();
-          editUnsubs.length = 0;
-          unsubLiveEdits();
-          unsubConn();
-          wiring.destroy();
-          reconciliationWirings.delete(wiring);
-          // If no transports remain, push
-          // disconnected so status updates.
-          if (reconciliationWirings.size === 0) {
-            factQueue?.push({
-              type: "sync-status-changed",
-              ts: Date.now(),
-              status: "disconnected",
-            });
-          }
-        }
-
-        dc.addEventListener("close", cleanup);
-        dc.addEventListener("error", cleanup);
-      }
-
-      // Initiator creates the data channel before
-      // the SDP offer so it's in the negotiation.
-      if (initiator) {
-        wireDataChannel(createReconcileChannel(pc));
-      }
-
-      // Both sides listen for incoming data
-      // channels (responder receives the
-      // initiator's channel).
-      pc.addEventListener("datachannel", (event) => {
-        if (event.channel.label === "pokapali-reconcile") {
-          wireDataChannel(event.channel);
-        }
-      });
+      if (destroyed) return;
+      peerSync?.wirePeerConnection(pc, initiator);
     });
   }
 
@@ -1716,11 +1563,9 @@ export function createDoc(params: DocParams): Doc {
       log.warn("off('change') cleanup error:", (err as Error)?.message ?? err);
     }
     params.roomDiscovery?.stop();
-    // Tear down reconciliation wirings
-    if (reconcileTimer) clearTimeout(reconcileTimer);
+    // Tear down peer sync (reconciliation + live edits)
     unsubPeerConn?.();
-    for (const w of reconciliationWirings) w.destroy();
-    reconciliationWirings.clear();
+    peerSync?.destroy();
     liveSyncManager?.destroy();
     liveAwarenessRoom?.destroy();
     // Clean up standalone awareness + backing doc
