@@ -10,7 +10,7 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import type * as Y from "yjs";
+import type { CodecSurface } from "@pokapali/codec";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
 import { ySyncPluginKey } from "y-prosemirror";
@@ -55,8 +55,8 @@ function buildDecorations(
 }
 
 export interface CommentHighlightOptions {
-  commentsDoc: Y.Doc | null;
-  contentDoc: Y.Doc | null;
+  commentsSurface: CodecSurface | null;
+  contentSurface: CodecSurface | null;
   activeCommentId: string | null;
 }
 
@@ -65,14 +65,14 @@ export const CommentHighlight = Extension.create<CommentHighlightOptions>({
 
   addOptions() {
     return {
-      commentsDoc: null,
-      contentDoc: null,
+      commentsSurface: null,
+      contentSurface: null,
       activeCommentId: null,
     };
   },
 
   addProseMirrorPlugins() {
-    const { commentsDoc, contentDoc } = this.options;
+    const { commentsSurface, contentSurface } = this.options;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const ext = this;
 
@@ -95,14 +95,18 @@ export const CommentHighlight = Extension.create<CommentHighlightOptions>({
             _oldState: EditorState,
             newState: EditorState,
           ): DecorationSet {
-            if (!commentsDoc || !contentDoc) {
+            if (!commentsSurface || !contentSurface) {
               return DecorationSet.empty;
             }
             const needsRebuild = tr.docChanged || tr.getMeta(REBUILD_META);
             if (!needsRebuild) return old;
 
             const syncState = ySyncPluginKey.getState(newState);
-            const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
+            const anchors = resolveAnchors(
+              commentsSurface,
+              contentSurface,
+              syncState,
+            );
             return buildDecorations(
               newState.doc,
               anchors,

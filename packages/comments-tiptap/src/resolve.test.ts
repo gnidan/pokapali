@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as Y from "yjs";
+import type { CodecSurface } from "@pokapali/codec";
+import { yjsCodec } from "@pokapali/codec";
 
 vi.mock("y-prosemirror", () => ({
   relativePositionToAbsolutePosition: vi.fn(),
@@ -9,17 +11,21 @@ import { resolveAnchors } from "./resolve.js";
 import { relativePositionToAbsolutePosition } from "y-prosemirror";
 
 describe("resolveAnchors", () => {
+  let cs: CodecSurface;
+  let xs: CodecSurface;
   let commentsDoc: Y.Doc;
   let contentDoc: Y.Doc;
 
   beforeEach(() => {
-    commentsDoc = new Y.Doc();
-    contentDoc = new Y.Doc();
+    cs = yjsCodec.createSurface();
+    xs = yjsCodec.createSurface();
+    commentsDoc = cs.handle as Y.Doc;
+    contentDoc = xs.handle as Y.Doc;
     vi.clearAllMocks();
   });
 
   it("returns empty array when syncState is null", () => {
-    expect(resolveAnchors(commentsDoc, contentDoc, null)).toEqual([]);
+    expect(resolveAnchors(cs, xs, null)).toEqual([]);
   });
 
   it("returns empty array when no comments", () => {
@@ -28,7 +34,7 @@ describe("resolveAnchors", () => {
       type: {},
       binding: { mapping: {} },
     } as any;
-    expect(resolveAnchors(commentsDoc, contentDoc, syncState)).toEqual([]);
+    expect(resolveAnchors(cs, xs, syncState)).toEqual([]);
   });
 
   it("resolves anchors to PM positions", () => {
@@ -53,7 +59,7 @@ describe("resolveAnchors", () => {
       binding: { mapping: {} },
     } as any;
 
-    const result = resolveAnchors(commentsDoc, contentDoc, syncState);
+    const result = resolveAnchors(cs, xs, syncState);
     expect(result).toEqual([{ id: "comment-1", from: 1, to: 6 }]);
   });
 
@@ -70,7 +76,7 @@ describe("resolveAnchors", () => {
       binding: { mapping: {} },
     } as any;
 
-    expect(resolveAnchors(commentsDoc, contentDoc, syncState)).toEqual([]);
+    expect(resolveAnchors(cs, xs, syncState)).toEqual([]);
   });
 
   it("skips orphaned anchors (null resolution)", () => {
@@ -91,7 +97,7 @@ describe("resolveAnchors", () => {
       binding: { mapping: {} },
     } as any;
 
-    expect(resolveAnchors(commentsDoc, contentDoc, syncState)).toEqual([]);
+    expect(resolveAnchors(cs, xs, syncState)).toEqual([]);
   });
 
   it("skips degenerate ranges (from >= to)", () => {
@@ -112,6 +118,6 @@ describe("resolveAnchors", () => {
       binding: { mapping: {} },
     } as any;
 
-    expect(resolveAnchors(commentsDoc, contentDoc, syncState)).toEqual([]);
+    expect(resolveAnchors(cs, xs, syncState)).toEqual([]);
   });
 });

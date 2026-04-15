@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
+import { yjsCodec } from "@pokapali/codec";
 import { setLogLevel, getLogLevel } from "@pokapali/log";
 import { comments } from "./index.js";
 import type { ClientIdMapping } from "./index.js";
@@ -17,8 +18,10 @@ const DEFAULT_DATA: TestData = {
 };
 
 function setup(clientID?: number) {
-  const commentsDoc = new Y.Doc();
-  const contentDoc = new Y.Doc();
+  const commentsSurface = yjsCodec.createSurface();
+  const contentSurface = yjsCodec.createSurface();
+  const commentsDoc = commentsSurface.handle as Y.Doc;
+  const contentDoc = contentSurface.handle as Y.Doc;
   if (clientID !== undefined) {
     commentsDoc.clientID = clientID;
   }
@@ -26,7 +29,7 @@ function setup(clientID?: number) {
   contentDoc.getText("default").insert(0, "hello world");
 
   const mappingFeed = createFeed<ClientIdMapping>(new Map());
-  const c = comments<TestData>(commentsDoc, contentDoc, {
+  const c = comments<TestData>(commentsSurface, contentSurface, {
     author: "alice-pubkey",
     clientIdMapping: mappingFeed,
   });
@@ -34,6 +37,8 @@ function setup(clientID?: number) {
     c,
     commentsDoc,
     contentDoc,
+    commentsSurface,
+    contentSurface,
     mappingFeed,
   };
 }
@@ -403,9 +408,9 @@ describe("comments()", () => {
 
   describe("author", () => {
     it("throws adding without author", () => {
-      const commentsDoc = new Y.Doc();
-      const contentDoc = new Y.Doc();
-      const c = comments<TestData>(commentsDoc, contentDoc, {
+      const cs = yjsCodec.createSurface();
+      const xs = yjsCodec.createSurface();
+      const c = comments<TestData>(cs, xs, {
         author: null,
         clientIdMapping: createFeed(new Map()),
       });
@@ -513,14 +518,15 @@ describe("comments()", () => {
 
   describe("XmlFragment content type", () => {
     it("anchors resolve against XmlFragment", () => {
-      const commentsDoc = new Y.Doc();
-      const contentDoc = new Y.Doc();
+      const cs = yjsCodec.createSurface();
+      const xs = yjsCodec.createSurface();
+      const contentDoc = xs.handle as Y.Doc;
       const frag = contentDoc.getXmlFragment("default");
       frag.insert(0, [new Y.XmlText("para one")]);
       frag.insert(1, [new Y.XmlText("para two")]);
       frag.insert(2, [new Y.XmlText("para three")]);
 
-      const c = comments<TestData>(commentsDoc, contentDoc, {
+      const c = comments<TestData>(cs, xs, {
         author: "alice-pubkey",
         clientIdMapping: createFeed(new Map()),
         contentType: frag,
@@ -577,11 +583,12 @@ describe("comments()", () => {
 
     it("no warning when contentType is explicit", () => {
       const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const commentsDoc = new Y.Doc();
-      const contentDoc = new Y.Doc();
+      const cs = yjsCodec.createSurface();
+      const xs = yjsCodec.createSurface();
+      const contentDoc = xs.handle as Y.Doc;
       const text = contentDoc.getText("default");
       text.insert(0, "hello");
-      const c = comments<TestData>(commentsDoc, contentDoc, {
+      const c = comments<TestData>(cs, xs, {
         author: "alice-pubkey",
         clientIdMapping: createFeed(new Map()),
         contentType: text,
@@ -595,15 +602,16 @@ describe("comments()", () => {
     });
 
     it("throws when XmlFragment registered but no contentType", () => {
-      const commentsDoc = new Y.Doc();
-      const contentDoc = new Y.Doc();
+      const cs = yjsCodec.createSurface();
+      const xs = yjsCodec.createSurface();
+      const contentDoc = xs.handle as Y.Doc;
       // Register "default" as XmlFragment
       const frag = contentDoc.getXmlFragment("default");
       frag.insert(0, [new Y.XmlText("paragraph")]);
 
       // Omit contentType — should throw
       expect(() =>
-        comments<TestData>(commentsDoc, contentDoc, {
+        comments<TestData>(cs, xs, {
           author: "alice-pubkey",
           clientIdMapping: createFeed(new Map()),
         }),
@@ -613,8 +621,10 @@ describe("comments()", () => {
 
   describe("contentPayload bridge", () => {
     function setupBridge() {
-      const commentsDoc = new Y.Doc();
-      const contentDoc = new Y.Doc();
+      const cs = yjsCodec.createSurface();
+      const xs = yjsCodec.createSurface();
+      const commentsDoc = cs.handle as Y.Doc;
+      const contentDoc = xs.handle as Y.Doc;
       const text = contentDoc.getText("default");
       text.insert(0, "hello world");
 
@@ -622,7 +632,7 @@ describe("comments()", () => {
       const payloadFeed: WritableFeed<Uint8Array | null> =
         createFeed<Uint8Array | null>(null);
 
-      const c = comments<TestData>(commentsDoc, contentDoc, {
+      const c = comments<TestData>(cs, xs, {
         author: "alice-pubkey",
         clientIdMapping: mappingFeed,
         contentType: text,
@@ -740,16 +750,19 @@ describe("comments()", () => {
 
   describe("CRDT sync", () => {
     it("syncs comments across two docs", () => {
-      const doc1 = new Y.Doc();
-      const doc2 = new Y.Doc();
-      const contentDoc = new Y.Doc();
+      const s1 = yjsCodec.createSurface();
+      const s2 = yjsCodec.createSurface();
+      const doc1 = s1.handle as Y.Doc;
+      const doc2 = s2.handle as Y.Doc;
+      const xs = yjsCodec.createSurface();
+      const contentDoc = xs.handle as Y.Doc;
       contentDoc.getText("default").insert(0, "shared text");
 
-      const c1 = comments<TestData>(doc1, contentDoc, {
+      const c1 = comments<TestData>(s1, xs, {
         author: "alice",
         clientIdMapping: createFeed(new Map()),
       });
-      const c2 = comments<TestData>(doc2, contentDoc, {
+      const c2 = comments<TestData>(s2, xs, {
         author: "bob",
         clientIdMapping: createFeed(new Map()),
       });

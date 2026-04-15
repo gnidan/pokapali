@@ -7,6 +7,7 @@
  */
 
 import * as Y from "yjs";
+import type { CodecSurface } from "@pokapali/codec";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — y-prosemirror has no type declarations
 import { relativePositionToAbsolutePosition } from "y-prosemirror";
@@ -33,12 +34,14 @@ export interface ResolvedCommentAnchor {
  * - from >= to (degenerate range)
  */
 export function resolveAnchors(
-  commentsDoc: Y.Doc,
-  contentDoc: Y.Doc,
+  commentsSurface: CodecSurface,
+  contentSurface: CodecSurface,
   syncState: SyncState | null,
 ): ResolvedCommentAnchor[] {
   if (!syncState?.binding?.mapping) return [];
 
+  const commentsDoc = commentsSurface.handle as Y.Doc;
+  const contentDoc = contentSurface.handle as Y.Doc;
   const { type, binding } = syncState;
   const xmlFragment = type as Y.XmlFragment;
   const mapping = binding.mapping;

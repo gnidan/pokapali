@@ -8,12 +8,20 @@
  * at the Yjs layer where sync is deterministic.
  */
 import { describe, it, expect, afterEach } from "vitest";
+import * as Y from "yjs";
+import type { CodecSurface } from "@pokapali/codec";
 import {
   createTestNetwork,
   type TestNetwork,
 } from "../../../packages/test-utils/src/index.js";
 import { comments } from "../../../packages/comments/src/index.js";
 import { createFeed } from "../../../packages/comments/src/feed.js";
+
+/** Wrap a raw Y.Doc as a minimal CodecSurface stub
+ *  for test-utils peers. */
+function wrapDoc(doc: Y.Doc): CodecSurface {
+  return { handle: doc } as CodecSurface;
+}
 
 describe("multi-peer collaboration", () => {
   let net: TestNetwork;
@@ -84,8 +92,8 @@ describe("multi-peer collaboration", () => {
     const emptyMapping = createFeed(new Map(), () => false);
 
     const aliceComments = comments(
-      alice.channel("comments"),
-      alice.channel("content"),
+      wrapDoc(alice.channel("comments")),
+      wrapDoc(alice.channel("content")),
       {
         author: "alice-pubkey",
         clientIdMapping: emptyMapping,
@@ -93,8 +101,8 @@ describe("multi-peer collaboration", () => {
     );
 
     const bobComments = comments(
-      bob.channel("comments"),
-      bob.channel("content"),
+      wrapDoc(bob.channel("comments")),
+      wrapDoc(bob.channel("content")),
       {
         author: "bob-pubkey",
         clientIdMapping: emptyMapping,
@@ -131,8 +139,8 @@ describe("multi-peer collaboration", () => {
     const emptyMapping = createFeed(new Map(), () => false);
 
     const aliceComments = comments(
-      alice.channel("comments"),
-      alice.channel("content"),
+      wrapDoc(alice.channel("comments")),
+      wrapDoc(alice.channel("content")),
       {
         author: "alice-pubkey",
         clientIdMapping: emptyMapping,
@@ -140,8 +148,8 @@ describe("multi-peer collaboration", () => {
     );
 
     const bobComments = comments(
-      bob.channel("comments"),
-      bob.channel("content"),
+      wrapDoc(bob.channel("comments")),
+      wrapDoc(bob.channel("content")),
       {
         author: "bob-pubkey",
         clientIdMapping: emptyMapping,

@@ -86,13 +86,14 @@ function DocumentEditor({ doc }: { doc: Doc }) {
 
   // -- Create Comments instance --
   useEffect(() => {
-    const commentsDoc = doc.channel("comments").handle as YDoc;
-    const contentDoc = doc.channel("content").handle as YDoc;
+    const commentsSurface = doc.surface("comments");
+    const contentSurface = doc.surface("content");
+    const contentDoc = contentSurface.handle as YDoc;
 
     // Note: Tiptap uses XmlFragment, not Text.
     // Pass the correct content type or anchors
     // won't resolve.
-    const c = comments<CommentData>(commentsDoc, contentDoc, {
+    const c = comments<CommentData>(commentsSurface, contentSurface, {
       author: doc.identityPubkey,
       clientIdMapping: doc.clientIdMapping,
       contentType: contentDoc.getXmlFragment("default"),
@@ -115,8 +116,8 @@ function DocumentEditor({ doc }: { doc: Doc }) {
           document: doc.channel("content").handle as YDoc,
         }),
         CommentHighlight.configure({
-          commentsDoc: doc.channel("comments").handle as YDoc,
-          contentDoc: doc.channel("content").handle as YDoc,
+          commentsSurface: doc.surface("comments"),
+          contentSurface: doc.surface("content"),
           activeCommentId: null,
         }),
         PendingAnchorHighlight,
@@ -218,11 +219,7 @@ function CommentsSidebar({
   // the document (spatial anchoring).
   const syncState = editor ? getSyncState(editor) : null;
   const resolved = editor
-    ? resolveAnchors(
-        doc.channel("comments").handle as YDoc,
-        doc.channel("content").handle as YDoc,
-        syncState,
-      )
+    ? resolveAnchors(doc.surface("comments"), doc.surface("content"), syncState)
     : [];
   const posMap = new Map(resolved.map((r) => [r.id, r.from]));
 

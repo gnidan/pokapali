@@ -98,7 +98,7 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     addReply,
     updateComment,
     deleteComment,
-    commentsDoc,
+    commentsSurface,
   } = useComments<CommentData>(doc);
 
   const resolveComment = useCallback(
@@ -163,7 +163,8 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
     return unsub;
   }, [doc]);
 
-  const contentDoc = doc.surface("content").handle as YDoc;
+  const contentSurface = doc.surface("content");
+  const contentDoc = contentSurface.handle as YDoc;
   const shouldMount = ready || !isReadOnly;
   // Writers always show the editor — they don't need
   // to wait for a snapshot load. Readers wait for
@@ -193,15 +194,15 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
               }),
             }),
             CommentHighlight.configure({
-              commentsDoc: commentsDoc ?? null,
-              contentDoc,
+              commentsSurface: commentsSurface ?? null,
+              contentSurface,
               activeCommentId: selectedCommentId,
             }),
             PendingAnchorHighlight,
           ]
         : [StarterKit.configure({ history: false })],
     },
-    [doc, shouldMount, commentsDoc],
+    [doc, shouldMount, commentsSurface],
   );
 
   const handlePopoverComment = useCallback(() => {
@@ -241,13 +242,13 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   // state change (via commentList dependency which
   // triggers the rebuild effect above).
   const anchorPositions = useMemo(() => {
-    if (!editor?.state || !commentsDoc || !contentDoc) {
+    if (!editor?.state || !commentsSurface || !contentSurface) {
       return new Map<string, number>();
     }
     const syncState = getSyncState(editor);
-    const anchors = resolveAnchors(commentsDoc, contentDoc, syncState);
+    const anchors = resolveAnchors(commentsSurface, contentSurface, syncState);
     return new Map(anchors.map((a) => [a.id, a.from]));
-  }, [editor?.state, commentsDoc, contentDoc, commentList]);
+  }, [editor?.state, commentsSurface, contentSurface, commentList]);
 
   useEffect(() => {
     const displayName = user.name || "Anonymous";

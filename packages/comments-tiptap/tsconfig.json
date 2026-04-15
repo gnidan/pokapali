@@ -5,5 +5,5 @@
     "rootDir": "."
   },
   "include": ["src"],
-  "references": [{ "path": "../comments" }]
+  "references": [{ "path": "../codec" }, { "path": "../comments" }]
 }

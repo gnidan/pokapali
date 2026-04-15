@@ -7,6 +7,7 @@
  */
 
 import * as Y from "yjs";
+import type { CodecSurface } from "@pokapali/codec";
 import { createLogger } from "@pokapali/log";
 import {
   anchorFromRelativePositions,
@@ -118,10 +119,12 @@ export interface CommentsOptions {
 // ── Factory ───────────────────────────────────────
 
 export function comments<T>(
-  commentsDoc: Y.Doc,
-  contentDoc: Y.Doc,
+  commentsSurface: CodecSurface,
+  contentSurface: CodecSurface,
   options: CommentsOptions,
 ): Comments<T> {
+  const commentsDoc = commentsSurface.handle as Y.Doc;
+  const contentDoc = contentSurface.handle as Y.Doc;
   const map = commentsMap(commentsDoc);
   const explicitContentType = options.contentType !== undefined;
 

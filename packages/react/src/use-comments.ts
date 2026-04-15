@@ -9,8 +9,9 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { AbstractType, Doc as YDoc } from "yjs";
+import type { AbstractType } from "yjs";
 import type { Doc } from "@pokapali/core";
+import type { CodecSurface } from "@pokapali/codec";
 import {
   comments,
   type Comments,
@@ -32,9 +33,9 @@ export interface CommentData {
 
 // ── Helpers ─────────────────────────────────────
 
-function tryChannel(doc: Doc, name: string): YDoc | null {
+function trySurface(doc: Doc, name: string): CodecSurface | null {
   try {
-    return doc.channel(name).handle as YDoc;
+    return doc.surface(name);
   } catch {
     // Old docs created before this channel existed.
     return null;
@@ -55,20 +56,18 @@ export interface UseCommentsOptions {
 // ── Main hook ───────────────────────────────────
 
 export function useComments<T>(doc: Doc, options?: UseCommentsOptions) {
-  const commentsDoc = useMemo(() => tryChannel(doc, "comments"), [doc]);
-  const contentDoc = useMemo(
-    () => doc.channel("content").handle as YDoc,
-    [doc],
-  );
+  const commentsSurface = useMemo(() => trySurface(doc, "comments"), [doc]);
+  const contentSurface = useMemo(() => doc.surface("content"), [doc]);
 
   const [instance, setInstance] = useState<Comments<T> | null>(null);
 
   useEffect(() => {
-    if (!commentsDoc || !contentDoc) return;
+    if (!commentsSurface || !contentSurface) return;
 
+    const contentDoc = contentSurface.handle as import("yjs").Doc;
     const ct = options?.contentType ?? contentDoc.getXmlFragment("default");
 
-    const c = comments<T>(commentsDoc, contentDoc, {
+    const c = comments<T>(commentsSurface, contentSurface, {
       author: doc.identityPubkey,
       clientIdMapping: doc.clientIdMapping,
       contentType: ct,
@@ -80,7 +79,7 @@ export function useComments<T>(doc: Doc, options?: UseCommentsOptions) {
       c.destroy();
       setInstance(null);
     };
-  }, [doc, commentsDoc, contentDoc, options?.contentType]);
+  }, [doc, commentsSurface, contentSurface, options?.contentType]);
 
   const emptyFeed = {
     getSnapshot: (): Comment<T>[] => [],
@@ -132,7 +131,7 @@ export function useComments<T>(doc: Doc, options?: UseCommentsOptions) {
     addReply,
     updateComment,
     deleteComment,
-    /** Raw comments doc for anchor resolution. */
-    commentsDoc,
+    /** Raw comments surface for anchor resolution. */
+    commentsSurface,
   };
 }
