@@ -315,6 +315,14 @@ export function createPeerManager(
     client.onPeerJoined((room, peerId) => {
       if (room !== roomName) return;
 
+      // Ignore self-joins — happens when this browser
+      // is connected to multiple relays and relay
+      // forwarding echoes our own peerId back.
+      if (peerId === localPeerId) {
+        diagLog.debug("PEER_JOINED self (ignored):", peerId.slice(0, 12));
+        return;
+      }
+
       // Dedup: if we already have a healthy connection
       // for this peer, ignore the duplicate
       // PEER_JOINED (can happen via relay forwarding).

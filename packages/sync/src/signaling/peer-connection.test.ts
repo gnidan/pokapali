@@ -570,6 +570,19 @@ describe("PeerManager", () => {
     expect(pcs[0]!.close).toHaveBeenCalled();
   });
 
+  it("ignores self PEER_JOINED", async () => {
+    const { manager, pcs, firePeerJoined } = setup("aaa-local");
+
+    // Self-join echoed back via relay forwarding
+    firePeerJoined("room1", "aaa-local");
+    await tick();
+
+    // No PC should be created for self
+    expect(pcs).toHaveLength(0);
+
+    manager.destroy();
+  });
+
   it("ignores duplicate PEER_JOINED for " + "same peer", async () => {
     const { client, manager, pcs, firePeerJoined } = setup("aaa-local");
 
