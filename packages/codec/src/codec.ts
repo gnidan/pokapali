@@ -91,6 +91,20 @@ export interface Codec {
 }
 
 /**
+ * A named shared map on a CodecSurface. Provides
+ * key-value storage with change observation,
+ * abstracting away the underlying CRDT map type
+ * (e.g. Y.Map).
+ */
+export interface SurfaceMap {
+  entries(): IterableIterator<[string, unknown]>;
+  get(key: string): unknown;
+  set(key: string, value: unknown): void;
+  /** Observe map changes. Returns unsubscribe. */
+  observe(cb: () => void): () => void;
+}
+
+/**
  * A live editing surface backed by the Codec's
  * internal CRDT document. Editors bind to the
  * opaque `handle`. External code never touches
@@ -132,6 +146,14 @@ export interface CodecSurface {
   /** Encode the full surface state as a single
    *  update payload. */
   encodeState(): Uint8Array;
+
+  /** Get a named shared map on this surface. */
+  getMap(name: string): SurfaceMap;
+
+  /** Run fn inside an infrastructure transaction
+   *  that does NOT trigger onLocalEdit callbacks.
+   *  Used for metadata writes (identity, etc.). */
+  transact(fn: () => void): void;
 
   /** Clean up the surface. */
   destroy(): void;

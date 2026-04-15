@@ -91,6 +91,7 @@ vi.mock("./interpreter.js", () => ({
 }));
 
 const { createDoc } = await import("./create-doc.js");
+const { yjsCodec } = await import("@pokapali/codec");
 
 function mockDocParams() {
   return {};
@@ -138,7 +139,7 @@ describe("ready() after interpreter crash (#39)", () => {
       networkId: "main",
       primaryChannel: "content",
       signalingUrls: [],
-      codec: {} as any,
+      codec: yjsCodec,
       syncOpts: {
         peerOpts: {},
         pubsub: {
@@ -221,7 +222,7 @@ describe("ready() after interpreter crash (#39)", () => {
       networkId: "main",
       primaryChannel: "content",
       signalingUrls: [],
-      codec: {} as any,
+      codec: yjsCodec,
       syncOpts: {
         peerOpts: {},
         pubsub: {
@@ -296,7 +297,7 @@ describe("ready() after interpreter crash (#39)", () => {
       networkId: "main",
       primaryChannel: "content",
       signalingUrls: [],
-      codec: {} as any,
+      codec: yjsCodec,
       syncOpts: {
         peerOpts: {},
         pubsub: {
@@ -366,7 +367,7 @@ describe("ready() after interpreter crash (#39)", () => {
       networkId: "main",
       primaryChannel: "content",
       signalingUrls: [],
-      codec: {} as any,
+      codec: yjsCodec,
       syncOpts: {
         peerOpts: {},
         pubsub: {

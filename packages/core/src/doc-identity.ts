@@ -7,11 +7,10 @@
  * passed explicitly.
  */
 
-import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { hexToBytes, bytesToHex, verifyBytes } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
-import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
+import type { CodecSurface } from "@pokapali/codec";
 import { signParticipant } from "./identity.js";
 import type { ParticipantAwareness } from "./identity.js";
 import { createFeed } from "./feed.js";
@@ -40,21 +39,22 @@ export interface ClientIdMappingHandle {
  * and cached.
  */
 export function createClientIdMapping(
-  metaDoc: Y.Doc,
+  metaSurface: CodecSurface,
   ipnsName: string,
 ): ClientIdMappingHandle {
   const feed: WritableFeed<IdentityMap> =
     createFeed<IdentityMap>(EMPTY_IDENTITY_MAP);
 
+  const identitiesMap = metaSurface.getMap("clientIdentities");
+
   // Cache verified results to avoid re-verifying
-  // on every Y.Map change.
+  // on every map change.
   const verifiedCache = new Map<string, boolean | null>();
 
   function rebuild(): void {
-    const identities = metaDoc.getMap("clientIdentities");
     const result = new Map<number, ClientIdentityInfo>();
 
-    for (const [key, value] of identities.entries()) {
+    for (const [key, value] of identitiesMap.entries()) {
       const clientId = Number(key);
       if (Number.isNaN(clientId)) continue;
       const entry = value as {
@@ -104,8 +104,7 @@ export function createClientIdMapping(
   }
 
   // Observe _meta clientIdentities for changes.
-  const identitiesMap = metaDoc.getMap("clientIdentities");
-  identitiesMap.observe(rebuild);
+  const unobserve = identitiesMap.observe(rebuild);
 
   // Initial projection (may already have entries
   // from IDB-persisted _meta).
@@ -113,7 +112,7 @@ export function createClientIdMapping(
 
   return {
     feed,
-    destroy: () => identitiesMap.unobserve(rebuild),
+    destroy: unobserve,
   };
 }
 
@@ -130,7 +129,7 @@ export function createClientIdMapping(
 export function setupParticipantAwareness(
   identity: Ed25519KeyPair | undefined | null,
   awareness: Awareness,
-  metaDoc: Y.Doc,
+  metaSurface: CodecSurface,
   ipnsName: string,
 ): () => void {
   if (identity) {
@@ -155,17 +154,16 @@ export function setupParticipantAwareness(
 
         // Persist clientID→pubkey in _meta so the
         // mapping survives across snapshots.
-        // Use SNAPSHOT_ORIGIN so the write doesn't
-        // mark the doc dirty — this is infrastructure
-        // metadata, not a user edit (#357).
-        metaDoc.transact(() => {
-          const identities = metaDoc.getMap("clientIdentities");
+        // Infrastructure transaction — doesn't mark
+        // the doc dirty (#357).
+        metaSurface.transact(() => {
+          const identities = metaSurface.getMap("clientIdentities");
           identities.set(String(clientId), {
             pubkey: bytesToHex(kp.publicKey),
             sig,
             v: 2,
           });
-        }, SNAPSHOT_ORIGIN);
+        });
       })
       .catch((err) => {
         log.warn(

@@ -93,6 +93,7 @@ vi.mock("./interpreter.js", () => ({
 }));
 
 const { createDoc, docDocuments } = await import("./create-doc.js");
+const { yjsCodec } = await import("@pokapali/codec");
 
 function baseParams() {
   return {
@@ -120,7 +121,7 @@ function baseParams() {
     signalingUrls: [],
     performInitialResolve: false,
 
-    codec: {} as any,
+    codec: yjsCodec,
   };
 }
 

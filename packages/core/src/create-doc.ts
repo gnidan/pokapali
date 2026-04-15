@@ -410,12 +410,14 @@ export function createDoc(params: DocParams): Doc {
     readKey,
   } = params;
 
-  // _meta Y.Doc — comes from the Document surface
+  // _meta surface — comes from the Document surface
   // just like any other channel. Used for client
   // identity mapping and title.
-  const metaDoc = params.document?.hasSurface("_meta")
-    ? (params.document.surface("_meta").handle as Y.Doc)
-    : new Y.Doc({ guid: `${ipnsName}:_meta`, gc: true });
+  const metaSurface = params.document?.hasSurface("_meta")
+    ? params.document.surface("_meta")
+    : params.codec.createSurface({
+        guid: `${ipnsName}:_meta`,
+      });
 
   let destroyed = false;
   let readyResolved = false;
@@ -655,7 +657,7 @@ export function createDoc(params: DocParams): Doc {
   let lastTipInfo: VersionInfo | null = null;
 
   // --- Client identity mapping feed ---
-  const clientIdMapping = createClientIdMapping(metaDoc, ipnsName);
+  const clientIdMapping = createClientIdMapping(metaSurface, ipnsName);
   const clientIdMappingFeed = clientIdMapping.feed;
 
   // Persist snapshot metadata to Store (fire-and-forget,
@@ -958,7 +960,7 @@ export function createDoc(params: DocParams): Doc {
     wireSyncBridges(liveSyncManager, liveAwarenessRoom);
   }
 
-  // metaDoc was populated before we registered our
+  // metaSurface was populated before we registered our
   // update handler, so fire dirty on next microtask
   // to start the auto-save debounce.
   queueMicrotask(() => {
@@ -1040,7 +1042,12 @@ export function createDoc(params: DocParams): Doc {
 
   // ── Participant awareness (identity) ──────────
   const cleanupParticipant = awareness
-    ? setupParticipantAwareness(params.identity, awareness, metaDoc, ipnsName)
+    ? setupParticipantAwareness(
+        params.identity,
+        awareness,
+        metaSurface,
+        ipnsName,
+      )
     : () => {};
 
   // ── Interpreter setup ─────────────────────────

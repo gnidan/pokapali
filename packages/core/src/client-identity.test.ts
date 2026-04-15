@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { bytesToHex, hexToBytes, verifyBytes } from "@pokapali/crypto";
 import { ed25519KeyPairFromSeed } from "@pokapali/crypto";
-import { SNAPSHOT_ORIGIN } from "@pokapali/sync";
+import { yjsCodec } from "@pokapali/codec";
 import { Awareness } from "y-protocols/awareness";
 import { signParticipant } from "./identity.js";
 import { setupParticipantAwareness } from "./doc-identity.js";
@@ -445,40 +445,39 @@ describe("clientIdMapping Feed projection", () => {
 
 describe("setupParticipantAwareness", () => {
   it(
-    "identity registration uses SNAPSHOT_ORIGIN" +
-      " so it does not trigger dirty (#357)",
+    "identity registration does not trigger " + "onLocalEdit (#357)",
     async () => {
       const seed = new Uint8Array(32);
       crypto.getRandomValues(seed);
       const kp = await ed25519KeyPairFromSeed(seed);
 
-      const metaDoc = new Y.Doc({
+      const metaSurface = yjsCodec.createSurface({
         guid: "test-ipns:_meta",
       });
       const doc = new Y.Doc();
       const awareness = new Awareness(doc);
 
-      // Track origins of all updates
-      const origins: unknown[] = [];
-      metaDoc.on("update", (_u: Uint8Array, origin: unknown) => {
-        origins.push(origin);
+      // Track local edits on the surface
+      const localEdits: Uint8Array[] = [];
+      metaSurface.onLocalEdit((payload) => {
+        localEdits.push(payload);
       });
 
-      setupParticipantAwareness(kp, awareness, metaDoc, "test-ipns");
+      setupParticipantAwareness(kp, awareness, metaSurface, "test-ipns");
 
       // Wait for the async signParticipant to
       // resolve and the _meta write to complete.
       await vi.waitFor(() => {
-        const map = metaDoc.getMap("clientIdentities");
-        expect(map.size).toBeGreaterThan(0);
+        const map = metaSurface.getMap("clientIdentities");
+        const entries = [...map.entries()];
+        expect(entries.length).toBeGreaterThan(0);
       });
 
-      // All updates should use SNAPSHOT_ORIGIN
-      // so dirty tracking ignores them.
-      expect(origins.length).toBeGreaterThan(0);
-      for (const o of origins) {
-        expect(o).toBe(SNAPSHOT_ORIGIN);
-      }
+      // Infrastructure transact must NOT trigger
+      // onLocalEdit — dirty tracking ignores them.
+      expect(localEdits).toHaveLength(0);
+
+      metaSurface.destroy();
     },
   );
 });

@@ -7,7 +7,7 @@
  * only created for `apply` when needed.
  */
 import * as Y from "yjs";
-import type { Codec, CodecSurface } from "./codec.js";
+import type { Codec, CodecSurface, SurfaceMap } from "./codec.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("codec");
@@ -106,6 +106,21 @@ export const yjsCodec: Codec = {
       },
       encodeState() {
         return Y.encodeStateAsUpdate(doc);
+      },
+      getMap(name: string): SurfaceMap {
+        const ymap = doc.getMap(name);
+        return {
+          entries: () => ymap.entries(),
+          get: (key) => ymap.get(key),
+          set: (key, value) => ymap.set(key, value),
+          observe(cb) {
+            ymap.observe(cb);
+            return () => ymap.unobserve(cb);
+          },
+        };
+      },
+      transact(fn) {
+        doc.transact(fn, SNAPSHOT_ORIGIN);
       },
       destroy() {
         log.debug("destroySurface:", doc.guid);

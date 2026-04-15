@@ -51,6 +51,13 @@ function fakeSurface(): CodecSurface & {
     onEdit: vi.fn(() => () => {}),
     encodeStateVector: vi.fn(() => new Uint8Array()),
     encodeState: vi.fn(() => new Uint8Array()),
+    getMap: vi.fn(() => ({
+      entries: () => [][Symbol.iterator](),
+      get: () => undefined,
+      set: vi.fn(),
+      observe: () => () => {},
+    })),
+    transact: vi.fn((fn: () => void) => fn()),
     destroy: vi.fn(),
     fireLocalEdit(payload: Uint8Array) {
       if (cb) cb(payload);
