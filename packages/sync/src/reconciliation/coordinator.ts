@@ -39,6 +39,10 @@ export interface CoordinatorOptions {
   sender: MessageSender;
   applier: EditApplier;
   trustedKeys?: Set<string>;
+  /** Async signature verification. Called for each
+   *  signed edit when trustedKeys is set. Must return
+   *  the verified payload or null to reject. */
+  verifySig?: (sig: Uint8Array) => Promise<Uint8Array | null>;
   localSnapshot?: Uint8Array;
 }
 
@@ -70,8 +74,15 @@ type WireEdit = {
 export function createCoordinator(
   options: CoordinatorOptions,
 ): ReconciliationCoordinator {
-  const { channel, channelName, sender, applier, trustedKeys, localSnapshot } =
-    options;
+  const {
+    channel,
+    channelName,
+    sender,
+    applier,
+    trustedKeys,
+    verifySig,
+    localSnapshot,
+  } = options;
 
   // Two sessions: out (we initiated) and in (peer
   // initiated). Messages route by type.
@@ -220,9 +231,30 @@ export function createCoordinator(
       // Dedup: skip if we already have this edit
       if (index.has(hash)) continue;
 
-      // Signature check when trustedKeys is set
-      if (trustedKeys && trustedKeys.size > 0) {
-        if (e.signature.length === 0) continue;
+      // Signature enforcement: when trustedKeys is
+      // set, every edit must be verified. An empty
+      // trustedKeys set means "trust no one."
+      if (trustedKeys && verifySig) {
+        const sig = e.signature;
+        void verifySig(sig)
+          .then((verifiedPayload) => {
+            if (!verifiedPayload) return; // bad sig
+            // Use the verified payload — it's what the
+            // signature actually covers.
+            const edit = EditCompanion.create({
+              payload: verifiedPayload,
+              timestamp: Date.now(),
+              author: "",
+              channel: channelName,
+              origin: "sync",
+              signature: sig,
+            });
+            applier.apply(edit);
+          })
+          .catch(() => {
+            // Verification error — drop.
+          });
+        continue;
       }
 
       const edit = EditCompanion.create({

@@ -269,6 +269,82 @@ describe("ReconciliationCoordinator", () => {
     );
   });
 
+  describe("verifySig enforcement", () => {
+    it("rejects signed edits when verifySig " + "returns null", async () => {
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+
+      chA.appendEdit(makeEdit(new Uint8Array([7, 8, 9])));
+
+      const senderA = mockSender();
+      const senderB = mockSender();
+      const applierA = mockApplier();
+      const applierB = mockApplier();
+
+      const coordA = createCoordinator({
+        channel: chA,
+        channelName: "content",
+        sender: senderA,
+        applier: applierA,
+      });
+      const coordB = createCoordinator({
+        channel: chB,
+        channelName: "content",
+        sender: senderB,
+        applier: applierB,
+        trustedKeys: new Set(["some-key"]),
+        verifySig: async () => null, // reject all
+      });
+
+      runExchange(coordA, senderA, coordB, senderB);
+
+      // Allow async verifySig to settle
+      await new Promise((r) => setTimeout(r, 10));
+
+      // B should NOT have applied the edit
+      expect(applierB.applied).toHaveLength(0);
+    });
+
+    it("accepts signed edits when verifySig " + "returns payload", async () => {
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+
+      const payload = new Uint8Array([7, 8, 9]);
+      chA.appendEdit(makeEdit(payload));
+
+      const senderA = mockSender();
+      const senderB = mockSender();
+      const applierA = mockApplier();
+      const applierB = mockApplier();
+
+      const coordA = createCoordinator({
+        channel: chA,
+        channelName: "content",
+        sender: senderA,
+        applier: applierA,
+      });
+      const coordB = createCoordinator({
+        channel: chB,
+        channelName: "content",
+        sender: senderB,
+        applier: applierB,
+        trustedKeys: new Set(["some-key"]),
+        // Simulate extracting payload from envelope
+        verifySig: async () => payload,
+      });
+
+      runExchange(coordA, senderA, coordB, senderB);
+
+      // Allow async verifySig to settle
+      await new Promise((r) => setTimeout(r, 10));
+
+      // B should have applied the edit with the
+      // verified payload returned by verifySig.
+      expect(applierB.applied).toHaveLength(1);
+      expect(applierB.applied[0]!.payload).toEqual(payload);
+    });
+  });
+
   describe("deduplication", () => {
     it("same edit already in channel is not " + "applied again", () => {
       const shared = new Uint8Array([1, 2, 3]);

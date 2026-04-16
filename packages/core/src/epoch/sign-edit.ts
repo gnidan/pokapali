@@ -78,8 +78,9 @@ export async function verifyEdit(
   const payload = envelope.slice(HEADER_SIZE);
 
   // Trusted-key gate: reject before doing the
-  // (more expensive) crypto verify.
-  if (trustedKeys && trustedKeys.size > 0) {
+  // (more expensive) crypto verify. An empty set
+  // means "trust no one" — all signers are rejected.
+  if (trustedKeys) {
     const hex = bytesToHex(pubkey);
     if (!trustedKeys.has(hex)) return null;
   }

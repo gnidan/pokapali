@@ -90,11 +90,11 @@ describe("signEdit / verifyEdit", () => {
       expect(await verifyEdit(envelope, trusted)).toBeNull();
     });
 
-    it("empty trusted set is permissionless", async () => {
+    it("empty trusted set rejects all signers", async () => {
       const kp = await generateIdentityKeypair();
       const envelope = await signEdit(new Uint8Array([5]), kp);
       const result = await verifyEdit(envelope, new Set());
-      expect(result).not.toBeNull();
+      expect(result).toBeNull();
     });
 
     it("undefined trusted set is permissionless", async () => {

@@ -162,6 +162,12 @@ export function createReconciliationWiring(
           applySnapshot: (s) => channel.appendSnapshot(s),
         },
         trustedKeys: opts.trustedKeys,
+        verifySig: opts.trustedKeys
+          ? async (sig) => {
+              const result = await verifyEdit(sig, opts.trustedKeys);
+              return result?.payload ?? null;
+            }
+          : undefined,
         localSnapshot: snapshot.length > 0 ? snapshot : undefined,
       });
 
