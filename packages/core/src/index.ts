@@ -15,50 +15,21 @@ import {
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
-import {
-  setupNamespaceRooms,
-  setupSignaledAwarenessRoom,
-  createSignalingClient,
-  createMultiRelayRoom,
-  SIGNALING_PROTOCOL,
-} from "@pokapali/sync";
-import type {
-  SyncOptions,
-  PubSubLike,
-  SignalingStream,
-  AwarenessRoom,
-  MultiRelayRoom,
-} from "@pokapali/sync";
+import type { SyncOptions } from "@pokapali/sync";
 import {
   lookupForwardingRecord,
   decodeForwardingRecord,
   verifyForwardingRecord,
 } from "./forwarding.js";
 import { ValidationError } from "./errors.js";
-import {
-  acquireHelia,
-  releaseHelia,
-  getHeliaPubsub,
-  getHelia,
-  isHeliaLive,
-} from "./helia.js";
-import { acquireNodeRegistry } from "./node-registry.js";
-import { startRoomDiscovery } from "./peer-discovery.js";
 import { docIdFromUrl } from "./url-utils.js";
-import { createLogger } from "@pokapali/log";
 import { createDoc } from "./create-doc.js";
 import type { Doc } from "./create-doc.js";
 import { loadIdentity } from "./identity.js";
 import { Document } from "@pokapali/document";
 import { yjsCodec } from "@pokapali/codec";
 import { Store } from "@pokapali/store";
-
-const log = createLogger("core");
-
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-];
+import { setupP2PLayer } from "./p2p-layer.js";
 
 /**
  * Configuration for a pokapali application instance.
@@ -271,180 +242,16 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     // operates in local-only mode.
     const p2pReady = !p2pEnabled
       ? undefined
-      : (async () => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let blockstore: any;
-          if (!isHeliaLive()) {
-            const { IDBBlockstore } = await import("blockstore-idb");
-            const bs = new IDBBlockstore(`pokapali:blocks:${appId}`);
-            await bs.open();
-            blockstore = bs;
-          }
-
-          await acquireHelia({
-            bootstrapPeers,
-            blockstore,
-            networkId,
-          });
-
-          try {
-            const pubsub = getHeliaPubsub() as unknown as PubSubLike;
-            acquireNodeRegistry(pubsub, () => getHelia(), networkId);
-
-            const userIce = options.rtc?.config?.iceServers;
-            const syncOpts: SyncOptions = {
-              peerOpts: {
-                config: {
-                  iceServers: userIce ?? DEFAULT_ICE_SERVERS,
-                },
-              },
-              pubsub,
-            };
-
-            const syncManager = setupNamespaceRooms(
-              ipnsName,
-              chKeys,
-              signalingUrls,
-              syncOpts,
-            );
-
-            const helia = getHelia();
-
-            const roomDiscovery = startRoomDiscovery(helia, appId);
-
-            // Bootstrap peers are dialed by libp2p but
-            // peer-discovery doesn't know they're relays.
-            // Feed them as external relays so they get
-            // tracked in relayPeerIds.
-            if (bootstrapPeers?.length) {
-              const entries = bootstrapPeers
-                .map((addr) => {
-                  const m = addr.match(/\/p2p\/([^/]+)$/);
-                  return m ? { peerId: m[1], addrs: [addr] } : null;
-                })
-                .filter(
-                  (e): e is { peerId: string; addrs: string[] } => e !== null,
-                );
-              if (entries.length > 0) {
-                roomDiscovery.addExternalRelays(entries);
-              }
-            }
-
-            // Multi-relay room: wraps N per-relay
-            // awareness rooms behind a single interface.
-            // Relays are added/removed dynamically —
-            // no swap logic needed.
-            const multiRoom = createMultiRelayRoom(awareness);
-            const RELAY_WAIT_MS = 30_000;
-
-            log.info("waiting for relay discovery...");
-
-            // Connect to a relay and add it to the
-            // multi-relay room. Serialized: only one
-            // trySignaling runs at a time, later
-            // requests queue up.
-            let signalingInFlight = false;
-            let pendingRelay: string | null = null;
-
-            function connectRelay(relayPid: string): void {
-              if (signalingInFlight) {
-                log.info(
-                  "signaling in flight, queuing" + " relay:",
-                  relayPid.slice(0, 12),
-                );
-                pendingRelay = relayPid;
-                return;
-              }
-              signalingInFlight = true;
-              pendingRelay = null;
-              log.info("connecting relay:", relayPid.slice(0, 12));
-              void trySignaling(
-                helia,
-                relayPid,
-                ipnsName,
-                awareness,
-                syncOpts,
-                networkId,
-              )
-                .then((room) => {
-                  multiRoom.addRelay(relayPid, room);
-                })
-                .catch((err) => {
-                  log.warn(
-                    "relay signaling failed:",
-                    (err as Error)?.message ?? err,
-                  );
-                })
-                .finally(() => {
-                  signalingInFlight = false;
-                  if (pendingRelay) {
-                    const next = pendingRelay;
-                    pendingRelay = null;
-                    connectRelay(next);
-                  }
-                });
-            }
-
-            // Initial relay: try to connect within
-            // the timeout. If it fails, connectRelay
-            // will retry when relays appear.
-            try {
-              const relayPid = await roomDiscovery.waitForRelay(RELAY_WAIT_MS);
-              log.info("relay discovered:", relayPid.slice(0, 12));
-              const room = await trySignaling(
-                helia,
-                relayPid,
-                ipnsName,
-                awareness,
-                syncOpts,
-                networkId,
-              );
-              multiRoom.addRelay(relayPid, room);
-            } catch (err) {
-              log.warn(
-                "initial relay failed, will retry:",
-                (err as Error)?.message ?? err,
-              );
-            }
-
-            // New/reconnected relays → connect and add.
-            roomDiscovery.onRelayReconnected(connectRelay);
-
-            function requestReconnect(): void {
-              // Pick the first connected relay and
-              // route through connectRelay so the
-              // concurrency gate serializes it.
-              const conns = helia.libp2p.getConnections();
-              const relayPid = [...roomDiscovery.relayPeerIds].find((pid) =>
-                conns.some((c) => c.remotePeer.toString() === pid),
-              );
-              if (!relayPid) {
-                log.warn("requestReconnect: no connected" + " relay available");
-                return;
-              }
-              log.info(
-                "requestReconnect: trying relay:",
-                relayPid.slice(0, 12),
-              );
-              connectRelay(relayPid);
-            }
-
-            return {
-              pubsub,
-              syncManager,
-              awarenessRoom: multiRoom,
-              roomDiscovery,
-              requestReconnect,
-              closeBlockstore: blockstore
-                ? () => blockstore.close()
-                : undefined,
-            };
-          } catch (err) {
-            releaseHelia();
-            if (blockstore) blockstore.close();
-            throw err;
-          }
-        })();
+      : setupP2PLayer({
+          appId,
+          networkId,
+          ipnsName,
+          channelKeys: chKeys,
+          signalingUrls,
+          awareness,
+          bootstrapPeers,
+          rtcIceServers: options.rtc?.config?.iceServers,
+        });
 
     return createDoc({
       awareness,
@@ -562,47 +369,6 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
 
 export { App } from "./app.js";
 export type { AppConfig } from "./app.js";
-
-// --- Signaling helper ---
-
-async function trySignaling(
-  helia: ReturnType<typeof getHelia>,
-  relayPid: string,
-  ipnsName: string,
-  awareness: Awareness,
-  syncOpts: SyncOptions,
-  networkId: string,
-): Promise<AwarenessRoom> {
-  const localPeerId = helia.libp2p.peerId.toString();
-  const conn = helia.libp2p
-    .getConnections()
-    .find((c) => c.remotePeer.toString() === relayPid);
-  if (!conn) {
-    throw new Error("relay connection lost: " + relayPid.slice(0, 12));
-  }
-
-  log.info("opening signaling stream to:", relayPid.slice(0, 12));
-  const stream = await helia.libp2p.dialProtocol(
-    conn.remotePeer,
-    SIGNALING_PROTOCOL,
-  );
-
-  const client = createSignalingClient(stream as unknown as SignalingStream);
-  log.info(
-    "signaling connected to relay:",
-    relayPid.slice(0, 12),
-    "localPeer:",
-    localPeerId.slice(0, 12),
-    "doc:",
-    ipnsName.slice(0, 12),
-  );
-
-  const rtcConfig = syncOpts.peerOpts?.config;
-  return setupSignaledAwarenessRoom(ipnsName, localPeerId, client, awareness, {
-    rtcConfig,
-    networkId,
-  });
-}
 
 // --- Re-exports ---
 
