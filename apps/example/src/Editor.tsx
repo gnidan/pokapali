@@ -50,6 +50,7 @@ import {
 } from "./UserIdentity";
 import { ValidationWarning } from "./ValidationWarning";
 import { DragSafeCursors } from "./DragSafeCursors";
+import { nextPublishedTs } from "./lastPublished";
 import { capitalize } from "./utils";
 
 export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
@@ -158,7 +159,9 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
   useEffect(() => {
     const unsub = doc.snapshotEvents.subscribe(() => {
       const event = doc.snapshotEvents.getSnapshot();
-      if (event) setLastPublished(Date.now());
+      if (event) {
+        setLastPublished((prev) => nextPublishedTs(prev, event.ts));
+      }
     });
     return unsub;
   }, [doc]);
