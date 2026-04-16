@@ -1,13 +1,24 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
+import * as Y from "yjs";
+import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 import { Channel, Edit, State, Cache, foldTree } from "@pokapali/document";
 import { toArray } from "@pokapali/finger-tree";
 import type { Codec } from "@pokapali/codec";
-import { generateIdentityKeypair, bytesToHex } from "@pokapali/crypto";
-import type { ReconciliationTransport } from "@pokapali/sync";
+import {
+  generateIdentityKeypair,
+  bytesToHex,
+  generateAdminSecret,
+  deriveDocKeys,
+  ed25519KeyPairFromSeed,
+} from "@pokapali/crypto";
+import { encodeSnapshot } from "@pokapali/blocks";
+import type { ReconciliationTransport, SnapshotMessage } from "@pokapali/sync";
 import type { ReconciliationMessage } from "@pokapali/sync";
 import { ReconciliationMessageType } from "@pokapali/sync";
 import { createReconciliationWiring } from "./reconciliation-wiring.js";
+import type { BlockResolver } from "./block-resolver.js";
 import { verifyEdit, HEADER_SIZE } from "./epoch/sign-edit.js";
 
 // -------------------------------------------------------
@@ -65,10 +76,16 @@ function mockTransportPair(): {
   const bCallbacks = new Set<
     (channelName: string, msg: ReconciliationMessage) => void
   >();
+  const aSnapCallbacks = new Set<(msg: SnapshotMessage) => void>();
+  const bSnapCallbacks = new Set<(msg: SnapshotMessage) => void>();
 
-  // Queues: A→B and B→A
+  // Queues: A→B and B→A. Snapshot messages ride
+  // alongside with channelName === "" (signaling
+  // they should fan out to snapshot callbacks).
   const toB: MsgEntry[] = [];
   const toA: MsgEntry[] = [];
+  const snapToB: SnapshotMessage[] = [];
+  const snapToA: SnapshotMessage[] = [];
 
   function drain(): void {
     let rounds = 0;
@@ -87,6 +104,18 @@ function mockTransportPair(): {
         progress = true;
       }
 
+      const snapBatchToB = snapToB.splice(0);
+      for (const msg of snapBatchToB) {
+        for (const cb of bSnapCallbacks) cb(msg);
+        progress = true;
+      }
+
+      const snapBatchToA = snapToA.splice(0);
+      for (const msg of snapBatchToA) {
+        for (const cb of aSnapCallbacks) cb(msg);
+        progress = true;
+      }
+
       if (!progress) break;
       rounds++;
     }
@@ -99,15 +128,16 @@ function mockTransportPair(): {
     send(channelName: string, msg: ReconciliationMessage) {
       toB.push({ channelName, msg });
     },
-    sendSnapshotMessage() {
-      // not exercised in this test
+    sendSnapshotMessage(msg: SnapshotMessage) {
+      snapToB.push(msg);
     },
     onMessage(cb: (channelName: string, msg: ReconciliationMessage) => void) {
       aCallbacks.add(cb);
       return () => aCallbacks.delete(cb);
     },
-    onSnapshotMessage() {
-      return () => {};
+    onSnapshotMessage(cb: (msg: SnapshotMessage) => void) {
+      aSnapCallbacks.add(cb);
+      return () => aSnapCallbacks.delete(cb);
     },
     get connected() {
       return true;
@@ -117,6 +147,7 @@ function mockTransportPair(): {
     },
     destroy() {
       aCallbacks.clear();
+      aSnapCallbacks.clear();
     },
   };
 
@@ -124,15 +155,16 @@ function mockTransportPair(): {
     send(channelName: string, msg: ReconciliationMessage) {
       toA.push({ channelName, msg });
     },
-    sendSnapshotMessage() {
-      // not exercised in this test
+    sendSnapshotMessage(msg: SnapshotMessage) {
+      snapToA.push(msg);
     },
     onMessage(cb: (channelName: string, msg: ReconciliationMessage) => void) {
       bCallbacks.add(cb);
       return () => bCallbacks.delete(cb);
     },
-    onSnapshotMessage() {
-      return () => {};
+    onSnapshotMessage(cb: (msg: SnapshotMessage) => void) {
+      bSnapCallbacks.add(cb);
+      return () => bSnapCallbacks.delete(cb);
     },
     get connected() {
       return true;
@@ -142,6 +174,7 @@ function mockTransportPair(): {
     },
     destroy() {
       bCallbacks.clear();
+      bSnapCallbacks.clear();
     },
   };
 
@@ -821,6 +854,384 @@ describe("ReconciliationWiring", () => {
           ),
           { numRuns: 200 },
         );
+      },
+    );
+  });
+
+  // -----------------------------------------------------
+  // Snapshot exchange tests (S53 B3)
+  // -----------------------------------------------------
+
+  describe("snapshot exchange", () => {
+    const DAG_CBOR_CODE = 0x71;
+
+    function mockBlockResolver(): BlockResolver & {
+      stored: Map<string, Uint8Array>;
+    } {
+      const stored = new Map<string, Uint8Array>();
+      return {
+        stored,
+        get: async (cid) => stored.get(cid.toString()) ?? null,
+        getCached: (cid) => stored.get(cid.toString()) ?? null,
+        put: (cid, block) => {
+          stored.set(cid.toString(), block);
+        },
+      };
+    }
+
+    async function makeValidBlock(
+      text: string,
+      seq: number,
+    ): Promise<{ cid: CID; block: Uint8Array }> {
+      const secret = generateAdminSecret();
+      const keys = await deriveDocKeys(secret, "test-app", ["content"]);
+      const signingKey = await ed25519KeyPairFromSeed(keys.ipnsKeyBytes);
+      const ydoc = new Y.Doc();
+      ydoc.getText("content").insert(0, text);
+      const state = Y.encodeStateAsUpdate(ydoc);
+      const block = await encodeSnapshot(
+        { content: state },
+        keys.readKey,
+        null,
+        seq,
+        Date.now(),
+        signingKey,
+      );
+      const hash = await sha256.digest(block);
+      const cid = CID.createV1(DAG_CBOR_CODE, hash);
+      return { cid, block };
+    }
+
+    it(
+      "advertises local catalog once all " + "coordinators report done",
+      () => {
+        const chA = Channel.create("content");
+        const chB = Channel.create("content");
+        // Shared edit so neither side is a late joiner
+        // (late-joiner path skips the inDone flip on
+        // the FULL_STATE path, which would defeat the
+        // "all coordinators done" check here).
+        const shared = makeEdit(new Uint8Array([1, 2, 3]));
+        chA.appendEdit(shared);
+        chB.appendEdit(shared);
+
+        const codec = mockCodec();
+        const { transportA, transportB, drain } = mockTransportPair();
+
+        const catalogCid = new Uint8Array([0xaa, 0xbb, 0xcc]);
+        const catalogA = {
+          entries: [{ cid: catalogCid, seq: 1, ts: 100 }],
+          tip: catalogCid,
+        };
+
+        // Track outgoing snapshot messages from A.
+        const sentSnapshots: SnapshotMessage[] = [];
+        const wrappedTransportA: ReconciliationTransport = {
+          ...transportA,
+          sendSnapshotMessage: (msg) => {
+            sentSnapshots.push(msg);
+            transportA.sendSnapshotMessage(msg);
+          },
+        };
+
+        const resolverA = mockBlockResolver();
+        const resolverB = mockBlockResolver();
+
+        const wiringA = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chA : Channel.create(name),
+          codec,
+          transport: wrappedTransportA,
+          getSnapshotCatalog: () => catalogA,
+          blockResolver: resolverA,
+        });
+        const wiringB = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chB : Channel.create(name),
+          codec,
+          transport: transportB,
+          getSnapshotCatalog: () => ({ entries: [], tip: null }),
+          blockResolver: resolverB,
+        });
+
+        wiringA.reconcile();
+        wiringB.reconcile();
+        drain();
+
+        // A should have advertised exactly once after
+        // its coordinator reached `done`.
+        const catalogs = sentSnapshots.filter(
+          (m) => m.type === ReconciliationMessageType.SNAPSHOT_CATALOG,
+        );
+        expect(catalogs.length).toBe(1);
+        if (catalogs[0]!.type !== ReconciliationMessageType.SNAPSHOT_CATALOG) {
+          throw new Error();
+        }
+        expect(catalogs[0]!.entries).toHaveLength(1);
+        expect(catalogs[0]!.tip).toEqual(catalogCid);
+
+        wiringA.destroy();
+        wiringB.destroy();
+      },
+    );
+
+    it(
+      "transfers a valid snapshot block: " +
+        "request → serve → verify → blockResolver.put + " +
+        "onSnapshotReceived",
+      async () => {
+        const { cid, block } = await makeValidBlock("hello world", 1);
+
+        const chA = Channel.create("content");
+        const chB = Channel.create("content");
+        const shared = makeEdit(new Uint8Array([1, 2, 3]));
+        chA.appendEdit(shared);
+        chB.appendEdit(shared);
+
+        const codec = mockCodec();
+        const { transportA, transportB, drain } = mockTransportPair();
+
+        const resolverA = mockBlockResolver();
+        // Prime A's cache with the block it can serve.
+        resolverA.put(cid, block);
+
+        const resolverB = mockBlockResolver();
+        const receivedByB: Array<{ cid: CID; data: Uint8Array }> = [];
+
+        const wiringA = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chA : Channel.create(name),
+          codec,
+          transport: transportA,
+          getSnapshotCatalog: () => ({
+            entries: [{ cid: cid.bytes, seq: 1, ts: Date.now() }],
+            tip: cid.bytes,
+          }),
+          blockResolver: resolverA,
+        });
+        const wiringB = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chB : Channel.create(name),
+          codec,
+          transport: transportB,
+          getSnapshotCatalog: () => ({ entries: [], tip: null }),
+          blockResolver: resolverB,
+          onSnapshotReceived: (c, d) => receivedByB.push({ cid: c, data: d }),
+        });
+
+        wiringA.reconcile();
+        wiringB.reconcile();
+
+        // Drain edit exchange, let async verify settle,
+        // drain snapshot-request → block reply, let
+        // async verify complete again, drain callbacks.
+        drain();
+        await new Promise((r) => setTimeout(r, 30));
+        drain();
+        await new Promise((r) => setTimeout(r, 30));
+        drain();
+
+        // B stored the block via blockResolver.put and
+        // fired onSnapshotReceived with matching bytes.
+        // Compare byte-wise: encodeSnapshot returns a
+        // Buffer but reassembly produces a Uint8Array,
+        // and `toEqual` distinguishes the two even when
+        // bytes match.
+        const storedB = resolverB.stored.get(cid.toString());
+        expect(storedB).toBeDefined();
+        expect(Array.from(storedB!)).toEqual(Array.from(block));
+        expect(receivedByB).toHaveLength(1);
+        expect(receivedByB[0]!.cid.toString()).toBe(cid.toString());
+        expect(Array.from(receivedByB[0]!.data)).toEqual(Array.from(block));
+
+        wiringA.destroy();
+        wiringB.destroy();
+      },
+    );
+
+    it("rejects a block whose CID hash doesn't " + "match", async () => {
+      const { cid, block } = await makeValidBlock("real", 1);
+      // Corrupt the block bytes so sha256(block) no
+      // longer matches the CID's multihash digest.
+      const corrupted = new Uint8Array(block);
+      corrupted[corrupted.length - 1]! ^= 0xff;
+
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+      const shared = makeEdit(new Uint8Array([1, 2, 3]));
+      chA.appendEdit(shared);
+      chB.appendEdit(shared);
+
+      const codec = mockCodec();
+      const { transportA, transportB, drain } = mockTransportPair();
+
+      const resolverA = mockBlockResolver();
+      // Prime A with corrupted bytes but advertise the
+      // real CID — B will verify and reject.
+      resolverA.stored.set(cid.toString(), corrupted);
+
+      const resolverB = mockBlockResolver();
+      const receivedByB: Array<{ cid: CID; data: Uint8Array }> = [];
+
+      const wiringA = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+        codec,
+        transport: transportA,
+        getSnapshotCatalog: () => ({
+          entries: [{ cid: cid.bytes, seq: 1, ts: Date.now() }],
+          tip: cid.bytes,
+        }),
+        blockResolver: resolverA,
+      });
+      const wiringB = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+        codec,
+        transport: transportB,
+        getSnapshotCatalog: () => ({ entries: [], tip: null }),
+        blockResolver: resolverB,
+        onSnapshotReceived: (c, d) => receivedByB.push({ cid: c, data: d }),
+      });
+
+      wiringA.reconcile();
+      wiringB.reconcile();
+      drain();
+      await new Promise((r) => setTimeout(r, 30));
+      drain();
+      await new Promise((r) => setTimeout(r, 30));
+      drain();
+
+      // Verification failed — block not stored, callback
+      // not fired.
+      expect(resolverB.stored.has(cid.toString())).toBe(false);
+      expect(receivedByB).toHaveLength(0);
+
+      wiringA.destroy();
+      wiringB.destroy();
+    });
+
+    it(
+      "rejects a block whose signature is " +
+        "invalid (validateSnapshot fails)",
+      async () => {
+        const { block } = await makeValidBlock("real", 1);
+        // Tamper bytes inside the signed payload, then
+        // recompute the CID so the hash check passes but
+        // validateSnapshot fails (signature no longer
+        // matches the tampered payload).
+        const tampered = new Uint8Array(block);
+        // Flip a byte early in the block (inside the
+        // signed ciphertext region).
+        tampered[10]! ^= 0xff;
+        const hash = await sha256.digest(tampered);
+        const tamperedCid = CID.createV1(DAG_CBOR_CODE, hash);
+
+        const chA = Channel.create("content");
+        const chB = Channel.create("content");
+        const shared = makeEdit(new Uint8Array([1, 2, 3]));
+        chA.appendEdit(shared);
+        chB.appendEdit(shared);
+
+        const codec = mockCodec();
+        const { transportA, transportB, drain } = mockTransportPair();
+
+        const resolverA = mockBlockResolver();
+        resolverA.put(tamperedCid, tampered);
+
+        const resolverB = mockBlockResolver();
+        const receivedByB: Array<{ cid: CID; data: Uint8Array }> = [];
+
+        const wiringA = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chA : Channel.create(name),
+          codec,
+          transport: transportA,
+          getSnapshotCatalog: () => ({
+            entries: [{ cid: tamperedCid.bytes, seq: 1, ts: Date.now() }],
+            tip: tamperedCid.bytes,
+          }),
+          blockResolver: resolverA,
+        });
+        const wiringB = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chB : Channel.create(name),
+          codec,
+          transport: transportB,
+          getSnapshotCatalog: () => ({ entries: [], tip: null }),
+          blockResolver: resolverB,
+          onSnapshotReceived: (c, d) => receivedByB.push({ cid: c, data: d }),
+        });
+
+        wiringA.reconcile();
+        wiringB.reconcile();
+        drain();
+        await new Promise((r) => setTimeout(r, 30));
+        drain();
+        await new Promise((r) => setTimeout(r, 30));
+        drain();
+
+        expect(resolverB.stored.has(tamperedCid.toString())).toBe(false);
+        expect(receivedByB).toHaveLength(0);
+
+        wiringA.destroy();
+        wiringB.destroy();
+      },
+    );
+
+    it(
+      "no snapshot exchange when " +
+        "getSnapshotCatalog/blockResolver are absent",
+      () => {
+        const chA = Channel.create("content");
+        const chB = Channel.create("content");
+        const shared = makeEdit(new Uint8Array([1, 2, 3]));
+        chA.appendEdit(shared);
+        chB.appendEdit(shared);
+
+        const codec = mockCodec();
+        const { transportA, transportB, drain } = mockTransportPair();
+
+        const sentSnapshots: SnapshotMessage[] = [];
+        const wrappedTransportA: ReconciliationTransport = {
+          ...transportA,
+          sendSnapshotMessage: (msg) => {
+            sentSnapshots.push(msg);
+            transportA.sendSnapshotMessage(msg);
+          },
+        };
+
+        const wiringA = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chA : Channel.create(name),
+          codec,
+          transport: wrappedTransportA,
+          // No getSnapshotCatalog / blockResolver →
+          // snapshot exchange disabled.
+        });
+        const wiringB = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chB : Channel.create(name),
+          codec,
+          transport: transportB,
+        });
+
+        wiringA.reconcile();
+        wiringB.reconcile();
+        drain();
+
+        expect(sentSnapshots).toHaveLength(0);
+
+        wiringA.destroy();
+        wiringB.destroy();
       },
     );
   });
