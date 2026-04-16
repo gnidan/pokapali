@@ -4,8 +4,10 @@ import { MessageType, type Message } from "./messages.js";
 import {
   createTransport,
   encodeFrame,
+  encodeSnapshotFrame,
   decodeFrame,
   createReconcileChannel,
+  type SnapshotMessage,
 } from "./transport.js";
 
 // -------------------------------------------------------
@@ -351,6 +353,202 @@ describe("transport", () => {
 
       vi.advanceTimersByTime(40_000);
       expect(dc._sent).toHaveLength(0);
+    });
+  });
+
+  describe("snapshot frames", () => {
+    it("encodeSnapshotFrame writes channelNameLength=0", () => {
+      const msg: SnapshotMessage = {
+        type: MessageType.SNAPSHOT_REQUEST,
+        cids: [new Uint8Array([1, 2, 3])],
+      };
+      const frame = encodeSnapshotFrame(msg);
+      expect(frame[0]).toBe(0);
+      expect(frame[1]).toBe(0);
+    });
+
+    it("decodeFrame on snapshot frame yields empty channel", () => {
+      const msg: SnapshotMessage = {
+        type: MessageType.SNAPSHOT_CATALOG,
+        entries: [],
+        tip: null,
+      };
+      const frame = encodeSnapshotFrame(msg);
+      const { channelName, message } = decodeFrame(frame);
+      expect(channelName).toBe("");
+      expect(message.type).toBe(MessageType.SNAPSHOT_CATALOG);
+    });
+
+    it(
+      "A.sendSnapshotMessage → " + "B.onSnapshotMessage fires with message",
+      () => {
+        const dcA = mockDataChannel();
+        const dcB = mockDataChannel();
+
+        const transportA = createTransport(dcA);
+        const transportB = createTransport(dcB);
+
+        const received: SnapshotMessage[] = [];
+        transportB.onSnapshotMessage((msg) => {
+          received.push(msg);
+        });
+
+        const msg: SnapshotMessage = {
+          type: MessageType.SNAPSHOT_REQUEST,
+          cids: [new Uint8Array([1, 2, 3, 4])],
+        };
+        transportA.sendSnapshotMessage(msg);
+
+        for (const bytes of dcA._sent) {
+          dcB._fire("message", { data: bytes.buffer });
+        }
+
+        expect(received).toHaveLength(1);
+        expect(received[0]!.type).toBe(MessageType.SNAPSHOT_REQUEST);
+        if (received[0]!.type === MessageType.SNAPSHOT_REQUEST) {
+          expect(received[0]!.cids).toHaveLength(1);
+          expect(received[0]!.cids[0]).toEqual(new Uint8Array([1, 2, 3, 4]));
+        }
+
+        transportA.destroy();
+        transportB.destroy();
+      },
+    );
+
+    it("snapshot messages do not fire onMessage", () => {
+      const dcA = mockDataChannel();
+      const dcB = mockDataChannel();
+      const tA = createTransport(dcA);
+      const tB = createTransport(dcB);
+
+      const channelReceived: unknown[] = [];
+      tB.onMessage((ch, msg) => channelReceived.push({ ch, msg }));
+      const snapReceived: SnapshotMessage[] = [];
+      tB.onSnapshotMessage((m) => snapReceived.push(m));
+
+      tA.sendSnapshotMessage({
+        type: MessageType.SNAPSHOT_CATALOG,
+        entries: [],
+        tip: null,
+      });
+
+      for (const bytes of dcA._sent) {
+        dcB._fire("message", { data: bytes.buffer });
+      }
+
+      expect(channelReceived).toHaveLength(0);
+      expect(snapReceived).toHaveLength(1);
+
+      tA.destroy();
+      tB.destroy();
+    });
+
+    it("channel messages do not fire onSnapshotMessage", () => {
+      const dcA = mockDataChannel();
+      const dcB = mockDataChannel();
+      const tA = createTransport(dcA);
+      const tB = createTransport(dcB);
+
+      const snapReceived: SnapshotMessage[] = [];
+      tB.onSnapshotMessage((m) => snapReceived.push(m));
+
+      tA.send("notes", {
+        type: MessageType.RECONCILE_START,
+        channel: "notes",
+        fingerprint: new Uint8Array(32),
+        editCount: 0,
+      });
+
+      for (const bytes of dcA._sent) {
+        dcB._fire("message", { data: bytes.buffer });
+      }
+
+      expect(snapReceived).toHaveLength(0);
+
+      tA.destroy();
+      tB.destroy();
+    });
+
+    it("send() throws on snapshot-typed message", () => {
+      const dc = mockDataChannel();
+      const t = createTransport(dc);
+      expect(() =>
+        t.send("notes", {
+          type: MessageType.SNAPSHOT_CATALOG,
+          entries: [],
+          tip: null,
+        }),
+      ).toThrow(/sendSnapshotMessage/);
+      t.destroy();
+    });
+
+    it("send() throws on empty channelName", () => {
+      const dc = mockDataChannel();
+      const t = createTransport(dc);
+      expect(() =>
+        t.send("", {
+          type: MessageType.RECONCILE_START,
+          channel: "",
+          fingerprint: new Uint8Array(32),
+          editCount: 0,
+        }),
+      ).toThrow(/non-empty/);
+      t.destroy();
+    });
+
+    it("malformed: snapshot type in channel frame is dropped", () => {
+      const dc = mockDataChannel();
+      const t = createTransport(dc);
+
+      const channelCb = vi.fn();
+      const snapCb = vi.fn();
+      t.onMessage(channelCb);
+      t.onSnapshotMessage(snapCb);
+
+      // Bypass the guard in send() by encoding directly
+      const bad = encodeFrame("notes", {
+        type: MessageType.SNAPSHOT_CATALOG,
+        entries: [],
+        tip: null,
+      });
+      dc._fire("message", { data: bad.buffer });
+
+      expect(channelCb).not.toHaveBeenCalled();
+      expect(snapCb).not.toHaveBeenCalled();
+      t.destroy();
+    });
+
+    it("malformed: channel type in snapshot frame is dropped", () => {
+      const dc = mockDataChannel();
+      const t = createTransport(dc);
+
+      const channelCb = vi.fn();
+      const snapCb = vi.fn();
+      t.onMessage(channelCb);
+      t.onSnapshotMessage(snapCb);
+
+      // Construct a frame with len=0 but a channel-typed
+      // message body.
+      const msgBytes = (() => {
+        const frame = encodeFrame("x", {
+          type: MessageType.RECONCILE_START,
+          channel: "x",
+          fingerprint: new Uint8Array(32),
+          editCount: 0,
+        });
+        // Strip the "x" channel prefix: frame is
+        // [0, 1, 'x', ...msgBytes]. Rebuild with len=0.
+        return frame.subarray(3);
+      })();
+      const bad = new Uint8Array(2 + msgBytes.length);
+      bad[0] = 0;
+      bad[1] = 0;
+      bad.set(msgBytes, 2);
+      dc._fire("message", { data: bad.buffer });
+
+      expect(channelCb).not.toHaveBeenCalled();
+      expect(snapCb).not.toHaveBeenCalled();
+      t.destroy();
     });
   });
 

@@ -44,7 +44,14 @@ export {
   createTransport,
   createReconcileChannel,
   type ReconciliationTransport,
+  type SnapshotMessage,
 } from "./reconciliation/transport.js";
+export {
+  createSnapshotExchange,
+  type SnapshotExchange,
+  type SnapshotExchangeOptions,
+  type SnapshotCatalogEntry,
+} from "./reconciliation/snapshot-exchange.js";
 export {
   collectEditHashes,
   channelFingerprint,

@@ -99,9 +99,15 @@ function mockTransportPair(): {
     send(channelName: string, msg: ReconciliationMessage) {
       toB.push({ channelName, msg });
     },
+    sendSnapshotMessage() {
+      // not exercised in this test
+    },
     onMessage(cb: (channelName: string, msg: ReconciliationMessage) => void) {
       aCallbacks.add(cb);
       return () => aCallbacks.delete(cb);
+    },
+    onSnapshotMessage() {
+      return () => {};
     },
     get connected() {
       return true;
@@ -118,9 +124,15 @@ function mockTransportPair(): {
     send(channelName: string, msg: ReconciliationMessage) {
       toA.push({ channelName, msg });
     },
+    sendSnapshotMessage() {
+      // not exercised in this test
+    },
     onMessage(cb: (channelName: string, msg: ReconciliationMessage) => void) {
       bCallbacks.add(cb);
       return () => bCallbacks.delete(cb);
+    },
+    onSnapshotMessage() {
+      return () => {};
     },
     get connected() {
       return true;

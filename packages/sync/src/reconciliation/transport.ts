@@ -7,6 +7,12 @@
  *   [channelName: utf8 bytes]
  *   [messageBytes: rest]
  *
+ * channelNameLength === 0 indicates a "snapshot
+ * frame": the message is a per-document snapshot
+ * exchange message (types 6/7/8) with no associated
+ * channel. Snapshot CIDs span all channels, so these
+ * messages live outside the per-channel edit loop.
+ *
  * Keepalive: 1-byte frames (0x01 = PING, 0x02 = PONG)
  * prevent NAT/firewall timeout during idle periods.
  * Too short to be valid reconciliation frames, so
@@ -16,7 +22,34 @@
  */
 
 import { createLogger } from "@pokapali/log";
-import { encodeMessage, decodeMessage, type Message } from "./messages.js";
+import {
+  encodeMessage,
+  decodeMessage,
+  MessageType,
+  type Message,
+} from "./messages.js";
+
+/**
+ * Subset of Message limited to snapshot exchange
+ * types (no `channel` field).
+ */
+export type SnapshotMessage = Extract<
+  Message,
+  {
+    type:
+      | typeof MessageType.SNAPSHOT_CATALOG
+      | typeof MessageType.SNAPSHOT_REQUEST
+      | typeof MessageType.SNAPSHOT_BLOCK;
+  }
+>;
+
+function isSnapshotMessage(msg: Message): msg is SnapshotMessage {
+  return (
+    msg.type === MessageType.SNAPSHOT_CATALOG ||
+    msg.type === MessageType.SNAPSHOT_REQUEST ||
+    msg.type === MessageType.SNAPSHOT_BLOCK
+  );
+}
 
 const diagLog = createLogger("p2p-diag");
 
@@ -47,6 +80,22 @@ export function encodeFrame(channelName: string, msg: Message): Uint8Array {
   return frame;
 }
 
+/**
+ * Encode a snapshot frame. Uses the same wire format
+ * as channel frames but with channelNameLength=0.
+ * The receiver distinguishes snapshot frames from
+ * channel frames by the zero-length prefix.
+ */
+export function encodeSnapshotFrame(msg: SnapshotMessage): Uint8Array {
+  const msgBytes = encodeMessage(msg);
+  const frame = new Uint8Array(2 + msgBytes.length);
+  // channelNameLength = 0
+  frame[0] = 0;
+  frame[1] = 0;
+  frame.set(msgBytes, 2);
+  return frame;
+}
+
 export function decodeFrame(frame: Uint8Array): {
   channelName: string;
   message: Message;
@@ -62,8 +111,14 @@ export function decodeFrame(frame: Uint8Array): {
 // -------------------------------------------------------
 
 export interface ReconciliationTransport {
+  /** Send a per-channel edit-reconciliation message. */
   send(channelName: string, msg: Message): void;
+  /** Send a per-document snapshot-exchange message. */
+  sendSnapshotMessage(msg: SnapshotMessage): void;
+  /** Inbound per-channel edit-reconciliation messages. */
   onMessage(cb: (channelName: string, msg: Message) => void): () => void;
+  /** Inbound per-document snapshot-exchange messages. */
+  onSnapshotMessage(cb: (msg: SnapshotMessage) => void): () => void;
   readonly connected: boolean;
   onConnectionChange(cb: (connected: boolean) => void): () => void;
   destroy(): void;
@@ -82,6 +137,7 @@ export function createTransport(
   const messageCallbacks = new Set<
     (channelName: string, msg: Message) => void
   >();
+  const snapshotCallbacks = new Set<(msg: SnapshotMessage) => void>();
   const connectionCallbacks = new Set<(connected: boolean) => void>();
 
   function startKeepalive(): void {
@@ -114,6 +170,42 @@ export function createTransport(
       return;
     }
     const { channelName, message } = decodeFrame(frame);
+    // Zero-length channel = snapshot frame (per-document,
+    // no channel). Dispatch to snapshot callbacks.
+    if (channelName === "") {
+      if (!isSnapshotMessage(message)) {
+        diagLog.debug(
+          "transport recv: dropping non-snapshot message",
+          "in snapshot frame, type=",
+          message.type,
+        );
+        return;
+      }
+      diagLog.debug(
+        "transport recv snapshot:",
+        "type=",
+        message.type,
+        "size=",
+        frame.length,
+      );
+      for (const cb of snapshotCallbacks) {
+        cb(message);
+      }
+      return;
+    }
+    // Defensive: snapshot-typed messages in a channel
+    // frame are a routing violation; drop them rather
+    // than fan out to session.ts which would throw.
+    if (isSnapshotMessage(message)) {
+      diagLog.debug(
+        "transport recv: dropping snapshot message",
+        "in channel frame, channel=",
+        channelName,
+        "type=",
+        message.type,
+      );
+      return;
+    }
     diagLog.debug(
       "transport recv:",
       channelName,
@@ -154,6 +246,14 @@ export function createTransport(
 
   return {
     send(channelName: string, msg: Message): void {
+      if (channelName === "") {
+        throw new Error("transport.send: channelName must be non-empty");
+      }
+      if (isSnapshotMessage(msg)) {
+        throw new Error(
+          `transport.send: use sendSnapshotMessage for type ${msg.type}`,
+        );
+      }
       const frame = encodeFrame(channelName, msg);
       diagLog.debug(
         "transport send:",
@@ -166,9 +266,26 @@ export function createTransport(
       dataChannel.send(frame as ArrayBufferView<ArrayBuffer>);
     },
 
+    sendSnapshotMessage(msg: SnapshotMessage): void {
+      const frame = encodeSnapshotFrame(msg);
+      diagLog.debug(
+        "transport send snapshot:",
+        "type=",
+        msg.type,
+        "size=",
+        frame.length,
+      );
+      dataChannel.send(frame as ArrayBufferView<ArrayBuffer>);
+    },
+
     onMessage(cb: (channelName: string, msg: Message) => void): () => void {
       messageCallbacks.add(cb);
       return () => messageCallbacks.delete(cb);
+    },
+
+    onSnapshotMessage(cb: (msg: SnapshotMessage) => void): () => void {
+      snapshotCallbacks.add(cb);
+      return () => snapshotCallbacks.delete(cb);
     },
 
     get connected(): boolean {
@@ -184,6 +301,7 @@ export function createTransport(
       destroyed = true;
       stopKeepalive();
       messageCallbacks.clear();
+      snapshotCallbacks.clear();
       connectionCallbacks.clear();
       dataChannel.removeEventListener("message", onDCMessage as EventListener);
       dataChannel.removeEventListener("close", onDCClose as EventListener);
