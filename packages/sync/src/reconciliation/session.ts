@@ -150,6 +150,13 @@ export function createSession(
             signature: new Uint8Array(),
           },
         ];
+      case MessageType.SNAPSHOT_CATALOG:
+      case MessageType.SNAPSHOT_REQUEST:
+      case MessageType.SNAPSHOT_BLOCK:
+        // Routed to snapshot-exchange, not session.
+        throw new Error(
+          `snapshot message routed to session (type=${msg.type})`,
+        );
     }
   }
 

@@ -75,6 +75,39 @@ const arbFullState = fc.record({
   snapshot: varBytes,
 });
 
+const cid = fc.uint8Array({ minLength: 1, maxLength: 40 });
+
+const arbSnapshotCatalog = fc.record({
+  type: fc.constant(MessageType.SNAPSHOT_CATALOG),
+  entries: fc.array(
+    fc.record({
+      cid,
+      seq: fc.nat({ max: 0xffff }),
+      ts: fc.double({
+        noNaN: true,
+        min: 0,
+        max: 1e13,
+      }),
+    }),
+    { maxLength: 20 },
+  ),
+  tip: fc.option(cid, { nil: null }),
+});
+
+const arbSnapshotRequest = fc.record({
+  type: fc.constant(MessageType.SNAPSHOT_REQUEST),
+  cids: fc.array(cid, { maxLength: 20 }),
+});
+
+const arbSnapshotBlock = fc.record({
+  type: fc.constant(MessageType.SNAPSHOT_BLOCK),
+  cid,
+  block: varBytes,
+  offset: fc.nat({ max: 0xffffff }),
+  total: fc.nat({ max: 0xffffff }),
+  last: fc.boolean(),
+});
+
 const arbMessage: fc.Arbitrary<Message> = fc.oneof(
   arbReconcileStart,
   arbTrieQuery,
@@ -82,6 +115,9 @@ const arbMessage: fc.Arbitrary<Message> = fc.oneof(
   arbEditSet,
   arbEditBatch,
   arbFullState,
+  arbSnapshotCatalog,
+  arbSnapshotRequest,
+  arbSnapshotBlock,
 );
 
 // -------------------------------------------------------
@@ -90,17 +126,18 @@ const arbMessage: fc.Arbitrary<Message> = fc.oneof(
 
 function deepEqualMsg(a: Message, b: Message): void {
   expect(a.type).toBe(b.type);
-  expect(a.channel).toBe(b.channel);
 
   switch (a.type) {
     case MessageType.RECONCILE_START: {
       const bb = b as typeof a;
+      expect(a.channel).toBe(bb.channel);
       expect(a.fingerprint).toEqual(bb.fingerprint);
       expect(a.editCount).toBe(bb.editCount);
       break;
     }
     case MessageType.TRIE_QUERY: {
       const bb = b as typeof a;
+      expect(a.channel).toBe(bb.channel);
       expect(a.prefix).toEqual(bb.prefix);
       expect(a.depth).toBe(bb.depth);
       expect(a.fingerprint).toEqual(bb.fingerprint);
@@ -109,6 +146,7 @@ function deepEqualMsg(a: Message, b: Message): void {
     }
     case MessageType.TRIE_RESPONSE: {
       const bb = b as typeof a;
+      expect(a.channel).toBe(bb.channel);
       expect(a.prefix).toEqual(bb.prefix);
       expect(a.depth).toBe(bb.depth);
       expect(a.fingerprint).toEqual(bb.fingerprint);
@@ -117,6 +155,7 @@ function deepEqualMsg(a: Message, b: Message): void {
     }
     case MessageType.EDIT_SET: {
       const bb = b as typeof a;
+      expect(a.channel).toBe(bb.channel);
       expect(a.prefix).toEqual(bb.prefix);
       expect(a.depth).toBe(bb.depth);
       expect(a.hashes).toHaveLength(bb.hashes.length);
@@ -127,6 +166,7 @@ function deepEqualMsg(a: Message, b: Message): void {
     }
     case MessageType.EDIT_BATCH: {
       const bb = b as typeof a;
+      expect(a.channel).toBe(bb.channel);
       expect(a.edits).toHaveLength(bb.edits.length);
       for (let i = 0; i < a.edits.length; i++) {
         expect(a.edits[i]!.payload).toEqual(bb.edits[i]!.payload);
@@ -136,7 +176,40 @@ function deepEqualMsg(a: Message, b: Message): void {
     }
     case MessageType.FULL_STATE: {
       const bb = b as typeof a;
+      expect(a.channel).toBe(bb.channel);
       expect(a.snapshot).toEqual(bb.snapshot);
+      break;
+    }
+    case MessageType.SNAPSHOT_CATALOG: {
+      const bb = b as typeof a;
+      expect(a.entries).toHaveLength(bb.entries.length);
+      for (let i = 0; i < a.entries.length; i++) {
+        expect(a.entries[i]!.cid).toEqual(bb.entries[i]!.cid);
+        expect(a.entries[i]!.seq).toBe(bb.entries[i]!.seq);
+        expect(a.entries[i]!.ts).toBe(bb.entries[i]!.ts);
+      }
+      if (a.tip === null) {
+        expect(bb.tip).toBeNull();
+      } else {
+        expect(bb.tip).toEqual(a.tip);
+      }
+      break;
+    }
+    case MessageType.SNAPSHOT_REQUEST: {
+      const bb = b as typeof a;
+      expect(a.cids).toHaveLength(bb.cids.length);
+      for (let i = 0; i < a.cids.length; i++) {
+        expect(a.cids[i]).toEqual(bb.cids[i]);
+      }
+      break;
+    }
+    case MessageType.SNAPSHOT_BLOCK: {
+      const bb = b as typeof a;
+      expect(a.cid).toEqual(bb.cid);
+      expect(a.block).toEqual(bb.block);
+      expect(a.offset).toBe(bb.offset);
+      expect(a.total).toBe(bb.total);
+      expect(a.last).toBe(bb.last);
       break;
     }
   }
@@ -212,6 +285,33 @@ describe("protocol messages", () => {
         { numRuns: 200 },
       );
     });
+
+    it("SnapshotCatalog round-trip", () => {
+      fc.assert(
+        fc.property(arbSnapshotCatalog, (msg) => {
+          deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
+        }),
+        { numRuns: 200 },
+      );
+    });
+
+    it("SnapshotRequest round-trip", () => {
+      fc.assert(
+        fc.property(arbSnapshotRequest, (msg) => {
+          deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
+        }),
+        { numRuns: 200 },
+      );
+    });
+
+    it("SnapshotBlock round-trip", () => {
+      fc.assert(
+        fc.property(arbSnapshotBlock, (msg) => {
+          deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
+        }),
+        { numRuns: 200 },
+      );
+    });
   });
 
   describe("edge cases", () => {
@@ -262,6 +362,62 @@ describe("protocol messages", () => {
     it("unknown message type throws", () => {
       const enc = new Uint8Array([99]);
       expect(() => decodeMessage(enc)).toThrow(/Unknown message type/);
+    });
+
+    it("SnapshotCatalog with empty entries and null tip", () => {
+      const msg: Message = {
+        type: MessageType.SNAPSHOT_CATALOG,
+        entries: [],
+        tip: null,
+      };
+      deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
+    });
+
+    it("SnapshotCatalog with tip set", () => {
+      const msg: Message = {
+        type: MessageType.SNAPSHOT_CATALOG,
+        entries: [
+          {
+            cid: new Uint8Array([1, 2, 3]),
+            seq: 7,
+            ts: 1700000000000,
+          },
+        ],
+        tip: new Uint8Array([1, 2, 3]),
+      };
+      deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
+    });
+
+    it("SnapshotRequest with zero CIDs", () => {
+      const msg: Message = {
+        type: MessageType.SNAPSHOT_REQUEST,
+        cids: [],
+      };
+      deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
+    });
+
+    it("SnapshotBlock NAK (empty block, total=0)", () => {
+      const msg: Message = {
+        type: MessageType.SNAPSHOT_BLOCK,
+        cid: new Uint8Array([1, 2, 3]),
+        block: new Uint8Array(0),
+        offset: 0,
+        total: 0,
+        last: false,
+      };
+      deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
+    });
+
+    it("SnapshotBlock last chunk flag", () => {
+      const msg: Message = {
+        type: MessageType.SNAPSHOT_BLOCK,
+        cid: new Uint8Array([9, 9, 9]),
+        block: new Uint8Array(100).fill(0x42),
+        offset: 400,
+        total: 500,
+        last: true,
+      };
+      deepEqualMsg(msg, decodeMessage(encodeMessage(msg)));
     });
   });
 });

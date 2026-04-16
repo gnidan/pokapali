@@ -14,6 +14,7 @@ import {
   writeVarUint,
   writeVarString,
   writeVarUint8Array,
+  writeFloat64,
   toUint8Array,
 } from "lib0/encoding";
 import {
@@ -21,6 +22,7 @@ import {
   readVarUint,
   readVarString,
   readVarUint8Array,
+  readFloat64,
 } from "lib0/decoding";
 
 // -------------------------------------------------------
@@ -34,6 +36,9 @@ export const MessageType = {
   EDIT_SET: 3,
   EDIT_BATCH: 4,
   FULL_STATE: 5,
+  SNAPSHOT_CATALOG: 6,
+  SNAPSHOT_REQUEST: 7,
+  SNAPSHOT_BLOCK: 8,
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -94,13 +99,64 @@ export interface FullState {
   snapshot: Uint8Array;
 }
 
+/**
+ * Advertise locally-available snapshot CIDs.
+ * Per-document (no channel field) — snapshot CIDs
+ * span all channels.
+ */
+export interface SnapshotCatalog {
+  type: typeof MessageType.SNAPSHOT_CATALOG;
+  entries: Array<{
+    /** Snapshot block CID bytes. */
+    cid: Uint8Array;
+    /** IPNS sequence number for this snapshot. */
+    seq: number;
+    /** Materialization timestamp (ms). */
+    ts: number;
+  }>;
+  /** CID of current tip, or null if unknown. */
+  tip: Uint8Array | null;
+}
+
+/**
+ * Request a set of snapshot CIDs by hash.
+ */
+export interface SnapshotRequest {
+  type: typeof MessageType.SNAPSHOT_REQUEST;
+  cids: Uint8Array[];
+}
+
+/**
+ * One chunk of a snapshot block. Large blocks are
+ * split into ~200KB chunks; receiver reassembles
+ * by cid + offset.
+ *
+ * NAK: empty `block` with `total === 0` signals
+ * the responder can't serve this CID.
+ */
+export interface SnapshotBlock {
+  type: typeof MessageType.SNAPSHOT_BLOCK;
+  cid: Uint8Array;
+  /** Chunk bytes; empty = NAK. */
+  block: Uint8Array;
+  /** Byte offset of this chunk in the full block. */
+  offset: number;
+  /** Total block size; 0 = NAK. */
+  total: number;
+  /** Final chunk of the final CID in this response. */
+  last: boolean;
+}
+
 export type Message =
   | ReconcileStart
   | TrieQuery
   | TrieResponse
   | EditSet
   | EditBatch
-  | FullState;
+  | FullState
+  | SnapshotCatalog
+  | SnapshotRequest
+  | SnapshotBlock;
 
 // -------------------------------------------------------
 // Encode
@@ -155,6 +211,34 @@ export function encodeMessage(msg: Message): Uint8Array {
     case MessageType.FULL_STATE:
       writeVarString(enc, msg.channel);
       writeVarUint8Array(enc, msg.snapshot);
+      break;
+
+    case MessageType.SNAPSHOT_CATALOG:
+      writeVarUint(enc, msg.entries.length);
+      for (const e of msg.entries) {
+        writeVarUint8Array(enc, e.cid);
+        writeVarUint(enc, e.seq);
+        writeFloat64(enc, e.ts);
+      }
+      writeVarUint(enc, msg.tip !== null ? 1 : 0);
+      if (msg.tip !== null) {
+        writeVarUint8Array(enc, msg.tip);
+      }
+      break;
+
+    case MessageType.SNAPSHOT_REQUEST:
+      writeVarUint(enc, msg.cids.length);
+      for (const cid of msg.cids) {
+        writeVarUint8Array(enc, cid);
+      }
+      break;
+
+    case MessageType.SNAPSHOT_BLOCK:
+      writeVarUint8Array(enc, msg.cid);
+      writeVarUint8Array(enc, msg.block);
+      writeVarUint(enc, msg.offset);
+      writeVarUint(enc, msg.total);
+      writeVarUint(enc, msg.last ? 1 : 0);
       break;
   }
 
@@ -238,6 +322,39 @@ export function decodeMessage(bytes: Uint8Array): Message {
         channel: readVarString(dec),
         snapshot: readVarUint8Array(dec),
       };
+
+    case MessageType.SNAPSHOT_CATALOG: {
+      const count = readVarUint(dec);
+      const entries: SnapshotCatalog["entries"] = [];
+      for (let i = 0; i < count; i++) {
+        entries.push({
+          cid: readVarUint8Array(dec),
+          seq: readVarUint(dec),
+          ts: readFloat64(dec),
+        });
+      }
+      const hasTip = readVarUint(dec) === 1;
+      const tip = hasTip ? readVarUint8Array(dec) : null;
+      return { type, entries, tip };
+    }
+
+    case MessageType.SNAPSHOT_REQUEST: {
+      const count = readVarUint(dec);
+      const cids: Uint8Array[] = [];
+      for (let i = 0; i < count; i++) {
+        cids.push(readVarUint8Array(dec));
+      }
+      return { type, cids };
+    }
+
+    case MessageType.SNAPSHOT_BLOCK: {
+      const cid = readVarUint8Array(dec);
+      const block = readVarUint8Array(dec);
+      const offset = readVarUint(dec);
+      const total = readVarUint(dec);
+      const last = readVarUint(dec) === 1;
+      return { type, cid, block, offset, total, last };
+    }
 
     default:
       throw new Error(`Unknown message type: ${type}`);
