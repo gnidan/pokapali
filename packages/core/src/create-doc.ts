@@ -6,7 +6,7 @@ import type {
   CapabilityKeys,
 } from "@pokapali/capability";
 import { narrowCapability, buildUrl } from "@pokapali/capability";
-import { hexToBytes, bytesToHex } from "@pokapali/crypto";
+import { bytesToHex } from "@pokapali/crypto";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
 import type { ParticipantAwareness } from "./identity.js";
 import {
@@ -22,18 +22,15 @@ import type {
 } from "@pokapali/sync";
 import { createPeerSync } from "./peer-sync.js";
 import type { PeerSync } from "./peer-sync.js";
-import { createSnapshotOps } from "./snapshot-ops.js";
-import { createEffectHandlers } from "./effect-handlers.js";
 import { CID } from "multiformats/cid";
 import { getHelia, releaseHelia } from "./helia.js";
-import { publishIPNS, resolveIPNS, watchIPNS } from "./ipns-helpers.js";
-import { announceTopic, publishGuaranteeQuery } from "./announce.js";
-import { createGossipHandler } from "./doc-gossip-bridge.js";
+import { publishIPNS } from "./ipns-helpers.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { createBlockResolver } from "./block-resolver.js";
 import { createSnapshotCodec } from "./snapshot-codec.js";
 import type { Store } from "@pokapali/store";
-import { fetchTipFromPinners } from "./fetch-tip.js";
+import { startDocRuntime } from "./doc-runtime.js";
+import type { DocRuntimeResult, DocRuntimeState } from "./doc-runtime.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -59,15 +56,11 @@ import type { Codec, CodecSurface } from "@pokapali/codec";
 import { DestroyedError, PermissionError, TimeoutError } from "./errors.js";
 import { fetchVersionHistory } from "./fetch-version-history.js";
 import type { VersionEntry } from "./fetch-version-history.js";
-import { createAsyncQueue, scan, merge } from "./async-utils.js";
-import type { AsyncQueue } from "./async-utils.js";
 import type { Feed } from "./feed.js";
 import { createDocFeeds } from "./doc-feeds.js";
 import type { ValidationErrorInfo } from "./doc-feeds.js";
 import { createEditBridge } from "./edit-bridge.js";
-import { reannounceFacts } from "./fact-sources.js";
 import {
-  reduce,
   reduceChain,
   reduceSnapshotHistory,
   deriveSaveState,
@@ -81,7 +74,6 @@ import {
 } from "./facts.js";
 import type {
   Fact,
-  DocState,
   ChainState,
   DocStatus,
   SaveState,
@@ -89,14 +81,7 @@ import type {
   LoadingState,
   GossipActivity,
   VersionHistory,
-  SnapshotHistory,
 } from "./facts.js";
-import { runInterpreter } from "./interpreter.js";
-import {
-  deriveStatus,
-  deriveLoadingState,
-  loadingStateChanged,
-} from "./doc-status.js";
 
 const log = createLogger("core");
 
@@ -105,10 +90,6 @@ const log = createLogger("core");
  * startup. Non-null so the Y.Doc editHandler skips
  * re-persisting replayed edits.
  */
-
-const REANNOUNCE_MS = 15_000;
-const GUARANTEE_INITIAL_DELAY_MS = 3_000;
-const GUARANTEE_REQUERY_MS = 5 * 60_000;
 
 export type { DocStatus, SaveState, DocRole };
 
@@ -487,7 +468,6 @@ export function createDoc(params: DocParams): Doc {
   type EventCb = (...args: any[]) => void;
   const eventSubs = new Map<string, Map<EventCb, () => void>>();
 
-  let gossipActivity: GossipActivity = "inactive";
   let isSaving = false;
   let lastSaveError: string | null = null;
   const docCreatedAt = Date.now();
@@ -527,7 +507,7 @@ export function createDoc(params: DocParams): Doc {
     syncSaveState();
     dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
     awareness?.setLocalStateField("clockSum", computeClockSum());
-    factQueue?.push({
+    runtime?.factQueue.push({
       type: "content-dirty",
       ts: Date.now(),
       clockSum: computeClockSum(),
@@ -548,25 +528,27 @@ export function createDoc(params: DocParams): Doc {
     return sum;
   }
 
-  // --- Interpreter state ---
-  let interpreterState: DocState | null = null;
-  let factQueue: AsyncQueue<Fact> | null = null;
+  // --- Interpreter / runtime state ---
+  // `runtime` holds the handles returned by the P2P +
+  // interpreter layer (fact queue, abort controller,
+  // timers, cleanups). Null until startP2PLayer() runs
+  // — either inline or after p2pReady resolves.
+  let runtime: DocRuntimeResult | null = null;
+  // `runtimeState` is shared with the runtime and
+  // updated continuously as the interpreter produces
+  // new DocStates. Readers here (publish, diagnostics,
+  // versionHistory) see the latest values.
+  const runtimeState: DocRuntimeState = {
+    interpreterState: null,
+    lastTipInfo: null,
+    localSnapshotHistory: null,
+  };
 
   // Local chain state maintained synchronously by
   // publish(). Lets history() return immediately
   // without waiting for the async interpreter
   // pipeline.
   let localChain: ChainState | null = null;
-
-  // Mirror of localChain for the snapshot-based
-  // version history path.
-  let localSnapshotHistory: SnapshotHistory | null = null;
-
-  let interpreterAc: AbortController | null = null;
-  // Effect handler state (announce retries, dedup)
-  // is managed inside createEffectHandlers().
-  let effectHandlersCleanup: (() => void) | null = null;
-  let setLastLocalPublishCid: ((cid: string) => void) | null = null;
   // --- Feeds ---
   const {
     docStateFeed,
@@ -621,8 +603,6 @@ export function createDoc(params: DocParams): Doc {
     }
   }
 
-  let lastTipInfo: VersionInfo | null = null;
-
   // --- Client identity mapping feed ---
   const clientIdMapping = createClientIdMapping(metaSurface, ipnsName);
   const clientIdMappingFeed = clientIdMapping.feed;
@@ -672,7 +652,7 @@ export function createDoc(params: DocParams): Doc {
       identity: params.identity,
       persistEdit,
       onSyncStatusChanged: (status) => {
-        factQueue?.push({
+        runtime?.factQueue.push({
           type: "sync-status-changed",
           ts: Date.now(),
           status,
@@ -684,8 +664,8 @@ export function createDoc(params: DocParams): Doc {
   function updateVersionsFeed(): void {
     const prev = versionsFeed.getSnapshot();
     const next = deriveVersionHistoryFromSnapshots(
-      localSnapshotHistory ??
-        interpreterState?.snapshotHistory ??
+      runtimeState.localSnapshotHistory ??
+        runtimeState.interpreterState?.snapshotHistory ??
         INITIAL_SNAPSHOT_HISTORY,
     );
     versionsFeed._update(next);
@@ -742,7 +722,7 @@ export function createDoc(params: DocParams): Doc {
     // peerSync.onSyncStatusChanged, not by
     // SyncManager.onStatusChange.
     ar.onStatusChange(() => {
-      factQueue?.push({
+      runtime?.factQueue.push({
         type: "awareness-status-changed",
         ts: Date.now(),
         connected: ar.connected,
@@ -777,7 +757,6 @@ export function createDoc(params: DocParams): Doc {
   // Share relay info with WebRTC peers via awareness.
   let relaySharing: RelaySharing | null = null;
   let topSharing: TopologySharing | null = null;
-  let cleanupRelayConnect: (() => void) | null = null;
   if (params.roomDiscovery && awareness) {
     relaySharing = createRelaySharing({
       awareness,
@@ -789,7 +768,6 @@ export function createDoc(params: DocParams): Doc {
   // Also forward node-registry changes as doc events.
   // When caps messages include addresses, feed them
   // to roomDiscovery so we can dial new relays.
-  let fireGuaranteeQuery: (() => void) | null = null;
   const knownPinnerPids = new Set<string>();
   const nodeChangeHandler = () => {
     nodeChangeFeed._update(nodeChangeFeed.getSnapshot() + 1);
@@ -803,15 +781,15 @@ export function createDoc(params: DocParams): Doc {
         ) {
           knownPinnerPids.add(node.peerId);
           newPinner = true;
-          factQueue?.push({
+          runtime?.factQueue.push({
             type: "pinner-discovered",
             ts: Date.now(),
             peerId: node.peerId,
           });
         }
       }
-      if (newPinner && fireGuaranteeQuery) {
-        fireGuaranteeQuery();
+      if (newPinner) {
+        runtime?.fireGuaranteeQuery();
       }
     }
     if (!params.roomDiscovery) return;
@@ -858,401 +836,54 @@ export function createDoc(params: DocParams): Doc {
     : () => {};
 
   // ── Interpreter setup ─────────────────────────
-  let stopIPNSWatch: (() => void) | null = null;
-  let initialQueryTimer: ReturnType<typeof setTimeout> | null = null;
-  let guaranteeQueryInterval: ReturnType<typeof setInterval> | null = null;
 
   // Start the P2P + interpreter layer. Called either
   // immediately (when pubsub is provided inline) or
-  // when p2pReady resolves.
+  // when p2pReady resolves. Delegates to
+  // startDocRuntime() for the actual wiring; we just
+  // hold on to the returned handles for publish() and
+  // teardown().
   function startP2PLayer(
     pubsub: PubSubLike,
     roomDiscovery?: RoomDiscovery,
   ): void {
     if (!readKey || !params.appId) return;
-    const rk = readKey;
-    const appId = params.appId;
-    const ipnsPublicKeyBytes = hexToBytes(ipnsName);
-
-    log.debug("interpreter setup: pubsub=" + !!pubsub + " appId=" + appId);
-
-    interpreterAc = new AbortController();
-    const { signal } = interpreterAc;
-    factQueue = createAsyncQueue<Fact>(signal);
-
-    const role: DocRole = cap.isAdmin
-      ? "admin"
-      : cap.channels.size > 0
-        ? "writer"
-        : "reader";
-
-    const init = initialDocState({
-      ipnsName,
-      role,
-      channels,
-      appId,
-    });
-    // Carry createdAt for mesh grace period
-    init.connectivity = {
-      ...init.connectivity,
-      createdAt: docCreatedAt,
-    };
-    init.status = deriveStatus(init.connectivity);
-    interpreterState = init;
-    docStateFeed._update(init);
-
-    const fq = factQueue;
-
-    // --- Hydrate version index from Store ---
-    if (storeSnapshots) {
-      storeSnapshots
-        .loadAll()
-        .then((cached) => {
-          if (destroyed) return;
-          for (const e of cached) {
-            try {
-              const cid = CID.decode(e.cid);
-              fq.push({
-                type: "cid-discovered",
-                ts: e.ts,
-                cid,
-                source: "cache",
-                seq: e.seq,
-                snapshotTs: e.ts,
-              });
-
-              // Populate localSnapshotHistory so
-              // the version feed shows cached
-              // snapshots immediately (cid-discovered
-              // alone doesn't update snapshotHistory).
-              localSnapshotHistory = reduceSnapshotHistory(
-                localSnapshotHistory ??
-                  interpreterState?.snapshotHistory ??
-                  INITIAL_SNAPSHOT_HISTORY,
-                {
-                  type: "snapshot-materialized",
-                  ts: e.ts,
-                  cid,
-                  seq: e.seq,
-                  channel: e.channel,
-                  epochIndex: e.epochIndex,
-                },
-              );
-            } catch {
-              // skip undecodable CIDs
-            }
-          }
-          if (cached.length > 0) {
-            updateVersionsFeed();
-          }
-          log.info("hydrated " + cached.length + " cached versions");
-        })
-        .catch((err) => {
-          log.warn("version cache hydration failed:", err);
-        });
-    }
-
-    // --- GossipSub subscription + fact bridge ---
-    const topic = announceTopic(params.networkId, appId);
-    pubsub.subscribe(topic);
-    factQueue.push({
-      type: "gossip-subscribed",
-      ts: Date.now(),
-    });
-    const gossipHandler = createGossipHandler({
-      topic,
-      ipnsName,
-      factQueue: fq,
-      putBlock: (cid, block) => resolver.put(cid, block),
-    });
-
-    pubsub.addEventListener("message", gossipHandler as EventListener);
-
-    // --- Reannounce source ---
-    const reannounceSource = reannounceFacts(REANNOUNCE_MS, signal);
-
-    // --- Scan pipeline ---
-    const stateStream = scan(merge(factQueue, reannounceSource), reduce, init);
-
-    // --- State capture + derived events ---
-    async function* captureState(
-      stream: AsyncIterable<{
-        prev: DocState;
-        next: DocState;
-        fact: Fact;
-      }>,
-    ) {
-      for await (const item of stream) {
-        interpreterState = item.next;
-        docStateFeed._update(item.next);
-
-        // Update tip feed (cached to avoid
-        // allocations when nothing changed)
-        const tip = item.next.chain.tip;
-        if (tip) {
-          const entry = item.next.chain.entries.get(tip.toString());
-          const seq = entry?.seq ?? 0;
-          const ackedBy = entry?.ackedBy ?? EMPTY_SET;
-          const g = bestGuarantee(item.next.chain);
-          if (
-            !lastTipInfo ||
-            !lastTipInfo.cid.equals(tip) ||
-            lastTipInfo.seq !== seq ||
-            lastTipInfo.ackedBy !== ackedBy ||
-            lastTipInfo.guaranteeUntil !== g.guaranteeUntil ||
-            lastTipInfo.retainUntil !== g.retainUntil
-          ) {
-            lastTipInfo = {
-              cid: tip,
-              seq,
-              ackedBy,
-              guaranteeUntil: g.guaranteeUntil,
-              retainUntil: g.retainUntil,
-            };
-          }
-          tipFeed._update(lastTipInfo);
-        } else {
-          if (lastTipInfo !== null) {
-            lastTipInfo = null;
-          }
-          tipFeed._update(null);
-        }
-
-        // Derived backedUp — true when current tip
-        // has at least one pinner ack.
-        backedUpFeed._update((lastTipInfo?.ackedBy.size ?? 0) > 0);
-
-        // Derived loading state — feed handles dedup
-        const prevLoading = loadingFeed.getSnapshot();
-        const newLoading = deriveLoadingState(item.next);
-        loadingFeed._update(newLoading);
-        if (loadingStateChanged(prevLoading, newLoading)) {
-          // Ready check: if loading finished
-          // without applying a snapshot, mount
-          // the editor anyway.
-          if (
-            (newLoading.status === "idle" || newLoading.status === "failed") &&
-            !readyResolved &&
-            !item.next.chain.tip
-          ) {
-            markReady();
-          }
-        }
-
-        // Version history feed — update when chain
-        // changes (structural sharing: cheap check)
-        if (item.next.chain !== item.prev.chain) {
-          updateVersionsFeed();
-        }
-
-        yield item;
-      }
-    }
-
-    // --- Effect handlers ---
-    const snapshotOps = createSnapshotOps({
-      snapshotCodec: snapshotLC,
-      document: params.document,
-      resolver,
-      readKey: rk,
-      getClockSum: computeClockSum,
-    });
-
-    const effectHandlers = createEffectHandlers({
-      resolver,
-      snapshotOps,
-      pubsub,
+    runtime = startDocRuntime({
+      appId: params.appId,
       networkId: params.networkId,
-      appId,
       ipnsName,
+      channels,
+      cap,
+      readKey,
       signingKey,
-      signal,
-      getHttpUrls,
-      markReady,
-      validationErrorFeed,
-      snapshotEventFeed,
-      ackEventFeed,
-      gossipActivityFeed,
-      onGossipActivity: (activity) => {
-        gossipActivity = activity;
-      },
-    });
-    const { effects } = effectHandlers;
-    effectHandlersCleanup = effectHandlers.cleanup;
-    setLastLocalPublishCid = effectHandlers.setLastLocalPublishCid;
-
-    // --- Run interpreter ---
-    runInterpreter(captureState(stateStream), effects, factQueue, signal, {
+      docCreatedAt,
       prefetchDepth: params.prefetchDepth,
-    }).catch((err) => {
-      if (!signal.aborted) {
-        log.warn("interpreter error:", err);
-        // Ensure ready() resolves even if the
-        // interpreter crashes — otherwise the doc
-        // hangs permanently with no recovery path.
-        markReady();
-      }
+      performInitialResolve: !!params.performInitialResolve,
+      pubsub,
+      roomDiscovery,
+      document: params.document,
+      storeDocument: params.storeDocument,
+      codec: params.codec,
+      resolver,
+      snapshotCodec: snapshotLC,
+      feeds: {
+        docStateFeed,
+        tipFeed,
+        loadingFeed,
+        backedUpFeed,
+        snapshotEventFeed,
+        ackEventFeed,
+        gossipActivityFeed,
+        validationErrorFeed,
+      },
+      computeClockSum,
+      markReady,
+      getHttpUrls,
+      updateVersionsFeed,
+      isDestroyed: () => destroyed,
+      isReadyResolved: () => readyResolved,
+      state: runtimeState,
     });
-
-    // --- HTTP tip fetch (fastest path) ---
-    // Fire in parallel with IPNS — whichever
-    // resolves first pushes cid-discovered.
-    // This is purely additive: IPNS drives loading
-    // state (ipns-resolve-started/completed), so
-    // HTTP failure never blocks the loading
-    // lifecycle.
-    if (params.performInitialResolve) {
-      (async () => {
-        try {
-          const urls = getHttpUrls();
-          if (urls.length === 0) return;
-          const tip = await fetchTipFromPinners(urls, ipnsName, signal);
-          if (signal.aborted || !tip) return;
-          resolver.put(tip.cid, tip.block);
-          const now = Date.now();
-          fq.push({
-            type: "cid-discovered",
-            ts: now,
-            cid: tip.cid,
-            source: "http-tip",
-            block: tip.block,
-            seq: tip.seq,
-            snapshotTs: tip.ts,
-          });
-          if (
-            tip.guaranteeUntil !== undefined ||
-            tip.retainUntil !== undefined
-          ) {
-            fq.push({
-              type: "guarantee-received",
-              ts: now,
-              peerId: tip.peerId,
-              cid: tip.cid,
-              guaranteeUntil: tip.guaranteeUntil ?? 0,
-              retainUntil: tip.retainUntil ?? 0,
-            });
-          }
-        } catch (err) {
-          log.warn("HTTP tip fetch failed:", (err as Error)?.message ?? err);
-        }
-      })();
-    }
-
-    // --- IPNS initial resolve ---
-    if (params.performInitialResolve) {
-      fq.push({
-        type: "ipns-resolve-started",
-        ts: Date.now(),
-      });
-      (async () => {
-        try {
-          const helia = getHelia();
-          const tipCid = await resolveIPNS(helia, ipnsPublicKeyBytes);
-          if (signal.aborted) return;
-          if (tipCid) {
-            log.info("IPNS resolved:", tipCid.toString());
-            fq.push({
-              type: "cid-discovered",
-              ts: Date.now(),
-              cid: tipCid,
-              source: "ipns",
-            });
-          }
-          fq.push({
-            type: "ipns-resolve-completed",
-            ts: Date.now(),
-            cid: tipCid,
-          });
-        } catch (err) {
-          log.warn("initial IPNS resolve failed:", err);
-          fq.push({
-            type: "ipns-resolve-completed",
-            ts: Date.now(),
-            cid: null,
-          });
-        }
-      })();
-    }
-
-    // --- IPNS polling ---
-    stopIPNSWatch = watchIPNS(
-      getHelia(),
-      ipnsPublicKeyBytes,
-      (cid) => {
-        if (!signal.aborted) {
-          fq.push({
-            type: "cid-discovered",
-            ts: Date.now(),
-            cid,
-            source: "ipns",
-          });
-        }
-      },
-      {
-        onPollStart: () => {
-          if (!signal.aborted) {
-            fq.push({
-              type: "ipns-resolve-started",
-              ts: Date.now(),
-            });
-          }
-        },
-      },
-    );
-
-    // --- Guarantee queries ---
-    fireGuaranteeQuery = () => {
-      publishGuaranteeQuery(pubsub, params.networkId, appId, ipnsName).catch(
-        (err) => {
-          log.warn("guarantee query failed:", err);
-        },
-      );
-    };
-
-    // Initial delay (3s) for mesh formation
-    initialQueryTimer = setTimeout(() => {
-      initialQueryTimer = null;
-      if (!signal.aborted) {
-        fireGuaranteeQuery!();
-      }
-    }, GUARANTEE_INITIAL_DELAY_MS);
-
-    // Periodic re-query
-    guaranteeQueryInterval = setInterval(() => {
-      if (!signal.aborted) {
-        fireGuaranteeQuery!();
-      }
-    }, GUARANTEE_REQUERY_MS);
-
-    // --- Relay connect → push fact ---
-    if (roomDiscovery) {
-      const rd = roomDiscovery;
-      const connectHandler = (evt: CustomEvent) => {
-        const pid = evt.detail?.toString?.() ?? "";
-        if (rd.relayPeerIds.has(pid)) {
-          fq.push({
-            type: "relay-connected",
-            ts: Date.now(),
-            peerId: pid,
-          });
-        }
-      };
-      const helia = getHelia();
-      helia.libp2p.addEventListener("peer:connect", connectHandler);
-      cleanupRelayConnect = () => {
-        helia.libp2p.removeEventListener("peer:connect", connectHandler);
-      };
-    }
-
-    // Cleanup GossipSub on abort
-    signal.addEventListener(
-      "abort",
-      () => {
-        pubsub.removeEventListener("message", gossipHandler as EventListener);
-        pubsub.unsubscribe(topic);
-      },
-      { once: true },
-    );
   }
 
   // Start immediately if pubsub already available
@@ -1324,17 +955,15 @@ export function createDoc(params: DocParams): Doc {
     destroyed = true;
     clearTimeout(graceTimer);
     // Interpreter cleanup
-    effectHandlersCleanup?.();
-    interpreterAc?.abort();
-    if (initialQueryTimer) {
-      clearTimeout(initialQueryTimer);
-    }
-    if (guaranteeQueryInterval) {
-      clearInterval(guaranteeQueryInterval);
-    }
-    if (stopIPNSWatch) {
-      stopIPNSWatch();
-      stopIPNSWatch = null;
+    if (runtime) {
+      runtime.effectHandlersCleanup();
+      runtime.interpreterAc.abort();
+      if (runtime.initialQueryTimer) {
+        clearTimeout(runtime.initialQueryTimer);
+      }
+      clearInterval(runtime.guaranteeQueryInterval);
+      runtime.stopIPNSWatch();
+      runtime.cleanupRelayConnect?.();
     }
     // Tear down edit bridge
     editBridge.destroy();
@@ -1345,7 +974,6 @@ export function createDoc(params: DocParams): Doc {
     eventSubs.clear();
     clientIdMapping.destroy();
     cleanupParticipant();
-    cleanupRelayConnect?.();
     relaySharing?.destroy();
     topSharing?.destroy();
     try {
@@ -1544,7 +1172,7 @@ export function createDoc(params: DocParams): Doc {
 
       isSaving = true;
       syncSaveState();
-      factQueue?.push({
+      runtime?.factQueue.push({
         type: "publish-started",
         ts: Date.now(),
       });
@@ -1579,7 +1207,7 @@ export function createDoc(params: DocParams): Doc {
         isSaving = false;
         lastSaveError = err instanceof Error ? err.message : String(err);
         syncSaveState();
-        factQueue?.push({
+        runtime?.factQueue.push({
           type: "publish-failed",
           ts: Date.now(),
           error: lastSaveError,
@@ -1594,7 +1222,7 @@ export function createDoc(params: DocParams): Doc {
       // Suppress the interpreter's
       // emitSnapshotApplied for this CID since
       // we emit the local snapshot event below.
-      setLastLocalPublishCid?.(cid.toString());
+      runtime?.setLastLocalPublishCid(cid.toString());
 
       isSaving = false;
       lastSaveError = null;
@@ -1637,7 +1265,7 @@ export function createDoc(params: DocParams): Doc {
       // the async interpreter pipeline.
       const base =
         localChain ??
-        interpreterState?.chain ??
+        runtimeState.interpreterState?.chain ??
         initialDocState({
           ipnsName,
           role: this.role,
@@ -1661,9 +1289,9 @@ export function createDoc(params: DocParams): Doc {
         cid,
         seq: pushResult.seq,
       };
-      localSnapshotHistory = reduceSnapshotHistory(
-        localSnapshotHistory ??
-          interpreterState?.snapshotHistory ??
+      runtimeState.localSnapshotHistory = reduceSnapshotHistory(
+        runtimeState.localSnapshotHistory ??
+          runtimeState.interpreterState?.snapshotHistory ??
           INITIAL_SNAPSHOT_HISTORY,
         snapshotFact,
       );
@@ -1674,14 +1302,14 @@ export function createDoc(params: DocParams): Doc {
       // see the new CID without waiting for the
       // interpreter pipeline (which may not run in
       // no-P2P / E2E mode).
-      lastTipInfo = {
+      runtimeState.lastTipInfo = {
         cid,
         seq: pushResult.seq,
         ackedBy: new Set(),
         guaranteeUntil: 0,
         retainUntil: 0,
       };
-      tipFeed._update(lastTipInfo);
+      tipFeed._update(runtimeState.lastTipInfo);
 
       // Sync saveState after localChain is set so
       // deriveSaveState sees chain.tip and returns
@@ -1690,11 +1318,11 @@ export function createDoc(params: DocParams): Doc {
 
       // Push to interpreter for side effects
       // (announce, acks, gossip, etc.)
-      if (factQueue) {
-        factQueue.push(cidDiscovered);
-        factQueue.push(blockFetched);
-        factQueue.push(tipAdvanced);
-        factQueue.push(publishSucceeded);
+      if (runtime) {
+        runtime.factQueue.push(cidDiscovered);
+        runtime.factQueue.push(blockFetched);
+        runtime.factQueue.push(tipAdvanced);
+        runtime.factQueue.push(publishSucceeded);
       }
 
       snapshotEventFeed._update({
@@ -1807,20 +1435,18 @@ export function createDoc(params: DocParams): Doc {
 
     diagnostics(): Diagnostics {
       assertNotDestroyed();
-      const tip = interpreterState?.chain.tip;
-      const tipEntry = tip
-        ? interpreterState?.chain.entries.get(tip.toString())
-        : undefined;
-      const g = interpreterState
-        ? bestGuarantee(interpreterState.chain)
+      const is = runtimeState.interpreterState;
+      const tip = is?.chain.tip;
+      const tipEntry = tip ? is?.chain.entries.get(tip.toString()) : undefined;
+      const g = is
+        ? bestGuarantee(is.chain)
         : { guaranteeUntil: 0, retainUntil: 0 };
       return buildDiagnostics({
         ackedBy: tipEntry?.ackedBy ?? EMPTY_SET,
-        latestAnnouncedSeq: interpreterState?.chain.maxSeq ?? 0,
+        latestAnnouncedSeq: is?.chain.maxSeq ?? 0,
         loadingState: loadingFeed.getSnapshot(),
         hasAppliedSnapshot:
-          interpreterState?.chain.tip !== null &&
-          interpreterState?.chain.tip !== undefined,
+          is?.chain.tip !== null && is?.chain.tip !== undefined,
         guaranteeUntil: g.guaranteeUntil || null,
         retainUntil: g.retainUntil || null,
         roomDiscovery: params.roomDiscovery,
@@ -1858,9 +1484,9 @@ export function createDoc(params: DocParams): Doc {
       let feedUpdated = false;
       for (const e of entries) {
         const key = e.cid.toString();
-        if (factQueue) {
-          if (!interpreterState?.chain.entries.has(key)) {
-            factQueue.push({
+        if (runtime) {
+          if (!runtimeState.interpreterState?.chain.entries.has(key)) {
+            runtime.factQueue.push({
               type: "cid-discovered",
               ts: Date.now(),
               cid: e.cid,
@@ -1873,12 +1499,12 @@ export function createDoc(params: DocParams): Doc {
         // Populate localSnapshotHistory so the
         // versions feed includes pinner entries.
         const current =
-          localSnapshotHistory ??
-          interpreterState?.snapshotHistory ??
+          runtimeState.localSnapshotHistory ??
+          runtimeState.interpreterState?.snapshotHistory ??
           INITIAL_SNAPSHOT_HISTORY;
         const alreadyKnown = current.records.some((r) => r.cid.equals(e.cid));
         if (!alreadyKnown) {
-          localSnapshotHistory = reduceSnapshotHistory(current, {
+          runtimeState.localSnapshotHistory = reduceSnapshotHistory(current, {
             type: "snapshot-materialized",
             ts: e.ts,
             cid: e.cid,
@@ -1909,12 +1535,12 @@ export function createDoc(params: DocParams): Doc {
       const result = await snapshotLC.loadVersion(cid, readKey);
       // Integrate fetched block into chain state
       // so the reducer knows about it.
-      if (factQueue) {
+      if (runtime) {
         const key = cid.toString();
-        const entry = interpreterState?.chain.entries.get(key);
+        const entry = runtimeState.interpreterState?.chain.entries.get(key);
         if (!entry || entry.blockStatus === "unknown") {
           const block = resolver.getCached(cid);
-          factQueue.push({
+          runtime.factQueue.push({
             type: "cid-discovered",
             ts: Date.now(),
             cid,
