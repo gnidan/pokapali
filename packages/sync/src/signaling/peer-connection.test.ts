@@ -281,7 +281,13 @@ type MockPC = ReturnType<typeof createMockPC>;
 // -------------------------------------------------------
 
 describe("PeerManager", () => {
-  function setup(localPeerId = "aaa-local") {
+  type TimerOverrides = {
+    createTimer?: (cb: () => void, ms: number) => ReturnType<typeof setTimeout>;
+    clearTimer?: (handle: ReturnType<typeof setTimeout>) => void;
+    jitter?: () => number;
+  };
+
+  function setup(localPeerId = "aaa-local", overrides: TimerOverrides = {}) {
     const { client, ...fires } = createMockSignalingClient();
     const pcs: MockPC[] = [];
 
@@ -291,6 +297,7 @@ describe("PeerManager", () => {
         pcs.push(pc);
         return pc as unknown as RTCPeerConnection;
       },
+      ...overrides,
     });
 
     return { client, manager, pcs, ...fires };
@@ -546,8 +553,13 @@ describe("PeerManager", () => {
     manager.destroy();
   });
 
-  it("peer left closes connection", async () => {
+  it("peer left closes connection and fires disconnCbs", async () => {
     const { manager, pcs, firePeerJoined, firePeerLeft } = setup("aaa-local");
+
+    const disconnected: string[] = [];
+    manager.onPeerDisconnected((peerId) => {
+      disconnected.push(peerId);
+    });
 
     firePeerJoined("room1", "zzz-remote");
     await tick();
@@ -555,6 +567,9 @@ describe("PeerManager", () => {
     firePeerLeft("room1", "zzz-remote");
 
     expect(pcs[0]!.close).toHaveBeenCalled();
+    // PEER_LEFT is terminal; disconnCbs must fire even
+    // though no retry happened.
+    expect(disconnected).toEqual(["zzz-remote"]);
 
     manager.destroy();
   });
@@ -705,8 +720,16 @@ describe("PeerManager", () => {
     manager.destroy();
   });
 
-  it("fires onPeerDisconnected on failed", async () => {
-    const { manager, pcs, firePeerJoined } = setup("aaa-local");
+  it("does not fire onPeerDisconnected on a single failed state", async () => {
+    // New semantics (B): disconnCbs are terminal-only.
+    // A single "failed" transition schedules a retry,
+    // it does NOT report the peer as disconnected.
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
 
     const disconnected: string[] = [];
     manager.onPeerDisconnected((peerId) => {
@@ -718,24 +741,34 @@ describe("PeerManager", () => {
 
     pcs[0]!.simulateFailed();
 
-    expect(disconnected).toEqual(["zzz-remote"]);
+    // Retry is scheduled (1s backoff) but no terminal
+    // disconnCbs firing.
+    expect(disconnected).toEqual([]);
 
     manager.destroy();
   });
 
   it(
-    "cleans up stale PC from peers map " + "on disconnected state",
+    "keeps PC in map during disconnected grace; " +
+      "PEER_JOINED resets to fresh PC",
     async () => {
-      const { manager, pcs, firePeerJoined } = setup("aaa-local");
+      const timers = createFakeTimers();
+      const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+        createTimer: timers.create,
+        clearTimer: timers.clear,
+        jitter: () => 0.5,
+      });
 
       firePeerJoined("room1", "zzz-remote");
       await tick();
       expect(pcs).toHaveLength(1);
 
+      // "disconnected" starts grace period; PC stays in
+      // map (no retry yet, no eviction).
       pcs[0]!.simulateDisconnected();
 
-      // After disconnect, a new PEER_JOINED should
-      // create a fresh PC (not be deduped)
+      // PEER_JOINED during grace: treat as reset
+      // signal — tear down stale PC, start fresh.
       firePeerJoined("room1", "zzz-remote");
       await tick();
       expect(pcs).toHaveLength(2);
@@ -783,6 +816,375 @@ describe("PeerManager", () => {
       manager.destroy();
     },
   );
+
+  // -----------------------------------------------------
+  // Retry / grace / offer-timeout
+  // -----------------------------------------------------
+
+  it("disconnected → connected cancels grace retry", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    expect(pcs).toHaveLength(1);
+
+    pcs[0]!.simulateDisconnected();
+    // A grace timer should be pending (plus the offer
+    // timer started by sendOffer).
+    expect(timers.count).toBeGreaterThanOrEqual(1);
+
+    // Self-heal before grace expires.
+    pcs[0]!.simulateConnected();
+
+    // Connected clears all timers and resets attempts.
+    expect(timers.count).toBe(0);
+
+    // Advancing past the grace window must not trigger
+    // a retry — no extra PC created.
+    timers.advance(60_000);
+    await tick();
+    expect(pcs).toHaveLength(1);
+
+    manager.destroy();
+  });
+
+  it("disconnected → 10s grace expiry schedules retry", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    pcs[0]!.simulateDisconnected();
+
+    // Advance just under the grace threshold — still
+    // one PC, no retry yet.
+    timers.advance(9_999);
+    expect(pcs).toHaveLength(1);
+
+    // Tip into retry: grace expires → handleFailure
+    // schedules retry with 1s backoff (attempt 0).
+    timers.advance(1);
+    expect(pcs).toHaveLength(1);
+
+    // Backoff fires, retry creates a fresh PC.
+    timers.advance(1_000);
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    manager.destroy();
+  });
+
+  it("failed → immediate retry (no grace)", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    pcs[0]!.simulateFailed();
+
+    // No grace; retry is scheduled with 1s backoff
+    // straight from handleFailure.
+    timers.advance(1_000);
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    manager.destroy();
+  });
+
+  it("failed after grace is idempotent (single retry)", async () => {
+    // "disconnected" starts grace. If "failed" arrives
+    // before grace expires, handleFailure should
+    // cancel the grace timer but not double-schedule
+    // a retry: the scheduled backoff already stands.
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    pcs[0]!.simulateDisconnected();
+    // Advance past grace → retry scheduled.
+    timers.advance(10_000);
+    // Now a late "failed" arrives.
+    pcs[0]!.simulateFailed();
+
+    // Backoff fires → single retry, not two.
+    timers.advance(1_000);
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    manager.destroy();
+  });
+
+  it("offer timeout triggers retry", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    expect(pcs).toHaveLength(1);
+
+    // No answer arrives — offer timeout (10s) +
+    // first-attempt backoff (1s) → new PC.
+    timers.advance(10_000);
+    timers.advance(1_000);
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    manager.destroy();
+  });
+
+  it("SDP_ANSWER clears offer timeout", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined, fireSignal } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    // One offer timer pending.
+    expect(timers.count).toBe(1);
+
+    fireSignal(
+      "room1",
+      "zzz-remote",
+      encodeWebRTCSignal({
+        type: WebRTCSignalType.SDP_ANSWER,
+        sdp: { type: "answer", sdp: "ok" },
+      }),
+    );
+    await tick();
+
+    // Offer timer cleared.
+    expect(timers.count).toBe(0);
+
+    // Advancing past the old timeout should not retry.
+    timers.advance(60_000);
+    await tick();
+    expect(pcs).toHaveLength(1);
+
+    manager.destroy();
+  });
+
+  it("connected resets attempt counter", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    // First failure → attempt 1 (1s backoff).
+    pcs[0]!.simulateFailed();
+    timers.advance(1_000);
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    // Second PC comes up OK → counter resets.
+    pcs[1]!.simulateConnected();
+
+    // New failure on the second PC: would be attempt 3
+    // if counter didn't reset, but with reset it's
+    // attempt 1 again (1s backoff, not 4s).
+    pcs[1]!.simulateFailed();
+    timers.advance(1_000);
+    await tick();
+    expect(pcs).toHaveLength(3);
+
+    manager.destroy();
+  });
+
+  it("retry exhaustion fires onPeerDisconnected terminally", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    const disconnected: string[] = [];
+    manager.onPeerDisconnected((peerId) => {
+      disconnected.push(peerId);
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    // Attempt 1: fail + 1s backoff.
+    pcs[0]!.simulateFailed();
+    timers.advance(1_000);
+    await tick();
+    expect(pcs).toHaveLength(2);
+    expect(disconnected).toEqual([]);
+
+    // Attempt 2: fail + 2s backoff.
+    pcs[1]!.simulateFailed();
+    timers.advance(2_000);
+    await tick();
+    expect(pcs).toHaveLength(3);
+    expect(disconnected).toEqual([]);
+
+    // Attempt 3: fail + 4s backoff.
+    pcs[2]!.simulateFailed();
+    timers.advance(4_000);
+    await tick();
+    expect(pcs).toHaveLength(4);
+    expect(disconnected).toEqual([]);
+
+    // 4th failure: attempts (3) >= MAX_RETRIES (3) →
+    // exhaustion, fire disconnCbs.
+    pcs[3]!.simulateFailed();
+    expect(disconnected).toEqual(["zzz-remote"]);
+
+    manager.destroy();
+  });
+
+  it("PEER_JOINED during grace resets to fresh PC", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    pcs[0]!.simulateDisconnected();
+
+    // Partway through grace, peer re-announces.
+    timers.advance(5_000);
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    // Advance past the ORIGINAL grace deadline
+    // (absolute t=10_000; we're already at 5_000 so
+    // add 6_000) without reaching the fresh PC's
+    // offer timeout at absolute t=15_000.
+    timers.advance(6_000);
+    await tick();
+    // No stale grace-driven retry, still two PCs.
+    expect(pcs).toHaveLength(2);
+
+    manager.destroy();
+  });
+
+  it("PEER_JOINED during retry backoff cancels pending retry", async () => {
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+
+    // Drive into the retry backoff window: failure
+    // schedules a retry at t=1_000 (1s backoff).
+    pcs[0]!.simulateFailed();
+
+    // Peer rejoins before the backoff fires. The
+    // PEER_JOINED handler sees PC1 in map (state
+    // "failed") and runs closePC, which clears the
+    // pending retryTimer.
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    // Advance past the cancelled retry deadline
+    // (absolute t=1_000) but before the fresh PC's
+    // offer timeout (~10s). No third PC should
+    // appear — the retry was cancelled.
+    timers.advance(2_000);
+    await tick();
+    expect(pcs).toHaveLength(2);
+
+    manager.destroy();
+  });
+
+  it("PEER_JOINED during healthy negotiation is ignored", async () => {
+    const timers = createFakeTimers();
+    const { client, manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    expect(pcs).toHaveLength(1);
+    expect(client.sendSignal).toHaveBeenCalledTimes(1);
+
+    // Initiator mid-negotiation: connectionState is
+    // "new" (healthy). Duplicate PEER_JOINED must
+    // dedup.
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    expect(pcs).toHaveLength(1);
+    expect(client.sendSignal).toHaveBeenCalledTimes(1);
+
+    manager.destroy();
+  });
+
+  it("retry after initial offer calls createdCbs again", async () => {
+    // Consumers of onPeerCreated (e.g. data-channel
+    // setup) must be re-invoked on each retry because
+    // the old PC's data channels die with it.
+    const timers = createFakeTimers();
+    const { manager, pcs, firePeerJoined } = setup("aaa-local", {
+      createTimer: timers.create,
+      clearTimer: timers.clear,
+      jitter: () => 0.5,
+    });
+
+    const created: RTCPeerConnection[] = [];
+    manager.onPeerCreated((pc) => {
+      created.push(pc);
+    });
+
+    firePeerJoined("room1", "zzz-remote");
+    await tick();
+    expect(created).toHaveLength(1);
+
+    pcs[0]!.simulateFailed();
+    timers.advance(1_000);
+    await tick();
+
+    expect(pcs).toHaveLength(2);
+    expect(created).toHaveLength(2);
+    expect(created[1]).toBe(pcs[1]);
+
+    manager.destroy();
+  });
 });
 
 // -------------------------------------------------------
@@ -791,4 +1193,57 @@ describe("PeerManager", () => {
 
 function tick(): Promise<void> {
   return new Promise((r) => setTimeout(r, 20));
+}
+
+/**
+ * Deterministic timer harness. Matches the
+ * `createTimer`/`clearTimer` signatures accepted by
+ * PeerManager so retry timing can be tested without
+ * real clocks.
+ */
+interface FakeTimers {
+  create: (cb: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  clear: (handle: ReturnType<typeof setTimeout>) => void;
+  advance: (ms: number) => void;
+  readonly count: number;
+}
+
+function createFakeTimers(): FakeTimers {
+  let nextId = 1;
+  let now = 0;
+  const timers = new Map<number, { at: number; cb: () => void }>();
+  return {
+    create(cb, ms) {
+      const id = nextId++;
+      timers.set(id, { at: now + ms, cb });
+      return id as unknown as ReturnType<typeof setTimeout>;
+    },
+    clear(handle) {
+      timers.delete(handle as unknown as number);
+    },
+    advance(ms) {
+      const target = now + ms;
+      for (;;) {
+        // Scan for the soonest-due timer in range.
+        let dueId = -1;
+        let dueAt = Infinity;
+        for (const [id, t] of timers) {
+          if (t.at <= target && t.at < dueAt) {
+            dueAt = t.at;
+            dueId = id;
+          }
+        }
+        if (dueId === -1) break;
+        const t = timers.get(dueId);
+        if (!t) break;
+        timers.delete(dueId);
+        now = t.at;
+        t.cb();
+      }
+      now = target;
+    },
+    get count() {
+      return timers.size;
+    },
+  };
 }

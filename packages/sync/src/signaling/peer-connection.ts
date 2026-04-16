@@ -104,16 +104,42 @@ export function decodeWebRTCSignal(bytes: Uint8Array): WebRTCSignal {
 
 type PeerConnectionCb = (pc: RTCPeerConnection, initiator: boolean) => void;
 
+type TimerHandle = ReturnType<typeof setTimeout>;
+
+// Offer/answer timeout: initiator waits this long for
+// an answer after sending the offer. If no answer, the
+// connection is treated as failed.
+const OFFER_TIMEOUT_MS = 10_000;
+
+// Disconnected grace period: WebRTC may self-recover
+// from a transient "disconnected" state. Wait this
+// long before treating it as a retry-worthy failure.
+const GRACE_MS = 10_000;
+
+// Retry schedule: base 1s, doubled per attempt, so the
+// three attempts wait 1s / 2s / 4s before firing.
+const BASE_BACKOFF_MS = 1_000;
+const MAX_RETRIES = 3;
+
+// ±30% jitter on each backoff interval — prevents
+// thundering herd when many peers drop simultaneously.
+const JITTER_FRACTION = 0.3;
+
 export interface PeerManager {
   /** Fires when the RTCPeerConnection reaches
    *  "connected" state. */
   onPeerConnection(cb: PeerConnectionCb): () => void;
   /** Fires when a new RTCPeerConnection is created
    *  but BEFORE the SDP offer. Use this to add data
-   *  channels so the offer includes them. */
+   *  channels so the offer includes them. Also fires
+   *  on each retry attempt — consumers must re-attach
+   *  any per-PC state (data channels, event handlers).
+   */
   onPeerCreated(cb: PeerConnectionCb): () => void;
-  /** Fires when an RTCPeerConnection reaches
-   *  "disconnected", "failed", or "closed" state. */
+  /** Fires on terminal disconnect only: retry
+   *  exhaustion, or explicit `onPeerLeft` teardown.
+   *  Does NOT fire on transient state transitions;
+   *  the retry layer absorbs those. */
   onPeerDisconnected(cb: (peerId: string) => void): () => void;
   destroy(): void;
 }
@@ -123,6 +149,13 @@ export interface PeerManagerOptions {
   /** Override RTCPeerConnection constructor for
    *  testing. */
   createPC?: () => RTCPeerConnection;
+  /** Timer injection for deterministic retry tests.
+   *  Defaults to global setTimeout/clearTimeout. */
+  createTimer?: (cb: () => void, ms: number) => TimerHandle;
+  clearTimer?: (handle: TimerHandle) => void;
+  /** Jitter source in [0, 1]; defaults to Math.random.
+   *  Deterministic tests can inject e.g. `() => 0.5`. */
+  jitter?: () => number;
 }
 
 /**
@@ -152,6 +185,65 @@ export function createPeerManager(
   // and flushed once the remote description is set.
   const iceBuf = new Map<string, RTCIceCandidateInit[]>();
   const remoteDescSet = new Set<string>();
+
+  // Per-peer retry state: attempts counter + three
+  // timers (offer timeout, disconnected grace,
+  // pending retry backoff). Lives alongside `peers`
+  // so we can track retries across PC recreations.
+  interface PeerState {
+    attempts: number;
+    offerTimer: TimerHandle | null;
+    disconnectedTimer: TimerHandle | null;
+    retryTimer: TimerHandle | null;
+  }
+  const peerState = new Map<string, PeerState>();
+
+  // setTimeout/clearTimeout are typed ambiguously
+  // when both DOM and Node lib types are in scope —
+  // cast via the injectable signature to pin them
+  // down.
+  const createTimer: (cb: () => void, ms: number) => TimerHandle =
+    options?.createTimer ?? ((cb, ms) => setTimeout(cb, ms) as TimerHandle);
+  const clearTimer: (handle: TimerHandle) => void =
+    options?.clearTimer ??
+    ((handle) => clearTimeout(handle as Parameters<typeof clearTimeout>[0]));
+  const jitter = options?.jitter ?? Math.random;
+
+  function getOrCreatePeerState(peerId: string): PeerState {
+    let ps = peerState.get(peerId);
+    if (!ps) {
+      ps = {
+        attempts: 0,
+        offerTimer: null,
+        disconnectedTimer: null,
+        retryTimer: null,
+      };
+      peerState.set(peerId, ps);
+    }
+    return ps;
+  }
+
+  function clearAllTimers(ps: PeerState): void {
+    if (ps.offerTimer !== null) {
+      clearTimer(ps.offerTimer);
+      ps.offerTimer = null;
+    }
+    if (ps.disconnectedTimer !== null) {
+      clearTimer(ps.disconnectedTimer);
+      ps.disconnectedTimer = null;
+    }
+    if (ps.retryTimer !== null) {
+      clearTimer(ps.retryTimer);
+      ps.retryTimer = null;
+    }
+  }
+
+  // 1s, 2s, 4s... with ±JITTER_FRACTION jitter.
+  function computeBackoffMs(attempt: number): number {
+    const base = BASE_BACKOFF_MS * Math.pow(2, attempt);
+    const offset = base * JITTER_FRACTION * (2 * jitter() - 1);
+    return Math.max(0, Math.round(base + offset));
+  }
 
   function bufferOrAddCandidate(
     peerId: string,
@@ -269,10 +361,38 @@ export function createPeerManager(
       diagLog.debug("signaling state:", rpid, pc!.signalingState);
     };
 
-    // Connection state logging + cleanup
+    // Connection state handling with retry layer.
+    //
+    // Under the retry model:
+    //  - "connected" → clear timers, reset attempts, fire
+    //    connCbs.
+    //  - "disconnected" → start 10s grace timer. Do NOT
+    //    fire disconnCbs (WebRTC may self-recover).
+    //  - "failed" → clear grace timer, schedule retry or
+    //    exhaust. Do NOT fire disconnCbs during retry
+    //    attempts.
+    //  - "closed" → absorbed here; the caller that
+    //    issued close() fires disconnCbs if the close
+    //    was truly terminal.
+    //
+    // Stale-handler guard: this closure captures `pc`.
+    // If the peers map was swapped to a new PC (e.g.
+    // retry created a replacement), the old PC's
+    // deferred state events must not touch the new
+    // PC's state.
     pc.onconnectionstatechange = () => {
-      diagLog.info("connection state:", rpid, pc!.connectionState, tag);
-      if (pc!.connectionState === "connected") {
+      const state = pc!.connectionState;
+      diagLog.info("connection state:", rpid, state, tag);
+      if (peers.get(remotePeerId) !== pc) {
+        return;
+      }
+
+      if (state === "connected") {
+        const ps = peerState.get(remotePeerId);
+        if (ps) {
+          clearAllTimers(ps);
+          ps.attempts = 0;
+        }
         log.debug(
           "connected to:",
           remotePeerId,
@@ -281,31 +401,180 @@ export function createPeerManager(
         for (const cb of connCbs) {
           cb(pc!, initiator);
         }
+        return;
       }
-      if (
-        pc!.connectionState === "failed" ||
-        pc!.connectionState === "closed" ||
-        pc!.connectionState === "disconnected"
-      ) {
-        if (peers.get(remotePeerId) === pc) {
-          peers.delete(remotePeerId);
-        }
-        for (const cb of disconnCbs) {
-          cb(remotePeerId);
-        }
+
+      if (state === "disconnected") {
+        const ps = getOrCreatePeerState(remotePeerId);
+        if (ps.disconnectedTimer !== null) return;
+        diagLog.info("grace timer started:", rpid);
+        ps.disconnectedTimer = createTimer(() => {
+          ps.disconnectedTimer = null;
+          if (peers.get(remotePeerId) !== pc) return;
+          diagLog.info("grace expired; upgrading to retry:", rpid);
+          handleFailure(remotePeerId, pc!);
+        }, GRACE_MS);
+        return;
       }
+
+      if (state === "failed") {
+        handleFailure(remotePeerId, pc!);
+        return;
+      }
+
+      // "closed" / "new" / "connecting": nothing to do
+      // in the handler; transient or caller-driven.
     };
     return pc;
+  }
+
+  /**
+   * Escalate a peer into the retry path. Called from:
+   *  - "failed" state transitions
+   *  - grace-timer expiry (still disconnected after 10s)
+   *  - offer-answer timeout (no answer received)
+   *
+   * Pre: `failedPC` is the currently-tracked PC for
+   * `peerId`. If it's been replaced, caller should
+   * have guarded already.
+   */
+  function handleFailure(peerId: string, failedPC: RTCPeerConnection): void {
+    const ps = getOrCreatePeerState(peerId);
+
+    // Idempotent: if a retry is already scheduled,
+    // don't double-schedule (e.g. "disconnected"
+    // followed by "failed" in quick succession).
+    if (ps.retryTimer !== null) return;
+
+    // Clear offer/grace timers — the failure supersedes
+    // both.
+    if (ps.offerTimer !== null) {
+      clearTimer(ps.offerTimer);
+      ps.offerTimer = null;
+    }
+    if (ps.disconnectedTimer !== null) {
+      clearTimer(ps.disconnectedTimer);
+      ps.disconnectedTimer = null;
+    }
+
+    if (ps.attempts >= MAX_RETRIES) {
+      // Exhausted. Close PC, fire disconnCbs terminally,
+      // clean up state. Future PEER_JOINED for this
+      // peerId starts a fresh attempt.
+      diagLog.info(
+        "peer-retry-exhausted:",
+        peerId.slice(0, 12),
+        "attempts:",
+        ps.attempts,
+      );
+      log.warn("retry exhausted for peer:", peerId);
+      closePC(peerId);
+      for (const cb of disconnCbs) cb(peerId);
+      return;
+    }
+
+    const delay = computeBackoffMs(ps.attempts);
+    ps.attempts++;
+    diagLog.info(
+      "scheduling retry:",
+      peerId.slice(0, 12),
+      "attempt:",
+      ps.attempts,
+      "delay-ms:",
+      delay,
+    );
+    ps.retryTimer = createTimer(() => {
+      ps.retryTimer = null;
+      executeRetry(peerId, failedPC);
+    }, delay);
+  }
+
+  /**
+   * Tear down the old PC and create a fresh one. If we
+   * are initiator, fire off a new SDP offer. Responder
+   * side creates a fresh PC and waits for the
+   * initiator's new offer (symmetric retry — both sides
+   * detect the failure and prepare).
+   */
+  function executeRetry(peerId: string, oldPC: RTCPeerConnection): void {
+    if (peers.get(peerId) === oldPC) {
+      peers.delete(peerId);
+      iceBuf.delete(peerId);
+      remoteDescSet.delete(peerId);
+      try {
+        oldPC.close();
+      } catch (err) {
+        diagLog.debug("oldPC.close error:", (err as Error)?.message);
+      }
+    }
+    diagLog.info("retry: creating fresh PC for:", peerId.slice(0, 12));
+    const pc = getOrCreatePC(peerId);
+    const initiator = isInitiator(peerId);
+    for (const cb of createdCbs) cb(pc, initiator);
+    if (initiator) {
+      void sendOffer(pc, peerId);
+    }
+  }
+
+  /**
+   * Issue an SDP offer to `peerId`. Starts the offer
+   * timeout timer after setLocalDescription; the timer
+   * is cleared when the answer's setRemoteDescription
+   * is applied.
+   */
+  async function sendOffer(
+    pc: RTCPeerConnection,
+    peerId: string,
+  ): Promise<void> {
+    const short = peerId.slice(0, 12);
+    try {
+      diagLog.debug("creating offer for:", short);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      if (peers.get(peerId) !== pc) return;
+
+      // Start the offer-answer timeout now (after
+      // setLocalDescription). Cleared on answer.
+      const ps = getOrCreatePeerState(peerId);
+      if (ps.offerTimer !== null) clearTimer(ps.offerTimer);
+      ps.offerTimer = createTimer(() => {
+        ps.offerTimer = null;
+        if (peers.get(peerId) !== pc) return;
+        diagLog.info("offer timeout:", short);
+        handleFailure(peerId, pc);
+      }, OFFER_TIMEOUT_MS);
+
+      diagLog.debug("offer sent to:", short);
+      client.sendSignal(
+        roomName,
+        peerId,
+        encodeWebRTCSignal({
+          type: WebRTCSignalType.SDP_OFFER,
+          sdp: offer as {
+            type: string;
+            sdp: string;
+          },
+        }),
+      );
+    } catch (err) {
+      diagLog.debug("offer FAILED:", short, (err as Error)?.message);
+      log.warn("offer failed:", err);
+    }
   }
 
   function closePC(remotePeerId: string): void {
     const pc = peers.get(remotePeerId);
     if (pc) {
-      pc.close();
       peers.delete(remotePeerId);
+      pc.close();
     }
     iceBuf.delete(remotePeerId);
     remoteDescSet.delete(remotePeerId);
+    const ps = peerState.get(remotePeerId);
+    if (ps) {
+      clearAllTimers(ps);
+      peerState.delete(remotePeerId);
+    }
   }
 
   // Peer joined → create PC, notify listeners
@@ -323,26 +592,43 @@ export function createPeerManager(
         return;
       }
 
-      // Dedup: if we already have a healthy connection
-      // for this peer, ignore the duplicate
-      // PEER_JOINED (can happen via relay forwarding).
-      // If the existing PC is stale (failed,
-      // disconnected, closed), tear it down and allow
-      // a fresh connection.
+      // Dedup vs. reset. Three cases:
+      //   (1) PC exists and is healthy
+      //       ("new"/"connecting"/"connected") —
+      //       relay duplicate; ignore.
+      //   (2) PC exists but is stale (disconnected /
+      //       failed / closed) — tear down old state
+      //       and start fresh discovery.
+      //   (3) No PC but retry state is pending (mid
+      //       backoff) — cancel retry, start fresh.
       const existing = peers.get(peerId);
+      const hasRetryState = peerState.has(peerId);
       if (existing) {
         const state = existing.connectionState;
         if (
-          state === "failed" ||
-          state === "closed" ||
-          state === "disconnected"
+          state === "new" ||
+          state === "connecting" ||
+          state === "connected"
         ) {
-          diagLog.debug("replacing stale PC:", peerId.slice(0, 12), state);
-          closePC(peerId);
-        } else {
-          diagLog.debug("PEER_JOINED dedup (ignored):", peerId.slice(0, 12));
+          diagLog.debug("PEER_JOINED dedup (healthy):", peerId.slice(0, 12));
           return;
         }
+        diagLog.debug(
+          "PEER_JOINED replacing stale PC:",
+          peerId.slice(0, 12),
+          state,
+        );
+        closePC(peerId);
+      } else if (hasRetryState) {
+        // Retry backoff in progress with no active PC.
+        // Cancel and start fresh.
+        diagLog.debug(
+          "PEER_JOINED cancelling retry state:",
+          peerId.slice(0, 12),
+        );
+        const ps = peerState.get(peerId)!;
+        clearAllTimers(ps);
+        peerState.delete(peerId);
       }
 
       diagLog.info(
@@ -363,43 +649,23 @@ export function createPeerManager(
       }
 
       if (initiator) {
-        // Create and send SDP offer
-        void (async () => {
-          try {
-            diagLog.debug("creating offer for:", peerId.slice(0, 12));
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            diagLog.debug("offer sent to:", peerId.slice(0, 12));
-            client.sendSignal(
-              roomName,
-              peerId,
-              encodeWebRTCSignal({
-                type: WebRTCSignalType.SDP_OFFER,
-                sdp: offer as {
-                  type: string;
-                  sdp: string;
-                },
-              }),
-            );
-          } catch (err) {
-            diagLog.debug(
-              "offer FAILED:",
-              peerId.slice(0, 12),
-              (err as Error)?.message,
-            );
-            log.warn("offer failed:", err);
-          }
-        })();
+        void sendOffer(pc, peerId);
       }
     }),
   );
 
-  // Peer left → close connection
+  // Peer left → close connection + fire terminal
+  // disconnCbs. PEER_LEFT is a semantic signal that
+  // the peer is gone; no retry is warranted.
   unsubs.push(
     client.onPeerLeft((room, peerId) => {
       if (room !== roomName) return;
       log.debug("peer left:", peerId);
+      const hadAnyState = peers.has(peerId) || peerState.has(peerId);
       closePC(peerId);
+      if (hadAnyState) {
+        for (const cb of disconnCbs) cb(peerId);
+      }
     }),
   );
 
@@ -450,6 +716,15 @@ export function createPeerManager(
             diagLog.debug("no PC for answer from:", fpid);
             return;
           }
+          // Answer received — clear the offer-answer
+          // timeout. Done before setRemoteDescription
+          // resolves so the timeout can't fire during
+          // the async description apply.
+          const ps = peerState.get(fromPeerId);
+          if (ps?.offerTimer !== undefined && ps?.offerTimer !== null) {
+            clearTimer(ps.offerTimer);
+            ps.offerTimer = null;
+          }
           void pc
             .setRemoteDescription(signal.sdp as RTCSessionDescriptionInit)
             .then(() => flushIceCandidates(fromPeerId))
@@ -491,11 +766,14 @@ export function createPeerManager(
     destroy() {
       for (const unsub of unsubs) unsub();
       unsubs.length = 0;
+      for (const ps of peerState.values()) clearAllTimers(ps);
+      peerState.clear();
       for (const pc of peers.values()) {
         pc.close();
       }
       peers.clear();
       connCbs.clear();
+      createdCbs.clear();
       disconnCbs.clear();
       iceBuf.clear();
       remoteDescSet.clear();
