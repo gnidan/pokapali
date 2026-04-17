@@ -668,6 +668,37 @@ export function createDoc(params: DocParams): Doc {
           log.warn("rescanPending failed:", err);
         });
       },
+      // A4: snapshot exchange — catalog producer +
+      // block resolver + ingest receiver.
+      getSnapshotCatalog: () => {
+        const history =
+          runtimeState.localSnapshotHistory ??
+          runtimeState.interpreterState?.snapshotHistory;
+        const records = history?.records ?? [];
+        const entries = records
+          .filter((r) => resolver.has(r.cid))
+          .map((r) => ({
+            cid: r.cid.bytes,
+            seq: r.seq,
+            ts: r.ts,
+          }));
+        const tip = runtimeState.interpreterState?.chain.tip;
+        return {
+          entries,
+          tip: tip?.bytes ?? null,
+        };
+      },
+      blockResolver: resolver,
+      onSnapshotReceived: (cid, data) => {
+        // Route catalog-received blocks through A3
+        // ingest orchestrator. Peer blocks bypass
+        // the interpreter's block-fetch path — bytes
+        // arrive inline from snapshot exchange.
+        if (!runtime) return;
+        runtime.ingestSnapshot(cid, data).catch((err) => {
+          log.warn("catalog ingest failed:", err);
+        });
+      },
     });
   }
 

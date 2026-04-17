@@ -1286,6 +1286,122 @@ describe("ReconciliationWiring", () => {
     );
 
     it(
+      "catalog producer filters entries by " +
+        "resolver availability (A4 §catalog-producer)",
+      () => {
+        // Simulates the create-doc.ts catalog
+        // lambda: only entries whose blocks exist
+        // in the resolver appear in the catalog.
+        const chA = Channel.create("content");
+        const chB = Channel.create("content");
+        const shared = makeEdit(new Uint8Array([1, 2, 3]));
+        chA.appendEdit(shared);
+        chB.appendEdit(shared);
+
+        const codec = mockCodec();
+        const { transportA, transportB, drain } = mockTransportPair();
+
+        const resolverA = mockBlockResolver();
+        const resolverB = mockBlockResolver();
+
+        // Two CID entries: one available in
+        // resolver, one not.
+        const availableCid = new Uint8Array([
+          0x01,
+          0x71,
+          0x12,
+          0x20,
+          ...Array(32).fill(0xaa),
+        ]);
+        const missingCid = new Uint8Array([
+          0x01,
+          0x71,
+          0x12,
+          0x20,
+          ...Array(32).fill(0xbb),
+        ]);
+        // Put block for availableCid so
+        // resolver.has returns true
+        const fakeCid = CID.decode(availableCid);
+        resolverA.put(fakeCid, new Uint8Array([99]));
+
+        const sentSnapshots: SnapshotMessage[] = [];
+        const wrappedTransportA: ReconciliationTransport = {
+          ...transportA,
+          sendSnapshotMessage: (msg) => {
+            sentSnapshots.push(msg);
+            transportA.sendSnapshotMessage(msg);
+          },
+        };
+
+        // Catalog function mimics the create-doc
+        // lambda: filter by has().
+        const allRecords = [
+          {
+            cid: availableCid,
+            seq: 1,
+            ts: 100,
+          },
+          {
+            cid: missingCid,
+            seq: 2,
+            ts: 200,
+          },
+        ];
+
+        const wiringA = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chA : Channel.create(name),
+          codec,
+          transport: wrappedTransportA,
+          getSnapshotCatalog: () => ({
+            entries: allRecords.filter((r) => {
+              try {
+                const c = CID.decode(r.cid);
+                return resolverA.has(c);
+              } catch {
+                return false;
+              }
+            }),
+            tip: availableCid,
+          }),
+          blockResolver: resolverA,
+        });
+        const wiringB = createReconciliationWiring({
+          channels: ["content"],
+          getChannel: (name) =>
+            name === "content" ? chB : Channel.create(name),
+          codec,
+          transport: transportB,
+          getSnapshotCatalog: () => ({
+            entries: [],
+            tip: null,
+          }),
+          blockResolver: resolverB,
+        });
+
+        wiringA.reconcile();
+        wiringB.reconcile();
+        drain();
+
+        const catalogs = sentSnapshots.filter(
+          (m) => m.type === ReconciliationMessageType.SNAPSHOT_CATALOG,
+        );
+        expect(catalogs.length).toBe(1);
+        if (catalogs[0]!.type !== ReconciliationMessageType.SNAPSHOT_CATALOG) {
+          throw new Error();
+        }
+        // Only the available entry is advertised.
+        expect(catalogs[0]!.entries).toHaveLength(1);
+        expect(catalogs[0]!.entries[0]!.seq).toBe(1);
+
+        wiringA.destroy();
+        wiringB.destroy();
+      },
+    );
+
+    it(
       "no snapshot exchange when " +
         "getSnapshotCatalog/blockResolver are absent",
       () => {

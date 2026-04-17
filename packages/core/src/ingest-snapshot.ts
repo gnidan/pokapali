@@ -378,6 +378,15 @@ export function createIngestSnapshot(
     sidebandOptions,
   } = deps;
 
+  // Track CIDs that have been successfully placed so the
+  // duplicate gate (Gate 3) catches the catalog-vs-gossip
+  // race: when onSnapshotReceived places a block before
+  // the interpreter's applySnapshot call, the chain entry
+  // is still "fetched" (not "applied"), but this set knows
+  // the block was already processed. Prevents double-apply
+  // of applyRemote to the Y.Doc.
+  const placedCids = new Set<string>();
+
   // Parallel tracking for rescan: the sideband stores
   // just bytes (keeping eviction simple), while this
   // Map preserves the original PendingContext so each
@@ -448,8 +457,16 @@ export function createIngestSnapshot(
       return { outcome: "rejected", reason: "invalid-signature" };
     }
 
-    // Gate 3 — duplicate. "Applied" means it's already
-    // in our chain; re-ingest is a no-op.
+    // Gate 3 — duplicate. Two checks:
+    //   (a) chain says "applied" — reducer processed a
+    //       tip-advanced fact for this CID.
+    //   (b) placedCids has it — the catalog exchange path
+    //       placed + applied this CID before the interpreter
+    //       could push tip-advanced (race window).
+    // Both are benign no-ops; return "duplicate".
+    if (placedCids.has(cidStr)) {
+      return { outcome: "rejected", reason: "duplicate" };
+    }
     const entry = getState().chain.entries.get(cidStr);
     if (entry?.blockStatus === "applied") {
       return { outcome: "rejected", reason: "duplicate" };
@@ -506,6 +523,7 @@ export function createIngestSnapshot(
       }
     }
 
+    placedCids.add(cidStr);
     return { outcome: "placed" };
   }
 

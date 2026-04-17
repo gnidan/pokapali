@@ -55,6 +55,7 @@ import { createEffectHandlers } from "./effect-handlers.js";
 import {
   createIngestSnapshot,
   type IngestOutcomeRecord,
+  type IngestResult,
 } from "./ingest-snapshot.js";
 import { createGossipHandler } from "./doc-gossip-bridge.js";
 import { fetchTipFromPinners } from "./fetch-tip.js";
@@ -166,10 +167,17 @@ export interface DocRuntimeResult {
    * epoch) snapshots. Callers: reconciliation-wiring
    * fires this on reconcile-cycle-end, since peer-edit
    * arrivals are the only event class that can fill in
-   * the missing intermediate epochs. (A3 exposes; A4 may
-   * also call directly after catalog exchange.)
+   * the missing intermediate epochs.
    */
   rescanPending: () => Promise<void>;
+  /**
+   * Ingest a snapshot block received from a peer via
+   * snapshot exchange (catalog path). Runs the full
+   * A3 pipeline: CID integrity → signature validation
+   * → duplicate detection → structural placement →
+   * apply/quarantine. Source is always "peer".
+   */
+  ingestSnapshot: (cid: CID, data: Uint8Array) => Promise<IngestResult>;
   fireGuaranteeQuery: () => void;
   stopIPNSWatch: () => void;
   initialQueryTimer: ReturnType<typeof setTimeout> | null;
@@ -408,9 +416,10 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
   // Owns `lastLocalPublishCid` at runtime scope so both
   // the ingest source-dispatch (snapshot-ops applySnapshot
   // shim) and the effect-handlers' emitSnapshotApplied
-  // echo suppression close over the same flag. A4 will
-  // collapse the source check once peer blocks stop
-  // reaching applySnapshot.
+  // echo suppression close over the same flag. Post-A4,
+  // peer blocks primarily arrive via catalog exchange →
+  // onSnapshotReceived, but the GossipSub path still
+  // reaches here until interpreter-double-apply cutover.
   let lastLocalPublishCid: string | null = null;
   const ingest = createIngestSnapshot({
     snapshotCodec,
@@ -637,6 +646,10 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
     effectHandlersCleanup,
     setLastLocalPublishCid,
     rescanPending: () => ingest.rescanPending(),
+    ingestSnapshot: (cid: CID, data: Uint8Array) =>
+      ingest.ingestSnapshot(cid, data, {
+        source: "peer",
+      }),
     fireGuaranteeQuery,
     stopIPNSWatch,
     initialQueryTimer,

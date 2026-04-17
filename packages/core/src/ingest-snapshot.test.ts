@@ -671,4 +671,34 @@ describe("createIngestSnapshot", () => {
       expect(dupe).toBeDefined();
     },
   );
+
+  it(
+    "rejects duplicate when same CID is ingested " +
+      "twice (catalog-vs-gossip race, A4 " +
+      "§double-apply prevention)",
+    async () => {
+      const { keys, signingKey, snapshotCodec, api } = await makeDeps();
+      const { cid, block } = await encodeValidBlock(
+        keys.readKey,
+        signingKey,
+        1,
+        null,
+      );
+
+      // First ingest — catalog exchange path.
+      const r1 = await api.ingestSnapshot(cid, block, { source: "peer" });
+      expect(r1.outcome).toBe("placed");
+      expect(snapshotCodec.applyRemoteCalls).toBe(1);
+
+      // Second ingest — interpreter's applySnapshot
+      // path for the same CID. Chain entry may not
+      // yet be "applied" (tip-advanced fact hasn't
+      // fired), but placedCids gate catches it.
+      const r2 = await api.ingestSnapshot(cid, block, { source: "peer" });
+      expect(r2.outcome).toBe("rejected");
+      expect(r2.reason).toBe("duplicate");
+      // applyRemote must NOT be called a second time.
+      expect(snapshotCodec.applyRemoteCalls).toBe(1);
+    },
+  );
 });

@@ -69,9 +69,12 @@ export interface SnapshotOpsOptions {
   /**
    * Source dispatch (Option Y, architect ratified
    * 2026-04-16): returns "local" if `cid` matches the
-   * last locally-published CID, else "peer". A3 shape;
-   * A4 will collapse this to always-local once peer
-   * blocks route through onSnapshotReceived directly.
+   * last locally-published CID, else "peer". Post-A4,
+   * peer blocks primarily arrive via catalog exchange →
+   * onSnapshotReceived → ingestSnapshot (bypassing this
+   * shim). The GossipSub path still reaches here for
+   * backward compatibility until the interpreter-double-
+   * apply cutover removes it.
    */
   resolveSource: (cid: CID) => "local" | "peer";
 }

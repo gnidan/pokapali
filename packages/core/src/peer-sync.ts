@@ -10,6 +10,7 @@
  * @module
  */
 
+import type { CID } from "multiformats/cid";
 import type { Document, Edit } from "@pokapali/document";
 import type { Codec } from "@pokapali/codec";
 import type { Ed25519KeyPair } from "@pokapali/crypto";
@@ -21,7 +22,9 @@ import {
 import {
   createReconciliationWiring,
   type ReconciliationWiring,
+  type SnapshotCatalog,
 } from "./reconciliation-wiring.js";
+import type { BlockResolver } from "./block-resolver.js";
 import { signEdit } from "./epoch/sign-edit.js";
 
 // ── Options ────────────────────────────────────
@@ -43,6 +46,20 @@ export interface PeerSyncOptions {
    *  sidebanded snapshot placements after peer edits
    *  may have filled bridging epochs. */
   onReconcileCycleEnd?: () => void;
+  /** Snapshot catalog provider — when supplied with
+   *  {@link blockResolver}, enables per-peer snapshot
+   *  exchange. Advertised once per reconcile cycle
+   *  after all coordinators report done. */
+  getSnapshotCatalog?: () => SnapshotCatalog;
+  /** Block store for snapshot exchange: serves
+   *  outgoing blocks and persists verified incoming
+   *  blocks. */
+  blockResolver?: BlockResolver;
+  /** Fires after a peer snapshot block has been
+   *  verified and stored via snapshot exchange.
+   *  Use this to route the block into the A3 ingest
+   *  orchestrator. */
+  onSnapshotReceived?: (cid: CID, data: Uint8Array) => void;
 }
 
 // ── Return type ────────────────────────────────
@@ -70,6 +87,9 @@ export function createPeerSync(opts: PeerSyncOptions): PeerSync {
     persistEdit,
     onSyncStatusChanged,
     onReconcileCycleEnd,
+    getSnapshotCatalog,
+    blockResolver,
+    onSnapshotReceived,
   } = opts;
 
   const wirings = new Set<ReconciliationWiring>();
@@ -104,6 +124,9 @@ export function createPeerSync(opts: PeerSyncOptions): PeerSync {
         persistEdit(ch, edit);
       },
       onReconcileCycleEnd,
+      getSnapshotCatalog,
+      blockResolver,
+      onSnapshotReceived,
     });
     wirings.add(wiring);
 
