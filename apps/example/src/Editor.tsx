@@ -366,6 +366,17 @@ export function EditorView({ doc, onBack }: { doc: Doc; onBack: () => void }) {
 
   return (
     <div className="app">
+      {/* Hidden test signal: stable hook for E2E
+          observation of version-history feed size.
+          Always rendered (useVersionHistory runs
+          unconditionally), so tests can poll the count
+          without opening the History drawer. */}
+      <div
+        data-testid="versions-feed"
+        data-version-count={versionHistory.versions.length}
+        hidden
+        aria-hidden="true"
+      />
       <div className="header">
         <div className="header-identity">
           <button
