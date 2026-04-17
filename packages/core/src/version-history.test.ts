@@ -50,6 +50,7 @@ function createMockResolver(blocks?: Map<string, Uint8Array>): BlockResolver {
     get: vi.fn(async (cid: CID) => {
       return cache.get(cid.toString()) ?? null;
     }),
+    has: vi.fn((cid: CID) => cache.has(cid.toString())),
     getCached: vi.fn((cid: CID) => {
       return cache.get(cid.toString()) ?? null;
     }),

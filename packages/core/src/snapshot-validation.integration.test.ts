@@ -98,6 +98,7 @@ function mockBlockResolver() {
   const blocks = new Map<string, Uint8Array>();
   return {
     get: vi.fn(async (cid: CID) => blocks.get(cid.toString()) ?? null),
+    has: vi.fn((cid: CID) => blocks.has(cid.toString())),
     getCached: vi.fn((cid: CID) => blocks.get(cid.toString()) ?? null),
     put: vi.fn((cid: CID, block: Uint8Array) => {
       blocks.set(cid.toString(), block);

@@ -971,6 +971,7 @@ describe("ReconciliationWiring", () => {
       return {
         stored,
         get: async (cid) => stored.get(cid.toString()) ?? null,
+        has: (cid) => stored.has(cid.toString()),
         getCached: (cid) => stored.get(cid.toString()) ?? null,
         put: (cid, block) => {
           stored.set(cid.toString(), block);

@@ -22,14 +22,28 @@ export interface BlockResolver {
    *  Never throws — returns null on miss. */
   get(cid: CID): Promise<Uint8Array | null>;
 
+  /** Synchronous availability check. True iff the
+   *  block is currently available (memory tier OR
+   *  persistence tier, including memory-only fallback
+   *  after IDB quota failures). MUST NOT do I/O.
+   *
+   *  Used by hot-path filters (catalog advertise,
+   *  REQUEST responders) that cannot await. May return
+   *  true while `getCached()` returns null — persisted
+   *  blocks not in memory are still `has()`-available
+   *  and fetchable via async `get()`. */
+  has(cid: CID): boolean;
+
   /** Memory-only synchronous lookup. For hot-path
    *  callers (announce, reannounce, interpreter
-   *  fast-path). */
+   *  fast-path). May return null even when has() is
+   *  true (block in persistence but not memory). */
   getCached(cid: CID): Uint8Array | null;
 
   /** Store in memory (sync) + IDB (fire-and-forget).
    *  Block is immediately available via getCached()
-   *  after put() returns. */
+   *  after put() returns. Never throws; persistence
+   *  failures surface via impl-specific telemetry. */
   put(cid: CID, block: Uint8Array): void;
 }
 
@@ -86,6 +100,13 @@ export function createBlockResolver(opts: BlockResolverOptions): BlockResolver {
         negativeCache.set(key, Date.now());
         return null;
       }
+    },
+
+    has(cid) {
+      // Transitional impl: memory-only. Real impl
+      // (createDocBlockResolver, protocol/S54 A2) adds
+      // persistence-tier reflection via knownCids mirror.
+      return cache.has(cid.toString());
     },
 
     getCached(cid) {

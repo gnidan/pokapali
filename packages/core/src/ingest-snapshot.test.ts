@@ -268,6 +268,9 @@ function stubResolver(): BlockResolver & {
     async get(cid) {
       return mem.get(cid.toString()) ?? null;
     },
+    has(cid) {
+      return mem.has(cid.toString());
+    },
     getCached(cid) {
       return mem.get(cid.toString()) ?? null;
     },
