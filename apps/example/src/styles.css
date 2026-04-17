@@ -1843,3 +1843,73 @@ body {
   margin-left: 4px;
   vertical-align: middle;
 }
+
+/* Snapshot exchange diagnostics (Path A) */
+
+.cs-snapshot-exchange {
+  grid-column: 1 / -1;
+}
+
+.cs-snapshot-exchange-empty {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 0.4rem 0;
+}
+
+.cs-snapshot-exchange-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.7rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+}
+
+.cs-snapshot-exchange-row {
+  display: grid;
+  grid-template-columns: 5em 1em 7em 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.18rem 0.4rem;
+  color: #334155;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.cs-snapshot-exchange-row:last-child {
+  border-bottom: none;
+}
+
+.cs-sx-time {
+  color: #94a3b8;
+  text-align: right;
+}
+
+.cs-sx-arrow {
+  color: #94a3b8;
+  text-align: center;
+}
+
+.cs-sx-kind {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.cs-snapshot-exchange-row[data-kind="blk"] .cs-sx-kind {
+  color: #8b5cf6;
+}
+
+.cs-snapshot-exchange-row[data-locality="local"] .cs-sx-kind {
+  color: #475569;
+}
+
+.cs-sx-detail {
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.68rem;
+}

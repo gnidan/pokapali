@@ -6,6 +6,8 @@ import type {
   VersionHistory,
 } from "@pokapali/core";
 import { TopologyMap } from "./TopologyMap";
+import { SnapshotExchangeDetail } from "./SnapshotExchangeDetail";
+import { isDiagEnabled } from "./snapshotExchangeEvents";
 import {
   useFeed,
   usePeerPresenceState,
@@ -214,7 +216,7 @@ export function networkHealth(ipfsPeers: number, meshPeers: number): Health {
   return "disconnected";
 }
 
-function truncateCid(cid: string): string {
+export function truncateCid(cid: string): string {
   if (cid.length <= 12) return cid;
   return cid.slice(0, 6) + "\u2026" + cid.slice(-6);
 }
@@ -592,6 +594,10 @@ export interface ConnectionStatusViewProps {
   canPushSnapshots: boolean;
   presence: PeerPresenceResult;
   topologyMap?: React.ReactNode;
+  /** Dev-only snapshot-exchange diagnostics panel.
+   *  Caller decides whether to render it (gate via
+   *  `isDiagEnabled` from snapshotExchangeEvents). */
+  snapshotExchangeDetail?: React.ReactNode;
 }
 
 export function ConnectionStatusView({
@@ -602,6 +608,7 @@ export function ConnectionStatusView({
   canPushSnapshots,
   presence,
   topologyMap,
+  snapshotExchangeDetail,
 }: ConnectionStatusViewProps) {
   const connectedNodes = info.nodes.filter((n) => n.connected).length;
   const pLabel = presenceLabel(presence.state, presence.peerCount);
@@ -695,6 +702,7 @@ export function ConnectionStatusView({
         {topologyMap}
         <NetworkDetail info={info} history={history} />
         <SnapshotsDetail info={info} history={history} />
+        {snapshotExchangeDetail}
       </div>
     </div>
   );
@@ -717,6 +725,9 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
       canPushSnapshots={doc.capability.canPushSnapshots}
       presence={presence}
       topologyMap={<TopologyMap doc={doc} />}
+      snapshotExchangeDetail={
+        isDiagEnabled() ? <SnapshotExchangeDetail doc={doc} /> : null
+      }
     />
   );
 }
