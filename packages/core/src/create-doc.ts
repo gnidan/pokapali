@@ -658,6 +658,16 @@ export function createDoc(params: DocParams): Doc {
           status,
         });
       },
+      onReconcileCycleEnd: () => {
+        // Retry placement for sidebanded snapshots —
+        // peer edits that just arrived may have filled
+        // the bridging epochs that previously made them
+        // unplaceable. Fire-and-forget per spec: the
+        // reconcile loop must never await this.
+        runtime?.rescanPending().catch((err) => {
+          log.warn("rescanPending failed:", err);
+        });
+      },
     });
   }
 

@@ -37,6 +37,12 @@ export interface PeerSyncOptions {
   /** Called when aggregate sync connectivity changes
    *  (first peer connects / last peer disconnects). */
   onSyncStatusChanged?: (status: "connected" | "disconnected") => void;
+  /** Forwarded to each reconciliation wiring: fires when
+   *  every per-channel coordinator reports `done`. Used
+   *  by the A3 ingest orchestrator to re-attempt
+   *  sidebanded snapshot placements after peer edits
+   *  may have filled bridging epochs. */
+  onReconcileCycleEnd?: () => void;
 }
 
 // ── Return type ────────────────────────────────
@@ -63,6 +69,7 @@ export function createPeerSync(opts: PeerSyncOptions): PeerSync {
     identity,
     persistEdit,
     onSyncStatusChanged,
+    onReconcileCycleEnd,
   } = opts;
 
   const wirings = new Set<ReconciliationWiring>();
@@ -96,6 +103,7 @@ export function createPeerSync(opts: PeerSyncOptions): PeerSync {
       onRemoteEdit: (ch, edit) => {
         persistEdit(ch, edit);
       },
+      onReconcileCycleEnd,
     });
     wirings.add(wiring);
 

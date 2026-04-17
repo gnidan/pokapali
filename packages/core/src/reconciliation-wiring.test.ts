@@ -340,6 +340,105 @@ describe("ReconciliationWiring", () => {
     expect(() => wiring.destroy()).not.toThrow();
   });
 
+  it(
+    "onReconcileCycleEnd fires once per cycle " +
+      "after all coordinators report done",
+    () => {
+      const chA = Channel.create("content");
+      const chB = Channel.create("content");
+      // Both sides carry distinct edits so each
+      // coordinator's bidirectional exchange completes
+      // and transitions to done.
+      chA.appendEdit(makeEdit(new Uint8Array([1])));
+      chB.appendEdit(makeEdit(new Uint8Array([2])));
+
+      const codec = mockCodec();
+      const { transportA, transportB, drain } = mockTransportPair();
+
+      let cycleEndA = 0;
+      let cycleEndB = 0;
+
+      const wiringA = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+        codec,
+        transport: transportA,
+        onReconcileCycleEnd: () => {
+          cycleEndA++;
+        },
+      });
+      const wiringB = createReconciliationWiring({
+        channels: ["content"],
+        getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+        codec,
+        transport: transportB,
+        onReconcileCycleEnd: () => {
+          cycleEndB++;
+        },
+      });
+
+      wiringA.reconcile();
+      wiringB.reconcile();
+      drain();
+
+      // Each side fires exactly once per completed
+      // reconcile cycle — not once per received
+      // message.
+      expect(cycleEndA).toBe(1);
+      expect(cycleEndB).toBe(1);
+
+      // A second reconcile re-arms the latch. Add new
+      // edits so both sides still converge this round.
+      chA.appendEdit(makeEdit(new Uint8Array([3])));
+      chB.appendEdit(makeEdit(new Uint8Array([4])));
+      wiringA.reconcile();
+      wiringB.reconcile();
+      drain();
+
+      expect(cycleEndA).toBe(2);
+      expect(cycleEndB).toBe(2);
+
+      wiringA.destroy();
+      wiringB.destroy();
+    },
+  );
+
+  it("onReconcileCycleEnd swallows callback throws", () => {
+    const chA = Channel.create("content");
+    const chB = Channel.create("content");
+    chA.appendEdit(makeEdit(new Uint8Array([1])));
+    chB.appendEdit(makeEdit(new Uint8Array([2])));
+
+    const codec = mockCodec();
+    const { transportA, transportB, drain } = mockTransportPair();
+
+    const wiringA = createReconciliationWiring({
+      channels: ["content"],
+      getChannel: (name) => (name === "content" ? chA : Channel.create(name)),
+      codec,
+      transport: transportA,
+      onReconcileCycleEnd: () => {
+        throw new Error("boom");
+      },
+    });
+    const wiringB = createReconciliationWiring({
+      channels: ["content"],
+      getChannel: (name) => (name === "content" ? chB : Channel.create(name)),
+      codec,
+      transport: transportB,
+    });
+
+    wiringA.reconcile();
+    wiringB.reconcile();
+
+    // A throwing callback must not break the reconcile
+    // loop — drain() should still complete normally.
+    expect(() => drain()).not.toThrow();
+
+    wiringA.destroy();
+    wiringB.destroy();
+  });
+
   describe("outgoing edit signing", () => {
     it(
       "EDIT_BATCH messages carry signed envelopes " +

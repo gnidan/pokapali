@@ -1,7 +1,13 @@
 /**
- * Tests for createSnapshotOps factory — verifies
- * decodeBlock and applySnapshot wiring independently
- * of create-doc.ts.
+ * Tests for createSnapshotOps factory — verifies the
+ * interpreter-facing `applySnapshot` shim correctly
+ * maps ingest orchestrator outcomes to the legacy
+ * `{seq}` / SnapshotValidationError / PendingIngestError
+ * contract the interpreter depends on.
+ *
+ * Deep validation / dedupe / sideband behavior is
+ * covered in ingest-snapshot.test.ts; this test file
+ * only exercises the shim layer.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CID } from "multiformats/cid";
@@ -11,8 +17,11 @@ import {
   SnapshotValidationError,
   type SnapshotOpsOptions,
 } from "./snapshot-ops.js";
-import type { SnapshotCodec } from "./snapshot-codec.js";
-import type { BlockResolver } from "./block-resolver.js";
+import {
+  PendingIngestError,
+  type IngestResult,
+  type IngestSnapshotApi,
+} from "./ingest-snapshot.js";
 
 // --- Helpers ---
 
@@ -23,45 +32,30 @@ async function fakeCid(data: Uint8Array = new Uint8Array([1])): Promise<CID> {
   return CID.createV1(DAG_CBOR_CODE, hash);
 }
 
-function mockResolver(): BlockResolver {
-  return {
-    get: vi.fn().mockResolvedValue(null),
-    getCached: vi.fn().mockReturnValue(null),
-    put: vi.fn(),
+function stubIngest(
+  result: IngestResult = { outcome: "placed" },
+): IngestSnapshotApi & { calls: number } {
+  const api = {
+    ingestSnapshot: vi.fn(async () => result),
+    rescanPending: vi.fn(async () => undefined),
+    pendingSize: 0,
+    calls: 0,
   };
-}
-
-function mockSnapshotCodec(): SnapshotCodec {
-  return {
-    push: vi.fn(),
-    applyRemote: vi.fn().mockResolvedValue(true),
-    loadVersion: vi.fn(),
-    get prev() {
-      return null;
-    },
-    get seq() {
-      return 1;
-    },
-    get lastIpnsSeq() {
-      return null;
-    },
-    setLastIpnsSeq: vi.fn(),
-  } as unknown as SnapshotCodec;
+  return api as unknown as IngestSnapshotApi & { calls: number };
 }
 
 function buildOptions(
   overrides?: Partial<SnapshotOpsOptions>,
 ): SnapshotOpsOptions {
   return {
-    snapshotCodec: mockSnapshotCodec(),
-    resolver: mockResolver(),
-    readKey: {} as CryptoKey,
-    getClockSum: () => 42,
+    ingest: stubIngest(),
+    resolveSource: () => "peer",
     ...overrides,
   };
 }
 
-// --- Mock decodeSnapshot ---
+// --- Mock decodeSnapshot (still used by decodeBlock +
+//     the seq decode at the end of applySnapshot shim). ---
 
 vi.mock("@pokapali/blocks", () => ({
   decodeSnapshot: vi.fn(() => ({
@@ -130,113 +124,95 @@ describe("createSnapshotOps", () => {
     });
   });
 
-  // ----- applySnapshot -----
+  // ----- applySnapshot shim -----
 
   describe("applySnapshot", () => {
-    it("puts block in resolver and delegates" + " to codec", async () => {
-      const resolver = mockResolver();
-      const codec = mockSnapshotCodec();
-      const ops = createSnapshotOps(
-        buildOptions({
-          resolver,
-          snapshotCodec: codec,
-        }),
-      );
-
-      const cid = await fakeCid();
-      const block = new Uint8Array([1, 2, 3]);
-      const result = await ops.applySnapshot(cid, block);
-
-      expect(resolver.put).toHaveBeenCalledWith(cid, block);
-      expect(codec.applyRemote).toHaveBeenCalled();
-      expect(result).toEqual({ seq: 5 });
-    });
-
-    it("sets lastIpnsSeq from getClockSum" + " when applied", async () => {
-      const codec = mockSnapshotCodec();
-      vi.mocked(codec.applyRemote).mockResolvedValue(true);
-      const getClockSum = vi.fn(() => 99);
-
-      const ops = createSnapshotOps(
-        buildOptions({
-          snapshotCodec: codec,
-          getClockSum,
-        }),
-      );
-
-      const cid = await fakeCid();
-      await ops.applySnapshot(cid, new Uint8Array([1]));
-
-      expect(codec.setLastIpnsSeq).toHaveBeenCalledWith(99);
-    });
-
-    it("skips setLastIpnsSeq when not applied", async () => {
-      const codec = mockSnapshotCodec();
-      vi.mocked(codec.applyRemote).mockResolvedValue(false);
-
-      const ops = createSnapshotOps(buildOptions({ snapshotCodec: codec }));
-
-      const cid = await fakeCid();
-      await ops.applySnapshot(cid, new Uint8Array([1]));
-
-      expect(codec.setLastIpnsSeq).not.toHaveBeenCalled();
-    });
-  });
-
-  // ----- Snapshot validation (#216) -----
-
-  describe("applySnapshot validation", () => {
     it(
-      "throws SnapshotValidationError when" + " validateSnapshot returns false",
+      "delegates to ingest.ingestSnapshot with " + "resolved source",
       async () => {
-        const { validateSnapshot } = await import("@pokapali/blocks");
-        vi.mocked(validateSnapshot).mockResolvedValueOnce(false);
+        const ingest = stubIngest({ outcome: "placed" });
+        const resolveSource = vi.fn(() => "local" as const);
+        const ops = createSnapshotOps(buildOptions({ ingest, resolveSource }));
 
-        const ops = createSnapshotOps(buildOptions());
         const cid = await fakeCid();
+        const block = new Uint8Array([1, 2, 3]);
+        const result = await ops.applySnapshot(cid, block);
 
-        await expect(
-          ops.applySnapshot(cid, new Uint8Array([1, 2])),
-        ).rejects.toThrow(SnapshotValidationError);
-      },
-    );
-
-    it("does not call applyRemote when" + " validation fails", async () => {
-      const { validateSnapshot } = await import("@pokapali/blocks");
-      vi.mocked(validateSnapshot).mockResolvedValueOnce(false);
-
-      const codec = mockSnapshotCodec();
-      const ops = createSnapshotOps(buildOptions({ snapshotCodec: codec }));
-      const cid = await fakeCid();
-
-      await expect(
-        ops.applySnapshot(cid, new Uint8Array([1])),
-      ).rejects.toThrow();
-
-      expect(codec.applyRemote).not.toHaveBeenCalled();
-    });
-
-    it(
-      "proceeds normally when validateSnapshot" + " returns true",
-      async () => {
-        const { validateSnapshot } = await import("@pokapali/blocks");
-        vi.mocked(validateSnapshot).mockResolvedValueOnce(true);
-
-        const codec = mockSnapshotCodec();
-        const ops = createSnapshotOps(buildOptions({ snapshotCodec: codec }));
-        const cid = await fakeCid();
-        const result = await ops.applySnapshot(cid, new Uint8Array([1]));
-
-        expect(codec.applyRemote).toHaveBeenCalled();
+        expect(resolveSource).toHaveBeenCalledWith(cid);
+        expect(ingest.ingestSnapshot).toHaveBeenCalledWith(cid, block, {
+          source: "local",
+        });
         expect(result).toEqual({ seq: 5 });
       },
     );
+
+    it("returns {seq} on placed outcome", async () => {
+      const ingest = stubIngest({ outcome: "placed" });
+      const ops = createSnapshotOps(buildOptions({ ingest }));
+      const cid = await fakeCid();
+      const result = await ops.applySnapshot(cid, new Uint8Array([1]));
+      expect(result).toEqual({ seq: 5 });
+    });
+
+    it("returns {seq} on duplicate (no-op success " + "contract)", async () => {
+      const ingest = stubIngest({
+        outcome: "rejected",
+        reason: "duplicate",
+      });
+      const ops = createSnapshotOps(buildOptions({ ingest }));
+      const cid = await fakeCid();
+      const result = await ops.applySnapshot(cid, new Uint8Array([1]));
+      expect(result).toEqual({ seq: 5 });
+    });
+
+    it("throws SnapshotValidationError on " + "invalid-signature", async () => {
+      const ingest = stubIngest({
+        outcome: "rejected",
+        reason: "invalid-signature",
+      });
+      const ops = createSnapshotOps(buildOptions({ ingest }));
+      const cid = await fakeCid();
+      await expect(ops.applySnapshot(cid, new Uint8Array([1]))).rejects.toThrow(
+        SnapshotValidationError,
+      );
+    });
+
+    it("throws SnapshotValidationError on " + "cid-mismatch", async () => {
+      const ingest = stubIngest({
+        outcome: "rejected",
+        reason: "cid-mismatch",
+      });
+      const ops = createSnapshotOps(buildOptions({ ingest }));
+      const cid = await fakeCid();
+      await expect(ops.applySnapshot(cid, new Uint8Array([1]))).rejects.toThrow(
+        SnapshotValidationError,
+      );
+    });
+
+    it("throws PendingIngestError on pending " + "outcome", async () => {
+      const ingest = stubIngest({
+        outcome: "pending",
+        reason: "unplaceable-epoch",
+      });
+      const ops = createSnapshotOps(buildOptions({ ingest }));
+      const cid = await fakeCid();
+      await expect(ops.applySnapshot(cid, new Uint8Array([1]))).rejects.toThrow(
+        PendingIngestError,
+      );
+    });
 
     it("SnapshotValidationError has correct" + " name and includes CID", () => {
       const err = new SnapshotValidationError("bafyabc123");
       expect(err.name).toBe("SnapshotValidationError");
       expect(err.message).toContain("bafyabc123");
       expect(err).toBeInstanceOf(Error);
+    });
+
+    it("PendingIngestError has correct name " + "and includes CID", () => {
+      const err = new PendingIngestError("bafyxyz789");
+      expect(err.name).toBe("PendingIngestError");
+      expect(err.message).toContain("bafyxyz789");
+      expect(err.cid).toBe("bafyxyz789");
     });
   });
 });

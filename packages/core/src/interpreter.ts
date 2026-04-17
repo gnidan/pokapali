@@ -18,6 +18,7 @@ import type {
 import type { AsyncQueue } from "./async-utils.js";
 import type { SnapshotOps } from "./snapshot-ops.js";
 import { SnapshotValidationError } from "./snapshot-ops.js";
+import { PendingIngestError } from "./ingest-snapshot.js";
 import { createLogger } from "@pokapali/log";
 
 const log = createLogger("interpreter");
@@ -372,6 +373,12 @@ export async function runInterpreter(
           // Validation happens inside applySnapshot;
           // catch SnapshotValidationError to skip
           // invalid blocks without crashing the doc.
+          // Catch PendingIngestError separately: the
+          // block is valid but its parent epoch is
+          // unknown, so it's quarantined in the ingest
+          // sideband. Don't advance tip and don't emit
+          // a validation error — a later rescan on
+          // reconcile-cycle-end may place it.
           try {
             const result = await effects.applySnapshot(tipCid, block);
             feedback.push({
@@ -387,6 +394,8 @@ export async function runInterpreter(
                 cid: err.cid,
                 message: err.message,
               });
+            } else if (err instanceof PendingIngestError) {
+              log.debug("snapshot deferred to sideband:", err.message);
             } else {
               throw err;
             }

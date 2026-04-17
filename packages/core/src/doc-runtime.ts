@@ -52,6 +52,10 @@ import type { VersionInfo, SnapshotEvent } from "./create-doc.js";
 import { createAsyncQueue, scan, merge } from "./async-utils.js";
 import { createSnapshotOps } from "./snapshot-ops.js";
 import { createEffectHandlers } from "./effect-handlers.js";
+import {
+  createIngestSnapshot,
+  type IngestOutcomeRecord,
+} from "./ingest-snapshot.js";
 import { createGossipHandler } from "./doc-gossip-bridge.js";
 import { fetchTipFromPinners } from "./fetch-tip.js";
 import { getHelia } from "./helia.js";
@@ -139,6 +143,14 @@ export interface DocRuntimeOptions {
   isDestroyed: () => boolean;
   isReadyResolved: () => boolean;
 
+  /**
+   * Optional D3 telemetry hook — fires on every
+   * `ingestSnapshot` terminal outcome (placed / pending
+   * / rejected) including rescan retries. Consumers:
+   * snapshot-exchange diagnostics view (#115).
+   */
+  onIngestOutcome?: (record: IngestOutcomeRecord) => void;
+
   // --- Shared mutable state ---
   state: DocRuntimeState;
 }
@@ -149,6 +161,15 @@ export interface DocRuntimeResult {
   factQueue: AsyncQueue<Fact>;
   effectHandlersCleanup: () => void;
   setLastLocalPublishCid: (cid: string) => void;
+  /**
+   * Re-attempt placement for all sidebanded (unplaceable-
+   * epoch) snapshots. Callers: reconciliation-wiring
+   * fires this on reconcile-cycle-end, since peer-edit
+   * arrivals are the only event class that can fill in
+   * the missing intermediate epochs. (A3 exposes; A4 may
+   * also call directly after catalog exchange.)
+   */
+  rescanPending: () => Promise<void>;
   fireGuaranteeQuery: () => void;
   stopIPNSWatch: () => void;
   initialQueryTimer: ReturnType<typeof setTimeout> | null;
@@ -190,6 +211,7 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
     updateVersionsFeed,
     isDestroyed,
     isReadyResolved,
+    onIngestOutcome,
     state,
   } = opts;
 
@@ -382,13 +404,33 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
     }
   }
 
-  // --- Effect handlers ---
-  const snapshotOps = createSnapshotOps({
+  // --- Ingest orchestrator ---
+  // Owns `lastLocalPublishCid` at runtime scope so both
+  // the ingest source-dispatch (snapshot-ops applySnapshot
+  // shim) and the effect-handlers' emitSnapshotApplied
+  // echo suppression close over the same flag. A4 will
+  // collapse the source check once peer blocks stop
+  // reaching applySnapshot.
+  let lastLocalPublishCid: string | null = null;
+  const ingest = createIngestSnapshot({
     snapshotCodec,
     document,
     resolver,
     readKey,
     getClockSum: computeClockSum,
+    getState: () => ({
+      chain: state.interpreterState?.chain ?? init.chain,
+    }),
+    onIngestOutcome,
+  });
+
+  // --- Effect handlers ---
+  const snapshotOps = createSnapshotOps({
+    ingest,
+    resolveSource: (cid) =>
+      lastLocalPublishCid !== null && cid.toString() === lastLocalPublishCid
+        ? "local"
+        : "peer",
   });
 
   const effectHandlers = createEffectHandlers({
@@ -406,12 +448,16 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
     snapshotEventFeed,
     ackEventFeed,
     gossipActivityFeed,
+    getLastLocalPublishCid: () => lastLocalPublishCid,
+    clearLastLocalPublishCid: () => {
+      lastLocalPublishCid = null;
+    },
   });
-  const {
-    effects,
-    setLastLocalPublishCid,
-    cleanup: effectHandlersCleanup,
-  } = effectHandlers;
+  const { effects, cleanup: effectHandlersCleanup } = effectHandlers;
+
+  const setLastLocalPublishCid = (cid: string) => {
+    lastLocalPublishCid = cid;
+  };
 
   // --- Run interpreter ---
   runInterpreter(captureState(stateStream), effects, factQueue, signal, {
@@ -590,6 +636,7 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
     factQueue,
     effectHandlersCleanup,
     setLastLocalPublishCid,
+    rescanPending: () => ingest.rescanPending(),
     fireGuaranteeQuery,
     stopIPNSWatch,
     initialQueryTimer,

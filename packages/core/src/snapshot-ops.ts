@@ -10,12 +10,11 @@
  */
 
 import type { CID } from "multiformats/cid";
-import { decodeSnapshot, validateSnapshot } from "@pokapali/blocks";
+import { decodeSnapshot } from "@pokapali/blocks";
 import { bytesToHex } from "@pokapali/crypto";
 import { createLogger } from "@pokapali/log";
-import type { SnapshotCodec } from "./snapshot-codec.js";
-import type { BlockResolver } from "./block-resolver.js";
-import type { Document } from "@pokapali/document";
+import type { IngestSnapshotApi } from "./ingest-snapshot.js";
+import { PendingIngestError } from "./ingest-snapshot.js";
 import { ValidationError } from "./errors.js";
 
 const log = createLogger("snapshot-ops");
@@ -58,15 +57,27 @@ export interface SnapshotOps {
 // ------------------------------------------------
 
 export interface SnapshotOpsOptions {
-  snapshotCodec: SnapshotCodec;
-  document?: Document;
-  resolver: BlockResolver;
-  readKey: CryptoKey;
-  getClockSum: () => number;
+  /**
+   * Unified ingestion API (from `createIngestSnapshot`).
+   * `applySnapshot` delegates the full validate / dedupe
+   * / place / apply pipeline here — this struct's
+   * applySnapshot is a thin interpreter-facing shim that
+   * maps ingest outcomes back to the legacy `{seq}`
+   * return shape.
+   */
+  ingest: IngestSnapshotApi;
+  /**
+   * Source dispatch (Option Y, architect ratified
+   * 2026-04-16): returns "local" if `cid` matches the
+   * last locally-published CID, else "peer". A3 shape;
+   * A4 will collapse this to always-local once peer
+   * blocks route through onSnapshotReceived directly.
+   */
+  resolveSource: (cid: CID) => "local" | "peer";
 }
 
 export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
-  const { snapshotCodec, document, resolver, readKey, getClockSum } = options;
+  const { ingest, resolveSource } = options;
 
   return {
     decodeBlock(block: Uint8Array): BlockMetadata {
@@ -87,37 +98,42 @@ export function createSnapshotOps(options: SnapshotOpsOptions): SnapshotOps {
     },
 
     async applySnapshot(cid: CID, block: Uint8Array): Promise<{ seq: number }> {
-      const valid = await validateSnapshot(block);
-      if (!valid) {
-        const cidStr = cid.toString();
-        log.debug(
-          "rejecting snapshot: failed validation",
-          cidStr.slice(0, 16) + "...",
-        );
-        throw new SnapshotValidationError(cidStr);
+      const source = resolveSource(cid);
+      const result = await ingest.ingestSnapshot(cid, block, { source });
+
+      if (result.outcome === "rejected") {
+        // cid-mismatch + invalid-signature → same
+        // SnapshotValidationError the interpreter
+        // already handles. "duplicate" is a benign
+        // no-op — return {seq} like the legacy path did.
+        if (
+          result.reason === "cid-mismatch" ||
+          result.reason === "invalid-signature"
+        ) {
+          const cidStr = cid.toString();
+          log.debug(
+            "rejecting snapshot: " + (result.reason ?? "unknown"),
+            cidStr.slice(0, 16) + "...",
+          );
+          throw new SnapshotValidationError(cidStr);
+        }
+        // "duplicate" or "pending-overflow" — fall
+        // through to seq decode. (pending-overflow on
+        // an applySnapshot path is exceptional; the
+        // caller sees it as a successful no-op since
+        // the block never actually placed. The orchestrator
+        // already recorded the terminal metric.)
       }
 
-      resolver.put(cid, block);
-
-      const applied = await snapshotCodec.applyRemote(
-        cid,
-        readKey,
-        (plaintext) => {
-          if (document) {
-            for (const [ch, state] of Object.entries(plaintext)) {
-              document.channel(ch).appendSnapshot(state);
-              if (document.hasSurface(ch)) {
-                document.surface(ch).applyState(state);
-              }
-            }
-          }
-        },
-      );
-
-      if (applied) {
-        snapshotCodec.setLastIpnsSeq(getClockSum());
+      if (result.outcome === "pending") {
+        // Signal to the interpreter that tip must NOT
+        // advance — the block is quarantined awaiting
+        // a bridging epoch.
+        throw new PendingIngestError(cid.toString());
       }
 
+      // "placed" (or benign rejected above) — surface
+      // the seq so the interpreter can push tip-advanced.
       const node = decodeSnapshot(block);
       return { seq: node.seq };
     },

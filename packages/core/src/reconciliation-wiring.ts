@@ -74,6 +74,16 @@ export interface ReconciliationWiringOptions {
    *  block to the UI (e.g. trigger tip/version update
    *  or decrypted snapshot application). */
   onSnapshotReceived?: (cid: CID, data: Uint8Array) => void;
+  /** Fires when every per-channel coordinator has
+   *  reported `done` for this reconcile cycle. Used
+   *  by the A3 ingest orchestrator to retry placement
+   *  of sidebanded (unplaceable-epoch) snapshots — the
+   *  only event class that can fill intermediate
+   *  epochs is peer-edit arrivals, and those have just
+   *  finished applying by the time this fires.
+   *  Idempotent + best-effort: errors are not awaited
+   *  and must not block the reconcile loop. */
+  onReconcileCycleEnd?: () => void;
 }
 
 export interface ReconciliationWiring {
@@ -150,6 +160,29 @@ export function createReconciliationWiring(
     );
   }
 
+  // Cycle-end fires at most once per `reconcile()` call,
+  // mirroring `snapshotAdvertised`. Reset alongside it in
+  // `reconcile()`.
+  let cycleEndFired = false;
+
+  function maybeFireCycleEnd(): void {
+    if (cycleEndFired) return;
+    if (coordinators.size === 0) return;
+    for (const c of coordinators.values()) {
+      if (!c.done) return;
+    }
+    cycleEndFired = true;
+    // Best-effort: swallow any sync throw so reconcile
+    // loop never breaks. Async errors are the callback's
+    // own problem (e.g. ingest.rescanPending returns a
+    // promise we don't await).
+    try {
+      opts.onReconcileCycleEnd?.();
+    } catch {
+      // ignore
+    }
+  }
+
   function maybeAdvertiseSnapshots(): void {
     if (!snapshotExchange || snapshotAdvertised) return;
     if (coordinators.size === 0) return;
@@ -169,6 +202,7 @@ export function createReconciliationWiring(
       // here so snapshot advertise fires as soon as
       // the last coordinator completes.
       maybeAdvertiseSnapshots();
+      maybeFireCycleEnd();
     },
   );
 
@@ -178,6 +212,7 @@ export function createReconciliationWiring(
     // once it completes (local state may have changed
     // since the last advertise).
     snapshotAdvertised = false;
+    cycleEndFired = false;
 
     const measured = State.channelMeasured(opts.codec);
 

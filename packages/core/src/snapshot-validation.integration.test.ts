@@ -22,6 +22,7 @@ import {
 } from "@pokapali/crypto";
 import { encodeSnapshot, validateSnapshot } from "@pokapali/blocks";
 import { createSnapshotOps, SnapshotValidationError } from "./snapshot-ops.js";
+import { createIngestSnapshot } from "./ingest-snapshot.js";
 import { ValidationError } from "./errors.js";
 import { runInterpreter } from "./interpreter.js";
 import type { EffectHandlers } from "./interpreter.js";
@@ -104,6 +105,44 @@ function mockBlockResolver() {
   };
 }
 
+/**
+ * Build the interpreter-facing snapshot-ops shim wired
+ * over a real `createIngestSnapshot` orchestrator with
+ * the provided mock codec/resolver. Preserves the
+ * cross-package validation path (real validateSnapshot,
+ * real sha256 CID integrity) that this integration suite
+ * is designed to exercise.
+ */
+function buildOps(
+  codec: ReturnType<typeof mockSnapshotCodec>,
+  resolver: ReturnType<typeof mockBlockResolver>,
+  readKey: CryptoKey,
+) {
+  const ingest = createIngestSnapshot({
+    snapshotCodec: codec as unknown as Parameters<
+      typeof createIngestSnapshot
+    >[0]["snapshotCodec"],
+    resolver: resolver as unknown as Parameters<
+      typeof createIngestSnapshot
+    >[0]["resolver"],
+    readKey,
+    getClockSum: () => 0,
+    getState: () => ({
+      chain: {
+        entries: new Map(),
+        tip: null,
+        applying: null,
+        newestFetched: null,
+        maxSeq: 0,
+      },
+    }),
+  });
+  return createSnapshotOps({
+    ingest,
+    resolveSource: () => "peer",
+  });
+}
+
 // --- Tests ---
 
 describe("snapshot validation integration", () => {
@@ -147,12 +186,11 @@ describe("snapshot validation integration", () => {
         1,
       );
 
-      const ops = createSnapshotOps({
-        snapshotCodec: mockSnapshotCodec(),
-        resolver: mockBlockResolver() as any,
-        readKey: keys.readKey,
-        getClockSum: () => 0,
-      });
+      const ops = buildOps(
+        mockSnapshotCodec(),
+        mockBlockResolver(),
+        keys.readKey,
+      );
 
       const result = await ops.applySnapshot(cid, block);
       expect(result.seq).toBe(1);
@@ -160,21 +198,16 @@ describe("snapshot validation integration", () => {
 
     it("throws SnapshotValidationError for " + "tampered block", async () => {
       const { keys, signingKey } = await generateKeys();
-      const { cid, block } = await encodeValidBlock(
-        keys.readKey,
-        signingKey,
-        1,
-      );
+      const { block } = await encodeValidBlock(keys.readKey, signingKey, 1);
 
       const tampered = new Uint8Array(block);
       tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
 
-      const ops = createSnapshotOps({
-        snapshotCodec: mockSnapshotCodec(),
-        resolver: mockBlockResolver() as any,
-        readKey: keys.readKey,
-        getClockSum: () => 0,
-      });
+      const ops = buildOps(
+        mockSnapshotCodec(),
+        mockBlockResolver(),
+        keys.readKey,
+      );
 
       // Recompute CID for tampered block
       const hash = await sha256.digest(tampered);
@@ -190,12 +223,11 @@ describe("snapshot validation integration", () => {
       const garbage = new Uint8Array([0, 1, 2, 3]);
 
       const { keys } = await generateKeys();
-      const ops = createSnapshotOps({
-        snapshotCodec: mockSnapshotCodec(),
-        resolver: mockBlockResolver() as any,
-        readKey: keys.readKey,
-        getClockSum: () => 0,
-      });
+      const ops = buildOps(
+        mockSnapshotCodec(),
+        mockBlockResolver(),
+        keys.readKey,
+      );
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow(
         SnapshotValidationError,
@@ -208,12 +240,7 @@ describe("snapshot validation integration", () => {
 
       const { keys } = await generateKeys();
       const codec = mockSnapshotCodec();
-      const ops = createSnapshotOps({
-        snapshotCodec: codec,
-        resolver: mockBlockResolver() as any,
-        readKey: keys.readKey,
-        getClockSum: () => 0,
-      });
+      const ops = buildOps(codec, mockBlockResolver(), keys.readKey);
 
       await expect(ops.applySnapshot(cid, garbage)).rejects.toThrow();
 
@@ -289,7 +316,7 @@ describe("snapshot validation integration", () => {
         );
 
         // Create a tampered block
-        const { cid: _origCid, block: origBlock } = await encodeValidBlock(
+        const { block: origBlock } = await encodeValidBlock(
           keys.readKey,
           signingKey,
           1,

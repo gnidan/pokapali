@@ -48,15 +48,27 @@ export interface EffectHandlersOptions {
   ackEventFeed: WritableFeed<string | null>;
   gossipActivityFeed: WritableFeed<GossipActivity>;
   onGossipActivity?: (activity: GossipActivity) => void;
+  /**
+   * Read the last locally-published CID — used by
+   * emitSnapshotApplied to suppress the echo when a
+   * local publish round-trips through the interpreter.
+   * Owned by doc-runtime so it can also be read by the
+   * ingest orchestrator's source dispatch.
+   */
+  getLastLocalPublishCid: () => string | null;
+  /**
+   * Called after a successful local-echo suppression —
+   * clears the flag so the next peer-received block
+   * with the same CID (unlikely, but possible post-
+   * restart) isn't also suppressed.
+   */
+  clearLastLocalPublishCid: () => void;
 }
 
 // ── Return type ────────────────────────────────
 
 export interface EffectHandlersResult {
   effects: EffectHandlers;
-  /** Set from publish() to suppress the interpreter's
-   *  emitSnapshotApplied for the local CID. */
-  setLastLocalPublishCid(cid: string): void;
   /** Clean up pending announce retries. */
   cleanup(): void;
 }
@@ -82,12 +94,13 @@ export function createEffectHandlers(
     ackEventFeed,
     gossipActivityFeed,
     onGossipActivity,
+    getLastLocalPublishCid,
+    clearLastLocalPublishCid,
   } = opts;
 
   // ── Mutable state ────────────────────────────
 
   let pendingAnnounceRetry: ReturnType<typeof setTimeout> | null = null;
-  let lastLocalPublishCid: string | null = null;
   let lastEmittedAcks = new Set<string>();
   let lastEmittedGuarantees = new Map<
     string,
@@ -218,8 +231,8 @@ export function createEffectHandlers(
     emitSnapshotApplied: (cid, seq) => {
       validationErrorFeed._update(null);
       const cidStr = cid.toString();
-      if (cidStr === lastLocalPublishCid) {
-        lastLocalPublishCid = null;
+      if (cidStr === getLastLocalPublishCid()) {
+        clearLastLocalPublishCid();
         return;
       }
       snapshotEventFeed._update({
@@ -272,9 +285,6 @@ export function createEffectHandlers(
 
   return {
     effects,
-    setLastLocalPublishCid(cid: string) {
-      lastLocalPublishCid = cid;
-    },
     cleanup() {
       if (pendingAnnounceRetry !== null) {
         clearTimeout(pendingAnnounceRetry);
