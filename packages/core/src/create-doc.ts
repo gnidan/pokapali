@@ -706,9 +706,27 @@ export function createDoc(params: DocParams): Doc {
         // the interpreter's block-fetch path — bytes
         // arrive inline from snapshot exchange.
         if (!runtime) return;
-        runtime.ingestSnapshot(cid, data).catch((err) => {
-          log.warn("catalog ingest failed:", err);
-        });
+        runtime.ingestSnapshot(cid, data).then(
+          (result) => {
+            if (result.outcome !== "placed") return;
+            // Push cid-discovered with inline block so
+            // the interpreter advances chain.tip. The
+            // interpreter emits synthetic block-fetched
+            // and tip-advanced internally; applySnapshot
+            // sees "duplicate" (already placed by ingest)
+            // and returns {seq} as a benign no-op.
+            factQueue.push({
+              type: "cid-discovered",
+              ts: Date.now(),
+              cid,
+              source: "catalog",
+              block: data,
+            });
+          },
+          (err) => {
+            log.warn("catalog ingest failed:", err);
+          },
+        );
       },
     });
   }
@@ -768,8 +786,14 @@ export function createDoc(params: DocParams): Doc {
 
   // Wire sync/awareness status bridges. These are
   // called immediately if deps are available, or
-  // deferred until p2pReady resolves.
-  function wireSyncBridges(_sm: SyncManager, ar: AwarenessRoom): void {
+  // deferred until p2pReady resolves. Idempotent —
+  // safe to call again when p2pReady resolves if
+  // already wired via an early awarenessRoom.
+  let syncBridgesWired = false;
+  function wireSyncBridges(ar: AwarenessRoom): void {
+    if (syncBridgesWired) return;
+    syncBridgesWired = true;
+
     // Sync status facts are now emitted by
     // peerSync.onSyncStatusChanged, not by
     // SyncManager.onStatusChange.
@@ -787,7 +811,7 @@ export function createDoc(params: DocParams): Doc {
     // the callback is registered before the room
     // discovers any peers — critical for the upgrade
     // path where the room may already be joining.
-    if (!ar.onPeerCreated || !peerSync) return;
+    if (!ar.onPeerCreated) return;
     unsubPeerConn?.();
     unsubPeerConn = ar.onPeerCreated((pc, initiator) => {
       if (destroyed) return;
@@ -795,8 +819,8 @@ export function createDoc(params: DocParams): Doc {
     });
   }
 
-  if (liveSyncManager && liveAwarenessRoom) {
-    wireSyncBridges(liveSyncManager, liveAwarenessRoom);
+  if (liveAwarenessRoom) {
+    wireSyncBridges(liveAwarenessRoom);
   }
 
   // metaSurface was populated before we registered our
@@ -956,7 +980,7 @@ export function createDoc(params: DocParams): Doc {
         closeBlockstore = deps.closeBlockstore ?? null;
         liveSyncManager = deps.syncManager;
         liveAwarenessRoom = deps.awarenessRoom;
-        wireSyncBridges(deps.syncManager, deps.awarenessRoom);
+        wireSyncBridges(deps.awarenessRoom);
 
         // Wire onNeedsSwap on the MultiRelayRoom so
         // that when ALL relays are dead (signaling

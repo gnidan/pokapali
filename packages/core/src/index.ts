@@ -16,6 +16,7 @@ import type { Ed25519KeyPair } from "@pokapali/crypto";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import type { SyncOptions } from "@pokapali/sync";
+import { createMultiRelayRoom } from "@pokapali/sync";
 import {
   lookupForwardingRecord,
   decodeForwardingRecord,
@@ -240,6 +241,15 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
     // Layer B: Helia + P2P — runs in background.
     // When p2p is disabled, skip entirely — doc
     // operates in local-only mode.
+    //
+    // Create the multiRoom early so createDoc can
+    // register onPeerCreated BEFORE any relay
+    // connects. This avoids the race where peers
+    // join during trySignaling and fire
+    // onPeerCreated before the consumer callback
+    // is registered.
+    const multiRoom = p2pEnabled ? createMultiRelayRoom(awareness) : undefined;
+
     const p2pReady = !p2pEnabled
       ? undefined
       : setupP2PLayer({
@@ -251,10 +261,12 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
           awareness,
           bootstrapPeers,
           rtcIceServers: options.rtc?.config?.iceServers,
+          multiRoom,
         });
 
     return createDoc({
       awareness,
+      awarenessRoom: multiRoom,
       p2pReady,
       codec: yjsCodec,
       cap,

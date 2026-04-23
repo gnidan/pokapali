@@ -59,6 +59,13 @@ export interface P2PLayerOptions {
   awareness: Awareness;
   bootstrapPeers?: string[];
   rtcIceServers?: RTCIceServer[];
+  /** Pre-created multi-relay room. When provided,
+   *  setupP2PLayer uses it instead of creating one.
+   *  This lets callers register onPeerCreated
+   *  before any relay connects — avoiding the race
+   *  where peers join during trySignaling before
+   *  the consumer callback is registered. */
+  multiRoom?: MultiRelayRoom;
 }
 
 const RELAY_WAIT_MS = 30_000;
@@ -141,8 +148,10 @@ export async function setupP2PLayer(
 
     // Multi-relay room: wraps N per-relay awareness
     // rooms behind a single interface. Relays are
-    // added/removed dynamically.
-    const multiRoom = createMultiRelayRoom(awareness);
+    // added/removed dynamically. Use pre-created
+    // room if provided (allows early listener
+    // registration).
+    const multiRoom = opts.multiRoom ?? createMultiRelayRoom(awareness);
 
     log.info("waiting for relay discovery...");
 

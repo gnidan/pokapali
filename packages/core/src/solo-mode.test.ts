@@ -84,6 +84,7 @@ vi.mock("@pokapali/sync", () => ({
     onStatusChange: vi.fn(),
     destroy: vi.fn(),
   })),
+  createMultiRelayRoom: vi.fn(),
 }));
 
 vi.mock("blockstore-idb", () => ({

@@ -21,7 +21,8 @@ export type CidSource =
   | "reannounce"
   | "chain-walk"
   | "pinner-index"
-  | "cache";
+  | "cache"
+  | "catalog";
 
 export type Fact =
   // --- Chain discovery ---
