@@ -7,17 +7,9 @@
  *   - CRDT sync (Bob sees Alice's content)
  *   - Publish lifecycle (save indicator transitions)
  *   - Peer awareness ("2 users editing")
- *
- * Note: passive-peer snapshot RECEPTION cannot be
- * verified in the current E2E relay infrastructure.
- * GossipSub mesh never forms between browser ↔
- * relay (relay doesn't subscribe to announce topics),
- * IPNS resolution fails (no DHT between browsers),
- * and the reconciliation data channel's snapshot
- * exchange path hasn't been confirmed working in
- * this setup. The passive-peer activation assertion
- * is covered by D4a (Node integration test) where
- * both runtimes share a process.
+ *   - Passive-peer activation (Bob receives Alice's
+ *     snapshot via reconciliation DC and transitions
+ *     to "saved")
  *
  * S54 D4b.
  */
@@ -143,7 +135,7 @@ test.describe("snapshot activation", () => {
 
   test(
     "publish lifecycle: author publishes, " +
-      "CRDT syncs to peer, save state transitions",
+      "CRDT syncs to peer, passive peer activates",
     async ({ browser }) => {
       const baseURL = test.info().project.use.baseURL!;
       const relay = await createTestRelay();
@@ -207,6 +199,16 @@ test.describe("snapshot activation", () => {
         await expect(alice.locator(".tiptap")).toContainText(
           "Hello from Alice",
         );
+
+        // Passive-peer activation: Bob receives
+        // Alice's snapshot via the reconciliation
+        // data channel's catalog exchange. The
+        // interpreter ingests it and advances
+        // chain.tip, transitioning Bob to "saved".
+        const bobSave = bob.locator(".poka-save-indicator");
+        await expect(bobSave).toHaveClass(/poka-save-indicator--saved/, {
+          timeout: PUBLISH_TIMEOUT,
+        });
       } finally {
         await aliceCtx.close();
         await bobCtx.close();
