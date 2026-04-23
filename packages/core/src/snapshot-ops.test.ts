@@ -22,8 +22,6 @@ import {
   type IngestResult,
   type IngestSnapshotApi,
 } from "./ingest-snapshot.js";
-import type { BlockResolver } from "./block-resolver.js";
-
 // --- Helpers ---
 
 const DAG_CBOR_CODE = 0x71;
@@ -31,15 +29,6 @@ const DAG_CBOR_CODE = 0x71;
 async function fakeCid(data: Uint8Array = new Uint8Array([1])): Promise<CID> {
   const hash = await sha256.digest(data);
   return CID.createV1(DAG_CBOR_CODE, hash);
-}
-
-function mockResolver(): BlockResolver {
-  return {
-    get: vi.fn().mockResolvedValue(null),
-    has: vi.fn().mockReturnValue(false),
-    getCached: vi.fn().mockReturnValue(null),
-    put: vi.fn(),
-  };
 }
 
 function stubIngest(

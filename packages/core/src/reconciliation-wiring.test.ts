@@ -18,7 +18,10 @@ import type { ReconciliationTransport, SnapshotMessage } from "@pokapali/sync";
 import type { ReconciliationMessage } from "@pokapali/sync";
 import { ReconciliationMessageType } from "@pokapali/sync";
 import { createReconciliationWiring } from "./reconciliation-wiring.js";
-import type { BlockResolver } from "./block-resolver.js";
+import {
+  createStubBlockResolver,
+  type StubBlockResolver,
+} from "./test/stub-block-resolver.js";
 import { verifyEdit, HEADER_SIZE } from "./epoch/sign-edit.js";
 
 // -------------------------------------------------------
@@ -964,19 +967,8 @@ describe("ReconciliationWiring", () => {
   describe("snapshot exchange", () => {
     const DAG_CBOR_CODE = 0x71;
 
-    function mockBlockResolver(): BlockResolver & {
-      stored: Map<string, Uint8Array>;
-    } {
-      const stored = new Map<string, Uint8Array>();
-      return {
-        stored,
-        get: async (cid) => stored.get(cid.toString()) ?? null,
-        has: (cid) => stored.has(cid.toString()),
-        getCached: (cid) => stored.get(cid.toString()) ?? null,
-        put: (cid, block) => {
-          stored.set(cid.toString(), block);
-        },
-      };
+    function mockBlockResolver(): StubBlockResolver {
+      return createStubBlockResolver();
     }
 
     async function makeValidBlock(
@@ -1141,8 +1133,8 @@ describe("ReconciliationWiring", () => {
         // Buffer but reassembly produces a Uint8Array,
         // and `toEqual` distinguishes the two even when
         // bytes match.
-        const storedB = resolverB.stored.get(cid.toString());
-        expect(storedB).toBeDefined();
+        const storedB = resolverB.getCached(cid);
+        expect(storedB).not.toBeNull();
         expect(Array.from(storedB!)).toEqual(Array.from(block));
         expect(receivedByB).toHaveLength(1);
         expect(receivedByB[0]!.cid.toString()).toBe(cid.toString());
@@ -1172,7 +1164,7 @@ describe("ReconciliationWiring", () => {
       const resolverA = mockBlockResolver();
       // Prime A with corrupted bytes but advertise the
       // real CID — B will verify and reject.
-      resolverA.stored.set(cid.toString(), corrupted);
+      resolverA.put(cid, corrupted);
 
       const resolverB = mockBlockResolver();
       const receivedByB: Array<{ cid: CID; data: Uint8Array }> = [];
@@ -1208,7 +1200,7 @@ describe("ReconciliationWiring", () => {
 
       // Verification failed — block not stored, callback
       // not fired.
-      expect(resolverB.stored.has(cid.toString())).toBe(false);
+      expect(resolverB.has(cid)).toBe(false);
       expect(receivedByB).toHaveLength(0);
 
       wiringA.destroy();
@@ -1277,7 +1269,7 @@ describe("ReconciliationWiring", () => {
         await new Promise((r) => setTimeout(r, 30));
         drain();
 
-        expect(resolverB.stored.has(tamperedCid.toString())).toBe(false);
+        expect(resolverB.has(tamperedCid)).toBe(false);
         expect(receivedByB).toHaveLength(0);
 
         wiringA.destroy();

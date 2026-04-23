@@ -11,9 +11,9 @@
  * Item 5 tests gap-tolerant chain walking — some
  * blocks fetchable, some 404.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createSnapshotCodec } from "./snapshot-codec.js";
-import type { BlockResolver } from "./block-resolver.js";
+import { createStubBlockResolver } from "./test/stub-block-resolver.js";
 import * as Y from "yjs";
 import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -44,27 +44,17 @@ async function blockToCid(block: Uint8Array): Promise<CID> {
   return CID.createV1(DAG_CBOR_CODE, hash);
 }
 
-function createMockResolver(blocks?: Map<string, Uint8Array>): BlockResolver {
-  const cache = blocks ?? new Map<string, Uint8Array>();
-  return {
-    get: vi.fn(async (cid: CID) => {
-      return cache.get(cid.toString()) ?? null;
-    }),
-    has: vi.fn((cid: CID) => cache.has(cid.toString())),
-    getCached: vi.fn((cid: CID) => {
-      return cache.get(cid.toString()) ?? null;
-    }),
-    put: vi.fn((cid: CID, block: Uint8Array) => {
-      cache.set(cid.toString(), block);
-    }),
-  };
+function createMockResolver(blocks?: Map<string, Uint8Array>) {
+  const initialBlocks: Array<[CID, Uint8Array]> = [];
+  if (blocks) {
+    for (const [key, data] of blocks) {
+      initialBlocks.push([CID.parse(key), data]);
+    }
+  }
+  return createStubBlockResolver({ initialBlocks });
 }
 
 describe("snapshot event payload (Item 3)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it("push result includes cid, seq, and ts", async () => {
     const { readKey, signingKey } = await makeKeys();
     const resolver = createMockResolver();
@@ -110,7 +100,10 @@ describe("snapshot event payload (Item 3)", () => {
     expect(result).toBe(true);
     // After applyRemote, the block should be in
     // the resolver cache
-    expect(resolver.put).toHaveBeenCalledWith(cid, block);
+    expect(resolver.has(cid)).toBe(true);
+    const stored = resolver.getCached(cid);
+    expect(stored).not.toBeNull();
+    expect(Array.from(stored!)).toEqual(Array.from(block));
   });
 });
 
@@ -119,10 +112,6 @@ describe("snapshot event payload (Item 3)", () => {
 // canonical history derivation now.
 
 describe("partial history / gap handling (Item 5)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it("loadVersion throws cleanly for" + " missing block", async () => {
     const { readKey, signingKey } = await makeKeys();
 
@@ -218,7 +207,6 @@ describe("partial history / gap handling (Item 5)", () => {
 
       const docs = await lc.loadVersion(cid, readKey);
       expect(docs).toHaveProperty("content");
-      expect(resolver.get).toHaveBeenCalled();
     },
   );
 

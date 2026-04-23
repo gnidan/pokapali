@@ -30,6 +30,7 @@ import { initialDocState } from "./facts.js";
 import type { Fact } from "./facts.js";
 import { reduce } from "./reducers.js";
 import { createAsyncQueue, merge, scan } from "./async-utils.js";
+import { createStubBlockResolver } from "./test/stub-block-resolver.js";
 
 // --- Constants ---
 
@@ -95,15 +96,7 @@ function mockSnapshotCodec() {
 }
 
 function mockBlockResolver() {
-  const blocks = new Map<string, Uint8Array>();
-  return {
-    get: vi.fn(async (cid: CID) => blocks.get(cid.toString()) ?? null),
-    has: vi.fn((cid: CID) => blocks.has(cid.toString())),
-    getCached: vi.fn((cid: CID) => blocks.get(cid.toString()) ?? null),
-    put: vi.fn((cid: CID, block: Uint8Array) => {
-      blocks.set(cid.toString(), block);
-    }),
-  };
+  return createStubBlockResolver();
 }
 
 /**
