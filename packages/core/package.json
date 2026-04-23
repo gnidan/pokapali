@@ -49,6 +49,18 @@
       "types": "./dist/src/snapshot-codec.d.ts",
       "default": "./dist/src/snapshot-codec.js"
     },
+    "./block-resolver": {
+      "types": "./dist/src/block-resolver.d.ts",
+      "default": "./dist/src/block-resolver.js"
+    },
+    "./fetch-block": {
+      "types": "./dist/src/fetch-block.d.ts",
+      "default": "./dist/src/fetch-block.js"
+    },
+    "./test/stub-block-resolver": {
+      "types": "./dist/src/test/stub-block-resolver.d.ts",
+      "default": "./dist/src/test/stub-block-resolver.js"
+    },
     "./ipns-helpers": {
       "types": "./dist/src/ipns-helpers.d.ts",
       "default": "./dist/src/ipns-helpers.js"

@@ -9,6 +9,7 @@
     { "path": "packages/blocks" },
     { "path": "packages/store" },
     { "path": "packages/sync" },
+    { "path": "packages/protocol" },
     { "path": "packages/comments" },
     { "path": "packages/comments-tiptap" },
     { "path": "packages/document" },
