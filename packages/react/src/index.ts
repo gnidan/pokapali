@@ -9,6 +9,7 @@ export type {
   PeerPresenceResult,
 } from "./use-peer-presence.js";
 export { useSnapshotFlash } from "./use-snapshot-flash.js";
+export type { SnapshotFlashOptions } from "./use-snapshot-flash.js";
 
 export { useComments } from "./use-comments.js";
 export type { CommentData, UseCommentsOptions } from "./use-comments.js";
