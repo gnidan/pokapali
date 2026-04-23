@@ -49,7 +49,7 @@ import type {
 } from "./facts.js";
 import type { VersionInfo, SnapshotEvent } from "./create-doc.js";
 
-import { createAsyncQueue, scan, merge } from "./async-utils.js";
+import { scan, merge } from "./async-utils.js";
 import { createSnapshotOps } from "./snapshot-ops.js";
 import { createEffectHandlers } from "./effect-handlers.js";
 import {
@@ -154,12 +154,19 @@ export interface DocRuntimeOptions {
 
   // --- Shared mutable state ---
   state: DocRuntimeState;
+
+  /**
+   * Pre-created fact queue (hoisted into createDoc scope
+   * so facts pushed before the interpreter starts are
+   * buffered). The runtime drains this queue instead of
+   * creating its own.
+   */
+  factQueue: AsyncQueue<Fact>;
 }
 
 /** Handles returned by {@link startDocRuntime}. */
 export interface DocRuntimeResult {
   interpreterAc: AbortController;
-  factQueue: AsyncQueue<Fact>;
   effectHandlersCleanup: () => void;
   setLastLocalPublishCid: (cid: string) => void;
   /**
@@ -240,7 +247,7 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
 
   const interpreterAc = new AbortController();
   const { signal } = interpreterAc;
-  const factQueue = createAsyncQueue<Fact>(signal);
+  const factQueue = opts.factQueue;
 
   const role: DocRole = cap.isAdmin
     ? "admin"
@@ -642,7 +649,6 @@ export function startDocRuntime(opts: DocRuntimeOptions): DocRuntimeResult {
 
   return {
     interpreterAc,
-    factQueue,
     effectHandlersCleanup,
     setLastLocalPublishCid,
     rescanPending: () => ingest.rescanPending(),

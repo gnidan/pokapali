@@ -31,6 +31,7 @@ import { createSnapshotCodec } from "./snapshot-codec.js";
 import type { Store } from "@pokapali/store";
 import { startDocRuntime } from "./doc-runtime.js";
 import type { DocRuntimeResult, DocRuntimeState } from "./doc-runtime.js";
+import { createAsyncQueue } from "./async-utils.js";
 import { createRelaySharing } from "./relay-sharing.js";
 import type { RelaySharing } from "./relay-sharing.js";
 import { getNodeRegistry } from "./node-registry.js";
@@ -499,15 +500,6 @@ export function createDoc(params: DocParams): Doc {
   let contentDirty = false;
 
   function markContentDirty(): void {
-    if (contentDirty) {
-      log.warn(
-        "markContentDirty: already dirty," +
-          " skipping (runtime=" +
-          (runtime ? "live" : "null") +
-          ")",
-      );
-      return;
-    }
     log.debug("markContentDirty: dirty=false→true");
     contentDirty = true;
     // Clear save error on new edits — user is back
@@ -516,7 +508,7 @@ export function createDoc(params: DocParams): Doc {
     syncSaveState();
     dirtyCountFeed._update(dirtyCountFeed.getSnapshot() + 1);
     awareness?.setLocalStateField("clockSum", computeClockSum());
-    runtime?.factQueue.push({
+    factQueue.push({
       type: "content-dirty",
       ts: Date.now(),
       clockSum: computeClockSum(),
@@ -537,11 +529,20 @@ export function createDoc(params: DocParams): Doc {
     return sum;
   }
 
+  // --- Fact queue (hoisted) ---
+  // Lives in createDoc scope so facts pushed before the
+  // interpreter starts are buffered instead of dropped.
+  // Fixes the deferred-P2P race where the initial
+  // content-dirty fact was silently lost via
+  // `factQueue.push(...)` when runtime was null.
+  const factQueueAc = new AbortController();
+  const factQueue = createAsyncQueue<Fact>(factQueueAc.signal);
+
   // --- Interpreter / runtime state ---
   // `runtime` holds the handles returned by the P2P +
-  // interpreter layer (fact queue, abort controller,
-  // timers, cleanups). Null until startP2PLayer() runs
-  // — either inline or after p2pReady resolves.
+  // interpreter layer (abort controller, timers,
+  // cleanups). Null until startP2PLayer() runs — either
+  // inline or after p2pReady resolves.
   let runtime: DocRuntimeResult | null = null;
   // `runtimeState` is shared with the runtime and
   // updated continuously as the interpreter produces
@@ -662,7 +663,7 @@ export function createDoc(params: DocParams): Doc {
       identity: params.identity,
       persistEdit,
       onSyncStatusChanged: (status) => {
-        runtime?.factQueue.push({
+        factQueue.push({
           type: "sync-status-changed",
           ts: Date.now(),
           status,
@@ -773,7 +774,7 @@ export function createDoc(params: DocParams): Doc {
     // peerSync.onSyncStatusChanged, not by
     // SyncManager.onStatusChange.
     ar.onStatusChange(() => {
-      runtime?.factQueue.push({
+      factQueue.push({
         type: "awareness-status-changed",
         ts: Date.now(),
         connected: ar.connected,
@@ -832,7 +833,7 @@ export function createDoc(params: DocParams): Doc {
         ) {
           knownPinnerPids.add(node.peerId);
           newPinner = true;
-          runtime?.factQueue.push({
+          factQueue.push({
             type: "pinner-discovered",
             ts: Date.now(),
             peerId: node.peerId,
@@ -934,6 +935,7 @@ export function createDoc(params: DocParams): Doc {
       isDestroyed: () => destroyed,
       isReadyResolved: () => readyResolved,
       state: runtimeState,
+      factQueue,
     });
   }
 
@@ -1006,6 +1008,7 @@ export function createDoc(params: DocParams): Doc {
     destroyed = true;
     clearTimeout(graceTimer);
     // Interpreter cleanup
+    factQueueAc.abort();
     if (runtime) {
       runtime.effectHandlersCleanup();
       runtime.interpreterAc.abort();
@@ -1223,7 +1226,7 @@ export function createDoc(params: DocParams): Doc {
 
       isSaving = true;
       syncSaveState();
-      runtime?.factQueue.push({
+      factQueue.push({
         type: "publish-started",
         ts: Date.now(),
       });
@@ -1259,7 +1262,7 @@ export function createDoc(params: DocParams): Doc {
         lastSaveError = err instanceof Error ? err.message : String(err);
         syncSaveState();
         log.warn("publish failed:", lastSaveError);
-        runtime?.factQueue.push({
+        factQueue.push({
           type: "publish-failed",
           ts: Date.now(),
           error: lastSaveError,
@@ -1372,10 +1375,10 @@ export function createDoc(params: DocParams): Doc {
       // Push to interpreter for side effects
       // (announce, acks, gossip, etc.)
       if (runtime) {
-        runtime.factQueue.push(cidDiscovered);
-        runtime.factQueue.push(blockFetched);
-        runtime.factQueue.push(tipAdvanced);
-        runtime.factQueue.push(publishSucceeded);
+        factQueue.push(cidDiscovered);
+        factQueue.push(blockFetched);
+        factQueue.push(tipAdvanced);
+        factQueue.push(publishSucceeded);
       }
 
       snapshotEventFeed._update({
@@ -1539,7 +1542,7 @@ export function createDoc(params: DocParams): Doc {
         const key = e.cid.toString();
         if (runtime) {
           if (!runtimeState.interpreterState?.chain.entries.has(key)) {
-            runtime.factQueue.push({
+            factQueue.push({
               type: "cid-discovered",
               ts: Date.now(),
               cid: e.cid,
@@ -1593,7 +1596,7 @@ export function createDoc(params: DocParams): Doc {
         const entry = runtimeState.interpreterState?.chain.entries.get(key);
         if (!entry || entry.blockStatus === "unknown") {
           const block = resolver.getCached(cid);
-          runtime.factQueue.push({
+          factQueue.push({
             type: "cid-discovered",
             ts: Date.now(),
             cid,
