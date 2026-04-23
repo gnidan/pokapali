@@ -499,7 +499,16 @@ export function createDoc(params: DocParams): Doc {
   let contentDirty = false;
 
   function markContentDirty(): void {
-    if (contentDirty) return;
+    if (contentDirty) {
+      log.warn(
+        "markContentDirty: already dirty," +
+          " skipping (runtime=" +
+          (runtime ? "live" : "null") +
+          ")",
+      );
+      return;
+    }
+    log.debug("markContentDirty: dirty=false→true");
     contentDirty = true;
     // Clear save error on new edits — user is back
     // to "dirty" state, previous error is stale.
@@ -595,6 +604,7 @@ export function createDoc(params: DocParams): Doc {
     const chain = localChain ?? current.chain;
     const next = deriveSaveState(nextContent, chain);
     if (next !== current.saveState) {
+      log.info("saveState: " + current.saveState + " → " + next);
       docStateFeed._update({
         ...current,
         content: nextContent,
@@ -1248,6 +1258,7 @@ export function createDoc(params: DocParams): Doc {
         isSaving = false;
         lastSaveError = err instanceof Error ? err.message : String(err);
         syncSaveState();
+        log.warn("publish failed:", lastSaveError);
         runtime?.factQueue.push({
           type: "publish-failed",
           ts: Date.now(),
@@ -1256,6 +1267,7 @@ export function createDoc(params: DocParams): Doc {
         throw err;
       }
       const { cid, block } = pushResult;
+      log.info("publish succeeded: " + cid.toString().slice(0, 16) + "...");
 
       // Store block via resolver (memory + IDB)
       resolver.put(cid, block);

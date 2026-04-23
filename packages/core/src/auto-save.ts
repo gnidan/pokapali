@@ -36,7 +36,12 @@ export function createAutoSaver(
       clearTimeout(timer);
       timer = null;
     }
-    if (doc.saveState.getSnapshot() !== "dirty") return;
+    const state = doc.saveState.getSnapshot();
+    if (state !== "dirty") {
+      log.debug("doSave: skipping, saveState=" + state);
+      return;
+    }
+    log.debug("doSave: publishing");
     doc.publish().catch((err) => {
       log.warn("auto-save publish failed:", err);
     });
