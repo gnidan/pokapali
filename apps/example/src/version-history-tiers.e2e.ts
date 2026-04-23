@@ -4,54 +4,52 @@
  * Tests that pinner-provided retention tier badges
  * and expiry countdowns render in the version list.
  * Uses page.route() to intercept HTTP requests to
- * the mock pinner URL advertised by the test relay.
+ * a mock pinner URL advertised by a per-test relay.
+ *
+ * Per-test relays with fast caps publishing (2s)
+ * eliminate GossipSub timing flakes that occur
+ * with the shared global relay (#133).
  *
  * #264
  */
 
-import { test, expect } from "./e2e-fixtures.js";
-import { readFile } from "node:fs/promises";
+// Polyfill for Node < 22 (libp2p deps require it)
+if (typeof Promise.withResolvers !== "function") {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (Promise as any).withResolvers = function <T>() {
+    let resolve!: (v: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
 
-const RELAY_INFO_PATH =
-  process.env.RELAY_INFO_PATH || "/tmp/pokapali-test-relay.json";
+import { test, expect } from "@playwright/test";
+import { createTestRelay } from "@pokapali/test-utils";
+
+const MOCK_PINNER_URL = "http://mock-pinner.test";
+
 const EDITOR_TIMEOUT = 8_000;
 // Relay-connected tests need longer for IPFS
 // snapshot creation + network overhead.
 const PUBLISH_TIMEOUT = 30_000;
 
 /** How long to wait for relay connection to
- *  establish and caps to propagate. */
+ *  establish and caps to propagate. Per-test
+ *  relays publish caps every 2s, so this is
+ *  generous. */
 const RELAY_CONNECT_TIMEOUT = 30_000;
 
 /** How long to wait for the tier data to arrive
  *  after the drawer is opened. The relay must
  *  connect, caps must propagate, node-change must
- *  fire, and the hook must re-fetch. GossipSub
- *  caps can occasionally take 30s+ to arrive —
- *  use generous timeout. */
+ *  fire, and the hook must re-fetch. With 2s caps
+ *  interval this should be fast, but allow headroom
+ *  for CI. */
 const TIER_TIMEOUT = 45_000;
-
-interface RelayInfo {
-  multiaddr: string;
-  peerId: string;
-  httpUrl: string;
-}
-
-async function loadRelayInfo(): Promise<RelayInfo> {
-  // Retry a few times — the relay file may be
-  // briefly unavailable if a prior test's cleanup
-  // races with global setup on the CI runner.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const raw = await readFile(RELAY_INFO_PATH, "utf-8");
-      return JSON.parse(raw);
-    } catch (err) {
-      if (attempt === 2) throw err;
-      await new Promise((r) => setTimeout(r, 1_000));
-    }
-  }
-  throw new Error("unreachable");
-}
 
 function appUrl(baseURL: string, relayAddr: string, path = "/"): string {
   const url = new URL(path, baseURL);
@@ -196,8 +194,11 @@ test.describe("version history tier badges", () => {
   test("tier badges render for pinner-enriched entries", async ({
     browser,
   }) => {
-    const relay = await loadRelayInfo();
     const baseURL = test.info().project.use.baseURL!;
+    const relay = await createTestRelay({
+      httpUrl: MOCK_PINNER_URL,
+      capsIntervalMs: 2_000,
+    });
 
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -206,7 +207,7 @@ test.describe("version history tier badges", () => {
       const now = Date.now();
 
       // Mock pinner returns entries with tier data.
-      await mockPinnerHistory(page, relay.httpUrl, [
+      await mockPinnerHistory(page, MOCK_PINNER_URL, [
         {
           cid: MOCK_CID_1,
           seq: 2,
@@ -226,7 +227,7 @@ test.describe("version history tier badges", () => {
       // Start listening for the mock pinner query
       // BEFORE navigation so we capture it whenever
       // the hook's doFetch fires.
-      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+      const pinnerResp = waitForPinnerQuery(page, MOCK_PINNER_URL);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
@@ -256,12 +257,16 @@ test.describe("version history tier badges", () => {
       });
     } finally {
       await ctx.close();
+      await relay.stop();
     }
   });
 
   test("tier badge shows correct tier text", async ({ browser }) => {
-    const relay = await loadRelayInfo();
     const baseURL = test.info().project.use.baseURL!;
+    const relay = await createTestRelay({
+      httpUrl: MOCK_PINNER_URL,
+      capsIntervalMs: 2_000,
+    });
 
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -269,7 +274,7 @@ test.describe("version history tier badges", () => {
     try {
       const now = Date.now();
 
-      await mockPinnerHistory(page, relay.httpUrl, [
+      await mockPinnerHistory(page, MOCK_PINNER_URL, [
         {
           cid: MOCK_CID_1,
           seq: 1,
@@ -279,7 +284,7 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
-      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+      const pinnerResp = waitForPinnerQuery(page, MOCK_PINNER_URL);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
@@ -296,12 +301,16 @@ test.describe("version history tier badges", () => {
       await expect(dailyBadge).toContainText("daily");
     } finally {
       await ctx.close();
+      await relay.stop();
     }
   });
 
   test("expiry countdown renders in tier badge", async ({ browser }) => {
-    const relay = await loadRelayInfo();
     const baseURL = test.info().project.use.baseURL!;
+    const relay = await createTestRelay({
+      httpUrl: MOCK_PINNER_URL,
+      capsIntervalMs: 2_000,
+    });
 
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -309,8 +318,9 @@ test.describe("version history tier badges", () => {
     try {
       const now = Date.now();
 
-      // Set expiry 12 hours from now → "~12 hours left"
-      await mockPinnerHistory(page, relay.httpUrl, [
+      // Set expiry 12 hours from now →
+      // "~12 hours left"
+      await mockPinnerHistory(page, MOCK_PINNER_URL, [
         {
           cid: MOCK_CID_1,
           seq: 1,
@@ -320,7 +330,7 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
-      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+      const pinnerResp = waitForPinnerQuery(page, MOCK_PINNER_URL);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
@@ -341,12 +351,16 @@ test.describe("version history tier badges", () => {
       });
     } finally {
       await ctx.close();
+      await relay.stop();
     }
   });
 
   test("expiry shows days for distant expiry", async ({ browser }) => {
-    const relay = await loadRelayInfo();
     const baseURL = test.info().project.use.baseURL!;
+    const relay = await createTestRelay({
+      httpUrl: MOCK_PINNER_URL,
+      capsIntervalMs: 2_000,
+    });
 
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -355,7 +369,7 @@ test.describe("version history tier badges", () => {
       const now = Date.now();
 
       // Set expiry 3 days from now → "~3 days left"
-      await mockPinnerHistory(page, relay.httpUrl, [
+      await mockPinnerHistory(page, MOCK_PINNER_URL, [
         {
           cid: MOCK_CID_1,
           seq: 1,
@@ -365,7 +379,7 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
-      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+      const pinnerResp = waitForPinnerQuery(page, MOCK_PINNER_URL);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
@@ -384,12 +398,16 @@ test.describe("version history tier badges", () => {
       });
     } finally {
       await ctx.close();
+      await relay.stop();
     }
   });
 
   test("tip tier does not show badge", async ({ browser }) => {
-    const relay = await loadRelayInfo();
     const baseURL = test.info().project.use.baseURL!;
+    const relay = await createTestRelay({
+      httpUrl: MOCK_PINNER_URL,
+      capsIntervalMs: 2_000,
+    });
 
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -398,7 +416,7 @@ test.describe("version history tier badges", () => {
       const now = Date.now();
 
       // Tip tier should NOT render a badge.
-      await mockPinnerHistory(page, relay.httpUrl, [
+      await mockPinnerHistory(page, MOCK_PINNER_URL, [
         {
           cid: MOCK_CID_1,
           seq: 1,
@@ -408,7 +426,7 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
-      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+      const pinnerResp = waitForPinnerQuery(page, MOCK_PINNER_URL);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
@@ -435,12 +453,16 @@ test.describe("version history tier badges", () => {
       await expect(page.locator(".vh-item-retention")).toHaveCount(0);
     } finally {
       await ctx.close();
+      await relay.stop();
     }
   });
 
   test("expires soon shows for near-expiry entries", async ({ browser }) => {
-    const relay = await loadRelayInfo();
     const baseURL = test.info().project.use.baseURL!;
+    const relay = await createTestRelay({
+      httpUrl: MOCK_PINNER_URL,
+      capsIntervalMs: 2_000,
+    });
 
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -450,7 +472,7 @@ test.describe("version history tier badges", () => {
 
       // Expiry 30 min from now → "expires soon"
       // (less than 1 hour)
-      await mockPinnerHistory(page, relay.httpUrl, [
+      await mockPinnerHistory(page, MOCK_PINNER_URL, [
         {
           cid: MOCK_CID_1,
           seq: 1,
@@ -460,7 +482,7 @@ test.describe("version history tier badges", () => {
         },
       ]);
 
-      const pinnerResp = waitForPinnerQuery(page, relay.httpUrl);
+      const pinnerResp = waitForPinnerQuery(page, MOCK_PINNER_URL);
 
       await createDocViaRelay(page, baseURL, relay.multiaddr);
       await waitForRelayConnection(page);
@@ -477,6 +499,7 @@ test.describe("version history tier badges", () => {
       await expect(badge).toContainText("expires soon", { timeout: 5_000 });
     } finally {
       await ctx.close();
+      await relay.stop();
     }
   });
 });

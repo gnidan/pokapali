@@ -37,6 +37,10 @@ export interface TestRelayOptions {
    *  Browsers that discover the relay will treat it
    *  as a pinner with an HTTP history endpoint. */
   httpUrl?: string;
+  /** Caps publish interval in ms. Default: 10_000.
+   *  Lower values make pinner URL discovery faster
+   *  at the cost of more GossipSub traffic. */
+  capsIntervalMs?: number;
 }
 
 const NODE_CAPS_TOPIC = nodeCapsTopic("main");
@@ -134,10 +138,11 @@ export async function createTestRelay(
       pubsub.publish(NODE_CAPS_TOPIC, capsMsg).catch(() => {});
     };
 
-    // Publish immediately then every 10s so late
+    // Publish immediately then periodically so late
     // joiners discover the httpUrl.
     publishCaps();
-    capsInterval = setInterval(publishCaps, 10_000);
+    const interval = options?.capsIntervalMs ?? 10_000;
+    capsInterval = setInterval(publishCaps, interval);
   }
 
   return {
