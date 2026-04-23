@@ -31,6 +31,7 @@ import { Document } from "@pokapali/document";
 import { yjsCodec } from "@pokapali/codec";
 import { Store } from "@pokapali/store";
 import { setupP2PLayer } from "./p2p-layer.js";
+import type { BlockResolver, BlockResolverOptions } from "./block-resolver.js";
 
 /**
  * Configuration for a pokapali application instance.
@@ -77,6 +78,25 @@ export interface PokapaliConfig {
    * that don't need multi-peer sync.
    */
   p2p?: boolean;
+  /**
+   * Factory for creating a BlockResolver per doc.
+   * Called with `{ getHelia, httpUrls }` — the
+   * persistence callbacks (onWriteError) are wired
+   * internally by createDoc.
+   *
+   * When omitted, createDoc uses core's built-in
+   * resolver (unbounded memory cache, memory-only
+   * `has()`).
+   *
+   * For production, pass a wrapper around
+   * `createDocBlockResolver` from
+   * `@pokapali/protocol`:
+   * ```ts
+   * createResolver: (opts) =>
+   *   createDocBlockResolver({ ...opts })
+   * ```
+   */
+  createResolver?: (opts: BlockResolverOptions) => BlockResolver;
 }
 
 /**
@@ -287,6 +307,7 @@ export function pokapali(options: PokapaliConfig): PokapaliApp {
       identity,
       document,
       storeDocument: storeDoc,
+      createResolver: options.createResolver,
     });
   }
 
@@ -460,3 +481,4 @@ export {
   NotFoundError,
 } from "./errors.js";
 export { SnapshotValidationError } from "./snapshot-ops.js";
+export type { BlockResolver, BlockResolverOptions } from "./block-resolver.js";

@@ -27,6 +27,7 @@ import { getHelia, releaseHelia } from "./helia.js";
 import { publishIPNS } from "./ipns-helpers.js";
 import type { RoomDiscovery } from "./peer-discovery.js";
 import { createBlockResolver } from "./block-resolver.js";
+import type { BlockResolver, BlockResolverOptions } from "./block-resolver.js";
 import { createSnapshotCodec } from "./snapshot-codec.js";
 import type { Store } from "@pokapali/store";
 import { startDocRuntime } from "./doc-runtime.js";
@@ -346,6 +347,13 @@ export interface DocParams {
   /** Per-document Store handle for edit/snapshot
    *  persistence. */
   storeDocument?: Store.Document;
+  /** Factory for creating a BlockResolver. When
+   *  provided, createDoc calls it with the standard
+   *  resolver options instead of using the built-in
+   *  `createBlockResolver`. Pass
+   *  `createDocBlockResolver` from
+   *  `@pokapali/protocol` for LRU + knownCids. */
+  createResolver?: (opts: BlockResolverOptions) => BlockResolver;
 }
 
 // Pure status derivation functions extracted to
@@ -452,14 +460,16 @@ export function createDoc(params: DocParams): Doc {
     return urls;
   }
 
-  const resolver = createBlockResolver({
+  const resolverOpts: BlockResolverOptions = {
     getHelia: () => getHelia(),
     httpUrls: getHttpUrls,
-    onWriteError: (err) => {
+    onWriteError: (_cid, err) => {
       const msg = err instanceof Error ? err.message : String(err);
       persistenceErrorFeed._update(msg);
     },
-  });
+  };
+  const makeResolver = params.createResolver ?? createBlockResolver;
+  const resolver = makeResolver(resolverOpts);
   const snapshotLC = createSnapshotCodec({
     resolver,
   });

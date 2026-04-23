@@ -134,6 +134,7 @@ describe("BlockResolver", () => {
         expect(onWriteError).toHaveBeenCalledTimes(1);
       });
       expect(onWriteError).toHaveBeenCalledWith(
+        cid,
         expect.objectContaining({
           message: "QuotaExceededError",
         }),
@@ -152,6 +153,7 @@ describe("BlockResolver", () => {
       resolver.put(cid, block);
       expect(onWriteError).toHaveBeenCalledTimes(1);
       expect(onWriteError).toHaveBeenCalledWith(
+        cid,
         expect.objectContaining({
           message: "no helia",
         }),

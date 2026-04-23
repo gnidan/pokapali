@@ -53,7 +53,7 @@ export interface BlockResolverOptions {
   /** Called when an IDB blockstore.put() fails.
    *  Lets callers surface persistence errors to
    *  consumers instead of silently swallowing. */
-  onWriteError?: (err: unknown) => void;
+  onWriteError?: (cid: CID, err: unknown) => void;
 }
 
 const NEGATIVE_CACHE_TTL_MS = 60_000;
@@ -125,13 +125,13 @@ export function createBlockResolver(opts: BlockResolverOptions): BlockResolver {
           Promise.resolve(helia.blockstore.put(cid, block)).catch(
             (err: unknown) => {
               log.warn("blockstore.put failed:", err);
-              opts.onWriteError?.(err);
+              opts.onWriteError?.(cid, err);
             },
           );
         }
       } catch (err) {
         log.debug("IDB put skipped:", err);
-        opts.onWriteError?.(err);
+        opts.onWriteError?.(cid, err);
       }
     },
   };

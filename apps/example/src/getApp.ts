@@ -14,7 +14,10 @@ export function getApp(): Promise<PokapaliApp> {
     return appPromise;
   }
 
-  appPromise = import("@pokapali/core").then(({ pokapali }) => {
+  appPromise = Promise.all([
+    import("@pokapali/core"),
+    import("@pokapali/protocol"),
+  ]).then(([{ pokapali }, { createDocBlockResolver }]) => {
     const params = new URLSearchParams(window.location.search);
     const noP2P =
       params.get("noP2P") === "1" ||
@@ -31,6 +34,7 @@ export function getApp(): Promise<PokapaliApp> {
         window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, ""),
       p2p: !noP2P,
       ...(bootstrapPeers ? { bootstrapPeers } : {}),
+      createResolver: (opts) => createDocBlockResolver({ ...opts }),
     });
     if (import.meta.hot) {
       import.meta.hot.data.app = instance;

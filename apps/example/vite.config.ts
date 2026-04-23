@@ -16,6 +16,7 @@ const localPkgs = [
   "capability",
   "document",
   "log",
+  "protocol",
   "react",
   "store",
   "subdocs",
@@ -101,6 +102,15 @@ export default defineConfig(({ command }) => ({
           "@pokapali/react/topology": path.resolve(
             __dirname,
             "../../packages/react/src/topology.ts",
+          ),
+          // Subpath exports used by @pokapali/protocol
+          "@pokapali/core/block-resolver": path.resolve(
+            __dirname,
+            "../../packages/core/src/block-resolver.ts",
+          ),
+          "@pokapali/core/fetch-block": path.resolve(
+            __dirname,
+            "../../packages/core/src/fetch-block.ts",
           ),
           ...Object.fromEntries(
             localPkgs.map((p) => [
