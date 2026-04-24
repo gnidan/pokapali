@@ -7,7 +7,6 @@ import type {
 } from "@pokapali/core";
 import { TopologyMap } from "./TopologyMap";
 import { SnapshotExchangeDetail } from "./SnapshotExchangeDetail";
-import { isDiagEnabled } from "./snapshotExchangeEvents";
 import {
   useFeed,
   usePeerPresenceState,
@@ -594,9 +593,6 @@ export interface ConnectionStatusViewProps {
   canPushSnapshots: boolean;
   presence: PeerPresenceResult;
   topologyMap?: React.ReactNode;
-  /** Dev-only snapshot-exchange diagnostics panel.
-   *  Caller decides whether to render it (gate via
-   *  `isDiagEnabled` from snapshotExchangeEvents). */
   snapshotExchangeDetail?: React.ReactNode;
 }
 
@@ -725,9 +721,7 @@ export function ConnectionStatus({ doc }: { doc: Doc }) {
       canPushSnapshots={doc.capability.canPushSnapshots}
       presence={presence}
       topologyMap={<TopologyMap doc={doc} />}
-      snapshotExchangeDetail={
-        isDiagEnabled() ? <SnapshotExchangeDetail doc={doc} /> : null
-      }
+      snapshotExchangeDetail={<SnapshotExchangeDetail doc={doc} />}
     />
   );
 }

@@ -21,8 +21,6 @@ import type { Doc, Feed, SnapshotEvent } from "@pokapali/core";
  * Hard non-goals (see spec
  * `design-snapshot-exchange-diagnostics.md`):
  * - Not telemetry. Local browser only, no phone-home.
- * - Not in prod by default. Tree-shaken via
- *   `import.meta.env.DEV`.
  * - Not a logs viewer. Bounded ring, no filters.
  *
  * Vocabulary discriminator includes kinds that don't
@@ -96,21 +94,6 @@ export function formatAgo(ts: number, now: number): string {
   if (min < 60) return `${min}m ago`;
   const hrs = Math.round(min / 60);
   return `${hrs}h ago`;
-}
-
-/**
- * Diagnostics gate — DEV build AND `?diag` URL param.
- *
- * Vite tree-shakes the `import.meta.env.DEV` branch
- * from production bundles. The URL param keeps the
- * panel hidden in dev unless explicitly requested,
- * which makes E2E activation deterministic
- * (`page.goto("/?diag")`).
- */
-export function isDiagEnabled(): boolean {
-  if (!import.meta.env.DEV) return false;
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).has("diag");
 }
 
 /** Shape mirrors architect's pinned `CatalogEvent` in

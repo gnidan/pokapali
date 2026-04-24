@@ -97,9 +97,7 @@ export function SnapshotExchangeDetailView({
 
 /**
  * Container — subscribes the doc's exchange feeds and
- * passes events to the presentational view. Caller
- * is responsible for the `?diag` gate (see
- * `isDiagEnabled` in `snapshotExchangeEvents.ts`).
+ * passes events to the presentational view.
  */
 export function SnapshotExchangeDetail({ doc }: { doc: Doc }) {
   const events = useSnapshotExchangeEvents(doc);

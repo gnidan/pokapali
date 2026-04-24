@@ -2,8 +2,8 @@
  * snapshot-exchange-diag.e2e.ts — D-smoke-e3 (#128)
  *
  * E2E smoke test for the snapshot-exchange diagnostics
- * panel. Verifies the panel renders when `?diag` is
- * present, captures catalog and block events during a
+ * panel. Verifies the panel renders unconditionally,
+ * captures catalog and block events during a
  * multi-peer publish flow, and respects the 20-event
  * ring buffer bound.
  *
@@ -33,15 +33,9 @@ const PUBLISH_TIMEOUT = 45_000;
 
 // ---- helpers ----
 
-function appUrl(
-  baseURL: string,
-  relayAddr: string,
-  path = "/",
-  diag = false,
-): string {
+function appUrl(baseURL: string, relayAddr: string, path = "/"): string {
   const url = new URL(path, baseURL);
   url.searchParams.set("bootstrapPeers", relayAddr);
-  if (diag) url.searchParams.set("diag", "");
   return url.toString();
 }
 
@@ -72,49 +66,14 @@ async function getWriteUrl(
   return url;
 }
 
-/**
- * Inject a history.pushState/replaceState interceptor
- * that preserves ?diag in the URL. The app's openDoc
- * calls pushState/replaceState with d.urls.best which
- * drops query params. This hook re-adds ?diag so
- * isDiagEnabled() returns true after navigation.
- */
-async function injectDiagPreserver(page: import("@playwright/test").Page) {
-  await page.addInitScript(() => {
-    const origPush = window.history.pushState.bind(window.history);
-    const origReplace = window.history.replaceState.bind(window.history);
-    function addDiag(url: string | URL | null | undefined) {
-      if (!url) return url;
-      const u = new URL(String(url), window.location.href);
-      if (!u.searchParams.has("diag")) {
-        u.searchParams.set("diag", "");
-      }
-      return u.toString();
-    }
-    window.history.pushState = (
-      data: unknown,
-      unused: string,
-      url?: string | URL | null,
-    ) => origPush(data, unused, addDiag(url));
-    window.history.replaceState = (
-      data: unknown,
-      unused: string,
-      url?: string | URL | null,
-    ) => origReplace(data, unused, addDiag(url));
-  });
-}
-
 async function createDocViaRelay(
   page: import("@playwright/test").Page,
   baseURL: string,
   relayAddr: string,
-  diag = false,
 ) {
-  if (diag) await injectDiagPreserver(page);
-  await page.goto(appUrl(baseURL, relayAddr, "/", diag));
+  await page.goto(appUrl(baseURL, relayAddr));
   await clearIDB(page);
-  if (diag) await injectDiagPreserver(page);
-  await page.goto(appUrl(baseURL, relayAddr, "/", diag));
+  await page.goto(appUrl(baseURL, relayAddr));
   await page.getByRole("button", { name: "Create new document" }).click();
   await expect(page.locator(".tiptap")).toBeVisible({
     timeout: EDITOR_TIMEOUT,
@@ -125,15 +84,11 @@ async function openDocViaRelay(
   page: import("@playwright/test").Page,
   writeUrl: string,
   relayAddr: string,
-  diag = false,
 ) {
   const url = new URL(writeUrl);
   url.searchParams.set("bootstrapPeers", relayAddr);
-  if (diag) url.searchParams.set("diag", "");
-  if (diag) await injectDiagPreserver(page);
   await page.goto(url.toString());
   await clearIDB(page);
-  if (diag) await injectDiagPreserver(page);
   await page.goto(url.toString());
   await expect(page.locator(".tiptap")).toBeVisible({
     timeout: EDITOR_TIMEOUT,
@@ -142,46 +97,19 @@ async function openDocViaRelay(
 
 // ---- tests ----
 
-// The diagnostics panel is gated on import.meta.env.DEV
-// which is false in production builds. CI uses
-// `vite preview` (production), so diag-dependent tests
-// only run against the dev server (local).
-const isCI = !!process.env.CI;
-
 test.describe("snapshot-exchange diagnostics panel", () => {
   test.slow();
 
-  test("panel hidden without ?diag param", async ({ browser }) => {
+  test("panel visible, shows empty state", async ({ browser }) => {
     const baseURL = test.info().project.use.baseURL!;
     const relay = await createTestRelay();
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
     try {
-      // No diag param
-      await createDocViaRelay(page, baseURL, relay.multiaddr, false);
+      await createDocViaRelay(page, baseURL, relay.multiaddr);
 
-      // Panel should not be visible
-      await expect(
-        page.locator("[data-testid='snapshot-exchange-panel']"),
-      ).not.toBeVisible();
-    } finally {
-      await ctx.close();
-      await relay.stop();
-    }
-  });
-
-  test("panel visible with ?diag, shows empty state", async ({ browser }) => {
-    test.skip(isCI, "dev-only panel; CI serves production build");
-    const baseURL = test.info().project.use.baseURL!;
-    const relay = await createTestRelay();
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-
-    try {
-      await createDocViaRelay(page, baseURL, relay.multiaddr, true);
-
-      // Panel visible
+      // Panel visible unconditionally
       await expect(
         page.locator("[data-testid='snapshot-exchange-panel']"),
       ).toBeVisible({ timeout: EDITOR_TIMEOUT });
@@ -198,7 +126,6 @@ test.describe("snapshot-exchange diagnostics panel", () => {
   });
 
   test("captures events during multi-peer publish", async ({ browser }) => {
-    test.skip(isCI, "dev-only panel; CI serves production build");
     const baseURL = test.info().project.use.baseURL!;
     const relay = await createTestRelay();
     const aliceCtx = await browser.newContext();
@@ -207,8 +134,8 @@ test.describe("snapshot-exchange diagnostics panel", () => {
     const bob = await bobCtx.newPage();
 
     try {
-      // Alice creates doc with diag enabled
-      await createDocViaRelay(alice, baseURL, relay.multiaddr, true);
+      // Alice creates doc
+      await createDocViaRelay(alice, baseURL, relay.multiaddr);
 
       // Alice types + publishes BEFORE Bob joins
       await alice.locator(".tiptap").click();
@@ -238,15 +165,16 @@ test.describe("snapshot-exchange diagnostics panel", () => {
       // Check Alice has local BLK events
       const aliceLocalBlks = alice.locator(
         "[data-testid='snapshot-exchange-event']" +
-          "[data-kind='blk'][data-locality='local']",
+          "[data-kind='blk']" +
+          "[data-locality='local']",
       );
       await expect(aliceLocalBlks.first()).toBeVisible({
         timeout: SYNC_TIMEOUT,
       });
 
-      // Bob joins with diag enabled
+      // Bob joins
       const writeUrl = await getWriteUrl(alice);
-      await openDocViaRelay(bob, writeUrl, relay.multiaddr, true);
+      await openDocViaRelay(bob, writeUrl, relay.multiaddr);
 
       // Wait for peer awareness
       await expect(
