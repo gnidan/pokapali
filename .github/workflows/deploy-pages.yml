@@ -31,10 +31,9 @@ jobs:
 
       - run: npm ci
 
-      - name: Build example app
+      - name: Build all packages + example app
         run: |
-          npm run build \
-            --workspace @pokapali/example
+          npm run build
           touch apps/example/dist/.nojekyll
 
       - name: Generate badge JSON
