@@ -38,12 +38,11 @@ jobs:
 
       - run: npm ci
 
-      # Rebuild example app (Pages deploys replace
-      # the entire site, so we must include it).
-      - name: Build example app
+      # Build all packages + example app (Pages deploys
+      # replace the entire site, so we must include it).
+      - name: Build all packages + example app
         run: |
-          npm run build \
-            --workspace @pokapali/example
+          npm run build
           touch apps/example/dist/.nojekyll
 
       - name: Generate badge JSON
