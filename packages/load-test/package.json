@@ -36,7 +36,7 @@
     "@helia/ipns": "^8.2.4",
     "@ipld/dag-cbor": "^9.2.0",
     "@libp2p/crypto": "^5.0.0",
-    "@libp2p/kad-dht": "^15.1.11",
+    "@libp2p/kad-dht": "^16.2.7",
     "@pokapali/core": "^0.1.1",
     "@pokapali/crypto": "^0.1.1",
     "@pokapali/log": "^0.1.1",
